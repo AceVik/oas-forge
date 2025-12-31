@@ -1,0 +1,53 @@
+[package]
+name = "oas-forge"
+version = "0.1.0"
+edition = "2024"
+authors = ["Viktor Machnik <viktor@machnik.de>"]
+description = "The zero-runtime OpenAPI 3.1 compiler for Rust. Extracts, links, and merges code-first documentation."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/AceVik/oas-forge"
+documentation = "https://docs.rs/oas-forge"
+homepage = "https://github.com/AceVik/oas-forge"
+
+keywords = ["openapi", "compile-time", "generator", "documentation", "build-script"]
+categories = ["development-tools", "web-programming", "development-tools::build-utils", "api-bindings"]
+
+exclude = [
+    ".github",
+    ".gitignore",
+    "tests",
+    "static",
+    "AGENTS.md"
+]
+
+[dependencies]
+# CORE LOGIC
+syn = { version = "2.0", features = ["full", "visit", "extra-traits"] }
+proc-macro2 = { version = "1.0", features = ["span-locations"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+walkdir = "2.5"
+thiserror = "2.0"
+toml = "0.9"
+log = "0.4"
+env_logger = "0.11"
+regex = "1.12"
+
+# CLI FEATURES
+clap = { version = "4.5", features = ["derive"], optional = true }
+anyhow = { version = "1.0", optional = true }
+colored = { version = "3.0", optional = true }
+
+[features]
+default = ["cli"]
+cli = ["dep:clap", "dep:anyhow", "dep:colored"]
+
+[[bin]]
+name = "oas-forge"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[dev-dependencies]
+tempfile = "3.24"
