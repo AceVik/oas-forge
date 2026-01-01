@@ -14,9 +14,21 @@ pub struct Config {
     #[arg(long = "include")]
     pub include: Option<Vec<PathBuf>>,
 
-    /// Output file for the generated OpenAPI definition (defaults to openapi.yaml)
-    #[arg(short = 'o', long = "output")]
-    pub output: Option<PathBuf>,
+    /// Output file(s) for the generated OpenAPI definition (defaults to openapi.yaml)
+    #[arg(short = 'o', long = "output", alias = "out")]
+    pub output: Option<Vec<PathBuf>>,
+
+    /// Output file(s) for just the components/schemas section
+    #[arg(long = "output-schemas")]
+    pub output_schemas: Option<Vec<PathBuf>>,
+
+    /// Output file(s) for just the paths section
+    #[arg(long = "output-paths")]
+    pub output_paths: Option<Vec<PathBuf>>,
+
+    /// Output file(s) for the full spec minus root details (fragments)
+    #[arg(long = "output-fragments")]
+    pub output_fragments: Option<Vec<PathBuf>>,
 
     /// Path to a configuration file (toml)
     #[arg(long = "config")]
@@ -84,6 +96,15 @@ impl Config {
         }
         if let Some(output) = other.output {
             self.output = Some(output);
+        }
+        if let Some(output_schemas) = other.output_schemas {
+            self.output_schemas = Some(output_schemas);
+        }
+        if let Some(output_paths) = other.output_paths {
+            self.output_paths = Some(output_paths);
+        }
+        if let Some(output_fragments) = other.output_fragments {
+            self.output_fragments = Some(output_fragments);
         }
     }
 }

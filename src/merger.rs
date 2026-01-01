@@ -40,7 +40,8 @@ pub fn merge_openapi(snippets: Vec<Snippet>) -> Result<Value> {
         }
     }
 
-    let mut root = root.ok_or(Error::NoRootFound)?;
+    // Relaxed Mode: If no root found, start with empty mapping
+    let mut root = root.unwrap_or_else(|| Value::Mapping(serde_yaml::Mapping::new()));
 
     for other in others {
         deep_merge(&mut root, other);
@@ -146,7 +147,13 @@ mod tests {
             line_number: 1,
         };
         let res = merge_openapi(vec![snip]);
-        assert!(matches!(res, Err(Error::NoRootFound)));
+        // Relaxed mode: Should be Ok, returning the fragment merged into an empty root
+        assert!(res.is_ok());
+        let val = res.unwrap();
+        // Should contain the paths from fragment
+        assert!(val.get("paths").is_some());
+        // Should NOT contain openapi/info (unless they were in fragment)
+        assert!(val.get("openapi").is_none());
     }
 
     #[test]

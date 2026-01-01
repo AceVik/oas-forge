@@ -9,10 +9,10 @@ fn main() -> anyhow::Result<()> {
 
     // Load configuration (CLI + TOML + Cargo.toml)
     let config = Config::load();
-    let output = config
+    let outputs = config
         .output
         .clone()
-        .unwrap_or_else(|| std::path::PathBuf::from("openapi.yaml"));
+        .unwrap_or_else(|| vec![std::path::PathBuf::from("openapi.yaml")]);
 
     println!("{} Starting oas-forge...", "INFO:".blue().bold());
 
@@ -20,9 +20,9 @@ fn main() -> anyhow::Result<()> {
     match Generator::new().with_config(config).generate() {
         Ok(_) => {
             println!(
-                "{} Successfully generated OpenAPI definition at {:?}",
+                "{} Successfully generated OpenAPI definition(s) at {:?}",
                 "SUCCESS:".green().bold(),
-                output
+                outputs
             );
             Ok(())
         }

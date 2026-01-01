@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 #![allow(clippy::collapsible_if)]
 pub mod config;
 pub mod error;
@@ -13,11 +14,15 @@ use error::Result;
 use std::path::PathBuf;
 
 /// Main entry point for generating OpenAPI definitions.
+/// Main entry point for generating OpenAPI definitions.
 #[derive(Default)]
 pub struct Generator {
     inputs: Vec<PathBuf>,
     includes: Vec<PathBuf>,
-    output_path: Option<PathBuf>,
+    outputs: Vec<PathBuf>,
+    schema_outputs: Vec<PathBuf>,
+    path_outputs: Vec<PathBuf>,
+    fragment_outputs: Vec<PathBuf>,
 }
 
 impl Generator {
@@ -35,7 +40,16 @@ impl Generator {
             self.includes.extend(includes);
         }
         if let Some(output) = config.output {
-            self.output_path = Some(output);
+            self.outputs.extend(output);
+        }
+        if let Some(output_schemas) = config.output_schemas {
+            self.schema_outputs.extend(output_schemas);
+        }
+        if let Some(output_paths) = config.output_paths {
+            self.path_outputs.extend(output_paths);
+        }
+        if let Some(output_fragments) = config.output_fragments {
+            self.fragment_outputs.extend(output_fragments);
         }
         self
     }
@@ -52,17 +66,43 @@ impl Generator {
         self
     }
 
-    /// Sets the output file path.
+    /// Appends an output file path.
     pub fn output<P: Into<PathBuf>>(mut self, path: P) -> Self {
-        self.output_path = Some(path.into());
+        self.outputs.push(path.into());
+        self
+    }
+
+    /// Appends an output file path for just the schemas.
+    pub fn output_schemas<P: Into<PathBuf>>(mut self, path: P) -> Self {
+        self.schema_outputs.push(path.into());
+        self
+    }
+
+    /// Appends an output file path for just the paths.
+    pub fn output_paths<P: Into<PathBuf>>(mut self, path: P) -> Self {
+        self.path_outputs.push(path.into());
+        self
+    }
+
+    /// Appends an output file path for full spec minus root details (fragments).
+    pub fn output_fragments<P: Into<PathBuf>>(mut self, path: P) -> Self {
+        self.fragment_outputs.push(path.into());
         self
     }
 
     /// Executes the generation process.
     pub fn generate(self) -> Result<()> {
-        let output = self.output_path.ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Output path is required")
-        })?;
+        if self.outputs.is_empty()
+            && self.schema_outputs.is_empty()
+            && self.path_outputs.is_empty()
+            && self.fragment_outputs.is_empty()
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "At least one output path (output, output_schemas, output_paths, or output_fragments) is required",
+            )
+            .into());
+        }
 
         // 1. Scan and Extract
         log::info!(
@@ -72,36 +112,108 @@ impl Generator {
         );
         let snippets = scanner::scan_directories(&self.inputs, &self.includes)?;
 
-        // 2. Merge
+        // 2. Merge (Relaxed - may return empty map if no root)
         log::info!("Merging {} snippets", snippets.len());
         let merged_value = merger::merge_openapi(snippets)?;
 
-        // 3. Write Output
+        // Strategy 1: Full Spec (Strict Validation)
+        if !self.outputs.is_empty() {
+            if let serde_yaml::Value::Mapping(map) = &merged_value {
+                let openapi_key = serde_yaml::Value::String("openapi".to_string());
+                let info_key = serde_yaml::Value::String("info".to_string());
+
+                if !map.contains_key(&openapi_key) || !map.contains_key(&info_key) {
+                    return Err(error::Error::NoRootFound);
+                }
+            } else {
+                return Err(error::Error::NoRootFound);
+            }
+
+            for output in &self.outputs {
+                self.write_file(output, &merged_value)?;
+                log::info!("Written full spec to {:?}", output);
+            }
+        }
+
+        // Strategy 2: Schemas Only (Relaxed)
+        if !self.schema_outputs.is_empty() {
+            let schemas = merged_value
+                .get("components")
+                .and_then(|c| c.get("schemas"))
+                .cloned()
+                .unwrap_or_else(|| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+
+            if let serde_yaml::Value::Mapping(m) = &schemas {
+                if m.is_empty() {
+                    log::warn!("Generating empty schemas file.");
+                }
+            }
+
+            for output in &self.schema_outputs {
+                self.write_file(output, &schemas)?;
+                log::info!("Written schemas to {:?}", output);
+            }
+        }
+
+        // Strategy 3: Paths Only (Relaxed)
+        if !self.path_outputs.is_empty() {
+            let paths = merged_value
+                .get("paths")
+                .cloned()
+                .unwrap_or_else(|| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+
+            if let serde_yaml::Value::Mapping(m) = &paths {
+                if m.is_empty() {
+                    log::warn!("Generating empty paths file.");
+                }
+            }
+
+            for output in &self.path_outputs {
+                self.write_file(output, &paths)?;
+                log::info!("Written paths to {:?}", output);
+            }
+        }
+
+        // Strategy 4: Fragments (Headless Spec)
+        // Removes top-level keys: openapi, info, servers, externalDocs
+        // Keeps: paths, components, tags, security, etc.
+        if !self.fragment_outputs.is_empty() {
+            let mut fragment = merged_value.clone();
+            if let serde_yaml::Value::Mapping(ref mut map) = fragment {
+                map.remove(&serde_yaml::Value::String("openapi".to_string()));
+                map.remove(&serde_yaml::Value::String("info".to_string()));
+                map.remove(&serde_yaml::Value::String("servers".to_string()));
+            }
+
+            for output in &self.fragment_outputs {
+                self.write_file(output, &fragment)?;
+                log::info!("Written fragment to {:?}", output);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn write_file<T: serde::Serialize>(&self, path: &PathBuf, content: &T) -> Result<()> {
         // Ensure parent directory exists
-        if let Some(parent) = output.parent() {
+        if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
-        let file = std::fs::File::create(&output)?;
-        let extension = output
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("yaml");
+        let file = std::fs::File::create(path)?;
+        let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("yaml");
 
         match extension {
             "json" => {
-                serde_json::to_writer_pretty(file, &merged_value)?;
+                serde_json::to_writer_pretty(file, content)?;
             }
             "yaml" | "yml" => {
-                serde_yaml::to_writer(file, &merged_value)?;
+                serde_yaml::to_writer(file, content)?;
             }
             _ => {
-                serde_yaml::to_writer(file, &merged_value)?;
+                serde_yaml::to_writer(file, content)?;
             }
         }
-
-        log::info!("Written output to {:?}", output);
-
         Ok(())
     }
 }

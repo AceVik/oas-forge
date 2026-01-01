@@ -36,16 +36,9 @@ pub struct OpenApiVisitor {
 }
 
 impl OpenApiVisitor {
-    // Helper to process doc attributes on items (structs, fns, types)
-    // Updated: No longer accepts generated_content. Strictly for @openapi blocks (Paths/Fragments).
-    fn check_attributes(
-        &mut self,
-        attrs: &[Attribute],
-        item_ident: Option<String>,
-        item_line: usize,
-    ) {
+    // Helper to extract doc comments from attributes
+    fn extract_doc_comments(attrs: &[Attribute]) -> Vec<String> {
         let mut doc_lines = Vec::new();
-
         for attr in attrs {
             if attr.path().is_ident("doc") {
                 if let syn::Meta::NameValue(meta) = &attr.meta {
@@ -57,9 +50,23 @@ impl OpenApiVisitor {
                 }
             }
         }
+        doc_lines
+    }
 
-        // Only process if explicit @openapi tag exists
-        if !doc_lines.iter().any(|l| l.contains("@openapi")) {
+    // Process doc attributes on items (structs, fns, types)
+    // Updated: No longer accepts generated_content. Strictly for @openapi blocks (Paths/Fragments).
+    fn check_attributes(
+        &mut self,
+        attrs: &[Attribute],
+        item_ident: Option<String>,
+        item_line: usize,
+    ) {
+        let doc_lines = Self::extract_doc_comments(attrs);
+
+        let has_openapi = doc_lines.iter().any(|l| l.contains("@openapi"));
+
+        // Safety: Only process if explicit @openapi tag exists
+        if !has_openapi {
             return;
         }
 
@@ -956,6 +963,14 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
     }
 
     fn visit_item_struct(&mut self, i: &'ast ItemStruct) {
+        let doc_lines = Self::extract_doc_comments(&i.attrs);
+
+        // Safety: Explicit export only
+        if !doc_lines.iter().any(|l| l.contains("@openapi")) {
+            visit::visit_item_struct(self, i);
+            return;
+        }
+
         let ident = i.ident.to_string();
 
         let mut properties = serde_json::Map::new();
@@ -969,22 +984,26 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
 
                 let (mut field_schema, is_required) = map_syn_type_to_openapi(&field.ty);
 
+                let field_docs = Self::extract_doc_comments(&field.attrs);
                 let mut field_desc = Vec::new();
-                for attr in &field.attrs {
-                    if attr.path().is_ident("doc") {
-                        if let syn::Meta::NameValue(meta) = &attr.meta {
-                            if let Expr::Lit(expr_lit) = &meta.value {
-                                if let syn::Lit::Str(lit_str) = &expr_lit.lit {
-                                    let val = lit_str.value().trim().to_string();
-                                    if val.starts_with("@openapi") {
-                                        break;
-                                    }
-                                    field_desc.push(val);
-                                }
-                            }
+                let mut field_openapi_lines = Vec::new();
+                let mut collecting_openapi = false;
+
+                for line in field_docs {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("@openapi") {
+                        collecting_openapi = true;
+                        let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
+                        if !rest.is_empty() {
+                            field_openapi_lines.push(rest.to_string());
                         }
+                    } else if collecting_openapi {
+                        field_openapi_lines.push(line);
+                    } else {
+                        field_desc.push(trimmed.to_string());
                     }
                 }
+
                 if !field_desc.is_empty() {
                     let desc_str = field_desc.join(" ");
                     if let Value::Object(map) = &mut field_schema {
@@ -992,40 +1011,21 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
                     }
                 }
 
-                // Field Level Overrides
-                let mut openapi_lines = Vec::new();
-                let mut collecting_openapi = false;
-
-                for attr in &field.attrs {
-                    if attr.path().is_ident("doc") {
-                        if let syn::Meta::NameValue(meta) = &attr.meta {
-                            if let Expr::Lit(expr_lit) = &meta.value {
-                                if let syn::Lit::Str(lit_str) = &expr_lit.lit {
-                                    let val = lit_str.value();
-                                    let trimmed = val.trim();
-
-                                    if trimmed.starts_with("@openapi") {
-                                        collecting_openapi = true;
-                                        let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
-                                        if !rest.is_empty() {
-                                            openapi_lines.push(rest.to_string());
-                                        }
-                                    } else if collecting_openapi {
-                                        openapi_lines.push(val.to_string());
-                                    }
-                                }
+                if !field_openapi_lines.is_empty() {
+                    let override_yaml = field_openapi_lines.join("\n");
+                    match serde_yaml::from_str::<Value>(&override_yaml) {
+                        Ok(override_val) => {
+                            if !override_val.is_null() {
+                                json_merge(&mut field_schema, override_val);
                             }
                         }
-                    } else {
-                        collecting_openapi = false;
-                    }
-                }
-
-                if !openapi_lines.is_empty() {
-                    let override_yaml = openapi_lines.join("\n");
-                    if let Ok(override_val) = serde_yaml::from_str::<Value>(&override_yaml) {
-                        if !override_val.is_null() {
-                            json_merge(&mut field_schema, override_val);
+                        Err(e) => {
+                            log::warn!(
+                                "Failed to parse @openapi override for field '{}' in struct '{}': {}",
+                                field_name,
+                                ident,
+                                e
+                            );
                         }
                     }
                 }
@@ -1050,7 +1050,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
             }
             s
         } else {
-            // Unit Struct default
+            // Unit Struct
             json!({ "type": "object" })
         };
 
@@ -1060,50 +1060,40 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
         let mut collecting_openapi = false;
         let mut blueprint_params: Option<Vec<String>> = None;
 
-        for attr in &i.attrs {
-            if attr.path().is_ident("doc") {
-                if let syn::Meta::NameValue(meta) = &attr.meta {
-                    if let Expr::Lit(expr_lit) = &meta.value {
-                        if let syn::Lit::Str(lit_str) = &expr_lit.lit {
-                            let val = lit_str.value();
-                            let trimmed = val.trim();
-                            if trimmed.starts_with("@openapi") {
-                                collecting_openapi = true;
-                                let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
-                                if !rest.is_empty() {
-                                    if rest.contains('<') {
-                                        // Blueprint detection
-                                        if let Some(start) = rest.find('<') {
-                                            if let Some(end) = rest.rfind('>') {
-                                                let params_str = &rest[start + 1..end];
-                                                blueprint_params = Some(
-                                                    params_str
-                                                        .split(',')
-                                                        .map(|p| p.trim().to_string())
-                                                        .filter(|p| !p.is_empty())
-                                                        .collect(),
-                                                );
+        for line in doc_lines {
+            let trimmed = line.trim();
+            if trimmed.starts_with("@openapi") {
+                collecting_openapi = true;
+                let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
 
-                                                let after_gt = rest[end + 1..].trim();
-                                                if !after_gt.is_empty() {
-                                                    openapi_lines.push(after_gt.to_string());
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        openapi_lines.push(rest.to_string());
-                                    }
+                if !rest.is_empty() {
+                    if rest.contains('<') {
+                        // Blueprint detection
+                        if let Some(start) = rest.find('<') {
+                            if let Some(end) = rest.rfind('>') {
+                                let params_str = &rest[start + 1..end];
+                                blueprint_params = Some(
+                                    params_str
+                                        .split(',')
+                                        .map(|p| p.trim().to_string())
+                                        .filter(|p| !p.is_empty())
+                                        .collect(),
+                                );
+
+                                let after_gt = rest[end + 1..].trim();
+                                if !after_gt.is_empty() {
+                                    openapi_lines.push(after_gt.to_string());
                                 }
-                            } else if collecting_openapi {
-                                openapi_lines.push(val.to_string());
-                            } else {
-                                desc_lines.push(val.trim().to_string());
                             }
                         }
+                    } else {
+                        openapi_lines.push(rest.to_string());
                     }
                 }
+            } else if collecting_openapi {
+                openapi_lines.push(line);
             } else {
-                collecting_openapi = false;
+                desc_lines.push(trimmed.to_string());
             }
         }
 
@@ -1114,31 +1104,45 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
 
         if !openapi_lines.is_empty() {
             let override_yaml = openapi_lines.join("\n");
-            if let Ok(override_val) = serde_yaml::from_str::<Value>(&override_yaml) {
-                if !override_val.is_null() {
-                    json_merge(&mut schema, override_val);
+            match serde_yaml::from_str::<Value>(&override_yaml) {
+                Ok(override_val) => {
+                    if !override_val.is_null() {
+                        json_merge(&mut schema, override_val);
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to parse @openapi override for struct '{}': {}",
+                        ident,
+                        e
+                    );
                 }
             }
         }
 
         // Final Serialize
-        if let Ok(generated) = serde_yaml::to_string(&schema) {
-            let trimmed = generated.trim_start_matches("---\n").to_string();
+        match serde_yaml::to_string(&schema) {
+            Ok(generated) => {
+                let trimmed = generated.trim_start_matches("---\n").to_string();
 
-            if let Some(params) = blueprint_params {
-                self.items.push(ExtractedItem::Blueprint {
-                    name: ident,
-                    params,
-                    content: trimmed,
-                    line: i.span().start().line,
-                });
-            } else {
-                let wrapped = wrap_in_schema(&ident, &trimmed);
-                self.items.push(ExtractedItem::Schema {
-                    name: Some(ident),
-                    content: wrapped,
-                    line: i.span().start().line,
-                });
+                if let Some(params) = blueprint_params {
+                    self.items.push(ExtractedItem::Blueprint {
+                        name: ident,
+                        params,
+                        content: trimmed,
+                        line: i.span().start().line,
+                    });
+                } else {
+                    let wrapped = wrap_in_schema(&ident, &trimmed);
+                    self.items.push(ExtractedItem::Schema {
+                        name: Some(ident),
+                        content: wrapped,
+                        line: i.span().start().line,
+                    });
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to serialize schema for struct '{}': {}", ident, e);
             }
         }
 
@@ -1445,6 +1449,7 @@ mod tests {
     fn test_visitor_bugs_v0_4_2() {
         // 1. Generic Fallback Test ($T)
         let code_generic = r#"
+            /// @openapi
             struct Container<T> {
                 pub item: T,
             }
@@ -1828,7 +1833,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod v0_7_0_tests {
+mod dsl_tests {
     use super::*;
 
     #[test]
@@ -1905,5 +1910,63 @@ mod v0_7_0_tests {
         let item_fn: ItemFn = syn::parse_str(code).expect("Failed to parse fn");
         let mut visitor = OpenApiVisitor::default();
         visitor.visit_item_fn(&item_fn);
+    }
+
+    #[test]
+    fn test_doc_comment_as_description() {
+        let code = r#"
+            /// This is a user struct.
+            /// It has multiple lines.
+            /// @openapi
+            struct User { name: String }
+        "#;
+        let item: ItemStruct = syn::parse_str(code).unwrap();
+        let mut v = OpenApiVisitor::default();
+        v.visit_item_struct(&item);
+
+        match &v.items[0] {
+            ExtractedItem::Schema { content, .. } => {
+                assert!(
+                    content.contains("description: This is a user struct. It has multiple lines.")
+                );
+            }
+            _ => panic!("Expected Schema"),
+        }
+    }
+
+    #[test]
+    fn test_description_override() {
+        let code = r#"
+            /// Original Docs
+            /// @openapi
+            /// description: Overridden
+            struct User { name: String }
+        "#;
+        let item: ItemStruct = syn::parse_str(code).unwrap();
+        let mut v = OpenApiVisitor::default();
+        v.visit_item_struct(&item);
+
+        match &v.items[0] {
+            ExtractedItem::Schema { content, .. } => {
+                assert!(content.contains("description: Overridden"));
+                // json_merge overwrites scalars, so Original Docs is lost in favor of explicit override
+            }
+            _ => panic!("Expected Schema"),
+        }
+    }
+
+    #[test]
+    fn test_implicit_safety() {
+        let code = r#"
+            /// Hidden internal struct
+            struct Internal { secret: String }
+        "#;
+        let item: ItemStruct = syn::parse_str(code).unwrap();
+        let mut v = OpenApiVisitor::default();
+        v.visit_item_struct(&item);
+        assert!(
+            v.items.is_empty(),
+            "Should not export struct without @openapi tag"
+        );
     }
 }
