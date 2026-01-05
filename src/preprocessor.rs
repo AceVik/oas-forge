@@ -54,9 +54,26 @@ pub fn preprocess(content: &str, registry: &Registry) -> String {
                     .chars()
                     .take_while(|c| c.is_whitespace())
                     .collect::<String>();
+
+                // Detect doc comment marker (/// or //!)
+                let trim_start = line.trim_start();
+                let doc_marker = if trim_start.starts_with("///") {
+                    Some("///")
+                } else if trim_start.starts_with("//!") {
+                    Some("//!")
+                } else {
+                    None
+                };
+
                 if !expanded.trim().is_empty() {
                     for frag_line in expanded.lines() {
-                        new_lines.push(format!("{}{}", indent, frag_line));
+                        if let Some(marker) = doc_marker {
+                            // Preserve marker + space
+                            // If frag_line already has marker? unlikely.
+                            new_lines.push(format!("{}{} {}", indent, marker, frag_line));
+                        } else {
+                            new_lines.push(format!("{}{}", indent, frag_line));
+                        }
                     }
                 }
             } else {

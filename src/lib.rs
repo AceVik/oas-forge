@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![allow(clippy::collapsible_if)]
 pub mod config;
+pub mod dsl;
 pub mod error;
 pub mod generics;
 pub mod index;

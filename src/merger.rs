@@ -123,11 +123,13 @@ mod tests {
             content: root.to_string(),
             file_path: std::path::PathBuf::from("root.yaml"),
             line_number: 1,
+            operation_id: None,
         };
         let frag_snippet = Snippet {
             content: fragment.to_string(),
             file_path: std::path::PathBuf::from("frag.yaml"),
             line_number: 1,
+            operation_id: None,
         };
 
         let result = merge_openapi(vec![root_snippet, frag_snippet]).unwrap();
@@ -145,6 +147,7 @@ mod tests {
             content: fragment.to_string(),
             file_path: std::path::PathBuf::from("frag.yaml"),
             line_number: 1,
+            operation_id: None,
         };
         let res = merge_openapi(vec![snip]);
         // Relaxed mode: Should be Ok, returning the fragment merged into an empty root
@@ -164,11 +167,13 @@ mod tests {
             content: root1.to_string(),
             file_path: std::path::PathBuf::from("r1.yaml"),
             line_number: 1,
+            operation_id: None,
         };
         let s2 = Snippet {
             content: root2.to_string(),
             file_path: std::path::PathBuf::from("r2.yaml"),
             line_number: 1,
+            operation_id: None,
         };
 
         let res = merge_openapi(vec![s1, s2]);
@@ -182,6 +187,7 @@ mod tests {
             content: bad_yaml.to_string(),
             file_path: std::path::PathBuf::from("bad.yaml"),
             line_number: 10,
+            operation_id: None,
         };
         let res = merge_openapi(vec![snippet]);
         match res {
@@ -218,11 +224,13 @@ mod tests {
             content: root_full.to_string(),
             file_path: std::path::PathBuf::from("r"),
             line_number: 1,
+            operation_id: None,
         };
         let f_snip = Snippet {
             content: frag_full.to_string(),
             file_path: std::path::PathBuf::from("f"),
             line_number: 1,
+            operation_id: None,
         };
 
         let res = merge_openapi(vec![r_snip, f_snip]).unwrap();

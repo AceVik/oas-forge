@@ -1,8 +1,11 @@
-use regex::Regex;
 use serde_json::{Value, json};
+use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
-use syn::{Attribute, Expr, File, ImplItemFn, ItemEnum, ItemFn, ItemMod, ItemStruct, ItemType};
+use syn::{
+    Attribute, Expr, ExprLit, File, ImplItemFn, ItemEnum, ItemFn, ItemMod, ItemStruct, ItemType,
+    Lit,
+};
 
 /// Extracted item type
 #[derive(Debug)]
@@ -26,6 +29,12 @@ pub enum ExtractedItem {
         params: Vec<String>,
         content: String,
         line: usize,
+    },
+    // Raw DSL block (for late binding)
+    RouteDSL {
+        content: String,
+        line: usize,
+        operation_id: String,
     },
 }
 
@@ -51,6 +60,134 @@ impl OpenApiVisitor {
             }
         }
         doc_lines
+    }
+
+    fn apply_casing(text: &str, case: &str) -> String {
+        match case {
+            "lowercase" => text.to_lowercase(),
+            "UPPERCASE" => text.to_uppercase(),
+            "PascalCase" => {
+                let mut c = text.chars();
+                match c.next() {
+                    None => String::new(),
+                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                }
+            }
+            "camelCase" => {
+                let mut c = text.chars();
+                match c.next() {
+                    None => String::new(),
+                    Some(f) => f.to_lowercase().collect::<String>() + c.as_str(),
+                }
+            }
+            "snake_case" => {
+                let mut s = String::new();
+                for (i, c) in text.chars().enumerate() {
+                    if c.is_uppercase() && i > 0 {
+                        s.push('_');
+                    }
+                    if let Some(lower) = c.to_lowercase().next() {
+                        s.push(lower);
+                    }
+                }
+                s
+            }
+            "SCREAMING_SNAKE_CASE" => Self::apply_casing(text, "snake_case").to_uppercase(),
+            "kebab-case" => Self::apply_casing(text, "snake_case").replace('_', "-"),
+            "SCREAMING-KEBAB-CASE" => Self::apply_casing(text, "kebab-case").to_uppercase(),
+            _ => text.to_string(),
+        }
+    }
+
+    /// Extracts doc comments and handles "@openapi rename/rename-all" + Serde logic.
+    fn extract_naming_and_doc(
+        attrs: &[Attribute],
+        default_name: &str,
+    ) -> (String, String, Option<String>, Vec<String>) {
+        let mut doc_lines = Vec::new();
+        // We collect cleaned lines here (without @openapi tags)
+        let mut clean_doc_lines = Vec::new();
+
+        let mut final_name = default_name.to_string();
+        let mut rename_rule = None;
+
+        // 1. Check Serde Attributes (Lower Precedence)
+        for attr in attrs {
+            if attr.path().is_ident("serde") {
+                if let syn::Meta::List(list) = &attr.meta {
+                    if let Ok(nested) = list
+                        .parse_args_with(Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+                    {
+                        for meta in nested {
+                            if let syn::Meta::NameValue(nv) = meta {
+                                if nv.path.is_ident("rename") {
+                                    if let Expr::Lit(ExprLit {
+                                        lit: Lit::Str(s), ..
+                                    }) = nv.value
+                                    {
+                                        final_name = s.value();
+                                    }
+                                } else if nv.path.is_ident("rename_all") {
+                                    if let Expr::Lit(ExprLit {
+                                        lit: Lit::Str(s), ..
+                                    }) = nv.value
+                                    {
+                                        rename_rule = Some(s.value());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Doc Comments (Higher Precedence)
+        for attr in attrs {
+            if attr.path().is_ident("doc") {
+                if let syn::Meta::NameValue(meta) = &attr.meta {
+                    if let Expr::Lit(expr_lit) = &meta.value {
+                        if let syn::Lit::Str(lit_str) = &expr_lit.lit {
+                            let val = lit_str.value();
+                            doc_lines.push(val.clone());
+                            let trimmed = val.trim();
+
+                            if trimmed.starts_with("@openapi") {
+                                let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
+                                if rest.starts_with("rename-all") {
+                                    let rule = rest
+                                        .strip_prefix("rename-all")
+                                        .unwrap()
+                                        .trim()
+                                        .trim_matches('"');
+                                    rename_rule = Some(rule.to_string());
+                                } else if rest.starts_with("rename") {
+                                    let name_part = rest
+                                        .strip_prefix("rename")
+                                        .unwrap()
+                                        .trim()
+                                        .trim_matches('"');
+                                    final_name = name_part.to_string();
+                                } else {
+                                    // Only if not a rename directive, treat as doc content?
+                                    // Actually, standard logic splits @openapi lines separate.
+                                    // We just pass it through here.
+                                }
+                            } else {
+                                clean_doc_lines.push(val.trim().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        (
+            final_name,
+            clean_doc_lines.join(" "),
+            rename_rule,
+            doc_lines,
+        )
     }
 
     // Process doc attributes on items (structs, fns, types)
@@ -272,7 +409,7 @@ fn wrap_in_schema(name: &str, content: &str) -> String {
 }
 
 // Helper for type mapping
-fn map_syn_type_to_openapi(ty: &syn::Type) -> (Value, bool) {
+pub fn map_syn_type_to_openapi(ty: &syn::Type) -> (Value, bool) {
     match ty {
         syn::Type::Path(p) => {
             if let Some(seg) = p.path.segments.last() {
@@ -299,7 +436,7 @@ fn map_syn_type_to_openapi(ty: &syn::Type) -> (Value, bool) {
                     "f64" => (json!({ "type": "number", "format": "double" }), true),
                     "Uuid" => (json!({ "type": "string", "format": "uuid" }), true),
                     "NaiveDate" => (json!({ "type": "string", "format": "date" }), true),
-                    "DateTime" | "NaiveDateTime" => {
+                    "DateTime" | "NaiveDateTime" | "DateTimeUtc" => {
                         (json!({ "type": "string", "format": "date-time" }), true)
                     }
                     "NaiveTime" => (json!({ "type": "string", "format": "time" }), true),
@@ -352,7 +489,7 @@ fn map_syn_type_to_openapi(ty: &syn::Type) -> (Value, bool) {
 }
 
 // Deep Merge Helper for JSON Values
-fn json_merge(a: &mut Value, b: Value) {
+pub fn json_merge(a: &mut Value, b: Value) {
     match (a, b) {
         (Value::Object(a), Value::Object(b)) => {
             for (k, v) in b {
@@ -492,407 +629,13 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
             return;
         }
 
-        // DSL Mode
-        let mut operation = json!({
-            "summary": Value::Null,
-            "description": Value::Null,
-            "operationId": i.sig.ident.to_string(),
-            "tags": [],
-            "parameters": [],
-            "responses": {}
+        // Emitting Raw DSL for late binding
+        let content = doc_lines.join("\n");
+        self.items.push(ExtractedItem::RouteDSL {
+            content,
+            line: i.span().start().line,
+            operation_id: i.sig.ident.to_string(),
         });
-
-        let mut method = String::new();
-        let mut path = String::new();
-        let mut description_buffer = Vec::new();
-        let mut summary: Option<String> = None;
-        let mut declared_path_params = std::collections::HashSet::new();
-        // Regex for inline path parameters: {name: Type "Desc"}
-        let re = Regex::new(r#"\{(\w+)(?::\s*([^"}]+))?(?:\s*"([^"]+)")?\}"#).unwrap();
-
-        for line in &doc_lines {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-
-            if trimmed.starts_with("@route") {
-                let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                if parts.len() >= 3 {
-                    method = parts[1].to_lowercase();
-                    let raw_path = parts[2..].join(" ");
-
-                    let mut new_path = String::new();
-                    let mut last_end = 0;
-
-                    // Regex: \{(\w+)(?::\s*([^"}]+))?(?:\s*"([^"]+)")?\}
-                    // Matches {id}, {id: u32}, {id: u32 "Description"}
-                    // Group 2: Type (trimmed), Group 3: Description (content inside quotes)
-                    // Regex created outside loop for efficiency
-
-                    for cap in re.captures_iter(&raw_path) {
-                        let full_match = cap.get(0).unwrap();
-                        let name = cap.get(1).unwrap().as_str();
-                        let type_str = cap.get(2).map(|m| m.as_str().trim());
-                        let desc = cap.get(3).map(|m| m.as_str().to_string()); // Directly capture inside quotes
-
-                        new_path.push_str(&raw_path[last_end..full_match.start()]);
-                        new_path.push('{');
-                        new_path.push_str(name);
-                        new_path.push('}');
-                        last_end = full_match.end();
-
-                        let is_bare = type_str.is_none() && desc.is_none();
-
-                        if !is_bare {
-                            declared_path_params.insert(name.to_string());
-
-                            let t = type_str.unwrap_or("String");
-                            let (schema, _is_required) =
-                                if let Ok(ty) = syn::parse_str::<syn::Type>(t) {
-                                    map_syn_type_to_openapi(&ty)
-                                } else {
-                                    (json!({ "type": "string" }), true)
-                                };
-
-                            let mut param_obj = json!({
-                                "name": name,
-                                "in": "path",
-                                "required": true,
-                                "schema": schema
-                            });
-
-                            if let Some(d) = desc {
-                                if let Value::Object(m) = &mut param_obj {
-                                    m.insert("description".to_string(), json!(d));
-                                }
-                            }
-
-                            if let Value::Array(params) = operation.get_mut("parameters").unwrap() {
-                                params.push(param_obj);
-                            }
-                        }
-                    }
-                    new_path.push_str(&raw_path[last_end..]);
-                    path = new_path;
-                }
-            } else if trimmed.starts_with("@tag") {
-                let final_content = if trimmed.starts_with("@tags") {
-                    trimmed.strip_prefix("@tags").unwrap().trim()
-                } else {
-                    trimmed.strip_prefix("@tag").unwrap().trim()
-                };
-
-                if final_content.starts_with('[') && final_content.ends_with(']') {
-                    let inner = &final_content[1..final_content.len() - 1];
-                    for t in inner.split(',') {
-                        if let Value::Array(tags) = operation.get_mut("tags").unwrap() {
-                            tags.push(json!(t.trim()));
-                        }
-                    }
-                } else if let Value::Array(tags) = operation.get_mut("tags").unwrap() {
-                    tags.push(json!(final_content));
-                }
-            } else if trimmed.contains("-param") && trimmed.starts_with('@') {
-                let (param_type, rest) = if trimmed.starts_with("@query-param") {
-                    (
-                        "query",
-                        trimmed.strip_prefix("@query-param").unwrap().trim(),
-                    )
-                } else if trimmed.starts_with("@path-param") {
-                    ("path", trimmed.strip_prefix("@path-param").unwrap().trim())
-                } else if trimmed.starts_with("@header-param") {
-                    (
-                        "header",
-                        trimmed.strip_prefix("@header-param").unwrap().trim(),
-                    )
-                } else if trimmed.starts_with("@cookie-param") {
-                    (
-                        "cookie",
-                        trimmed.strip_prefix("@cookie-param").unwrap().trim(),
-                    )
-                } else {
-                    continue;
-                };
-
-                if let Some(colon_idx) = rest.find(':') {
-                    let name = rest[..colon_idx].trim();
-                    let residue = rest[colon_idx + 1..].trim();
-
-                    let mut tokens = Vec::new();
-                    let mut current = String::new();
-                    let mut in_quote = false;
-                    for c in residue.chars() {
-                        if c == '"' {
-                            in_quote = !in_quote;
-                            current.push(c);
-                        } else if c.is_whitespace() && !in_quote {
-                            if !current.is_empty() {
-                                tokens.push(current.clone());
-                                current.clear();
-                            }
-                        } else {
-                            current.push(c);
-                        }
-                    }
-                    if !current.is_empty() {
-                        tokens.push(current);
-                    }
-
-                    if tokens.is_empty() {
-                        continue;
-                    }
-
-                    // Identify Type
-                    let first = &tokens[0];
-                    let (type_str, start_idx) = if first == "deprecated"
-                        || first == "required"
-                        || first.contains('=')
-                        || first.starts_with('"')
-                    {
-                        ("String", 0)
-                    } else if syn::parse_str::<syn::Type>(first).is_ok() {
-                        (first.as_str(), 1)
-                    } else {
-                        // Fallback
-                        ("String", 0)
-                    };
-
-                    let (schema, mut is_required) =
-                        if let Ok(ty) = syn::parse_str::<syn::Type>(type_str) {
-                            map_syn_type_to_openapi(&ty)
-                        } else {
-                            (json!({ "type": "string" }), true)
-                        };
-
-                    let mut deprecated = false;
-                    let mut example = None;
-                    let mut desc = None;
-
-                    for token in tokens.iter().skip(start_idx) {
-                        if token == "deprecated" {
-                            deprecated = true;
-                        } else if token == "required" {
-                            is_required = true;
-                        } else if token.starts_with("example=") {
-                            let val = token.strip_prefix("example=").unwrap().trim_matches('"');
-                            example = Some(val.to_string());
-                        } else if token.starts_with('"') {
-                            desc = Some(token.trim_matches('"').to_string());
-                        }
-                    }
-
-                    let mut param_obj = json!({
-                        "name": name,
-                        "in": param_type,
-                        "required": is_required,
-                        "schema": schema
-                    });
-
-                    if deprecated {
-                        param_obj
-                            .as_object_mut()
-                            .unwrap()
-                            .insert("deprecated".to_string(), json!(true));
-                    }
-                    if let Some(ex) = example {
-                        param_obj
-                            .as_object_mut()
-                            .unwrap()
-                            .insert("example".to_string(), json!(ex));
-                    }
-
-                    if param_type == "path" {
-                        declared_path_params.insert(name.to_string());
-                        if let Value::Object(m) = &mut param_obj {
-                            m.insert("required".to_string(), json!(true));
-                        }
-                    }
-
-                    if let Some(d) = desc {
-                        if let Value::Object(m) = &mut param_obj {
-                            m.insert("description".to_string(), json!(d));
-                        }
-                    }
-
-                    if let Value::Array(params) = operation.get_mut("parameters").unwrap() {
-                        params.push(param_obj);
-                    }
-                }
-            } else if trimmed.starts_with("@body") {
-                let rest = trimmed.strip_prefix("@body").unwrap().trim();
-                let parts: Vec<&str> = rest.split_whitespace().collect();
-                if !parts.is_empty() {
-                    let schema_ref = parts[0];
-                    let mime = if parts.len() > 1 {
-                        parts[1]
-                    } else {
-                        "application/json"
-                    };
-
-                    let schema = if schema_ref.contains('<')
-                        || (schema_ref.starts_with('$') && schema_ref.contains('<'))
-                    {
-                        json!({ "$ref": schema_ref })
-                    } else if let Ok(ty) = syn::parse_str::<syn::Type>(schema_ref) {
-                        map_syn_type_to_openapi(&ty).0
-                    } else if let Some(stripped) = schema_ref.strip_prefix('$') {
-                        json!({ "$ref": format!("#/components/schemas/{}", stripped) })
-                    } else {
-                        json!({ "$ref": format!("#/components/schemas/{}", schema_ref) })
-                    };
-
-                    operation["requestBody"] = json!({
-                        "content": {
-                            mime: {
-                                "schema": schema
-                            }
-                        }
-                    });
-                }
-            } else if trimmed.starts_with("@return") {
-                let rest = trimmed.strip_prefix("@return").unwrap().trim();
-                let parts = rest.find(':');
-
-                if let Some(colon_idx) = parts {
-                    let code = rest[..colon_idx].trim();
-                    let residue = rest[colon_idx + 1..].trim();
-
-                    let (type_str, desc, is_unit) = if residue.starts_with('"') {
-                        ("()", Some(residue.trim_matches('"').to_string()), true)
-                    } else if let Some(quote_start) = residue.find('"') {
-                        (
-                            residue[..quote_start].trim(),
-                            Some(residue[quote_start + 1..residue.len() - 1].to_string()),
-                            false,
-                        )
-                    } else {
-                        (residue, None, false)
-                    };
-
-                    let is_explicit_unit = type_str == "()" || type_str == "unit";
-                    let effective_unit = is_unit || is_explicit_unit;
-
-                    let schema = if effective_unit {
-                        json!({})
-                    } else if type_str.contains('<')
-                        || (type_str.starts_with('$') && type_str.contains('<'))
-                    {
-                        json!({ "$ref": type_str })
-                    } else if let Ok(ty) = syn::parse_str::<syn::Type>(type_str) {
-                        map_syn_type_to_openapi(&ty).0
-                    } else if let Some(stripped) = type_str.strip_prefix('$') {
-                        json!({ "$ref": format!("#/components/schemas/{}", stripped) })
-                    } else if type_str == "String" || type_str == "str" {
-                        json!({ "type": "string" })
-                    } else {
-                        json!({ "$ref": format!("#/components/schemas/{}", type_str) })
-                    };
-
-                    let mut resp_obj = json!({
-                        "description": desc.unwrap_or_else(|| "".to_string())
-                    });
-
-                    if !effective_unit {
-                        resp_obj["content"] = json!({
-                            "application/json": {
-                                "schema": schema
-                            }
-                        });
-                    }
-
-                    if let Value::Object(responses) = operation.get_mut("responses").unwrap() {
-                        responses.insert(code.to_string(), resp_obj);
-                    }
-                }
-            } else if trimmed.starts_with("@security") {
-                let rest = trimmed.strip_prefix("@security").unwrap().trim();
-                let (scheme, scopes) = if let Some(paren_start) = rest.find('(') {
-                    let name = rest[..paren_start].trim();
-                    let inner = &rest[paren_start + 1..rest.len() - 1];
-                    let s: Vec<String> = inner
-                        .split(',')
-                        .map(|s| s.trim().trim_matches('"').to_string())
-                        .collect();
-                    (name, s)
-                } else {
-                    (rest, vec![])
-                };
-
-                if operation.get("security").is_none() {
-                    operation["security"] = json!([]);
-                }
-
-                if let Value::Array(sec) = operation.get_mut("security").unwrap() {
-                    sec.push(json!({ scheme: scopes }));
-                }
-            } else if !trimmed.starts_with('@') {
-                if summary.is_none() {
-                    summary = Some(trimmed.to_string());
-                } else {
-                    description_buffer.push(trimmed);
-                }
-            }
-        }
-
-        if let Some(s) = summary {
-            operation["summary"] = json!(s);
-        }
-        if !description_buffer.is_empty() {
-            operation["description"] = json!(description_buffer.join("\n"));
-        }
-
-        // Validation
-        let validation_re = Regex::new(r"\{(\w+)\}").unwrap();
-        for cap in validation_re.captures_iter(&path) {
-            let var = cap.get(1).unwrap().as_str();
-            if !declared_path_params.contains(var) {
-                // Panic on validation error as per requirements
-                panic!(
-                    "Missing definition for path parameter '{}' in route '{}'",
-                    var, path
-                );
-            }
-        }
-        // Check for unused path params is implicitly handled if we track them,
-        // to check strict unused we'd need to check declared_path_params vs matches in path.
-        // The declared_path_params set contains only those captured from inline or @path-param.
-        // We should check if any declared param is NOT in path?
-        // Inline params are by definition in path.
-        // @path-param defined variables might NOT be in path.
-        for declared in &declared_path_params {
-            if !path.contains(&format!("{{{}}}", declared)) {
-                panic!(
-                    "Declared path parameter '{}' is unused in route '{}'",
-                    declared, path
-                );
-            }
-        }
-
-        if let Value::Object(map) = &mut operation {
-            map.retain(|_, v| !v.is_null());
-        }
-
-        if !method.is_empty() && !path.is_empty() {
-            let mut method_map = serde_json::Map::new();
-            method_map.insert(method, operation);
-
-            let mut path_map = serde_json::Map::new();
-            path_map.insert(path, Value::Object(method_map));
-
-            let path_item = json!({
-                "paths": Value::Object(path_map)
-            });
-
-            if let Ok(generated) = serde_yaml::to_string(&path_item) {
-                let trimmed = generated.trim_start_matches("---\n").to_string();
-                self.items.push(ExtractedItem::Schema {
-                    name: None,
-                    content: trimmed,
-                    line: i.span().start().line,
-                });
-            }
-        }
 
         visit::visit_item_fn(self, i);
     }
@@ -963,15 +706,16 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
     }
 
     fn visit_item_struct(&mut self, i: &'ast ItemStruct) {
-        let doc_lines = Self::extract_doc_comments(&i.attrs);
+        // 1. Extract Info & Renaming
+        let default_name = i.ident.to_string();
+        let (final_name, struct_desc, rename_rule, doc_lines) =
+            Self::extract_naming_and_doc(&i.attrs, &default_name);
 
-        // Safety: Explicit export only
+        // Safety: Explicit export only (check raw doc lines for @openapi tag)
         if !doc_lines.iter().any(|l| l.contains("@openapi")) {
             visit::visit_item_struct(self, i);
             return;
         }
-
-        let ident = i.ident.to_string();
 
         let mut properties = serde_json::Map::new();
         let mut required_fields = Vec::new();
@@ -980,34 +724,44 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
         if let syn::Fields::Named(fields) = &i.fields {
             for field in &fields.named {
                 has_fields = true;
-                let field_name = field.ident.as_ref().unwrap().to_string();
+                let default_field_name = field.ident.as_ref().unwrap().to_string();
+
+                // Extract field info
+                let (mut field_final_name, field_desc, _, field_doc_lines) =
+                    Self::extract_naming_and_doc(&field.attrs, &default_field_name);
+
+                // Apply Rename Rule (if field name matches default and rule exists)
+                // If field has explicit rename (field_final_name != default_field_name), ignore rule.
+                // Wait, extract_naming_and_doc returns rename if explicitly set, else default.
+                // How do we know if it was explicit? We compare.
+                if field_final_name == default_field_name {
+                    if let Some(rule) = &rename_rule {
+                        field_final_name = Self::apply_casing(&field_final_name, rule);
+                    }
+                }
 
                 let (mut field_schema, is_required) = map_syn_type_to_openapi(&field.ty);
 
-                let field_docs = Self::extract_doc_comments(&field.attrs);
-                let mut field_desc = Vec::new();
+                // Field Description
+                if !field_desc.is_empty() {
+                    if let Value::Object(map) = &mut field_schema {
+                        map.insert("description".to_string(), Value::String(field_desc));
+                    }
+                }
+
+                // Field Overrides (@openapi lines)
                 let mut field_openapi_lines = Vec::new();
                 let mut collecting_openapi = false;
-
-                for line in field_docs {
+                for line in &field_doc_lines {
                     let trimmed = line.trim();
                     if trimmed.starts_with("@openapi") {
                         collecting_openapi = true;
                         let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
-                        if !rest.is_empty() {
+                        if !rest.is_empty() && !rest.starts_with("rename") {
                             field_openapi_lines.push(rest.to_string());
                         }
                     } else if collecting_openapi {
-                        field_openapi_lines.push(line);
-                    } else {
-                        field_desc.push(trimmed.to_string());
-                    }
-                }
-
-                if !field_desc.is_empty() {
-                    let desc_str = field_desc.join(" ");
-                    if let Value::Object(map) = &mut field_schema {
-                        map.insert("description".to_string(), Value::String(desc_str));
+                        field_openapi_lines.push(line.to_string());
                     }
                 }
 
@@ -1022,17 +776,17 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
                         Err(e) => {
                             log::warn!(
                                 "Failed to parse @openapi override for field '{}' in struct '{}': {}",
-                                field_name,
-                                ident,
+                                default_field_name,
+                                final_name,
                                 e
                             );
                         }
                     }
                 }
 
-                properties.insert(field_name.clone(), field_schema);
+                properties.insert(field_final_name.clone(), field_schema);
                 if is_required {
-                    required_fields.push(field_name);
+                    required_fields.push(field_final_name);
                 }
             }
         }
@@ -1054,19 +808,23 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
             json!({ "type": "object" })
         };
 
-        // Struct Level Docs & Overrides
-        let mut desc_lines = Vec::new();
+        // Struct Description
+        if !struct_desc.is_empty() {
+            json_merge(&mut schema, json!({ "description": struct_desc }));
+        }
+
+        // Struct Overrides & Blueprint
         let mut openapi_lines = Vec::new();
         let mut collecting_openapi = false;
         let mut blueprint_params: Option<Vec<String>> = None;
 
-        for line in doc_lines {
+        for line in &doc_lines {
             let trimmed = line.trim();
             if trimmed.starts_with("@openapi") {
                 collecting_openapi = true;
                 let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
 
-                if !rest.is_empty() {
+                if !rest.is_empty() && !rest.starts_with("rename") {
                     if rest.contains('<') {
                         // Blueprint detection
                         if let Some(start) = rest.find('<') {
@@ -1091,15 +849,8 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
                     }
                 }
             } else if collecting_openapi {
-                openapi_lines.push(line);
-            } else {
-                desc_lines.push(trimmed.to_string());
+                openapi_lines.push(line.to_string());
             }
-        }
-
-        if !desc_lines.is_empty() {
-            let desc_str = desc_lines.join(" ");
-            json_merge(&mut schema, json!({ "description": desc_str }));
         }
 
         if !openapi_lines.is_empty() {
@@ -1113,7 +864,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
                 Err(e) => {
                     log::warn!(
                         "Failed to parse @openapi override for struct '{}': {}",
-                        ident,
+                        final_name,
                         e
                     );
                 }
@@ -1127,22 +878,26 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
 
                 if let Some(params) = blueprint_params {
                     self.items.push(ExtractedItem::Blueprint {
-                        name: ident,
+                        name: final_name,
                         params,
                         content: trimmed,
                         line: i.span().start().line,
                     });
                 } else {
-                    let wrapped = wrap_in_schema(&ident, &trimmed);
+                    let wrapped = wrap_in_schema(&final_name, &trimmed);
                     self.items.push(ExtractedItem::Schema {
-                        name: Some(ident),
+                        name: Some(final_name),
                         content: wrapped,
                         line: i.span().start().line,
                     });
                 }
             }
             Err(e) => {
-                log::error!("Failed to serialize schema for struct '{}': {}", ident, e);
+                log::error!(
+                    "Failed to serialize schema for struct '{}': {}",
+                    default_name,
+                    e
+                );
             }
         }
 
@@ -1150,12 +905,32 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
     }
 
     fn visit_item_enum(&mut self, i: &'ast ItemEnum) {
-        let ident = i.ident.to_string();
+        // 1. Extract Info & Renaming
+        let default_name = i.ident.to_string();
+        let (final_name, enum_desc, rename_rule, doc_lines) =
+            Self::extract_naming_and_doc(&i.attrs, &default_name);
+
+        // Safety: Explicit export only
+        if !doc_lines.iter().any(|l| l.contains("@openapi")) {
+            visit::visit_item_enum(self, i);
+            return;
+        }
 
         let mut variants = Vec::new();
         for v in &i.variants {
             if matches!(v.fields, syn::Fields::Unit) {
-                variants.push(v.ident.to_string());
+                let default_variant_name = v.ident.to_string();
+                // Extract variant info (renaming only)
+                let (mut variant_final_name, _, _, _) =
+                    Self::extract_naming_and_doc(&v.attrs, &default_variant_name);
+
+                // Apply Rename Rule
+                if variant_final_name == default_variant_name {
+                    if let Some(rule) = &rename_rule {
+                        variant_final_name = Self::apply_casing(&variant_final_name, rule);
+                    }
+                }
+                variants.push(variant_final_name);
             }
         }
 
@@ -1168,69 +943,65 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
             json!({ "type": "string" }) // fallback
         };
 
-        // Enum Doc Overrides
-        let mut desc_lines = Vec::new();
+        // Enum Description
+        if !enum_desc.is_empty() {
+            json_merge(&mut schema, json!({ "description": enum_desc }));
+        }
+
+        // Enum Overrides & Blueprint
         let mut openapi_lines = Vec::new();
         let mut collecting_openapi = false;
         let mut blueprint_params: Option<Vec<String>> = None;
 
-        for attr in &i.attrs {
-            if attr.path().is_ident("doc") {
-                if let syn::Meta::NameValue(meta) = &attr.meta {
-                    if let Expr::Lit(expr_lit) = &meta.value {
-                        if let syn::Lit::Str(lit_str) = &expr_lit.lit {
-                            let val = lit_str.value();
-                            let trimmed = val.trim();
-                            if trimmed.starts_with("@openapi") {
-                                collecting_openapi = true;
-                                let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
-                                if !rest.is_empty() {
-                                    if rest.contains('<') {
-                                        // Blueprint detection
-                                        if let Some(start) = rest.find('<') {
-                                            if let Some(end) = rest.rfind('>') {
-                                                let params_str = &rest[start + 1..end];
-                                                blueprint_params = Some(
-                                                    params_str
-                                                        .split(',')
-                                                        .map(|p| p.trim().to_string())
-                                                        .filter(|p| !p.is_empty())
-                                                        .collect(),
-                                                );
+        for line in &doc_lines {
+            let trimmed = line.trim();
+            if trimmed.starts_with("@openapi") {
+                collecting_openapi = true;
+                let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
 
-                                                let after_gt = rest[end + 1..].trim();
-                                                if !after_gt.is_empty() {
-                                                    openapi_lines.push(after_gt.to_string());
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        openapi_lines.push(rest.to_string());
-                                    }
+                if !rest.is_empty() && !rest.starts_with("rename") {
+                    if rest.contains('<') {
+                        // Blueprint detection
+                        if let Some(start) = rest.find('<') {
+                            if let Some(end) = rest.rfind('>') {
+                                let params_str = &rest[start + 1..end];
+                                blueprint_params = Some(
+                                    params_str
+                                        .split(',')
+                                        .map(|p| p.trim().to_string())
+                                        .filter(|p| !p.is_empty())
+                                        .collect(),
+                                );
+
+                                let after_gt = rest[end + 1..].trim();
+                                if !after_gt.is_empty() {
+                                    openapi_lines.push(after_gt.to_string());
                                 }
-                            } else if collecting_openapi {
-                                openapi_lines.push(val.to_string());
-                            } else {
-                                desc_lines.push(val.trim().to_string());
                             }
                         }
+                    } else {
+                        openapi_lines.push(rest.to_string());
                     }
                 }
-            } else {
-                collecting_openapi = false;
+            } else if collecting_openapi {
+                openapi_lines.push(line.to_string());
             }
-        }
-
-        if !desc_lines.is_empty() {
-            let desc_str = desc_lines.join(" ");
-            json_merge(&mut schema, json!({ "description": desc_str }));
         }
 
         if !openapi_lines.is_empty() {
             let override_yaml = openapi_lines.join("\n");
-            if let Ok(override_val) = serde_yaml::from_str::<Value>(&override_yaml) {
-                if !override_val.is_null() {
-                    json_merge(&mut schema, override_val);
+            match serde_yaml::from_str::<Value>(&override_yaml) {
+                Ok(override_val) => {
+                    if !override_val.is_null() {
+                        json_merge(&mut schema, override_val);
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to parse @openapi override for enum '{}': {}",
+                        final_name,
+                        e
+                    );
                 }
             }
         }
@@ -1242,15 +1013,15 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
 
                 if let Some(params) = blueprint_params {
                     self.items.push(ExtractedItem::Blueprint {
-                        name: ident,
+                        name: final_name,
                         params,
                         content: trimmed,
                         line: i.span().start().line,
                     });
                 } else {
-                    let wrapped = wrap_in_schema(&ident, &trimmed);
+                    let wrapped = wrap_in_schema(&final_name, &trimmed);
                     self.items.push(ExtractedItem::Schema {
-                        name: Some(ident),
+                        name: Some(final_name),
                         content: wrapped,
                         line: i.span().start().line,
                     });
@@ -1667,16 +1438,26 @@ mod tests {
         visitor.visit_item_fn(&item_fn);
 
         assert_eq!(visitor.items.len(), 1);
-        if let ExtractedItem::Schema { content, .. } = &visitor.items[0] {
-            assert!(content.contains("paths:"));
-            assert!(content.contains("/users:"));
-            assert!(content.contains("get:"));
-            assert!(content.contains("summary: Get Users"));
-            assert!(content.contains("description: Returns a list of users."));
-            assert!(content.contains("tags:"));
-            assert!(content.contains("- Users"));
+        if let ExtractedItem::RouteDSL {
+            content,
+            operation_id,
+            ..
+        } = &visitor.items[0]
+        {
+            let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+            let yaml =
+                crate::dsl::parse_route_dsl(&lines, operation_id).expect("DSL Parsing failed");
+
+            assert!(yaml.contains("paths:"));
+            assert!(yaml.contains("/users:"));
+            assert!(yaml.contains("get:"));
+            assert!(yaml.contains("summary: Get Users"));
+            assert!(yaml.contains("description:"));
+            assert!(yaml.contains("Returns a list of users."));
+            assert!(yaml.contains("tags:"));
+            assert!(yaml.contains("- Users"));
         } else {
-            panic!("Expected Schema");
+            panic!("Expected RouteDSL item, got {:?}", &visitor.items[0]);
         }
     }
 
@@ -1692,23 +1473,29 @@ mod tests {
         let mut visitor = OpenApiVisitor::default();
         visitor.visit_item_fn(&item_fn);
 
-        if let ExtractedItem::Schema { content, .. } = &visitor.items[0] {
-            // Path Param
-            assert!(content.contains("name: id"));
-            assert!(content.contains("in: path"));
+        if let ExtractedItem::RouteDSL {
+            content,
+            operation_id,
+            ..
+        } = &visitor.items[0]
+        {
+            let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+            let yaml =
+                crate::dsl::parse_route_dsl(&lines, operation_id).expect("DSL parsing failed");
 
-            // Check required: true for path param.
-            // Note: Serde YAML might output `required: true` or just imply it depending on structure,
-            // but our JSON builder explicitly sets it.
-            assert!(content.contains("required: true"));
-            assert!(content.contains("format: int32"));
+            // Path Param
+            assert!(yaml.contains("name: id"));
+            assert!(yaml.contains("in: path"));
+
+            assert!(yaml.contains("required: true"));
+            assert!(yaml.contains("format: int32"));
 
             // Query Param
-            assert!(content.contains("name: filter"));
-            assert!(content.contains("in: query"));
-            assert!(content.contains("required: false")); // Option<String>
+            assert!(yaml.contains("name: filter"));
+            assert!(yaml.contains("in: query"));
+            assert!(yaml.contains("required: false")); // Option<String>
         } else {
-            panic!("Expected Schema");
+            panic!("Expected RouteDSL item");
         }
     }
 
@@ -1724,20 +1511,29 @@ mod tests {
         let mut visitor = OpenApiVisitor::default();
         visitor.visit_item_fn(&item_fn);
 
-        if let ExtractedItem::Schema { content, .. } = &visitor.items[0] {
+        if let ExtractedItem::RouteDSL {
+            content,
+            operation_id,
+            ..
+        } = &visitor.items[0]
+        {
+            let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+            let yaml =
+                crate::dsl::parse_route_dsl(&lines, operation_id).expect("DSL parsing failed");
+
             // Body
-            assert!(content.contains("requestBody:"));
-            assert!(content.contains("text/plain:")); // MIME
-            assert!(content.contains("schema:"));
-            assert!(content.contains("type: string"));
+            assert!(yaml.contains("requestBody:"));
+            assert!(yaml.contains("text/plain:")); // MIME
+            assert!(yaml.contains("schema:"));
+            assert!(yaml.contains("type: string"));
 
             // Return
-            assert!(content.contains("responses:"));
-            assert!(content.contains("'201':"));
-            assert!(content.contains("description: Created ID"));
-            assert!(content.contains("format: int64"));
+            assert!(yaml.contains("responses:"));
+            assert!(yaml.contains("'201':"));
+            assert!(yaml.contains("description: Created ID"));
+            assert!(yaml.contains("format: int64"));
         } else {
-            panic!("Expected Schema");
+            panic!("Expected RouteDSL item");
         }
     }
 
@@ -1752,12 +1548,21 @@ mod tests {
         let mut visitor = OpenApiVisitor::default();
         visitor.visit_item_fn(&item_fn);
 
-        if let ExtractedItem::Schema { content, .. } = &visitor.items[0] {
-            assert!(content.contains("security:"));
-            assert!(content.contains("- oidcAuth:"));
-            assert!(content.contains("- read"));
+        if let ExtractedItem::RouteDSL {
+            content,
+            operation_id,
+            ..
+        } = &visitor.items[0]
+        {
+            let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+            let yaml =
+                crate::dsl::parse_route_dsl(&lines, operation_id).expect("DSL parsing failed");
+
+            assert!(yaml.contains("security:"));
+            assert!(yaml.contains("- oidcAuth:"));
+            assert!(yaml.contains("- read"));
         } else {
-            panic!("Expected Schema");
+            panic!("Expected RouteDSL item");
         }
     }
 
@@ -1773,24 +1578,33 @@ mod tests {
         let mut visitor = OpenApiVisitor::default();
         visitor.visit_item_fn(&item_fn);
 
-        if let ExtractedItem::Schema { content, .. } = &visitor.items[0] {
+        if let ExtractedItem::RouteDSL {
+            content,
+            operation_id,
+            ..
+        } = &visitor.items[0]
+        {
+            let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+            let yaml =
+                crate::dsl::parse_route_dsl(&lines, operation_id).expect("DSL parsing failed");
+
             // 1. Verify Generic is RAW (Crucial for Monomorphizer)
-            assert!(content.contains("$ref: $Page<User>"));
-            assert!(!content.contains("#/components/schemas/$Page<User>")); // MUST FAIL if wrapped
+            assert!(yaml.contains("$ref: $Page<User>"));
+            assert!(!yaml.contains("#/components/schemas/$Page<User>")); // MUST FAIL if wrapped
 
             // 2. Verify Unit has NO content
-            assert!(content.contains("'204':"));
-            assert!(content.contains("description: Nothing"));
+            assert!(yaml.contains("'204':"));
+            assert!(yaml.contains("description: Nothing"));
             // Ensure 204 block does not have "content:"
             // (We check strict context or absence of content key for 204)
-            let json: serde_json::Value = serde_yaml::from_str(content).unwrap();
+            let json: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
             let resp_204 = &json["paths"]["/test"]["post"]["responses"]["204"];
             assert!(
                 resp_204.get("content").is_none(),
                 "204 response should not have content"
             );
         } else {
-            panic!("Expected Schema");
+            panic!("Expected RouteDSL item");
         }
     }
 
@@ -1806,9 +1620,18 @@ mod tests {
         let mut visitor = OpenApiVisitor::default();
         visitor.visit_item_fn(&item_fn);
 
-        if let ExtractedItem::Schema { content, .. } = &visitor.items[0] {
+        if let ExtractedItem::RouteDSL {
+            content,
+            operation_id,
+            ..
+        } = &visitor.items[0]
+        {
+            let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+            let yaml =
+                crate::dsl::parse_route_dsl(&lines, operation_id).expect("DSL parsing failed");
+
             // Parse to verify structure
-            let json: serde_json::Value = serde_yaml::from_str(content).unwrap();
+            let json: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
             let responses = &json["paths"]["/delete"]["delete"]["responses"];
 
             // Case 1: Implicit Unit ("Deleted Successfully")
@@ -1827,7 +1650,7 @@ mod tests {
                 "202 should have no content"
             );
         } else {
-            panic!("Expected Schema");
+            panic!("Expected RouteDSL item");
         }
     }
 }
@@ -1846,12 +1669,21 @@ mod dsl_tests {
         let mut visitor = OpenApiVisitor::default();
         visitor.visit_item_fn(&item_fn);
 
-        if let ExtractedItem::Schema { content, .. } = &visitor.items[0] {
+        if let ExtractedItem::RouteDSL {
+            content,
+            operation_id,
+            ..
+        } = &visitor.items[0]
+        {
+            let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+            let yaml =
+                crate::dsl::parse_route_dsl(&lines, operation_id).expect("DSL parsing failed");
+
             // 1. Check path normalization
-            assert!(content.contains("/items/{id}:"));
+            assert!(yaml.contains("/items/{id}:"));
 
             // 2. Check parameter extraction
-            let json: serde_json::Value = serde_yaml::from_str(content).unwrap();
+            let json: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
             let params = &json["paths"]["/items/{id}"]["get"]["parameters"];
             assert!(params.is_array());
             assert_eq!(params.as_array().unwrap().len(), 1);
@@ -1864,7 +1696,7 @@ mod dsl_tests {
             assert_eq!(p["schema"]["type"], "integer");
             assert_eq!(p["schema"]["format"], "int32");
         } else {
-            panic!("Expected Schema");
+            panic!("Expected RouteDSL item");
         }
     }
 
@@ -1880,8 +1712,17 @@ mod dsl_tests {
         let mut visitor = OpenApiVisitor::default();
         visitor.visit_item_fn(&item_fn);
 
-        if let ExtractedItem::Schema { content, .. } = &visitor.items[0] {
-            let json: serde_json::Value = serde_yaml::from_str(content).unwrap();
+        if let ExtractedItem::RouteDSL {
+            content,
+            operation_id,
+            ..
+        } = &visitor.items[0]
+        {
+            let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+            let yaml =
+                crate::dsl::parse_route_dsl(&lines, operation_id).expect("DSL parsing failed");
+
+            let json: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
             let params = &json["paths"]["/search"]["get"]["parameters"];
             let params_arr = params.as_array().unwrap();
 
@@ -1896,7 +1737,7 @@ mod dsl_tests {
             assert_eq!(sort["example"], "desc");
             assert_eq!(sort["description"], "Sort Order");
         } else {
-            panic!("Expected Schema");
+            panic!("Expected RouteDSL item");
         }
     }
 
@@ -1910,6 +1751,17 @@ mod dsl_tests {
         let item_fn: ItemFn = syn::parse_str(code).expect("Failed to parse fn");
         let mut visitor = OpenApiVisitor::default();
         visitor.visit_item_fn(&item_fn);
+
+        // This should panic
+        if let ExtractedItem::RouteDSL {
+            content,
+            operation_id,
+            ..
+        } = &visitor.items[0]
+        {
+            let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+            let _ = crate::dsl::parse_route_dsl(&lines, operation_id);
+        }
     }
 
     #[test]

@@ -194,6 +194,112 @@ Apply security schemes defined in your root spec or fragments.
 fn protected() { ... }
 ```
 
+**6. Mixing Raw YAML (Overrides)**
+You can mix standard OpenAPI YAML attributes directly within the DSL block. This is useful for complex scenarios or when using `@insert` with fragments containing bare YAML keys.
+Supported top-level keys: `parameters`, `requestBody`, `responses`, `security`, `callbacks`, `externalDocs`, `servers`.
+
+```rust,ignore
+/// @route GET /complex
+/// @tag Items
+///
+/// # You can inject raw parameters alongside DSL
+/// parameters:
+///   - name: raw_param
+///     in: query
+///     schema: { type: string }
+///
+/// # Or override the description
+/// externalDocs:
+///   url: https://example.com/docs
+///   description: More info
+fn complex_handler() {}
+```
+
+### 🏛️ Legacy / Manual Mode
+You don't have to use the DSL. `oas-forge` fully supports "Old School" OpenAPI definitions where you simply write raw YAML in your doc comments. This gives you full control.
+
+```rust,ignore
+/// @openapi
+/// paths:
+///   /manual/endpoint:
+///     get:
+///       tags: [Manual]
+///       summary: Fully manual definition
+///       description: This is standard OpenAPI YAML.
+///       responses:
+///         '200':
+///           description: OK
+///           content:
+///             text/plain:
+///               schema: { type: string }
+async fn manual_handler() {}
+```
+
+#### Integration Example: Serving with Axum
+Here is a complete pattern for serving your dynamic OpenAPI spec and Swagger UI using `axum`.
+
+```rust,ignore
+use axum::{
+    Router,
+    http::header,
+    response::{Html, IntoResponse},
+    routing::get,
+};
+use std::env;
+
+// Embed the generated file
+const OPENAPI_SPEC: &str = include_str!("../../openapi.yaml");
+
+pub fn router() -> Router {
+    Router::new()
+        .route("/openapi.yaml", get(serve_spec))
+        .route("/swagger", get(serve_ui))
+}
+
+/// @openapi
+/// paths:
+///   /docs/openapi.yaml:
+///     get:
+///       tags: [System]
+///       summary: Get OpenAPI Specification
+///       description: Returns the dynamic OpenAPI specification.
+///       responses:
+///         '200':
+///           description: The OpenAPI YAML file.
+///           content:
+///             application/yaml:
+///               schema: { type: string }
+async fn serve_spec() -> impl IntoResponse {
+    let spec = OPENAPI_SPEC.replace("$$OIDC_URL", &env::var("OIDC_URL").unwrap_or_default());
+    ([(header::CONTENT_TYPE, "application/yaml")], spec)
+}
+
+async fn serve_ui() -> impl IntoResponse {
+    let html = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Swagger UI</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist/swagger-ui.css" />
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script>
+  <script>
+    window.onload = () => {
+      SwaggerUIBundle({
+        url: '/docs/openapi.yaml',
+        dom_id: '#swagger-ui',
+        presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
+        layout: "BaseLayout",
+      });
+    };
+  </script>
+</body>
+</html>"#;
+    Html(html)
+}
+```
+
 ### 📦 Schema Extraction
 Annotate your data structures, enums and types with doc comments to generate OpenAPI schemas.
 
@@ -311,6 +417,39 @@ components:
 - Enums are represented as string enums in the schema.
 - Doc comments can include additional OpenAPI attributes like `example`, `format`, `pattern`, and `description`.
 - The generator supports common Rust types and can be extended for more complex scenarios.
+
+### 🏷️ Renaming & Implicit Export Safety (v0.1.2+)
+
+**Implicit Safety:** Enums now require the `@openapi` tag to be exported to the schema. Enums without this tag are ignored, even if public.
+
+**Renaming:** You can rename fields, variants, and structs using **Serde** attributes or **@openapi** directives.
+**Precedence Order:**
+1. Manual `@openapi rename` / `@openapi rename-all`
+2. `#[serde(rename = "...")]` / `#[serde(rename_all = "...")]`
+3. Default Rust Name
+
+#### Example: Renaming & Serde Support
+
+```rust,ignore
+/// @openapi
+/// @openapi rename-all camelCase
+#[derive(serde::Serialize)] // Optional, used for reference
+pub enum UserRole {
+    /// @openapi rename "admin_user"
+    Admin,
+    Moderator, // -> "moderator" (camelCase)
+    User       // -> "user"
+}
+
+/// @openapi rename "UserProfile"
+#[serde(rename_all = "snake_case")]
+pub struct Profile {
+    pub first_name: String, // -> "first_name"
+    
+    /// @openapi rename "lastName"
+    pub last_name: String,  // -> "lastName" (override)
+}
+```
 
 ### 🧬 Template schemas with generics
 Define reusable schema templates with generics using the `$` prefix.

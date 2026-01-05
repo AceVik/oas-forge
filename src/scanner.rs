@@ -1,3 +1,4 @@
+use crate::dsl;
 use crate::error::{Error, Result};
 use crate::generics::Monomorphizer;
 use crate::index::Registry;
@@ -15,6 +16,7 @@ pub struct Snippet {
     pub content: String,
     pub file_path: PathBuf,
     pub line_number: usize,
+    pub operation_id: Option<String>,
 }
 
 // DX Macros Preprocessor
@@ -144,6 +146,7 @@ fn preprocess_macros(snippet: &Snippet, registry: &mut Registry) -> Snippet {
         content: new_lines.join("\n"),
         file_path: snippet.file_path.clone(),
         line_number: snippet.line_number,
+        operation_id: snippet.operation_id.clone(),
     }
 }
 
@@ -237,6 +240,19 @@ pub fn scan_directories(roots: &[PathBuf], includes: &[PathBuf]) -> Result<Vec<S
                                     content,
                                     file_path: path.clone(),
                                     line_number: line,
+                                    operation_id: None,
+                                });
+                            }
+                            ExtractedItem::RouteDSL {
+                                content,
+                                line,
+                                operation_id,
+                            } => {
+                                operation_snippets.push(Snippet {
+                                    content,
+                                    file_path: path.clone(),
+                                    line_number: line,
+                                    operation_id: Some(operation_id),
                                 });
                             }
                             ExtractedItem::Fragment {
@@ -264,6 +280,7 @@ pub fn scan_directories(roots: &[PathBuf], includes: &[PathBuf]) -> Result<Vec<S
                         content,
                         file_path: path.clone(),
                         line_number: 1,
+                        operation_id: None,
                     });
                 }
                 _ => {}
@@ -271,7 +288,7 @@ pub fn scan_directories(roots: &[PathBuf], includes: &[PathBuf]) -> Result<Vec<S
         }
     }
 
-    // PASS 2: Pre-Processing
+    // PASS 2: Pre-Processing & DSL Compilation
     let mut preprocessed_snippets = Vec::new();
     for snippet in operation_snippets {
         // 2a. Expand Macros
@@ -280,10 +297,26 @@ pub fn scan_directories(roots: &[PathBuf], includes: &[PathBuf]) -> Result<Vec<S
         // 2b. Expand Fragments
         let expanded_content = preprocessor::preprocess(&macrod_snippet.content, &registry);
 
+        // 2c. Compile DSL -> YAML
+        let final_content = if let Some(op_id) = &macrod_snippet.operation_id {
+            let lines: Vec<String> = expanded_content.lines().map(|s| s.to_string()).collect();
+            if let Some(yaml) = dsl::parse_route_dsl(&lines, op_id) {
+                yaml
+            } else {
+                // If it was captured as DSL but failed parsing (e.g. no @route?), fallback.
+                // But visitor logic ensures @route exists.
+                // Parsing might fail if parse_route_dsl logic filters it out.
+                expanded_content
+            }
+        } else {
+            expanded_content
+        };
+
         preprocessed_snippets.push(Snippet {
-            content: expanded_content,
+            content: final_content,
             file_path: macrod_snippet.file_path,
             line_number: macrod_snippet.line_number,
+            operation_id: macrod_snippet.operation_id,
         });
     }
 
@@ -297,6 +330,7 @@ pub fn scan_directories(roots: &[PathBuf], includes: &[PathBuf]) -> Result<Vec<S
             content: mono_content,
             file_path: snippet.file_path,
             line_number: snippet.line_number,
+            operation_id: snippet.operation_id,
         });
     }
 
@@ -312,6 +346,7 @@ pub fn scan_directories(roots: &[PathBuf], includes: &[PathBuf]) -> Result<Vec<S
             content: wrapped,
             file_path: PathBuf::from("<generated>"),
             line_number: 1,
+            operation_id: None,
         });
     }
     mono_snippets.extend(generated_snippets);
@@ -328,6 +363,7 @@ pub fn scan_directories(roots: &[PathBuf], includes: &[PathBuf]) -> Result<Vec<S
             content: finalized_content,
             file_path: snippet.file_path,
             line_number: snippet.line_number,
+            operation_id: snippet.operation_id,
         });
     }
 
@@ -363,6 +399,7 @@ mod tests {
             content: "tags: $Vec<Tag>".to_string(),
             file_path: PathBuf::from("test.rs"),
             line_number: 1,
+            operation_id: None,
         };
         let processed = preprocess_macros(&snippet, &mut registry);
         assert!(processed.content.contains("type: array"));
@@ -381,6 +418,7 @@ mod tests {
             content: "@return 200: $User \"Success\"".to_string(),
             file_path: PathBuf::from("test.rs"),
             line_number: 1,
+            operation_id: None,
         };
         let processed = preprocess_macros(&snippet, &mut registry);
         assert!(processed.content.contains("'200':"));
@@ -396,6 +434,7 @@ mod tests {
             content: "@return 400: $Vec<Error>".to_string(),
             file_path: PathBuf::from("test.rs"),
             line_number: 1,
+            operation_id: None,
         };
         let processed = preprocess_macros(&snippet, &mut registry);
         assert!(processed.content.contains("'400':"));
