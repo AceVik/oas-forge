@@ -1,11 +1,7 @@
 use serde_json::{Value, json};
-use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
-use syn::{
-    Attribute, Expr, ExprLit, File, ImplItemFn, ItemEnum, ItemFn, ItemMod, ItemStruct, ItemType,
-    Lit,
-};
+use syn::{Attribute, Expr, File, ImplItemFn, ItemEnum, ItemFn, ItemMod, ItemStruct, ItemType};
 
 /// Extracted item type
 #[derive(Debug)]
@@ -45,151 +41,6 @@ pub struct OpenApiVisitor {
 }
 
 impl OpenApiVisitor {
-    // Helper to extract doc comments from attributes
-    fn extract_doc_comments(attrs: &[Attribute]) -> Vec<String> {
-        let mut doc_lines = Vec::new();
-        for attr in attrs {
-            if attr.path().is_ident("doc") {
-                if let syn::Meta::NameValue(meta) = &attr.meta {
-                    if let Expr::Lit(expr_lit) = &meta.value {
-                        if let syn::Lit::Str(lit_str) = &expr_lit.lit {
-                            doc_lines.push(lit_str.value());
-                        }
-                    }
-                }
-            }
-        }
-        doc_lines
-    }
-
-    fn apply_casing(text: &str, case: &str) -> String {
-        match case {
-            "lowercase" => text.to_lowercase(),
-            "UPPERCASE" => text.to_uppercase(),
-            "PascalCase" => {
-                let mut c = text.chars();
-                match c.next() {
-                    None => String::new(),
-                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-                }
-            }
-            "camelCase" => {
-                let mut c = text.chars();
-                match c.next() {
-                    None => String::new(),
-                    Some(f) => f.to_lowercase().collect::<String>() + c.as_str(),
-                }
-            }
-            "snake_case" => {
-                let mut s = String::new();
-                for (i, c) in text.chars().enumerate() {
-                    if c.is_uppercase() && i > 0 {
-                        s.push('_');
-                    }
-                    if let Some(lower) = c.to_lowercase().next() {
-                        s.push(lower);
-                    }
-                }
-                s
-            }
-            "SCREAMING_SNAKE_CASE" => Self::apply_casing(text, "snake_case").to_uppercase(),
-            "kebab-case" => Self::apply_casing(text, "snake_case").replace('_', "-"),
-            "SCREAMING-KEBAB-CASE" => Self::apply_casing(text, "kebab-case").to_uppercase(),
-            _ => text.to_string(),
-        }
-    }
-
-    /// Extracts doc comments and handles "@openapi rename/rename-all" + Serde logic.
-    fn extract_naming_and_doc(
-        attrs: &[Attribute],
-        default_name: &str,
-    ) -> (String, String, Option<String>, Vec<String>) {
-        let mut doc_lines = Vec::new();
-        // We collect cleaned lines here (without @openapi tags)
-        let mut clean_doc_lines = Vec::new();
-
-        let mut final_name = default_name.to_string();
-        let mut rename_rule = None;
-
-        // 1. Check Serde Attributes (Lower Precedence)
-        for attr in attrs {
-            if attr.path().is_ident("serde") {
-                if let syn::Meta::List(list) = &attr.meta {
-                    if let Ok(nested) = list
-                        .parse_args_with(Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
-                    {
-                        for meta in nested {
-                            if let syn::Meta::NameValue(nv) = meta {
-                                if nv.path.is_ident("rename") {
-                                    if let Expr::Lit(ExprLit {
-                                        lit: Lit::Str(s), ..
-                                    }) = nv.value
-                                    {
-                                        final_name = s.value();
-                                    }
-                                } else if nv.path.is_ident("rename_all") {
-                                    if let Expr::Lit(ExprLit {
-                                        lit: Lit::Str(s), ..
-                                    }) = nv.value
-                                    {
-                                        rename_rule = Some(s.value());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Doc Comments (Higher Precedence)
-        for attr in attrs {
-            if attr.path().is_ident("doc") {
-                if let syn::Meta::NameValue(meta) = &attr.meta {
-                    if let Expr::Lit(expr_lit) = &meta.value {
-                        if let syn::Lit::Str(lit_str) = &expr_lit.lit {
-                            let val = lit_str.value();
-                            doc_lines.push(val.clone());
-                            let trimmed = val.trim();
-
-                            if trimmed.starts_with("@openapi") {
-                                let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
-                                if rest.starts_with("rename-all") {
-                                    let rule = rest
-                                        .strip_prefix("rename-all")
-                                        .unwrap()
-                                        .trim()
-                                        .trim_matches('"');
-                                    rename_rule = Some(rule.to_string());
-                                } else if rest.starts_with("rename") {
-                                    let name_part = rest
-                                        .strip_prefix("rename")
-                                        .unwrap()
-                                        .trim()
-                                        .trim_matches('"');
-                                    final_name = name_part.to_string();
-                                } else {
-                                    // Only if not a rename directive, treat as doc content?
-                                    // Actually, standard logic splits @openapi lines separate.
-                                    // We just pass it through here.
-                                }
-                            } else {
-                                clean_doc_lines.push(val.trim().to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        (
-            final_name,
-            clean_doc_lines.join(" "),
-            rename_rule,
-            doc_lines,
-        )
-    }
-
     // Process doc attributes on items (structs, fns, types)
     // Updated: No longer accepts generated_content. Strictly for @openapi blocks (Paths/Fragments).
     fn check_attributes(
@@ -198,7 +49,7 @@ impl OpenApiVisitor {
         item_ident: Option<String>,
         item_line: usize,
     ) {
-        let doc_lines = Self::extract_doc_comments(attrs);
+        let doc_lines = crate::doc_parser::extract_doc_comments(attrs);
 
         let has_openapi = doc_lines.iter().any(|l| l.contains("@openapi"));
 
@@ -396,6 +247,89 @@ impl OpenApiVisitor {
             }
         }
     }
+    // Helper to process a single struct field
+    fn process_struct_field(
+        field: &syn::Field,
+        rename_rule: &Option<String>,
+    ) -> (String, Value, bool) {
+        let default_field_name = field.ident.as_ref().unwrap().to_string();
+
+        // Extract field info
+        let (mut field_final_name, field_desc, _, field_doc_lines) =
+            crate::doc_parser::extract_naming_and_doc(&field.attrs, &default_field_name);
+
+        // Apply Rename Rule
+        if field_final_name == default_field_name {
+            if let Some(rule) = rename_rule {
+                field_final_name = crate::doc_parser::apply_casing(&field_final_name, rule);
+            }
+        }
+
+        let (mut field_schema, is_required) = map_syn_type_to_openapi(&field.ty);
+
+        // Field Description
+        if !field_desc.is_empty() {
+            if let Value::Object(map) = &mut field_schema {
+                map.insert("description".to_string(), Value::String(field_desc));
+            }
+        }
+
+        // Field Overrides (@openapi lines)
+        let mut field_openapi_lines = Vec::new();
+        let mut collecting_openapi = false;
+        for line in &field_doc_lines {
+            let trimmed = line.trim();
+            if trimmed.starts_with("@openapi") {
+                collecting_openapi = true;
+                let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
+                if !rest.is_empty() && !rest.starts_with("rename") {
+                    field_openapi_lines.push(rest.to_string());
+                }
+            } else if collecting_openapi {
+                field_openapi_lines.push(line.to_string());
+            }
+        }
+
+        if !field_openapi_lines.is_empty() {
+            let override_yaml = field_openapi_lines.join("\n");
+            match serde_yaml::from_str::<Value>(&override_yaml) {
+                Ok(override_val) => {
+                    if !override_val.is_null() {
+                        json_merge(&mut field_schema, override_val);
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to parse @openapi override for field '{}': {}",
+                        default_field_name,
+                        e
+                    );
+                }
+            }
+        }
+
+        (field_final_name, field_schema, is_required)
+    }
+    fn process_enum_variant(
+        variant: &syn::Variant,
+        rename_rule: &Option<String>,
+    ) -> Option<String> {
+        if !matches!(variant.fields, syn::Fields::Unit) {
+            return None;
+        }
+        let default_variant_name = variant.ident.to_string();
+        // Extract variant info (renaming only)
+        let (mut variant_final_name, _, _, _) =
+            crate::doc_parser::extract_naming_and_doc(&variant.attrs, &default_variant_name);
+
+        // Apply Rename Rule
+        if variant_final_name == default_variant_name {
+            if let Some(rule) = rename_rule {
+                variant_final_name = crate::doc_parser::apply_casing(&variant_final_name, rule);
+            }
+        }
+        Some(variant_final_name)
+    }
 }
 
 // Helper to wrap content in components/schemas
@@ -408,85 +342,7 @@ fn wrap_in_schema(name: &str, content: &str) -> String {
     format!("components:\n  schemas:\n    {}:\n{}", name, indented)
 }
 
-// Helper for type mapping
-pub fn map_syn_type_to_openapi(ty: &syn::Type) -> (Value, bool) {
-    match ty {
-        syn::Type::Path(p) => {
-            if let Some(seg) = p.path.segments.last() {
-                let ident = seg.ident.to_string();
-
-                if ["Box", "Arc", "Rc", "Cow"].contains(&ident.as_str()) {
-                    if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                        if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                            return map_syn_type_to_openapi(inner);
-                        }
-                    }
-                }
-
-                match ident.as_str() {
-                    "bool" => (json!({ "type": "boolean" }), true),
-                    "String" | "str" | "char" => (json!({ "type": "string" }), true),
-                    "i8" | "i16" | "i32" | "u8" | "u16" | "u32" => {
-                        (json!({ "type": "integer", "format": "int32" }), true)
-                    }
-                    "i64" | "u64" | "isize" | "usize" => {
-                        (json!({ "type": "integer", "format": "int64" }), true)
-                    }
-                    "f32" => (json!({ "type": "number", "format": "float" }), true),
-                    "f64" => (json!({ "type": "number", "format": "double" }), true),
-                    "Uuid" => (json!({ "type": "string", "format": "uuid" }), true),
-                    "NaiveDate" => (json!({ "type": "string", "format": "date" }), true),
-                    "DateTime" | "NaiveDateTime" | "DateTimeUtc" => {
-                        (json!({ "type": "string", "format": "date-time" }), true)
-                    }
-                    "NaiveTime" => (json!({ "type": "string", "format": "time" }), true),
-                    "Url" | "Uri" => (json!({ "type": "string", "format": "uri" }), true),
-                    "Decimal" | "BigDecimal" => {
-                        (json!({ "type": "string", "format": "decimal" }), true)
-                    }
-                    "ObjectId" => (json!({ "type": "string", "format": "objectid" }), true),
-                    "Value" => (json!({}), true),
-                    "Option" => {
-                        if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                            if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                                let (inner_val, _) = map_syn_type_to_openapi(inner);
-                                return (inner_val, false);
-                            }
-                        }
-                        (json!({}), false)
-                    }
-                    "Vec" | "LinkedList" | "HashSet" => {
-                        if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                            if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                                let (inner_val, _) = map_syn_type_to_openapi(inner);
-                                return (json!({ "type": "array", "items": inner_val }), true);
-                            }
-                        }
-                        (json!({ "type": "array" }), true)
-                    }
-                    "HashMap" | "BTreeMap" => {
-                        if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                            if args.args.len() >= 2 {
-                                if let syn::GenericArgument::Type(val_type) = &args.args[1] {
-                                    let (val_schema, _) = map_syn_type_to_openapi(val_type);
-                                    return (
-                                        json!({ "type": "object", "additionalProperties": val_schema }),
-                                        true,
-                                    );
-                                }
-                            }
-                        }
-                        (json!({ "type": "object" }), true)
-                    }
-                    _ => (json!({ "$ref": format!("${}", ident) }), true),
-                }
-            } else {
-                (json!({ "type": "object" }), true)
-            }
-        }
-        _ => (json!({ "type": "object" }), true),
-    }
-}
+pub use crate::type_mapper::map_syn_type_to_openapi;
 
 // Deep Merge Helper for JSON Values
 pub fn json_merge(a: &mut Value, b: Value) {
@@ -709,7 +565,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
         // 1. Extract Info & Renaming
         let default_name = i.ident.to_string();
         let (final_name, struct_desc, rename_rule, doc_lines) =
-            Self::extract_naming_and_doc(&i.attrs, &default_name);
+            crate::doc_parser::extract_naming_and_doc(&i.attrs, &default_name);
 
         // Safety: Explicit export only (check raw doc lines for @openapi tag)
         if !doc_lines.iter().any(|l| l.contains("@openapi")) {
@@ -724,65 +580,8 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
         if let syn::Fields::Named(fields) = &i.fields {
             for field in &fields.named {
                 has_fields = true;
-                let default_field_name = field.ident.as_ref().unwrap().to_string();
-
-                // Extract field info
-                let (mut field_final_name, field_desc, _, field_doc_lines) =
-                    Self::extract_naming_and_doc(&field.attrs, &default_field_name);
-
-                // Apply Rename Rule (if field name matches default and rule exists)
-                // If field has explicit rename (field_final_name != default_field_name), ignore rule.
-                // Wait, extract_naming_and_doc returns rename if explicitly set, else default.
-                // How do we know if it was explicit? We compare.
-                if field_final_name == default_field_name {
-                    if let Some(rule) = &rename_rule {
-                        field_final_name = Self::apply_casing(&field_final_name, rule);
-                    }
-                }
-
-                let (mut field_schema, is_required) = map_syn_type_to_openapi(&field.ty);
-
-                // Field Description
-                if !field_desc.is_empty() {
-                    if let Value::Object(map) = &mut field_schema {
-                        map.insert("description".to_string(), Value::String(field_desc));
-                    }
-                }
-
-                // Field Overrides (@openapi lines)
-                let mut field_openapi_lines = Vec::new();
-                let mut collecting_openapi = false;
-                for line in &field_doc_lines {
-                    let trimmed = line.trim();
-                    if trimmed.starts_with("@openapi") {
-                        collecting_openapi = true;
-                        let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
-                        if !rest.is_empty() && !rest.starts_with("rename") {
-                            field_openapi_lines.push(rest.to_string());
-                        }
-                    } else if collecting_openapi {
-                        field_openapi_lines.push(line.to_string());
-                    }
-                }
-
-                if !field_openapi_lines.is_empty() {
-                    let override_yaml = field_openapi_lines.join("\n");
-                    match serde_yaml::from_str::<Value>(&override_yaml) {
-                        Ok(override_val) => {
-                            if !override_val.is_null() {
-                                json_merge(&mut field_schema, override_val);
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!(
-                                "Failed to parse @openapi override for field '{}' in struct '{}': {}",
-                                default_field_name,
-                                final_name,
-                                e
-                            );
-                        }
-                    }
-                }
+                let (field_final_name, field_schema, is_required) =
+                    Self::process_struct_field(field, &rename_rule);
 
                 properties.insert(field_final_name.clone(), field_schema);
                 if is_required {
@@ -824,7 +623,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
                 collecting_openapi = true;
                 let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
 
-                if !rest.is_empty() && !rest.starts_with("rename") {
+                if !rest.is_empty() && !rest.starts_with("rename") && !rest.starts_with("-type") {
                     if rest.contains('<') {
                         // Blueprint detection
                         if let Some(start) = rest.find('<') {
@@ -908,7 +707,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
         // 1. Extract Info & Renaming
         let default_name = i.ident.to_string();
         let (final_name, enum_desc, rename_rule, doc_lines) =
-            Self::extract_naming_and_doc(&i.attrs, &default_name);
+            crate::doc_parser::extract_naming_and_doc(&i.attrs, &default_name);
 
         // Safety: Explicit export only
         if !doc_lines.iter().any(|l| l.contains("@openapi")) {
@@ -918,19 +717,8 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
 
         let mut variants = Vec::new();
         for v in &i.variants {
-            if matches!(v.fields, syn::Fields::Unit) {
-                let default_variant_name = v.ident.to_string();
-                // Extract variant info (renaming only)
-                let (mut variant_final_name, _, _, _) =
-                    Self::extract_naming_and_doc(&v.attrs, &default_variant_name);
-
-                // Apply Rename Rule
-                if variant_final_name == default_variant_name {
-                    if let Some(rule) = &rename_rule {
-                        variant_final_name = Self::apply_casing(&variant_final_name, rule);
-                    }
-                }
-                variants.push(variant_final_name);
+            if let Some(variant_name) = Self::process_enum_variant(v, &rename_rule) {
+                variants.push(variant_name);
             }
         }
 
@@ -959,7 +747,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
                 collecting_openapi = true;
                 let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
 
-                if !rest.is_empty() && !rest.starts_with("rename") {
+                if !rest.is_empty() && !rest.starts_with("rename") && !rest.starts_with("-type") {
                     if rest.contains('<') {
                         // Blueprint detection
                         if let Some(start) = rest.find('<') {

@@ -36,26 +36,24 @@ oas-forge = "0.1"
 ```rust,no_run
 use oas_forge::Generator;
 
-fn main() {
-    println!("cargo:rerun-if-changed=src");
-    println!("cargo:rerun-if-changed=Cargo.toml");
-  
-    Generator::new()
-        .input("src") // Recursive input directory (where to search for doc comments)
-        .input("lib") // Multiple inputs supported
-        .include("static/security.yaml") // Merge static oas content - optional
-        .include("static/skeleton.json") // Multiple includes supported (yaml and json supported)
-        .output("openapi.yaml") // Full Spec (Strict: requires openapi/info root)
-        // This is for lib exports to be used in other projects (in .include(...))
-        .output_fragments("fragment.json") // Headless Spec (Paths + Components, no Root)
-        // More fine-grained outputs (Relaxed: no validation)
-        .output_schemas("schemas.json") // Components/Schemas only
-        .output_paths("routes.yaml") // Paths only
-        .generate()
-        .expect("Failed to generate OpenAPI spec");
-  
-        // Note: Output file extension determines format (yaml/json)
-}
+println!("cargo:rerun-if-changed=src");
+println!("cargo:rerun-if-changed=Cargo.toml");
+
+Generator::new()
+    .input("src") // Recursive input directory (where to search for doc comments)
+    .input("lib") // Multiple inputs supported
+    .include("static/security.yaml") // Merge static oas content - optional
+    .include("static/skeleton.json") // Multiple includes supported (yaml and json supported)
+    .output("openapi.yaml") // Full Spec (Strict: requires openapi/info root)
+    // This is for lib exports to be used in other projects (in .include(...))
+    .output_fragments("fragment.json") // Headless Spec (Paths + Components, no Root)
+    // More fine-grained outputs (Relaxed: no validation)
+    .output_schemas("schemas.json") // Components/Schemas only
+    .output_paths("routes.yaml") // Paths only
+    .generate()
+    .expect("Failed to generate OpenAPI spec");
+
+    // Note: Output file extension determines format (yaml/json)
 ```
 
 ### Method B: Cargo.toml Metadata

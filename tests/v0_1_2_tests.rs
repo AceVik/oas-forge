@@ -267,50 +267,6 @@ fn test_datetimeutc_literal() {
 }
 
 #[test]
-fn test_insert_params_in_dsl() {
-    let code = r#"
-        /// @route GET /items
-        /// @tag Items
-        ///
-        /// parameters:
-        ///   - name: p
-        ///     in: query
-        ///     schema: { type: integer }
-        fn list_items() {}
-    "#;
-
-    let mut visitor = OpenApiVisitor::default();
-    let syntax = syn::parse_str::<syn::File>(code).unwrap();
-    visitor.visit_file(&syntax);
-
-    // Note: visit_item_fn usually pushes one ExtractedItem per PathItem
-    // Need to find the one we just made.
-    let path_item = visitor.items.last().unwrap();
-
-    if let oas_forge::visitor::ExtractedItem::RouteDSL {
-        content,
-        operation_id,
-        ..
-    } = path_item
-    {
-        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-        let yaml =
-            oas_forge::dsl::parse_route_dsl(&lines, operation_id).expect("Failed to parse DSL");
-
-        let root: Value = serde_yaml::from_str(&yaml).unwrap();
-        let get = &root["paths"]["/items"]["get"];
-
-        let params = get["parameters"]
-            .as_array()
-            .expect("Parameters should be an array");
-        assert_eq!(params.len(), 1);
-        assert_eq!(params[0]["name"], "p");
-    } else {
-        panic!("Expected RouteDSL item, got {:?}", path_item);
-    }
-}
-
-#[test]
 fn test_route_dsl_fragment_insertion() {
     // 1. Setup Registry with Fragment
     let mut registry = Registry::new();
@@ -382,4 +338,46 @@ responses:
         .unwrap();
     assert!(responses.contains_key("404"));
     assert_eq!(responses["404"]["description"], "Not Found");
+}
+
+#[test]
+fn test_insert_params_in_dsl() {
+    let code = r#"
+        /// @route GET /items
+        /// @tag Items
+        ///
+        /// parameters:
+        ///   - name: p
+        ///     in: query
+        ///     schema: { type: integer }
+        fn list_items() {}
+    "#;
+
+    let mut visitor = OpenApiVisitor::default();
+    let syntax = syn::parse_str::<syn::File>(code).unwrap();
+    visitor.visit_file(&syntax);
+
+    let path_item = visitor.items.last().unwrap();
+
+    if let oas_forge::visitor::ExtractedItem::RouteDSL {
+        content,
+        operation_id,
+        ..
+    } = path_item
+    {
+        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+        let yaml =
+            oas_forge::dsl::parse_route_dsl(&lines, operation_id).expect("Failed to parse DSL");
+
+        let root: Value = serde_yaml::from_str(&yaml).unwrap();
+        let get = &root["paths"]["/items"]["get"];
+
+        let params = get["parameters"]
+            .as_array()
+            .expect("Parameters should be an array");
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0]["name"], "p");
+    } else {
+        panic!("Expected RouteDSL item, got {:?}", path_item);
+    }
 }

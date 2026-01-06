@@ -1,4 +1,5 @@
-use crate::visitor::{json_merge, map_syn_type_to_openapi};
+use crate::type_mapper::map_syn_type_to_openapi;
+use crate::visitor::json_merge;
 use regex::Regex;
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -229,8 +230,16 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
                     "application/json"
                 };
 
-                let schema = if schema_ref.contains('<')
-                    || (schema_ref.starts_with('$') && schema_ref.contains('<'))
+                let is_std_generic = schema_ref.starts_with("Option<")
+                    || schema_ref.starts_with("Vec<")
+                    || schema_ref.starts_with("Box<")
+                    || schema_ref.starts_with("Arc<")
+                    || schema_ref.starts_with("Rc<")
+                    || schema_ref.starts_with("Cow<");
+
+                let schema = if !is_std_generic
+                    && (schema_ref.contains('<')
+                        || (schema_ref.starts_with('$') && schema_ref.contains('<')))
                 {
                     json!({ "$ref": schema_ref })
                 } else if let Ok(ty) = syn::parse_str::<syn::Type>(schema_ref) {
@@ -265,10 +274,18 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
                 };
 
                 let effective_unit = is_unit || type_str == "()" || type_str == "unit";
+                let is_std_generic = type_str.starts_with("Option<")
+                    || type_str.starts_with("Vec<")
+                    || type_str.starts_with("Box<")
+                    || type_str.starts_with("Arc<")
+                    || type_str.starts_with("Rc<")
+                    || type_str.starts_with("Cow<");
+
                 let schema = if effective_unit {
                     json!({})
-                } else if type_str.contains('<')
-                    || (type_str.starts_with('$') && type_str.contains('<'))
+                } else if !is_std_generic
+                    && (type_str.contains('<')
+                        || (type_str.starts_with('$') && type_str.contains('<')))
                 {
                     json!({ "$ref": type_str })
                 } else if let Ok(ty) = syn::parse_str::<syn::Type>(type_str) {
@@ -327,12 +344,10 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
 
             if collecting_openapi {
                 dsl_override_buffer.push(line.to_string());
+            } else if summary.is_none() {
+                summary = Some(trimmed.to_string());
             } else {
-                if summary.is_none() {
-                    summary = Some(trimmed.to_string());
-                } else {
-                    description_buffer.push(line.to_string());
-                }
+                description_buffer.push(line.to_string());
             }
         }
     }

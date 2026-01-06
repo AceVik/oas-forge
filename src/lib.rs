@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![allow(clippy::collapsible_if)]
 pub mod config;
+pub mod doc_parser;
 pub mod dsl;
 pub mod error;
 pub mod generics;
@@ -8,6 +9,7 @@ pub mod index;
 pub mod merger;
 pub mod preprocessor;
 pub mod scanner;
+pub mod type_mapper;
 pub mod visitor;
 
 use config::Config;
@@ -181,9 +183,9 @@ impl Generator {
         if !self.fragment_outputs.is_empty() {
             let mut fragment = merged_value.clone();
             if let serde_yaml::Value::Mapping(ref mut map) = fragment {
-                map.remove(&serde_yaml::Value::String("openapi".to_string()));
-                map.remove(&serde_yaml::Value::String("info".to_string()));
-                map.remove(&serde_yaml::Value::String("servers".to_string()));
+                map.remove(serde_yaml::Value::String("openapi".to_string()));
+                map.remove(serde_yaml::Value::String("info".to_string()));
+                map.remove(serde_yaml::Value::String("servers".to_string()));
             }
 
             for output in &self.fragment_outputs {

@@ -21,7 +21,7 @@ pub struct Snippet {
 
 // DX Macros Preprocessor
 // Implementation of auto-quoting and short-hands.
-fn preprocess_macros(snippet: &Snippet, registry: &mut Registry) -> Snippet {
+pub fn preprocess_macros(snippet: &Snippet, registry: &mut Registry) -> Snippet {
     let content = &snippet.content;
     let mut new_lines = Vec::new();
 
