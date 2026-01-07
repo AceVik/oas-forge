@@ -38,49 +38,28 @@ pub fn preprocess_macros(snippet: &Snippet, registry: &mut Registry) -> Snippet 
     let macro_extend_re =
         MACRO_EXTEND_RE.get_or_init(|| Regex::new(r"^(\s*)@extend\s+(.+)$").unwrap());
 
-    static MACRO_RETURN_RE: OnceLock<Regex> = OnceLock::new();
-    let macro_return_re = MACRO_RETURN_RE.get_or_init(|| {
-        Regex::new(r#"^(\s*)@return\s+(\d{3})\s*:\s*([^\s"]+)(?:\s+"(.*)")?$"#).unwrap()
-    });
+    // static MACRO_RETURN_RE: OnceLock<Regex> = OnceLock::new();
+    // let macro_return_re = MACRO_RETURN_RE.get_or_init(|| {
+    //    Regex::new(r#"^(\s*)@return\s+(\d{3})\s*:\s*([^\s"]+)(?:\s+"(.*)")?$"#).unwrap()
+    // });
 
     static ARRAY_SHORT_RE: OnceLock<Regex> = OnceLock::new();
     let array_short_re =
         ARRAY_SHORT_RE.get_or_init(|| Regex::new(r"\$Vec<([a-zA-Z0-9_]+)>").unwrap());
 
     for line in content.lines() {
-        let mut current_lines = vec![line.to_string()];
+        let current_lines = vec![line.to_string()];
 
-        // 0. Expand @return (Route Helper)
+        // 0. Remove conflicting @return expansion
+        // dsl.rs handles @return differently and robustly.
+        // Expanding it here creates a conflict because dsl.rs does not recognize the expanded YAML.
+
+        /*
+        // Was:
         if let Some(caps) = macro_return_re.captures(line) {
-            let indent = &caps[1];
-            let status = &caps[2];
-            let schema_raw = &caps[3];
-            let desc = caps.get(4).map(|m| m.as_str()).unwrap_or("Success");
-
-            // If schema is $Vec<T>, it will be processed in the next step.
-            // If schema is $User, we wrap it in $ref (unless it's already a ref?)
-            // We assume the macro user provides a "Ref-like" string or a "$Vec" string.
-            // We output "$ref: schema_raw" and let further passes resolve "$ref: $User".
-            // However, if schema_raw is `$Vec<T>`, we want the result to be:
-            // schema:
-            //   type: array...
-            // NOT `schema: $ref: { type: array }` -> Invalid.
-
-            // Heuristic: If schema starts with `$Vec`, use it directly as the schema value.
-            // Else use `$ref: schema_raw`.
-
-            let schema_line = if schema_raw.starts_with("$Vec") {
-                format!("{0}        {1}", indent, schema_raw) // Direct inject
-            } else {
-                format!("{0}        $ref: {1}", indent, schema_raw) // Ref inject
-            };
-
-            let expanded = format!(
-                "{0}'{1}':\n{0}  description: \"{2}\"\n{0}  content:\n{0}    application/json:\n{0}      schema:\n{3}",
-                indent, status, desc, schema_line
-            );
-            current_lines = expanded.lines().map(|s| s.to_string()).collect();
+             // ...
         }
+        */
 
         for sub_line in current_lines {
             let mut processed_line = sub_line.clone();
@@ -411,38 +390,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_return_helper() {
-        let mut registry = Registry::new();
-        let snippet = Snippet {
-            content: "@return 200: $User \"Success\"".to_string(),
-            file_path: PathBuf::from("test.rs"),
-            line_number: 1,
-            operation_id: None,
-        };
-        let processed = preprocess_macros(&snippet, &mut registry);
-        assert!(processed.content.contains("'200':"));
-        assert!(processed.content.contains("description: \"Success\""));
-        assert!(processed.content.contains("schema:"));
-        assert!(processed.content.contains("$ref: $User"));
-    }
 
-    #[test]
-    fn test_return_helper_vec() {
-        let mut registry = Registry::new();
-        let snippet = Snippet {
-            content: "@return 400: $Vec<Error>".to_string(),
-            file_path: PathBuf::from("test.rs"),
-            line_number: 1,
-            operation_id: None,
-        };
-        let processed = preprocess_macros(&snippet, &mut registry);
-        assert!(processed.content.contains("'400':"));
-        assert!(processed.content.contains("type: array"));
-        assert!(
-            processed
-                .content
-                .contains("$ref: \"#/components/schemas/Error\"")
-        );
-    }
+    // tests for @return removed as logic moved to dsl.rs
 }

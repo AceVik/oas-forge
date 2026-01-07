@@ -356,7 +356,26 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
         operation["summary"] = json!(s);
     }
     if !description_buffer.is_empty() {
-        operation["description"] = json!(description_buffer.join("\n"));
+        // Calculate min indentation (ignoring empty lines)
+        let min_indent = description_buffer
+            .iter()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| l.len() - l.trim_start().len())
+            .min()
+            .unwrap_or(0);
+
+        let cleaned_desc: Vec<String> = description_buffer
+            .iter()
+            .map(|l| {
+                if l.len() >= min_indent {
+                    l[min_indent..].to_string()
+                } else {
+                    l.clone()
+                }
+            })
+            .collect();
+
+        operation["description"] = json!(cleaned_desc.join("\n"));
     }
 
     // Merge Overrides
