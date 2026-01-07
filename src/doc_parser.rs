@@ -23,17 +23,52 @@ pub fn apply_casing(text: &str, case: &str) -> String {
         "lowercase" => text.to_lowercase(),
         "UPPERCASE" => text.to_uppercase(),
         "PascalCase" => {
-            let mut c = text.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+            // Check if it contains underscores (snake_case -> PascalCase)
+            if text.contains('_') {
+                text.split('_')
+                    .map(|part| {
+                        let mut c = part.chars();
+                        match c.next() {
+                            None => String::new(),
+                            Some(f) => f.to_uppercase().to_string() + c.as_str(),
+                        }
+                    })
+                    .collect()
+            } else {
+                // Assume it is already Pascal or camel, just ensure first char is Upper
+                let mut c = text.chars();
+                match c.next() {
+                    None => String::new(),
+                    Some(f) => f.to_uppercase().to_string() + c.as_str(),
+                }
             }
         }
         "camelCase" => {
-            let mut c = text.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f.to_lowercase().collect::<String>() + c.as_str(),
+            // Check if it contains underscores (snake_case -> camelCase)
+            if text.contains('_') {
+                let parts: Vec<&str> = text.split('_').collect();
+                if parts.is_empty() {
+                    return String::new();
+                }
+                let first = parts[0].to_lowercase();
+                let rest: String = parts[1..]
+                    .iter()
+                    .map(|part| {
+                        let mut c = part.chars();
+                        match c.next() {
+                            None => String::new(),
+                            Some(f) => f.to_uppercase().to_string() + c.as_str(),
+                        }
+                    })
+                    .collect();
+                first + &rest
+            } else {
+                // Just ensure first char is Lower
+                let mut c = text.chars();
+                match c.next() {
+                    None => String::new(),
+                    Some(f) => f.to_lowercase().to_string() + c.as_str(),
+                }
             }
         }
         "snake_case" => {

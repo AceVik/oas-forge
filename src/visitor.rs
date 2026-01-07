@@ -259,6 +259,8 @@ impl OpenApiVisitor {
             crate::doc_parser::extract_naming_and_doc(&field.attrs, &default_field_name);
 
         // Apply Rename Rule
+        // Only apply if the name hasn't been explicitly renamed via attributes
+        // AND there is a rename rule present.
         if field_final_name == default_field_name {
             if let Some(rule) = rename_rule {
                 field_final_name = crate::doc_parser::apply_casing(&field_final_name, rule);

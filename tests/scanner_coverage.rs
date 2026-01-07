@@ -21,9 +21,7 @@ fn test_macro_vec_expansion() {
     );
 }
 
-
-    // Tests for @return expansion removed (Feature disabled to fix bug)
-
+// Tests for @return expansion removed (Feature disabled to fix bug)
 
 #[test]
 fn test_macro_insert_shorthand() {
