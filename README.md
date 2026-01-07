@@ -21,8 +21,6 @@
                        v
                  [openapi.yaml]
 ```
-**Note:** `oas-forge` is in early development and not tested on wide field. 
-**There may be bugs.** The Route DSL and Type Reflection features are actively evolving. Feedback and contributions are welcome!
 ---
 
 ## 🛠️ Integration Guide
@@ -691,6 +689,101 @@ Use `@extend` when you want to merge properties, such as adding security require
 | `Decimal`, `BigDecimal` | `string` | `decimal` | String representation to preserve precision. |
 | `ObjectId` | `string` | `objectid` | MongoDB/BSON identifier |
 | `serde_json::Value` | - | - | Maps to `{}` (Any Type). |
+
+### Axum/Swagger basic example without route dsl
+```rust,ignore
+use crate::app::AppState;
+use axum::{
+    Router,
+    http::header,
+    response::{Html, IntoResponse},
+    routing::get,
+};
+use std::env;
+
+const OPENAPI_SPEC: &str = include_str!("../../openapi.yaml");
+
+const OIDC_PLACEHOLDER: &str = "$$OIDC_URL";
+const DEFAULT_OIDC_URL: &str = "https://oidc.example.com";
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/openapi.yaml", get(serve_spec))
+        .route("/swagger", get(serve_ui))
+}
+
+/// @openapi
+/// paths:
+///   /docs/openapi.yaml:
+///     get:
+///       tags: [System]
+///       summary: Get OpenAPI Specification
+///       description: Returns the dynamic OpenAPI 3.1.1 specification with runtime configuration.
+///       responses:
+///         '200':
+///           description: The OpenAPI YAML file.
+///           content:
+///             application/yaml:
+///               schema:
+///                 type: string
+async fn serve_spec() -> impl IntoResponse {
+    let oidc_url = env::var("OIDC_URL").unwrap_or_else(|_| DEFAULT_OIDC_URL.to_string());
+    let dynamic_spec = OPENAPI_SPEC.replace(OIDC_PLACEHOLDER, &oidc_url);
+
+    ([(header::CONTENT_TYPE, "application/yaml")], dynamic_spec)
+}
+
+/// @openapi
+/// paths:
+///   /docs/swagger:
+///     get:
+///       tags: [System]
+///       summary: Swagger UI
+///       description: Renders the Swagger UI.
+///       responses:
+///         '200':
+///           description: HTML Page containing the Swagger UI.
+///           content:
+///             text/html:
+///               schema:
+///                 type: string
+async fn serve_ui() -> impl IntoResponse {
+    let html = r#"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Starr API - Swagger UI</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist/swagger-ui.css" />
+    <style>
+        body { margin: 0; padding: 0; }
+        #swagger-ui { max-width: 1400px; margin: 0 auto; }
+    </style>
+</head>
+<body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script>
+    <script>
+        window.onload = () => {
+            window.ui = SwaggerUIBundle({
+                url: '/docs/openapi.yaml',
+                dom_id: '#swagger-ui',
+                deepLinking: true,
+                presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIBundle.SwaggerUIStandalonePreset
+                ],
+                layout: "BaseLayout",
+            });
+        };
+    </script>
+</body>
+</html>
+"#;
+    Html(html)
+}
+```
 
 ## 📜 License
 
