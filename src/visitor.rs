@@ -255,7 +255,7 @@ impl OpenApiVisitor {
         let default_field_name = field.ident.as_ref().unwrap().to_string();
 
         // Extract field info
-        let (mut field_final_name, field_desc, _, field_doc_lines) =
+        let (mut field_final_name, field_desc, _, field_doc_lines, _, _) =
             crate::doc_parser::extract_naming_and_doc(&field.attrs, &default_field_name);
 
         // Apply Rename Rule
@@ -274,6 +274,12 @@ impl OpenApiVisitor {
             if let Value::Object(map) = &mut field_schema {
                 map.insert("description".to_string(), Value::String(field_desc));
             }
+        }
+
+        // Validation Attributes
+        let validation_props = crate::doc_parser::extract_validation(&field.attrs);
+        if !validation_props.as_object().unwrap().is_empty() {
+            json_merge(&mut field_schema, validation_props);
         }
 
         // Field Overrides (@openapi lines)
@@ -321,7 +327,7 @@ impl OpenApiVisitor {
         }
         let default_variant_name = variant.ident.to_string();
         // Extract variant info (renaming only)
-        let (mut variant_final_name, _, _, _) =
+        let (mut variant_final_name, _, _, _, _, _) =
             crate::doc_parser::extract_naming_and_doc(&variant.attrs, &default_variant_name);
 
         // Apply Rename Rule
@@ -418,6 +424,27 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
                                 current_block_type = None;
                                 start_line = attr.span().start().line;
                                 current_block_lines.push(raw_line); // preserve header
+                            } else if trimmed.starts_with("@route") {
+                                // Flush previous unless it was just general docs
+                                if !current_block_lines.is_empty() && current_block_type.is_some() {
+                                    // If we were building a type, flush it
+                                    let body = current_block_lines.join("\n");
+                                    if let Some(name) = current_block_type.take() {
+                                        let wrapped = wrap_in_schema(&name, &body);
+                                        self.items.push(ExtractedItem::Schema {
+                                            name: Some(name),
+                                            content: wrapped,
+                                            line: start_line,
+                                        });
+                                    }
+                                    current_block_lines.clear();
+                                    start_line = attr.span().start().line;
+                                } else if current_block_lines.is_empty() {
+                                    start_line = attr.span().start().line;
+                                }
+
+                                current_block_type = None;
+                                current_block_lines.push(raw_line);
                             } else if !current_block_lines.is_empty()
                                 || current_block_type.is_some()
                             {
@@ -438,7 +465,16 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
                             line: start_line,
                         });
                     } else {
-                        self.parse_doc_block(&body, None, start_line);
+                        // Check if it's a virtual route
+                        if body.contains("@route") {
+                            self.items.push(ExtractedItem::RouteDSL {
+                                content: body,
+                                line: start_line,
+                                operation_id: format!("virtual_route_{}", start_line),
+                            });
+                        } else {
+                            self.parse_doc_block(&body, None, start_line);
+                        }
                     }
                     current_block_lines.clear();
                 }
@@ -456,7 +492,16 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
                     line: start_line,
                 });
             } else {
-                self.parse_doc_block(&body, None, start_line);
+                // Check if it's a virtual route
+                if body.contains("@route") {
+                    self.items.push(ExtractedItem::RouteDSL {
+                        content: body,
+                        line: start_line,
+                        operation_id: format!("virtual_route_{}", start_line),
+                    });
+                } else {
+                    self.parse_doc_block(&body, None, start_line);
+                }
             }
         }
 
@@ -566,7 +611,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
     fn visit_item_struct(&mut self, i: &'ast ItemStruct) {
         // 1. Extract Info & Renaming
         let default_name = i.ident.to_string();
-        let (final_name, struct_desc, rename_rule, doc_lines) =
+        let (final_name, struct_desc, rename_rule, doc_lines, _, _) =
             crate::doc_parser::extract_naming_and_doc(&i.attrs, &default_name);
 
         // Safety: Explicit export only (check raw doc lines for @openapi tag)
@@ -708,7 +753,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
     fn visit_item_enum(&mut self, i: &'ast ItemEnum) {
         // 1. Extract Info & Renaming
         let default_name = i.ident.to_string();
-        let (final_name, enum_desc, rename_rule, doc_lines) =
+        let (final_name, enum_desc, rename_rule, doc_lines, serde_tag, serde_content) =
             crate::doc_parser::extract_naming_and_doc(&i.attrs, &default_name);
 
         // Safety: Explicit export only
@@ -717,6 +762,162 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
             return;
         }
 
+        // ADJACENTLY TAGGED ENUM LOGIC
+        if let Some(tag_prop) = serde_tag {
+            // This is a "oneOf" container enum
+            // 1. Generate Variant Schemas
+            let mut variant_refs = Vec::new();
+            let mut mapping = serde_json::Map::new();
+
+            for v in &i.variants {
+                let default_variant_name = v.ident.to_string();
+                let (variant_final_value, variant_desc, _, _, _, _) =
+                    crate::doc_parser::extract_naming_and_doc(&v.attrs, &default_variant_name);
+
+                // Apply Rename Rule (to the TAG value, NOT the schema name)
+                let tag_value = if variant_final_value == default_variant_name {
+                    if let Some(rule) = &rename_rule {
+                        crate::doc_parser::apply_casing(&variant_final_value, rule)
+                    } else {
+                        variant_final_value
+                    }
+                } else {
+                    variant_final_value
+                };
+
+                // Variant Schema Name: {EnumName}{VariantName} (PascalCase)
+                let variant_schema_name = format!("{}{}", final_name, v.ident);
+                let variant_ref = format!("#/components/schemas/{}", variant_schema_name);
+
+                variant_refs.push(json!({ "$ref": variant_ref }));
+                mapping.insert(tag_value.clone(), json!(variant_ref));
+
+                // Build Variant Schema
+                let mut properties = serde_json::Map::new();
+                let mut required = vec![tag_prop.clone()];
+
+                // Force Tag Property
+                properties.insert(
+                    tag_prop.clone(),
+                    json!({
+                        "type": "string",
+                        "enum": [tag_value],
+                        "description": format!("Discriminator: {}", tag_value)
+                    }),
+                );
+
+                // Variant Fields
+                let mut content_schema = None;
+
+                if let syn::Fields::Named(fields) = &v.fields {
+                    let mut inner_props = serde_json::Map::new();
+                    let mut inner_req = Vec::new();
+
+                    for field in &fields.named {
+                        let (f_name, f_schema, f_req) =
+                            Self::process_struct_field(field, &rename_rule);
+                        inner_props.insert(f_name.clone(), f_schema);
+                        if f_req {
+                            inner_req.push(f_name);
+                        }
+                    }
+                    content_schema = Some(json!({
+                        "type": "object",
+                        "properties": inner_props,
+                        "required": inner_req
+                    }));
+                } else if let syn::Fields::Unnamed(fields) = &v.fields {
+                    // Tuple Variants
+                    if fields.unnamed.len() == 1 {
+                        let field = &fields.unnamed[0];
+                        let (schema, _) = crate::type_mapper::map_syn_type_to_openapi(&field.ty);
+                        content_schema = Some(schema);
+                    } else {
+                        log::warn!(
+                            "Tuple variants with >1 fields in tagged enums are complex. Skipping fields for {}",
+                            default_variant_name
+                        );
+                    }
+                }
+
+                if let Some(content_prop) = &serde_content {
+                    // ADJACENTLY TAGGED: { "tag": "...", "content": <Inner> }
+                    if let Some(inner) = content_schema {
+                        properties.insert(content_prop.clone(), inner);
+                        required.push(content_prop.clone());
+                    }
+                } else {
+                    // INTERNALLY TAGGED: { "tag": "...", ...fields }
+                    // Only works for Struct variants or Unit variants.
+                    // Tuple variants in Internally Tagged are usually invalid or map to something else, but here we merge fields.
+                    if let Some(inner) = content_schema {
+                        if let Some(props) = inner.get("properties").and_then(|p| p.as_object()) {
+                            for (k, v) in props {
+                                properties.insert(k.clone(), v.clone());
+                            }
+                        }
+                        if let Some(req) = inner.get("required").and_then(|r| r.as_array()) {
+                            for r in req {
+                                if let Some(s) = r.as_str() {
+                                    required.push(s.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let mut variant_schema = json!({
+                    "type": "object",
+                    "properties": properties,
+                    "required": required
+                });
+
+                if !variant_desc.is_empty() {
+                    json_merge(&mut variant_schema, json!({ "description": variant_desc }));
+                }
+
+                // Emit Variant Schema
+                if let Ok(generated) = serde_yaml::to_string(&variant_schema) {
+                    let trimmed = generated.trim_start_matches("---\n").to_string();
+                    let wrapped = wrap_in_schema(&variant_schema_name, &trimmed);
+                    self.items.push(ExtractedItem::Schema {
+                        name: Some(variant_schema_name),
+                        content: wrapped,
+                        line: v.span().start().line,
+                    });
+                }
+            }
+
+            // 2. Generate Main Discriminator Schema
+            let mut main_schema = json!({
+                "type": "object",
+                "oneOf": variant_refs,
+                "discriminator": {
+                    "propertyName": tag_prop,
+                    "mapping": mapping
+                }
+            });
+
+            if !enum_desc.is_empty() {
+                json_merge(&mut main_schema, json!({ "description": enum_desc }));
+            }
+
+            // Emit Main Schema
+            if let Ok(generated) = serde_yaml::to_string(&main_schema) {
+                let trimmed = generated.trim_start_matches("---\n").to_string();
+                let wrapped = wrap_in_schema(&final_name, &trimmed);
+                self.items.push(ExtractedItem::Schema {
+                    name: Some(final_name),
+                    content: wrapped,
+                    line: i.span().start().line,
+                });
+            }
+
+            visit::visit_item_enum(self, i);
+            return;
+        }
+
+        // STANDARD STRING ENUM LOGIC
         let mut variants = Vec::new();
         for v in &i.variants {
             if let Some(variant_name) = Self::process_enum_variant(v, &rename_rule) {

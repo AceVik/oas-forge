@@ -208,7 +208,17 @@ Supported top-level keys: `parameters`, `requestBody`, `responses`, `security`, 
 /// externalDocs:
 ///   url: https://example.com/docs
 ///   description: More info
+///   description: More info
 fn complex_handler() {}
+```
+
+**7. Virtual Routes**
+Define routes in module-level documentation (e.g., `src/main.rs`) without an attached function. Useful for legacy endpoints or proxies.
+
+```rust,ignore
+//! @route GET /legacy/proxy
+//! @tag Legacy
+//! @return 200: "Proxy Response"
 ```
 
 ### 🏛️ Legacy / Manual Mode
@@ -444,6 +454,59 @@ pub struct Profile {
     
     /// @openapi rename "lastName"
     pub last_name: String,  // -> "lastName" (override)
+}
+```
+
+### 🏷️ Adjacently Tagged Enums
+Supports `#[serde(tag = "...")]` (Internally Tagged) and `#[serde(tag = "...", content = "...")]` (Adjacently Tagged) to generate `oneOf` schemas with a `discriminator`.
+
+```rust,ignore
+/// @openapi
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum StorageConfig {
+    /// Generates schema "StorageConfigLocal"
+    Local { root_path: String },
+    
+    /// Generates schema "StorageConfigS3"
+    S3 { bucket: String, region: String },
+}
+
+/// @openapi
+#[derive(Serialize)]
+#[serde(tag = "t", content = "c")]
+pub enum MyResult {
+    Ok(String),
+    Err { code: i32 }
+}
+```
+**Generates**:
+- `StorageConfig` container with `oneOf`.
+- `StorageConfigLocal`: `{ type: "local", root_path: "..." }`
+- `MyResult`: container.
+- `MyResultOk`: `{ t: "Ok", c: { type: "string" } }`
+- `MyResultErr`: `{ t: "Err", c: { type: "object", properties: { code: ... } } }`
+
+### ✅ Validation Attributes
+Supports the `validator` crate's `#[validate(...)]` attributes to automatically populate OpenAPI keywords.
+
+```rust,ignore
+#[derive(Validate)]
+pub struct UserDto {
+    #[validate(email)]
+    pub email: String,              // -> format: email
+
+    #[validate(url)]
+    pub website: String,            // -> format: uri
+
+    #[validate(length(min = 3, max = 20))]
+    pub username: String,           // -> minLength: 3, maxLength: 20
+
+    #[validate(range(min = 18, max = 100))]
+    pub age: u8,                    // -> minimum: 18, maximum: 100
+    
+    #[validate(regex = "path")]     // -> pattern: "..." (if literal provided)
+    pub code: String,
 }
 ```
 

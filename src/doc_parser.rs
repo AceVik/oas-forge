@@ -94,13 +94,22 @@ pub fn apply_casing(text: &str, case: &str) -> String {
 pub fn extract_naming_and_doc(
     attrs: &[Attribute],
     default_name: &str,
-) -> (String, String, Option<String>, Vec<String>) {
+) -> (
+    String,
+    String,
+    Option<String>,
+    Vec<String>,
+    Option<String>,
+    Option<String>,
+) {
     let mut doc_lines = Vec::new();
     // We collect cleaned lines here (without @openapi tags)
     let mut clean_doc_lines = Vec::new();
 
     let mut final_name = default_name.to_string();
     let mut rename_rule = None;
+    let mut serde_tag = None;
+    let mut serde_content = None;
 
     // 1. Check Serde Attributes (Lower Precedence)
     for attr in attrs {
@@ -124,6 +133,20 @@ pub fn extract_naming_and_doc(
                                 }) = nv.value
                                 {
                                     rename_rule = Some(s.value());
+                                }
+                            } else if nv.path.is_ident("tag") {
+                                if let Expr::Lit(ExprLit {
+                                    lit: Lit::Str(s), ..
+                                }) = nv.value
+                                {
+                                    serde_tag = Some(s.value());
+                                }
+                            } else if nv.path.is_ident("content") {
+                                if let Expr::Lit(ExprLit {
+                                    lit: Lit::Str(s), ..
+                                }) = nv.value
+                                {
+                                    serde_content = Some(s.value());
                                 }
                             }
                         }
@@ -178,5 +201,109 @@ pub fn extract_naming_and_doc(
         clean_doc_lines.join(" "),
         rename_rule,
         doc_lines,
+        serde_tag,
+        serde_content,
     )
+}
+
+use serde_json::{Value, json};
+
+/// Extracts validation attributes from `#[validate(...)]` and maps them to OpenAPI properties.
+pub fn extract_validation(attrs: &[Attribute]) -> Value {
+    let mut validation_schema = serde_json::Map::new();
+
+    for attr in attrs {
+        if attr.path().is_ident("validate") {
+            if let Meta::List(list) = &attr.meta {
+                if let Ok(nested) =
+                    list.parse_args_with(Punctuated::<Meta, syn::Token![,]>::parse_terminated)
+                {
+                    for meta in nested {
+                        match meta {
+                            // Helper: #[validate(email)]
+                            Meta::Path(p) if p.is_ident("email") => {
+                                validation_schema.insert("format".to_string(), json!("email"));
+                            }
+                            // Helper: #[validate(url)]
+                            Meta::Path(p) if p.is_ident("url") => {
+                                validation_schema.insert("format".to_string(), json!("uri"));
+                            }
+                            // Helper: #[validate(length(min = 1, max = 10))]
+                            Meta::List(list) if list.path.is_ident("length") => {
+                                if let Ok(args) = list.parse_args_with(
+                                    Punctuated::<Meta, syn::Token![,]>::parse_terminated,
+                                ) {
+                                    for arg in args {
+                                        if let Meta::NameValue(nv) = arg {
+                                            if let Expr::Lit(ExprLit {
+                                                lit: Lit::Int(i), ..
+                                            }) = nv.value
+                                            {
+                                                if let Ok(val) = i.base10_parse::<u64>() {
+                                                    if nv.path.is_ident("min") {
+                                                        validation_schema.insert(
+                                                            "minLength".to_string(),
+                                                            json!(val),
+                                                        );
+                                                    } else if nv.path.is_ident("max") {
+                                                        validation_schema.insert(
+                                                            "maxLength".to_string(),
+                                                            json!(val),
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            // Helper: #[validate(range(min = 1, max = 10))]
+                            Meta::List(list) if list.path.is_ident("range") => {
+                                if let Ok(args) = list.parse_args_with(
+                                    Punctuated::<Meta, syn::Token![,]>::parse_terminated,
+                                ) {
+                                    for arg in args {
+                                        if let Meta::NameValue(nv) = arg {
+                                            if let Expr::Lit(ExprLit {
+                                                lit: Lit::Int(i), ..
+                                            }) = nv.value
+                                            {
+                                                if let Ok(val) = i.base10_parse::<i64>() {
+                                                    if nv.path.is_ident("min") {
+                                                        validation_schema.insert(
+                                                            "minimum".to_string(),
+                                                            json!(val),
+                                                        );
+                                                    } else if nv.path.is_ident("max") {
+                                                        validation_schema.insert(
+                                                            "maximum".to_string(),
+                                                            json!(val),
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            // Helper: #[validate(regex = "path")] or #[validate(pattern = "...")]
+                            Meta::NameValue(nv) => {
+                                if nv.path.is_ident("pattern") {
+                                    if let Expr::Lit(ExprLit {
+                                        lit: Lit::Str(s), ..
+                                    }) = nv.value
+                                    {
+                                        validation_schema
+                                            .insert("pattern".to_string(), json!(s.value()));
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Value::Object(validation_schema)
 }
