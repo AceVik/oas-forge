@@ -830,7 +830,15 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
                     // Tuple Variants
                     if fields.unnamed.len() == 1 {
                         let field = &fields.unnamed[0];
-                        let (schema, _) = crate::type_mapper::map_syn_type_to_openapi(&field.ty);
+                        let (mut schema, _) =
+                            crate::type_mapper::map_syn_type_to_openapi(&field.ty);
+
+                        // Apply validation attributes
+                        let validation = crate::doc_parser::extract_validation(&field.attrs);
+                        if validation.is_object() {
+                            crate::visitor::json_merge(&mut schema, validation);
+                        }
+
                         content_schema = Some(schema);
                     } else {
                         log::warn!(
