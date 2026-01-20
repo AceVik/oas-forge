@@ -229,6 +229,7 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
                 } else {
                     "application/json"
                 };
+                let mut is_required = !schema_ref.starts_with("Option<");
 
                 let is_std_generic = schema_ref.starts_with("Option<")
                     || schema_ref.starts_with("Vec<")
@@ -250,8 +251,13 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
                     json!({ "$ref": format!("#/components/schemas/{}", schema_ref) })
                 };
 
+                if parts.iter().any(|&p| p == "required") {
+                    is_required = true;
+                }
+
                 operation["requestBody"] = json!({
-                    "content": { mime: { "schema": schema } }
+                    "content": { mime: { "schema": schema } },
+                    "required": is_required
                 });
             }
         } else if trimmed.starts_with("@return") {
