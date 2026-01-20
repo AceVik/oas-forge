@@ -135,9 +135,11 @@ fn test_body_parsing() {
     let lines = vec!["@route POST /users".to_string(), "@body User".to_string()];
     let yaml = parse_route_dsl(&lines, "op").unwrap();
     let root: Value = serde_yaml::from_str(&yaml).unwrap();
-    let content = &root["paths"]["/users"]["post"]["requestBody"]["content"]["application/json"];
+    let body = &root["paths"]["/users"]["post"]["requestBody"];
+    let content = &body["content"]["application/json"];
 
     assert_eq!(content["schema"]["$ref"], "$User");
+    assert_eq!(body["required"], true);
 }
 
 #[test]
@@ -152,6 +154,44 @@ fn test_body_custom_mime() {
 
     assert!(content.get("application/xml").is_some());
     assert!(content.get("application/json").is_none());
+}
+
+#[test]
+fn test_body_required() {
+    // Case 1: Option<T> -> required: false
+    let lines = vec![
+        "@route POST /users".to_string(),
+        "@body Option<User>".to_string(),
+    ];
+    let yaml = parse_route_dsl(&lines, "op").unwrap();
+    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    assert_eq!(
+        root["paths"]["/users"]["post"]["requestBody"]["required"],
+        false
+    );
+
+    // Case 2: Option<T> + explicit 'required' -> required: true
+    let lines = vec![
+        "@route POST /users".to_string(),
+        "@body Option<User> required".to_string(),
+    ];
+    let yaml = parse_route_dsl(&lines, "op").unwrap();
+    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    assert_eq!(
+        root["paths"]["/users"]["post"]["requestBody"]["required"],
+        true
+    );
+
+    // Case 3: Custom MIME + required -> required: true
+    let lines = vec![
+        "@route POST /upload".to_string(),
+        "@body Image image/png required".to_string(),
+    ];
+    let yaml = parse_route_dsl(&lines, "op").unwrap();
+    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let body = &root["paths"]["/upload"]["post"]["requestBody"];
+    assert_eq!(body["required"], true);
+    assert!(body["content"].get("image/png").is_some());
 }
 
 #[test]
