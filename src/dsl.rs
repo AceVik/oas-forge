@@ -263,6 +263,13 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
 
                 let (type_str, desc, is_unit) = if residue.starts_with('"') {
                     ("()", Some(residue.trim_matches('"').to_string()), true)
+                } else if residue.ends_with('"') && residue.contains(" \"") {
+                    let desc_start = residue.rfind(" \"").unwrap();
+                    (
+                        residue[..desc_start].trim(),
+                        Some(residue[desc_start + 2..residue.len() - 1].to_string()),
+                        false,
+                    )
                 } else if let Some(quote_start) = residue.find('"') {
                     (
                         residue[..quote_start].trim(),
@@ -283,6 +290,9 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
 
                 let schema = if effective_unit {
                     json!({})
+                } else if type_str.starts_with('{') {
+                    serde_yaml_ng::from_str(type_str)
+                        .unwrap_or_else(|_| json!({ "$ref": type_str }))
                 } else if !is_std_generic
                     && (type_str.contains('<')
                         || (type_str.starts_with('$') && type_str.contains('<')))
@@ -381,7 +391,7 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
     // Merge Overrides
     if !dsl_override_buffer.is_empty() {
         let override_yaml = dsl_override_buffer.join("\n");
-        if let Ok(val) = serde_yaml::from_str::<Value>(&override_yaml) {
+        if let Ok(val) = serde_yaml_ng::from_str::<Value>(&override_yaml) {
             if !val.is_null() {
                 json_merge(&mut operation, val);
             }
@@ -391,25 +401,25 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
     // Validation (Path Params)
     let validation_re = Regex::new(r"\{(\w+)\}").unwrap();
     if !method.is_empty() && !path.is_empty() {
-        // ... (Checking path params matches declared)
         for cap in validation_re.captures_iter(&path) {
             let var = cap.get(1).unwrap().as_str();
             if !declared_path_params.contains(var) {
-                // Return error or panic? Visitor panicked.
-                // We should probably panic to maintain behavior or return Result.
-                // Panic for now.
-                panic!(
-                    "Missing definition for path parameter '{}' in route '{}'",
-                    var, path
+                log::error!(
+                    "Missing definition for path parameter '{}' in route '{}'. Skipping route.",
+                    var,
+                    path
                 );
+                return None;
             }
         }
-        for declared in declared_path_params {
+        for declared in &declared_path_params {
             if !path.contains(&format!("{{{}}}", declared)) {
-                panic!(
-                    "Declared path parameter '{}' is unused in route '{}'",
-                    declared, path
+                log::error!(
+                    "Declared path parameter '{}' is unused in route '{}'. Skipping route.",
+                    declared,
+                    path
                 );
+                return None;
             }
         }
 
@@ -425,7 +435,7 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
 
         let path_item = json!({ "paths": Value::Object(path_map) });
 
-        if let Ok(generated) = serde_yaml::to_string(&path_item) {
+        if let Ok(generated) = serde_yaml_ng::to_string(&path_item) {
             return Some(generated.trim_start_matches("---\n").to_string());
         }
     }

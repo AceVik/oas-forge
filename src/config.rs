@@ -1,37 +1,39 @@
+#[cfg(feature = "cli")]
 use clap::Parser;
 use serde::Deserialize;
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize, Parser, Default, Clone)]
+#[derive(Debug, Deserialize, Default, Clone)]
+#[cfg_attr(feature = "cli", derive(Parser))]
 #[serde(default)]
-#[command(author, version, about, long_about = None)]
+#[cfg_attr(feature = "cli", command(author, version, about, long_about = None))]
 pub struct Config {
     /// Input directories to scan for Rust files and OpenAPI fragments
-    #[arg(short = 'i', long = "input")]
+    #[cfg_attr(feature = "cli", arg(short = 'i', long = "input"))]
     pub input: Option<Vec<PathBuf>>,
 
     /// Specific files to include (e.g., .json, .yaml)
-    #[arg(long = "include")]
+    #[cfg_attr(feature = "cli", arg(long = "include"))]
     pub include: Option<Vec<PathBuf>>,
 
     /// Output file(s) for the generated OpenAPI definition (defaults to openapi.yaml)
-    #[arg(short = 'o', long = "output", alias = "out")]
+    #[cfg_attr(feature = "cli", arg(short = 'o', long = "output", alias = "out"))]
     pub output: Option<Vec<PathBuf>>,
 
     /// Output file(s) for just the components/schemas section
-    #[arg(long = "output-schemas")]
+    #[cfg_attr(feature = "cli", arg(long = "output-schemas"))]
     pub output_schemas: Option<Vec<PathBuf>>,
 
     /// Output file(s) for just the paths section
-    #[arg(long = "output-paths")]
+    #[cfg_attr(feature = "cli", arg(long = "output-paths"))]
     pub output_paths: Option<Vec<PathBuf>>,
 
     /// Output file(s) for the full spec minus root details (fragments)
-    #[arg(long = "output-fragments")]
+    #[cfg_attr(feature = "cli", arg(long = "output-fragments"))]
     pub output_fragments: Option<Vec<PathBuf>>,
 
     /// Path to a configuration file (toml)
-    #[arg(long = "config")]
+    #[cfg_attr(feature = "cli", arg(long = "config"))]
     #[serde(skip)]
     pub config_file: Option<PathBuf>,
 }
@@ -53,11 +55,12 @@ struct CargoMetadata {
 }
 
 impl Config {
-    /// Load configuration with priority:
+    /// Load configuration with priority (CLI mode only):
     /// 1. CLI Arguments (Highest)
     /// 2. --config file
     /// 3. openapi.toml
     /// 4. Cargo.toml [package.metadata.oas-forge]
+    #[cfg(feature = "cli")]
     pub fn load() -> Self {
         let cli_args = Config::parse();
 

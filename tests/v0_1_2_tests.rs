@@ -52,7 +52,7 @@ fn test_serde_rename_enum_all() {
             panic!("Expected schema");
         };
     let json = content;
-    let schema: Value = serde_yaml::from_str(json.as_str()).unwrap();
+    let schema: Value = serde_yaml_ng::from_str(json.as_str()).unwrap();
     let variants = schema["components"]["schemas"]["Status"]["enum"]
         .as_array()
         .expect("Enum variants not found");
@@ -83,7 +83,7 @@ fn test_serde_rename_variant() {
             panic!("Expected schema");
         };
     let json = content;
-    let schema: Value = serde_yaml::from_str(json.as_str()).unwrap();
+    let schema: Value = serde_yaml_ng::from_str(json.as_str()).unwrap();
     let variants = schema["components"]["schemas"]["Kind"]["enum"]
         .as_array()
         .expect("Enum variants not found");
@@ -111,7 +111,7 @@ fn test_manual_rename_struct() {
 
     if let oas_forge::visitor::ExtractedItem::Schema { name, content, .. } = &visitor.items[0] {
         assert_eq!(name.as_ref().unwrap(), "CustomUser");
-        let schema: Value = serde_yaml::from_str(content.as_str()).unwrap();
+        let schema: Value = serde_yaml_ng::from_str(content.as_str()).unwrap();
         let props = schema["components"]["schemas"]["CustomUser"]["properties"]
             .as_object()
             .expect("Properties not found");
@@ -178,7 +178,7 @@ fn test_well_known_types_resolution() {
     visitor.visit_file(&syntax);
 
     if let oas_forge::visitor::ExtractedItem::Schema { content, .. } = &visitor.items[0] {
-        let schema: Value = serde_yaml::from_str(content.as_str()).unwrap();
+        let schema: Value = serde_yaml_ng::from_str(content.as_str()).unwrap();
         let props = schema["components"]["schemas"]["TimeLog"]["properties"]
             .as_object()
             .expect("Properties not found");
@@ -224,7 +224,7 @@ fn test_alias_resolution() {
     assert!(alias.is_some(), "Alias schema not found");
 
     if let oas_forge::visitor::ExtractedItem::Schema { content, .. } = alias.unwrap() {
-        let schema: Value = serde_yaml::from_str(content.as_str()).unwrap();
+        let schema: Value = serde_yaml_ng::from_str(content.as_str()).unwrap();
         let def = &schema["components"]["schemas"]["DateTimeUtc"];
         assert_eq!(def["type"], "string");
         assert_eq!(def["format"], "date-time");
@@ -234,7 +234,7 @@ fn test_alias_resolution() {
     assert!(log.is_some(), "Log schema not found");
 
     if let oas_forge::visitor::ExtractedItem::Schema { content, .. } = log.unwrap() {
-        let schema: Value = serde_yaml::from_str(content.as_str()).unwrap();
+        let schema: Value = serde_yaml_ng::from_str(content.as_str()).unwrap();
         let prop = &schema["components"]["schemas"]["Log"]["properties"]["dt"];
         assert_eq!(prop["type"], "string");
         assert_eq!(prop["format"], "date-time");
@@ -256,7 +256,7 @@ fn test_datetimeutc_literal() {
     visitor.visit_file(&syntax);
 
     if let oas_forge::visitor::ExtractedItem::Schema { content, .. } = &visitor.items[0] {
-        let schema: Value = serde_yaml::from_str(content.as_str()).unwrap();
+        let schema: Value = serde_yaml_ng::from_str(content.as_str()).unwrap();
         let props = &schema["components"]["schemas"]["RawLog"]["properties"];
 
         // Assert we WANT resolved type
@@ -295,7 +295,7 @@ parameters:
     let yaml = oas_forge::dsl::parse_route_dsl(&lines, "list_op").expect("DSL Parsing failed");
 
     // 5. Verify YAML
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
     let params = root["paths"]["/list"]["get"]["parameters"]
         .as_array()
         .expect("No params");
@@ -326,7 +326,7 @@ responses:
     let yaml = oas_forge::dsl::parse_route_dsl(&lines, "op").unwrap();
 
     // 3. Expectation: Parsed associated into responses
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
 
     // Description should NOT contain the YAML
     if let Some(d) = root["paths"]["/test"]["get"].get("description") {
@@ -369,7 +369,7 @@ fn test_insert_params_in_dsl() {
         let yaml =
             oas_forge::dsl::parse_route_dsl(&lines, operation_id).expect("Failed to parse DSL");
 
-        let root: Value = serde_yaml::from_str(&yaml).unwrap();
+        let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
         let get = &root["paths"]["/items"]["get"];
 
         let params = get["parameters"]

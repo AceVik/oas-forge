@@ -157,6 +157,7 @@ pub fn extract_naming_and_doc(
     }
 
     // 2. Doc Comments (Higher Precedence)
+    let mut in_openapi_block = false;
     for attr in attrs {
         if attr.path().is_ident("doc") {
             if let Meta::NameValue(meta) = &attr.meta {
@@ -167,6 +168,7 @@ pub fn extract_naming_and_doc(
                         let trimmed = val.trim();
 
                         if trimmed.starts_with("@openapi") {
+                            in_openapi_block = true;
                             let rest = trimmed.strip_prefix("@openapi").unwrap().trim();
                             if rest.starts_with("rename-all") {
                                 let rule = rest
@@ -182,12 +184,8 @@ pub fn extract_naming_and_doc(
                                     .trim()
                                     .trim_matches('"');
                                 final_name = name_part.to_string();
-                            } else {
-                                // Only if not a rename directive, treat as doc content?
-                                // Actually, standard logic splits @openapi lines separate.
-                                // We just pass it through here.
                             }
-                        } else {
+                        } else if !in_openapi_block {
                             clean_doc_lines.push(val.trim().to_string());
                         }
                     }

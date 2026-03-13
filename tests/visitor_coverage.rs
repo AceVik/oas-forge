@@ -23,7 +23,7 @@ fn test_struct_simple() {
     assert_eq!(visitor.items.len(), 1);
     if let ExtractedItem::Schema { name, content, .. } = &visitor.items[0] {
         assert_eq!(name.as_ref().unwrap(), "UserDTO");
-        let schema: Value = serde_yaml::from_str(content).unwrap();
+        let schema: Value = serde_yaml_ng::from_str(content).unwrap();
         let user = &schema["components"]["schemas"]["UserDTO"]; // Renamed!
         assert!(user.is_object());
 
@@ -62,7 +62,7 @@ fn test_struct_generic() {
 
     if let ExtractedItem::Schema { name, content, .. } = &visitor.items[0] {
         assert_eq!(name.as_ref().unwrap(), "Page");
-        let schema: Value = serde_yaml::from_str(content).unwrap();
+        let schema: Value = serde_yaml_ng::from_str(content).unwrap();
         // Check property items
         // items: Vec<T> -> type: array, items: $T
         let props = &schema["components"]["schemas"]["Page"]["properties"];
@@ -144,4 +144,54 @@ fn test_enum_complex() {
         0,
         "Complex enum without overrides should be ignored"
     );
+}
+
+#[test]
+fn test_description_does_not_slurp_yaml_payload() {
+    let code = r#"
+        /// A user account in the system.
+        /// @openapi
+        /// type: object
+        /// properties:
+        ///   id:
+        ///     type: integer
+        ///   name:
+        ///     type: string
+        /// required:
+        ///   - id
+        ///   - name
+        #[derive(Serialize)]
+        struct User {
+            id: u64,
+            name: String,
+        }
+    "#;
+    let file: syn::File = syn::parse_str(code).unwrap();
+    let mut visitor = OpenApiVisitor::default();
+    visitor.visit_file(&file);
+
+    assert!(!visitor.items.is_empty(), "Should have extracted a schema");
+    if let ExtractedItem::Schema { content, .. } = &visitor.items[0] {
+        let schema: Value = serde_yaml_ng::from_str(content).unwrap();
+        let user = &schema["components"]["schemas"]["User"];
+
+        // The description should be the doc comment only, not the YAML payload
+        let desc = user
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            !desc.contains("type:"),
+            "Description should not contain YAML keys, got: {desc}"
+        );
+        assert!(
+            !desc.contains("properties:"),
+            "Description should not contain YAML keys, got: {desc}"
+        );
+        // The actual description should be from the first doc comment line
+        assert!(
+            desc.contains("user account") || desc.is_empty(),
+            "Description should contain actual doc text or be empty, got: {desc}"
+        );
+    }
 }

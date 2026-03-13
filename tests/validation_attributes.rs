@@ -34,7 +34,7 @@ fn test_validation_attributes() {
 
     let item = visitor.items.first().expect("Should extract struct");
     if let ExtractedItem::Schema { content, .. } = item {
-        let schema: Value = serde_yaml::from_str(content).expect("Valid YAML");
+        let schema: Value = serde_yaml_ng::from_str(content).expect("Valid YAML");
         let props = &schema["components"]["schemas"]["UserDto"]["properties"];
 
         // Check Email

@@ -22,7 +22,7 @@ fn test_serde_rename_struct() {
 
     let item = visitor.items.first().expect("Should extract item");
     if let ExtractedItem::Schema { content, .. } = item {
-        let schema: Value = serde_yaml::from_str(content).expect("Valid YAML");
+        let schema: Value = serde_yaml_ng::from_str(content).expect("Valid YAML");
         assert!(
             schema["components"]["schemas"]
                 .get("RenamedStruct")
@@ -55,7 +55,7 @@ fn test_serde_rename_struct_field() {
 
     let item = visitor.items.first().expect("Should extract item");
     if let ExtractedItem::Schema { content, .. } = item {
-        let schema: Value = serde_yaml::from_str(content).expect("Valid YAML");
+        let schema: Value = serde_yaml_ng::from_str(content).expect("Valid YAML");
         let props = schema["components"]["schemas"]["User"]["properties"]
             .as_object()
             .expect("Properties object");
@@ -85,7 +85,7 @@ fn test_serde_rename_enum() {
 
     let item = visitor.items.first().expect("Should extract item");
     if let ExtractedItem::Schema { content, .. } = item {
-        let schema: Value = serde_yaml::from_str(content).expect("Valid YAML");
+        let schema: Value = serde_yaml_ng::from_str(content).expect("Valid YAML");
         assert!(
             schema["components"]["schemas"].get("RenamedEnum").is_some(),
             "Enum should be renamed to RenamedEnum"
@@ -110,7 +110,7 @@ fn test_serde_rename_enum_variant() {
 
     let item = visitor.items.first().expect("Should extract item");
     if let ExtractedItem::Schema { content, .. } = item {
-        let schema: Value = serde_yaml::from_str(content).expect("Valid YAML");
+        let schema: Value = serde_yaml_ng::from_str(content).expect("Valid YAML");
         let enums = schema["components"]["schemas"]["Color"]["enum"]
             .as_array()
             .expect("Enum array");
@@ -147,7 +147,7 @@ fn test_serde_rename_all_enum() {
 
     let item = visitor.items.first().expect("Should extract item");
     if let ExtractedItem::Schema { content, .. } = item {
-        let schema: Value = serde_yaml::from_str(content).expect("Valid YAML");
+        let schema: Value = serde_yaml_ng::from_str(content).expect("Valid YAML");
         let enums = schema["components"]["schemas"]["AccessLevel"]["enum"]
             .as_array()
             .expect("Enum array");

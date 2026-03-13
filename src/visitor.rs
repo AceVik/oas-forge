@@ -300,7 +300,7 @@ impl OpenApiVisitor {
 
         if !field_openapi_lines.is_empty() {
             let override_yaml = field_openapi_lines.join("\n");
-            match serde_yaml::from_str::<Value>(&override_yaml) {
+            match serde_yaml_ng::from_str::<Value>(&override_yaml) {
                 Ok(override_val) => {
                     if !override_val.is_null() {
                         json_merge(&mut field_schema, override_val);
@@ -588,14 +588,14 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
 
         if !openapi_lines.is_empty() {
             let override_yaml = openapi_lines.join("\n");
-            if let Ok(override_val) = serde_yaml::from_str::<Value>(&override_yaml) {
+            if let Ok(override_val) = serde_yaml_ng::from_str::<Value>(&override_yaml) {
                 if !override_val.is_null() {
                     json_merge(&mut schema, override_val);
                 }
             }
         }
 
-        if let Ok(generated) = serde_yaml::to_string(&schema) {
+        if let Ok(generated) = serde_yaml_ng::to_string(&schema) {
             let trimmed = generated.trim_start_matches("---\n").to_string();
             let wrapped = wrap_in_schema(&ident, &trimmed);
             self.items.push(ExtractedItem::Schema {
@@ -701,7 +701,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
 
         if !openapi_lines.is_empty() {
             let override_yaml = openapi_lines.join("\n");
-            match serde_yaml::from_str::<Value>(&override_yaml) {
+            match serde_yaml_ng::from_str::<Value>(&override_yaml) {
                 Ok(override_val) => {
                     if !override_val.is_null() {
                         json_merge(&mut schema, override_val);
@@ -718,7 +718,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
         }
 
         // Final Serialize
-        match serde_yaml::to_string(&schema) {
+        match serde_yaml_ng::to_string(&schema) {
             Ok(generated) => {
                 let trimmed = generated.trim_start_matches("---\n").to_string();
 
@@ -885,7 +885,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
                 }
 
                 // Emit Variant Schema
-                if let Ok(generated) = serde_yaml::to_string(&variant_schema) {
+                if let Ok(generated) = serde_yaml_ng::to_string(&variant_schema) {
                     let trimmed = generated.trim_start_matches("---\n").to_string();
                     let wrapped = wrap_in_schema(&variant_schema_name, &trimmed);
                     self.items.push(ExtractedItem::Schema {
@@ -911,7 +911,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
             }
 
             // Emit Main Schema
-            if let Ok(generated) = serde_yaml::to_string(&main_schema) {
+            if let Ok(generated) = serde_yaml_ng::to_string(&main_schema) {
                 let trimmed = generated.trim_start_matches("---\n").to_string();
                 let wrapped = wrap_in_schema(&final_name, &trimmed);
                 self.items.push(ExtractedItem::Schema {
@@ -989,7 +989,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
 
         if !openapi_lines.is_empty() {
             let override_yaml = openapi_lines.join("\n");
-            match serde_yaml::from_str::<Value>(&override_yaml) {
+            match serde_yaml_ng::from_str::<Value>(&override_yaml) {
                 Ok(override_val) => {
                     if !override_val.is_null() {
                         json_merge(&mut schema, override_val);
@@ -1007,7 +1007,7 @@ impl<'ast> Visit<'ast> for OpenApiVisitor {
 
         // Only emit if we have variants OR overrides
         if !variants.is_empty() || !openapi_lines.is_empty() {
-            if let Ok(generated) = serde_yaml::to_string(&schema) {
+            if let Ok(generated) = serde_yaml_ng::to_string(&schema) {
                 let trimmed = generated.trim_start_matches("---\n").to_string();
 
                 if let Some(params) = blueprint_params {
@@ -1596,7 +1596,7 @@ mod tests {
             assert!(yaml.contains("description: Nothing"));
             // Ensure 204 block does not have "content:"
             // (We check strict context or absence of content key for 204)
-            let json: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
+            let json: serde_json::Value = serde_yaml_ng::from_str(&yaml).unwrap();
             let resp_204 = &json["paths"]["/test"]["post"]["responses"]["204"];
             assert!(
                 resp_204.get("content").is_none(),
@@ -1630,7 +1630,7 @@ mod tests {
                 crate::dsl::parse_route_dsl(&lines, operation_id).expect("DSL parsing failed");
 
             // Parse to verify structure
-            let json: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
+            let json: serde_json::Value = serde_yaml_ng::from_str(&yaml).unwrap();
             let responses = &json["paths"]["/delete"]["delete"]["responses"];
 
             // Case 1: Implicit Unit ("Deleted Successfully")
@@ -1682,7 +1682,7 @@ mod dsl_tests {
             assert!(yaml.contains("/items/{id}:"));
 
             // 2. Check parameter extraction
-            let json: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
+            let json: serde_json::Value = serde_yaml_ng::from_str(&yaml).unwrap();
             let params = &json["paths"]["/items/{id}"]["get"]["parameters"];
             assert!(params.is_array());
             assert_eq!(params.as_array().unwrap().len(), 1);
@@ -1721,7 +1721,7 @@ mod dsl_tests {
             let yaml =
                 crate::dsl::parse_route_dsl(&lines, operation_id).expect("DSL parsing failed");
 
-            let json: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
+            let json: serde_json::Value = serde_yaml_ng::from_str(&yaml).unwrap();
             let params = &json["paths"]["/search"]["get"]["parameters"];
             let params_arr = params.as_array().unwrap();
 
@@ -1741,7 +1741,6 @@ mod dsl_tests {
     }
 
     #[test]
-    #[should_panic(expected = "Missing definition for path parameter 'id'")]
     fn test_route_dsl_validation_error() {
         let code = r#"
             /// @route GET /items/{id}
@@ -1751,7 +1750,7 @@ mod dsl_tests {
         let mut visitor = OpenApiVisitor::default();
         visitor.visit_item_fn(&item_fn);
 
-        // This should panic
+        // Should gracefully return None instead of panicking
         if let ExtractedItem::RouteDSL {
             content,
             operation_id,
@@ -1759,7 +1758,11 @@ mod dsl_tests {
         } = &visitor.items[0]
         {
             let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-            let _ = crate::dsl::parse_route_dsl(&lines, operation_id);
+            let result = crate::dsl::parse_route_dsl(&lines, operation_id);
+            assert!(
+                result.is_none(),
+                "Should return None for missing path param definition"
+            );
         }
     }
 

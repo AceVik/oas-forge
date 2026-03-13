@@ -108,10 +108,10 @@ pub fn preprocess(content: &str, registry: &Registry) -> String {
 
     // Phase B: Structural Merge
     // Try to parse as YAML Value. If fails, return textual output (fallback).
-    match serde_yaml::from_str::<serde_yaml::Value>(&phase_a_output) {
+    match serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&phase_a_output) {
         Ok(mut root) => {
             process_value(&mut root, registry);
-            serde_yaml::to_string(&root).unwrap_or(phase_a_output)
+            serde_yaml_ng::to_string(&root).unwrap_or(phase_a_output)
         }
         Err(_) => {
             // Likely a partial snippet (list item or partial object).
@@ -124,10 +124,10 @@ pub fn preprocess(content: &str, registry: &Registry) -> String {
     }
 }
 
-fn process_value(val: &mut serde_yaml::Value, registry: &Registry) {
-    if let serde_yaml::Value::Mapping(map) = val {
+fn process_value(val: &mut serde_yaml_ng::Value, registry: &Registry) {
+    if let serde_yaml_ng::Value::Mapping(map) = val {
         // Check for x-openapi-extend
-        let extend_key = serde_yaml::Value::String("x-openapi-extend".to_string());
+        let extend_key = serde_yaml_ng::Value::String("x-openapi-extend".to_string());
 
         let mut fragment_to_merge = None;
 
@@ -151,7 +151,7 @@ fn process_value(val: &mut serde_yaml::Value, registry: &Registry) {
 
             if let Some(fragment) = registry.fragments.get(&name) {
                 let expanded = substitute_fragment_args(&fragment.body, &fragment.params, &args);
-                if let Ok(frag_val) = serde_yaml::from_str::<serde_yaml::Value>(&expanded) {
+                if let Ok(frag_val) = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&expanded) {
                     merge_values(val, frag_val);
                 } else {
                     log::warn!("Fragment '{}' body is not valid YAML", name);
@@ -163,21 +163,21 @@ fn process_value(val: &mut serde_yaml::Value, registry: &Registry) {
 
         // Recurse (re-borrow map after modification)
         // Check new keys too.
-        if let serde_yaml::Value::Mapping(map) = val {
+        if let serde_yaml_ng::Value::Mapping(map) = val {
             for (_, v) in map {
                 process_value(v, registry);
             }
         }
-    } else if let serde_yaml::Value::Sequence(seq) = val {
+    } else if let serde_yaml_ng::Value::Sequence(seq) = val {
         for v in seq {
             process_value(v, registry);
         }
     }
 }
 
-fn merge_values(target: &mut serde_yaml::Value, source: serde_yaml::Value) {
+fn merge_values(target: &mut serde_yaml_ng::Value, source: serde_yaml_ng::Value) {
     match (target, source) {
-        (serde_yaml::Value::Mapping(t_map), serde_yaml::Value::Mapping(s_map)) => {
+        (serde_yaml_ng::Value::Mapping(t_map), serde_yaml_ng::Value::Mapping(s_map)) => {
             for (k, v) in s_map {
                 if let Some(existing) = t_map.get_mut(&k) {
                     merge_values(existing, v);

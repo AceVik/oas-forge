@@ -1,12 +1,15 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+/// Stores a reusable schema template with type parameters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Blueprint {
     pub params: Vec<String>, // e.g. ["T", "U"] extracted from <T, U>
     pub body: String,
 }
 
-#[derive(Debug, Clone)]
+/// Stores a reusable fragment with optional parameters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Fragment {
     pub params: Vec<String>,
     pub body: String,

@@ -27,7 +27,7 @@ fn test_adjacently_tagged_enum_with_content() {
         .expect("Should extract enum");
     if let ExtractedItem::Schema { content, name, .. } = item {
         assert_eq!(name.as_deref(), Some("Adjacent"));
-        let schema: Value = serde_yaml::from_str(content).expect("Valid YAML");
+        let schema: Value = serde_yaml_ng::from_str(content).expect("Valid YAML");
         let def = &schema["components"]["schemas"]["Adjacent"];
 
         // 1. Check oneOf
@@ -50,7 +50,7 @@ fn test_adjacently_tagged_enum_with_content() {
         .find(|i| matches!(i, ExtractedItem::Schema { name: Some(n), .. } if n == "AdjacentStr"));
     assert!(str_var.is_some());
     if let ExtractedItem::Schema { content, .. } = str_var.unwrap() {
-        let schema: Value = serde_yaml::from_str(content).unwrap();
+        let schema: Value = serde_yaml_ng::from_str(content).unwrap();
         let props = &schema["components"]["schemas"]["AdjacentStr"]["properties"];
 
         assert_eq!(props["t"]["enum"][0], "Str");
@@ -72,7 +72,7 @@ fn test_adjacently_tagged_enum_with_content() {
     );
     assert!(struct_var.is_some());
     if let ExtractedItem::Schema { content, .. } = struct_var.unwrap() {
-        let schema: Value = serde_yaml::from_str(content).unwrap();
+        let schema: Value = serde_yaml_ng::from_str(content).unwrap();
         let props = &schema["components"]["schemas"]["AdjacentStruct"]["properties"];
 
         assert_eq!(props["t"]["enum"][0], "Struct");

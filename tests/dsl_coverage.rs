@@ -10,7 +10,7 @@ fn test_params_primitive() {
         "@query-param active: bool".to_string(),
     ];
     let yaml = parse_route_dsl(&lines, "op").unwrap();
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
     let params = root["paths"]["/test"]["get"]["parameters"]
         .as_array()
         .unwrap();
@@ -35,7 +35,7 @@ fn test_params_implicit_string() {
         "@query-param with_attr: deprecated".to_string(), // Implicit String + Attr
     ];
     let yaml = parse_route_dsl(&lines, "op").unwrap();
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
     let params = root["paths"]["/test"]["get"]["parameters"]
         .as_array()
         .unwrap();
@@ -56,7 +56,7 @@ fn test_params_array() {
         "@query-param ids: Vec<i32>".to_string(),
     ];
     let yaml = parse_route_dsl(&lines, "op").unwrap();
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
     let params = root["paths"]["/test"]["get"]["parameters"]
         .as_array()
         .unwrap();
@@ -77,7 +77,7 @@ fn test_params_attrs() {
         "@query-param q: String required deprecated example=\"foo\" \"Search Term\"".to_string(),
     ];
     let yaml = parse_route_dsl(&lines, "op").unwrap();
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
     let params = root["paths"]["/test"]["get"]["parameters"]
         .as_array()
         .unwrap();
@@ -94,7 +94,7 @@ fn test_params_attrs() {
 fn test_inline_path_params() {
     let lines = vec!["@route GET /users/{id: u32 \"User ID\"}".to_string()];
     let yaml = parse_route_dsl(&lines, "op").unwrap();
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
     let params = root["paths"]["/users/{id}"]["get"]["parameters"]
         .as_array()
         .unwrap();
@@ -115,7 +115,7 @@ fn test_inline_path_params_bare() {
         "@path-param id: String".to_string(), // Defined explicitly
     ];
     let yaml = parse_route_dsl(&lines, "op").unwrap();
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
     let params = root["paths"]["/users/{id}"]["get"]["parameters"]
         .as_array()
         .unwrap();
@@ -134,7 +134,7 @@ fn test_inline_path_params_bare() {
 fn test_body_parsing() {
     let lines = vec!["@route POST /users".to_string(), "@body User".to_string()];
     let yaml = parse_route_dsl(&lines, "op").unwrap();
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
     let content = &root["paths"]["/users"]["post"]["requestBody"]["content"]["application/json"];
 
     assert_eq!(content["schema"]["$ref"], "$User");
@@ -147,7 +147,7 @@ fn test_body_custom_mime() {
         "@body User application/xml".to_string(),
     ];
     let yaml = parse_route_dsl(&lines, "op").unwrap();
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
     let content = &root["paths"]["/users"]["post"]["requestBody"]["content"];
 
     assert!(content.get("application/xml").is_some());
@@ -162,7 +162,7 @@ fn test_return_parsing() {
         "@return 404: \"Not Found\"".to_string(), // Unit return
     ];
     let yaml = parse_route_dsl(&lines, "op").unwrap();
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
     let responses = &root["paths"]["/users"]["get"]["responses"];
 
     let r200 = &responses["200"];
@@ -188,7 +188,7 @@ fn test_return_wrappers() {
         "@return 201: Json<User>".to_string(),
     ];
     let yaml = parse_route_dsl(&lines, "op").unwrap();
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
     let responses = &root["paths"]["/users"]["get"]["responses"];
 
     // Option<T> should be T (nullable logic is usually handled by map_syn_type_to_openapi but here we check structure)
@@ -217,7 +217,7 @@ fn test_security_parsing() {
         "@security OAuth2(\"read\", \"write\")".to_string(),
     ];
     let yaml = parse_route_dsl(&lines, "op").unwrap();
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
     let security = root["paths"]["/users"]["get"]["security"]
         .as_array()
         .unwrap();
@@ -242,7 +242,7 @@ fn test_raw_yaml_overrides() {
         "  - url: https://api.example.com".to_string(),
     ];
     let yaml = parse_route_dsl(&lines, "op").unwrap();
-    let root: Value = serde_yaml::from_str(&yaml).unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
 
     let responses = &root["paths"]["/users"]["get"]["responses"];
     assert_eq!(responses["200"]["description"], "Override");
@@ -251,4 +251,23 @@ fn test_raw_yaml_overrides() {
     // dsl.rs merges overrides into the Operation object.
     let servers = &root["paths"]["/users"]["get"]["servers"];
     assert_eq!(servers[0]["url"], "https://api.example.com");
+}
+
+#[test]
+fn test_return_inline_json_schema() {
+    let lines = vec![
+        "@route GET /codecs".to_string(),
+        "@return 200: { \"type\": \"array\", \"items\": { \"$ref\": \"#/components/schemas/Codec\" } } \"Hardware encoders\"".to_string(),
+    ];
+    let yaml = parse_route_dsl(&lines, "list_codecs").unwrap();
+    let root: Value = serde_yaml_ng::from_str(&yaml).unwrap();
+    let response = &root["paths"]["/codecs"]["get"]["responses"]["200"];
+
+    // Description should be correctly extracted
+    assert_eq!(response["description"], "Hardware encoders");
+
+    // Schema should be a valid array definition
+    let schema = &response["content"]["application/json"]["schema"];
+    assert_eq!(schema["type"], "array");
+    assert_eq!(schema["items"]["$ref"], "#/components/schemas/Codec");
 }

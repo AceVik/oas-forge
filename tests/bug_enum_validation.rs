@@ -29,7 +29,7 @@ fn test_enum_variant_validation() {
     assert!(variant.is_some(), "Should extract variant schema");
 
     if let ExtractedItem::Schema { content, .. } = variant.unwrap() {
-        let schema: Value = serde_yaml::from_str(content).expect("Valid YAML");
+        let schema: Value = serde_yaml_ng::from_str(content).expect("Valid YAML");
         let item = &schema["components"]["schemas"]["ValidatedEnumVariant"];
         let props = &item["properties"];
 
@@ -66,7 +66,7 @@ fn test_enum_tuple_variant_validation() {
     assert!(variant.is_some());
 
     if let ExtractedItem::Schema { content, .. } = variant.unwrap() {
-        let schema: Value = serde_yaml::from_str(content).expect("Valid YAML");
+        let schema: Value = serde_yaml_ng::from_str(content).expect("Valid YAML");
         let item = &schema["components"]["schemas"]["ValidatedTupleEnumTuple"];
         let props = &item["properties"];
         let content_field = &props["content"]; // Adjacently tagged content

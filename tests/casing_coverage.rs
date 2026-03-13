@@ -21,7 +21,7 @@ fn test_snake_to_camel_case() {
 
     let item = visitor.items.first().expect("Should extract item");
     if let ExtractedItem::Schema { content, .. } = item {
-        let schema: Value = serde_yaml::from_str(content).expect("Valid YAML");
+        let schema: Value = serde_yaml_ng::from_str(content).expect("Valid YAML");
         let props = schema["components"]["schemas"]["UserProfile"]["properties"]
             .as_object()
             .expect("Properties object");
@@ -53,7 +53,7 @@ fn test_snake_to_pascal_case() {
 
     let item = visitor.items.first().expect("Should extract item");
     if let ExtractedItem::Schema { content, .. } = item {
-        let schema: Value = serde_yaml::from_str(content).expect("Valid YAML");
+        let schema: Value = serde_yaml_ng::from_str(content).expect("Valid YAML");
         let props = schema["components"]["schemas"]["SystemConfig"]["properties"]
             .as_object()
             .expect("Properties object");
@@ -86,7 +86,7 @@ fn test_serde_rename_all_precedence() {
 
     let item = visitor.items.first().expect("Should extract item");
     if let ExtractedItem::Schema { content, .. } = item {
-        let schema: Value = serde_yaml::from_str(content).expect("Valid YAML");
+        let schema: Value = serde_yaml_ng::from_str(content).expect("Valid YAML");
         let props = schema["components"]["schemas"]["ApiError"]["properties"]
             .as_object()
             .expect("Properties object");

@@ -31,7 +31,7 @@ fn test_enum_tagged_reproduction() {
     );
 
     if let ExtractedItem::Schema { content, .. } = main.unwrap() {
-        let schema: Value = serde_yaml::from_str(content).expect("Valid YAML");
+        let schema: Value = serde_yaml_ng::from_str(content).expect("Valid YAML");
         let def = &schema["components"]["schemas"]["StorageConfigDto"];
 
         // 1. Should be oneOf
@@ -56,7 +56,7 @@ fn test_enum_tagged_reproduction() {
     let local = visitor.items.iter().find(|i| matches!(i, ExtractedItem::Schema { name: Some(n), .. } if n == "StorageConfigDtoLocal"));
     assert!(local.is_some(), "Should extract StorageConfigDtoLocal");
     if let ExtractedItem::Schema { content, .. } = local.unwrap() {
-        let schema: Value = serde_yaml::from_str(content).unwrap();
+        let schema: Value = serde_yaml_ng::from_str(content).unwrap();
         let props = &schema["components"]["schemas"]["StorageConfigDtoLocal"]["properties"];
         let type_field = &props["type"];
         assert_eq!(type_field["enum"][0], "local");
@@ -78,7 +78,7 @@ fn test_enum_tagged_reproduction() {
     );
     match remote.unwrap() {
         ExtractedItem::Schema { content, .. } => {
-            let schema: Value = serde_yaml::from_str(content).unwrap();
+            let schema: Value = serde_yaml_ng::from_str(content).unwrap();
             let props =
                 &schema["components"]["schemas"]["StorageConfigDtoStarrRemote"]["properties"];
             let type_field = &props["type"];

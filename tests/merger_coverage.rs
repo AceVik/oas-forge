@@ -91,9 +91,9 @@ components:
 
     // Actually, `active` in `dsl_coverage` implies simple replacement if not object/array logic.
     // I'll check if both are present.
-    // Use serde_yaml::Value for comparison
-    let id_val = serde_yaml::Value::String("id".to_string());
-    let username_val = serde_yaml::Value::String("username".to_string());
+    // Use serde_yaml_ng::Value for comparison
+    let id_val = serde_yaml_ng::Value::String("id".to_string());
+    let username_val = serde_yaml_ng::Value::String("username".to_string());
 
     let has_id = req.contains(&id_val);
     let has_user = req.contains(&username_val);

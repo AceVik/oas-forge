@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "shared-models",
+    "microservice",
+]
+resolver = "3"

@@ -173,7 +173,10 @@ fn finalize_substitution(content: &str) -> String {
     step1.replace("{{CARGO_PKG_VERSION}}", &version)
 }
 
-pub fn scan_directories(roots: &[PathBuf], includes: &[PathBuf]) -> Result<Vec<Snippet>> {
+pub fn scan_directories(
+    roots: &[PathBuf],
+    includes: &[PathBuf],
+) -> Result<(Vec<Snippet>, Registry)> {
     let mut registry = Registry::new();
     let mut operation_snippets: Vec<Snippet> = Vec::new();
     let mut files_found = false;
@@ -255,12 +258,80 @@ pub fn scan_directories(roots: &[PathBuf], includes: &[PathBuf]) -> Result<Vec<S
                 }
                 "json" | "yaml" | "yml" => {
                     let content = std::fs::read_to_string(&path)?;
-                    operation_snippets.push(Snippet {
-                        content,
-                        file_path: path.clone(),
-                        line_number: 1,
-                        operation_id: None,
-                    });
+
+                    // Hydrate registry from vendor extensions
+                    if let Ok(mut val) = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content) {
+                        if let Some(components) = val.get_mut("components") {
+                            // Import templates (blueprints)
+                            if let Some(templates) = components.get("x-oas-forge-templates") {
+                                if let Ok(blueprints) = serde_json::from_value::<
+                                    std::collections::HashMap<String, crate::index::Blueprint>,
+                                >(
+                                    serde_json::to_value(templates).unwrap_or_default(),
+                                ) {
+                                    for (name, bp) in blueprints {
+                                        log::info!("Imported template '{}' from {:?}", name, path);
+                                        registry.insert_blueprint(name, bp.params, bp.body);
+                                    }
+                                }
+                            }
+
+                            // Import fragments
+                            if let Some(frags) = components.get("x-oas-forge-fragments") {
+                                if let Ok(fragments) = serde_json::from_value::<
+                                    std::collections::HashMap<String, crate::index::Fragment>,
+                                >(
+                                    serde_json::to_value(frags).unwrap_or_default(),
+                                ) {
+                                    for (name, frag) in fragments {
+                                        log::info!("Imported fragment '{}' from {:?}", name, path);
+                                        registry.insert_fragment(name, frag.params, frag.body);
+                                    }
+                                }
+                            }
+
+                            // Import standard schemas (register names for smart reference resolution)
+                            if let Some(serde_yaml_ng::Value::Mapping(schema_map)) =
+                                components.get("schemas")
+                            {
+                                for (key, _) in schema_map {
+                                    if let serde_yaml_ng::Value::String(name) = key {
+                                        registry.insert_schema(name.clone(), String::new());
+                                    }
+                                }
+                            }
+
+                            // Strip vendor keys so they don't leak into the final output
+                            if let serde_yaml_ng::Value::Mapping(comp_map) = components {
+                                comp_map.remove(serde_yaml_ng::Value::String(
+                                    "x-oas-forge-templates".to_string(),
+                                ));
+                                comp_map.remove(serde_yaml_ng::Value::String(
+                                    "x-oas-forge-fragments".to_string(),
+                                ));
+                            }
+                        }
+
+                        // Re-serialize the cleaned content
+                        let cleaned =
+                            serde_yaml_ng::to_string(&val).unwrap_or_else(|_| content.clone());
+                        let cleaned = cleaned.trim_start_matches("---\n").to_string();
+
+                        operation_snippets.push(Snippet {
+                            content: cleaned,
+                            file_path: path.clone(),
+                            line_number: 1,
+                            operation_id: None,
+                        });
+                    } else {
+                        // Fallback: push raw content
+                        operation_snippets.push(Snippet {
+                            content,
+                            file_path: path.clone(),
+                            line_number: 1,
+                            operation_id: None,
+                        });
+                    }
                 }
                 _ => {}
             }
@@ -350,7 +421,7 @@ pub fn scan_directories(roots: &[PathBuf], includes: &[PathBuf]) -> Result<Vec<S
         return Err(Error::NoFilesFound);
     }
 
-    Ok(final_snippets)
+    Ok((final_snippets, registry))
 }
 
 fn indent(s: &str) -> String {

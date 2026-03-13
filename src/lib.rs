@@ -113,17 +113,36 @@ impl Generator {
             self.inputs,
             self.includes
         );
-        let snippets = scanner::scan_directories(&self.inputs, &self.includes)?;
+        let (snippets, registry) = scanner::scan_directories(&self.inputs, &self.includes)?;
 
         // 2. Merge (Relaxed - may return empty map if no root)
         log::info!("Merging {} snippets", snippets.len());
-        let merged_value = merger::merge_openapi(snippets)?;
+        let mut merged_value = merger::merge_openapi(snippets)?;
+
+        // Bulletproof cleanup: Ensure transport extensions NEVER leak into standard outputs
+        if let serde_yaml_ng::Value::Mapping(ref mut root_map) = merged_value {
+            if let Some(serde_yaml_ng::Value::Mapping(comp_map)) =
+                root_map.get_mut(serde_yaml_ng::Value::String("components".to_string()))
+            {
+                comp_map.remove(serde_yaml_ng::Value::String(
+                    "x-oas-forge-templates".to_string(),
+                ));
+                comp_map.remove(serde_yaml_ng::Value::String(
+                    "x-oas-forge-fragments".to_string(),
+                ));
+
+                // Clean up empty components block if it's now empty
+                if comp_map.is_empty() {
+                    root_map.remove(serde_yaml_ng::Value::String("components".to_string()));
+                }
+            }
+        }
 
         // Strategy 1: Full Spec (Strict Validation)
         if !self.outputs.is_empty() {
-            if let serde_yaml::Value::Mapping(map) = &merged_value {
-                let openapi_key = serde_yaml::Value::String("openapi".to_string());
-                let info_key = serde_yaml::Value::String("info".to_string());
+            if let serde_yaml_ng::Value::Mapping(map) = &merged_value {
+                let openapi_key = serde_yaml_ng::Value::String("openapi".to_string());
+                let info_key = serde_yaml_ng::Value::String("info".to_string());
 
                 if !map.contains_key(&openapi_key) || !map.contains_key(&info_key) {
                     return Err(error::Error::NoRootFound);
@@ -144,9 +163,9 @@ impl Generator {
                 .get("components")
                 .and_then(|c| c.get("schemas"))
                 .cloned()
-                .unwrap_or_else(|| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+                .unwrap_or_else(|| serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new()));
 
-            if let serde_yaml::Value::Mapping(m) = &schemas {
+            if let serde_yaml_ng::Value::Mapping(m) = &schemas {
                 if m.is_empty() {
                     log::warn!("Generating empty schemas file.");
                 }
@@ -163,9 +182,9 @@ impl Generator {
             let paths = merged_value
                 .get("paths")
                 .cloned()
-                .unwrap_or_else(|| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+                .unwrap_or_else(|| serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new()));
 
-            if let serde_yaml::Value::Mapping(m) = &paths {
+            if let serde_yaml_ng::Value::Mapping(m) = &paths {
                 if m.is_empty() {
                     log::warn!("Generating empty paths file.");
                 }
@@ -180,12 +199,49 @@ impl Generator {
         // Strategy 4: Fragments (Headless Spec)
         // Removes top-level keys: openapi, info, servers, externalDocs
         // Keeps: paths, components, tags, security, etc.
+        // Also injects x-oas-forge-templates and x-oas-forge-fragments for cross-crate transport.
         if !self.fragment_outputs.is_empty() {
             let mut fragment = merged_value.clone();
-            if let serde_yaml::Value::Mapping(ref mut map) = fragment {
-                map.remove(serde_yaml::Value::String("openapi".to_string()));
-                map.remove(serde_yaml::Value::String("info".to_string()));
-                map.remove(serde_yaml::Value::String("servers".to_string()));
+            if let serde_yaml_ng::Value::Mapping(ref mut map) = fragment {
+                map.remove(serde_yaml_ng::Value::String("openapi".to_string()));
+                map.remove(serde_yaml_ng::Value::String("info".to_string()));
+                map.remove(serde_yaml_ng::Value::String("servers".to_string()));
+            }
+
+            // Inject vendor extensions for template transport
+            if !registry.blueprints.is_empty() || !registry.fragments.is_empty() {
+                if let serde_yaml_ng::Value::Mapping(ref mut root_map) = fragment {
+                    let components_key = serde_yaml_ng::Value::String("components".to_string());
+                    let components = root_map.entry(components_key).or_insert_with(|| {
+                        serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new())
+                    });
+                    if let serde_yaml_ng::Value::Mapping(comp_map) = components {
+                        if !registry.blueprints.is_empty() {
+                            if let Ok(val) = serde_json::to_value(&registry.blueprints) {
+                                if let Ok(yaml_val) = serde_yaml_ng::to_value(&val) {
+                                    comp_map.insert(
+                                        serde_yaml_ng::Value::String(
+                                            "x-oas-forge-templates".to_string(),
+                                        ),
+                                        yaml_val,
+                                    );
+                                }
+                            }
+                        }
+                        if !registry.fragments.is_empty() {
+                            if let Ok(val) = serde_json::to_value(&registry.fragments) {
+                                if let Ok(yaml_val) = serde_yaml_ng::to_value(&val) {
+                                    comp_map.insert(
+                                        serde_yaml_ng::Value::String(
+                                            "x-oas-forge-fragments".to_string(),
+                                        ),
+                                        yaml_val,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             for output in &self.fragment_outputs {
@@ -211,10 +267,10 @@ impl Generator {
                 serde_json::to_writer_pretty(file, content)?;
             }
             "yaml" | "yml" => {
-                serde_yaml::to_writer(file, content)?;
+                serde_yaml_ng::to_writer(file, content)?;
             }
             _ => {
-                serde_yaml::to_writer(file, content)?;
+                serde_yaml_ng::to_writer(file, content)?;
             }
         }
         Ok(())

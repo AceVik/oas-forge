@@ -48,8 +48,16 @@ impl<'a> Monomorphizer<'a> {
                         }
                         i += 1;
                     }
+
+                    if depth != 0 {
+                        // Unbalanced brackets — emit raw text and continue
+                        log::warn!("Unbalanced generic brackets in '{}'", &text[start..i]);
+                        result.push_str(&text[start..i]);
+                        continue;
+                    }
+
                     // i is now after the closing >
-                    // args_str exclude closing >
+                    // args_str excludes closing >
                     let args_str: String = chars[arg_start..i - 1].iter().collect();
 
                     // Create Concrete Schema
@@ -216,5 +224,19 @@ mod tests {
         let wrapper = registry.concrete_schemas.get("Wrapper_Inner_Item").unwrap();
         // Wrapper expects wrap: $T. T is Inner_Item. So wrap: $Inner_Item.
         assert_eq!(wrapper, "wrap: $Inner_Item");
+    }
+
+    #[test]
+    fn test_unbalanced_generics_no_panic() {
+        let mut registry = Registry::new();
+        let mut mono = Monomorphizer::new(&mut registry);
+
+        // Missing closing bracket — should not panic
+        let result = mono.process("$Foo<Bar");
+        assert_eq!(result, "$Foo<Bar");
+
+        // Deeply unbalanced
+        let result2 = mono.process("$A<B<C>");
+        assert!(result2.contains("$A"));
     }
 }

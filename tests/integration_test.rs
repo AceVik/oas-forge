@@ -109,7 +109,7 @@ fn main() {{}}
     .unwrap();
 
     // Execute
-    let results = scan_directories(&[src_dir], &[]).expect("Scan failed");
+    let (results, _registry) = scan_directories(&[src_dir], &[]).expect("Scan failed");
     let merged = results
         .iter()
         .map(|s| s.content.as_str())
@@ -163,7 +163,7 @@ fn main() {{}}
 
     // 7. DX Macros
     // @insert QueryParam -> - $ref: "#/components/parameters/QueryParam"
-    // Note: serde_yaml might reformat quotes, so we check path presence.
+    // Note: serde_yaml_ng might reformat quotes, so we check path presence.
     assert!(merged.contains("#/components/parameters/QueryParam"));
 
     // Generics Flattening: $Wrapper<User> -> #/components/schemas/Wrapper_User

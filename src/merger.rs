@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 use crate::scanner::Snippet;
-use serde_yaml::Value;
+use serde_yaml_ng::Value;
 
 /// Merges multiple OpenAPI YAML/JSON fragments into a single Value.
 pub fn merge_openapi(snippets: Vec<Snippet>) -> Result<Value> {
@@ -8,7 +8,7 @@ pub fn merge_openapi(snippets: Vec<Snippet>) -> Result<Value> {
     let mut others: Vec<Value> = Vec::new();
 
     for snippet in snippets {
-        let value: Value = match serde_yaml::from_str(&snippet.content) {
+        let value: Value = match serde_yaml_ng::from_str(&snippet.content) {
             Ok(v) => v,
             Err(e) => {
                 // Construct context string
@@ -41,7 +41,7 @@ pub fn merge_openapi(snippets: Vec<Snippet>) -> Result<Value> {
     }
 
     // Relaxed Mode: If no root found, start with empty mapping
-    let mut root = root.unwrap_or_else(|| Value::Mapping(serde_yaml::Mapping::new()));
+    let mut root = root.unwrap_or_else(|| Value::Mapping(serde_yaml_ng::Mapping::new()));
 
     for other in others {
         deep_merge(&mut root, other);
@@ -81,8 +81,8 @@ fn deep_merge(target: &mut Value, source: Value) {
             let mut unique = Vec::new();
             for item in t_seq.drain(..) {
                 // We use the string representation for deduping to handle potential Hash/Eq oddities with YAML Values widely
-                // But serde_yaml::Value does impl Hash/Eq.
-                // However, let's trust serde_yaml's Hash implementation.
+                // But serde_yaml_ng::Value does impl Hash/Eq.
+                // However, let's trust serde_yaml_ng's Hash implementation.
                 if seen.insert(item.clone()) {
                     unique.push(item);
                 }
@@ -135,7 +135,7 @@ mod tests {
         let result = merge_openapi(vec![root_snippet, frag_snippet]).unwrap();
 
         // Helper to check fields
-        let yaml_out = serde_yaml::to_string(&result).unwrap();
+        let yaml_out = serde_yaml_ng::to_string(&result).unwrap();
         assert!(yaml_out.contains("/foo"));
         assert!(yaml_out.contains("/bar"));
     }
@@ -234,7 +234,7 @@ mod tests {
         };
 
         let res = merge_openapi(vec![r_snip, f_snip]).unwrap();
-        let yaml = serde_yaml::to_string(&res).unwrap();
+        let yaml = serde_yaml_ng::to_string(&res).unwrap();
 
         // Should contain A, B, C exactly once (though potentially reordered, B should not appear twice)
         // YAML output for list: - A\n- B\n- C
