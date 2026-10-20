@@ -59,7 +59,8 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
     let mut has_default = false;
     let mut explicitly_required = false;
     for token in flags {
-        if !description.is_empty() || token.starts_with('"') {
+        // A quoted description is one token; flags may follow it.
+        if token.starts_with('"') {
             description.push(token);
             continue;
         }

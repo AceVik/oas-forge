@@ -154,8 +154,17 @@ fn oversized_files_are_skipped_with_an_error() {
     let options = DiscoverOptions::default().with_max_file_size(5);
     let (set, diagnostics) = discover(&[project.path("src")], &[], &options);
     assert_eq!(names(&set.unwrap(), project.root()), ["src/small.rs"]);
+    // The limit itself is allowed.
+    project.file("src/small.rs", "12345");
     assert_eq!(codes(&diagnostics), [Code::FileTooLarge]);
     assert!(diagnostics.has_errors());
+    let (set, _) = discover(&[project.path("src")], &[], &options);
+    assert_eq!(names(&set.unwrap(), project.root()), ["src/small.rs"]);
+    assert_eq!(
+        DEFAULT_MAX_FILE_SIZE,
+        16 * 1024 * 1024,
+        "16 MiB, as documented"
+    );
 }
 
 #[test]
@@ -230,6 +239,18 @@ fn files_are_read_once_even_when_inputs_overlap() {
 mod symbolic_links {
     use super::*;
     use std::os::unix::fs::symlink;
+
+    /// Only links below an input are skipped with a finding; an input that
+    /// cannot be read at all is an error.
+    #[test]
+    fn a_broken_input_is_an_error() {
+        let project = Project::new();
+        symlink(project.path("missing"), project.path("src")).unwrap();
+        let (result, diagnostics) =
+            discover(&[project.path("src")], &[], &DiscoverOptions::default());
+        assert!(matches!(result, Err(Error::Io { .. })), "{result:?}");
+        assert!(!codes(&diagnostics).contains(&Code::UnreadableLink));
+    }
 
     #[test]
     fn linked_files_and_directories_are_read() {

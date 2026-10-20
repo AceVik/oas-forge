@@ -136,7 +136,8 @@ a default. Path parameters are always required.
 | `allow-reserved`, `allow-empty` | `allowReserved`, `allowEmptyValue` |
 
 Values are YAML, so `default=10` is a number and `enum=[a, b]` a list.
-Flags may come in any order; an unknown flag is reported and ignored.
+Flags may come in any order, also after the description; an unknown flag is
+reported and ignored.
 
 `@query-params $Pagination` adds one query parameter per field of the
 documented struct `Pagination` (field descriptions included; `Option`

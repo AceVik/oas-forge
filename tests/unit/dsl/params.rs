@@ -481,3 +481,18 @@ fn brackets_in_a_pattern_do_not_group() {
     assert_eq!(q["schema"]["pattern"], "[^(]+");
     assert_eq!(q["description"], "Search text");
 }
+
+#[test]
+fn brackets_inside_quotes_do_not_nest() {
+    let op = operation(
+        &[
+            "@route GET /x",
+            "@query-param q: u32 \"Use [brackets\" default=1",
+        ],
+        "/x",
+        "get",
+    );
+    let q = param(&op, "q");
+    assert_eq!(q["description"], "Use [brackets");
+    assert_eq!(q["schema"]["default"], 1);
+}

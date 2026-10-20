@@ -10,6 +10,9 @@ exclude_re = [
     # Reads `OUT_DIR`, which only build scripts have; changing the process
     # environment in tests is unsound. The examples job covers it.
     "replace Package::from_build_env -> ",
+    # `#[serde(other)]` only changes deserialization (unknown tags); the
+    # serialized form, which schemas describe, is the variant's own name.
+    "delete match arm \"other\" in SerdeAttrs::flag",
     # YAML positions are 1-based; a line 0 never occurs.
     "src/yaml.rs:.*replace > with >= in parse",
     # Fast path and whitespace tidying of `to_string`: every candidate result

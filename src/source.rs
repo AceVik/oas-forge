@@ -486,18 +486,8 @@ fn walk_error(root: &Path, error: walkdir::Error) -> Error {
     Error::io(&path, source)
 }
 
-/// A comparable form of a path that does not need the file to exist.
+/// A comparable form of a path: canonical when it exists. A path that does
+/// not exist cannot be a discovered file, so it only has to stay distinct.
 fn normalize(path: &Path) -> PathBuf {
-    if let Ok(canonical) = path.canonicalize() {
-        return canonical;
-    }
-    match (path.parent(), path.file_name()) {
-        (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => parent
-            .canonicalize()
-            .map(|p| p.join(name))
-            .unwrap_or_else(|_| path.to_path_buf()),
-        _ => std::env::current_dir()
-            .map(|d| d.join(path))
-            .unwrap_or_else(|_| path.to_path_buf()),
-    }
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
