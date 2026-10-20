@@ -16,6 +16,57 @@ use syn::{Attribute, Meta};
 ///
 /// Unknown keys and malformed values are ignored, as serde would reject them
 /// at compile time anyway.
+///
+/// # Examples
+///
+/// The attributes are read during extraction; the reflected schema shows
+/// their effect:
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use serde_json::json;
+/// use std::path::Path;
+///
+/// let source = r#"
+/// /// @openapi
+/// #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// pub struct Settings {
+///     pub dark_mode: bool,
+///     #[serde(skip)]
+///     pub cache: u8,
+///     #[serde(default)]
+///     pub page_size: u32,
+/// }
+/// "#;
+/// let items = extract::extract_str(
+///     Path::new("src/lib.rs"),
+///     source,
+///     Options::new(),
+///     &mut Diagnostics::new(),
+/// )?;
+/// let Some(Item::Schema(settings)) = items.first() else {
+///     return Err("no schema".into());
+/// };
+/// assert_eq!(
+///     settings.schema,
+///     json!({
+///         "type": "object",
+///         "properties": {
+///             "darkMode": { "type": "boolean" },
+///             "pageSize": {
+///                 "type": "integer",
+///                 "format": "int64",
+///                 "minimum": 0,
+///                 "maximum": u32::MAX,
+///             },
+///         },
+///         "required": ["darkMode"],
+///         "additionalProperties": false,
+///     })
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SerdeAttrs {
@@ -100,6 +151,7 @@ impl SerdeAttrs {
         out
     }
 
+    /// Sets the flag of a bare key such as `untagged` or `skip`.
     fn flag(&mut self, key: &str) {
         match key {
             "untagged" => self.untagged = true,
@@ -115,6 +167,8 @@ impl SerdeAttrs {
         }
     }
 
+    /// Sets the field of `key = "value"`; an unknown `rename_all` rule
+    /// leaves no rule.
     fn value(&mut self, key: &str, value: String) {
         match key {
             "rename" => self.rename = Some(value),
@@ -138,6 +192,19 @@ impl SerdeAttrs {
 
     /// Whether the field or variant is left out of the serialized form and
     /// of the deserialized form.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::attrs::SerdeAttrs;
+    ///
+    /// let mut attrs = SerdeAttrs::default();
+    /// attrs.skip_serializing = true;
+    /// // Still read on input (the schema marks it `writeOnly`).
+    /// assert!(!attrs.is_skipped());
+    /// attrs.skip_deserializing = true;
+    /// assert!(attrs.is_skipped());
+    /// ```
     pub fn is_skipped(&self) -> bool {
         self.skip || (self.skip_serializing && self.skip_deserializing)
     }

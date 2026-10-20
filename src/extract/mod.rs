@@ -22,6 +22,42 @@ use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
 
 /// An annotation found in Rust source code.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use std::path::Path;
+///
+/// let source = r#"
+///     /// @openapi
+///     pub struct User {
+///         pub id: u64,
+///     }
+///
+///     /// Get a user
+///     /// @route GET /users/{id: u64}
+///     /// @return 200: $User
+///     pub async fn get_user() {}
+/// "#;
+/// let items = extract::extract_str(
+///     Path::new("src/lib.rs"),
+///     source,
+///     Options::new(),
+///     &mut Diagnostics::new(),
+/// )?;
+/// let kinds: Vec<&str> = items
+///     .iter()
+///     .map(|item| match item {
+///         Item::Schema(_) => "schema",
+///         Item::Route(_) => "route",
+///         _ => "other",
+///     })
+///     .collect();
+/// assert_eq!(kinds, ["schema", "route"]);
+/// # Ok::<(), oas_forge::Error>(())
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 // Items are made once per annotation and moved into the pipeline; boxing
@@ -30,7 +66,9 @@ use syn::visit::{self, Visit};
 pub enum Item {
     /// A schema reflected from a struct, enum or type alias.
     Schema(SchemaItem),
-    /// A free OpenAPI YAML block (`@openapi` on functions, modules, file docs).
+    /// A free OpenAPI YAML block (`@openapi` on functions, modules, file
+    /// docs, or on a field-less struct whose YAML has document keys such as
+    /// `openapi` or `info`).
     Document(DocumentItem),
     /// A named schema written as YAML (`@openapi-type Name`).
     NamedSchema(NamedSchemaItem),
@@ -51,6 +89,33 @@ pub enum Item {
 
 impl Item {
     /// Where the annotation starts.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::Diagnostics;
+    /// use oas_forge::extract::{self, Options};
+    /// use std::path::Path;
+    ///
+    /// let source = r#"/// @openapi
+    /// pub struct User {
+    ///     pub id: u64,
+    /// }
+    ///
+    /// /// @openapi
+    /// pub struct Group {}
+    /// "#;
+    /// let items = extract::extract_str(
+    ///     Path::new("src/lib.rs"),
+    ///     source,
+    ///     Options::new(),
+    ///     &mut Diagnostics::new(),
+    /// )?;
+    /// let lines: Vec<usize> = items.iter().map(|item| item.location().line()).collect();
+    /// assert_eq!(lines, [1, 6]);
+    /// assert_eq!(items[0].location().file(), Path::new("src/lib.rs"));
+    /// # Ok::<(), oas_forge::Error>(())
+    /// ```
     pub fn location(&self) -> &Location {
         match self {
             Self::Schema(i) => &i.location,
@@ -67,6 +132,50 @@ impl Item {
 }
 
 /// A schema reflected from a Rust item.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use serde_json::json;
+/// use std::path::Path;
+///
+/// let source = r#"
+/// /// A user.
+/// /// @openapi
+/// #[derive(serde::Serialize)]
+/// #[serde(rename = "UserDto", rename_all = "camelCase")]
+/// pub struct User {
+///     pub user_id: u64,
+///     pub nick: Option<String>,
+/// }
+/// "#;
+/// let items = extract::extract_str(
+///     Path::new("src/lib.rs"),
+///     source,
+///     Options::new(),
+///     &mut Diagnostics::new(),
+/// )?;
+/// let Some(Item::Schema(user)) = items.first() else {
+///     return Err("no schema".into());
+/// };
+/// assert_eq!((user.name.as_str(), user.rust_name.as_str()), ("UserDto", "User"));
+/// assert_eq!(
+///     user.schema,
+///     json!({
+///         "type": "object",
+///         "properties": {
+///             "userId": { "type": "integer", "format": "int64", "minimum": 0 },
+///             "nick": { "type": ["string", "null"] },
+///         },
+///         "required": ["userId"],
+///         "description": "A user.",
+///     })
+/// );
+/// assert_eq!(user.location.line(), 2);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct SchemaItem {
@@ -81,6 +190,39 @@ pub struct SchemaItem {
 }
 
 /// A free YAML block.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use std::path::Path;
+///
+/// let source = r#"
+/// /// @openapi
+/// /// tags: [Users]
+/// /// paths:
+/// ///   /users/count:
+/// ///     get:
+/// ///       responses:
+/// ///         '200': { description: OK }
+/// mod users {}
+/// "#;
+/// let items = extract::extract_str(
+///     Path::new("src/lib.rs"),
+///     source,
+///     Options::new(),
+///     &mut Diagnostics::new(),
+/// )?;
+/// let Some(Item::Document(block)) = items.first() else {
+///     return Err("no document".into());
+/// };
+/// assert!(block.text.starts_with("tags: [Users]\npaths:\n  /users/count:"));
+/// assert_eq!(block.location.line(), 3);
+/// // The module's tags apply to the operations of its blocks.
+/// assert_eq!(block.tags, ["Users"]);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct DocumentItem {
@@ -93,6 +235,34 @@ pub struct DocumentItem {
 }
 
 /// A named schema written as YAML.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use std::path::Path;
+///
+/// let source = r#"
+/// /// @openapi-type Money
+/// /// type: string
+/// /// format: decimal
+/// fn _schemas() {}
+/// "#;
+/// let items = extract::extract_str(
+///     Path::new("src/lib.rs"),
+///     source,
+///     Options::new(),
+///     &mut Diagnostics::new(),
+/// )?;
+/// let Some(Item::NamedSchema(money)) = items.first() else {
+///     return Err("no named schema".into());
+/// };
+/// assert_eq!(money.name, "Money");
+/// assert_eq!(money.text, "type: string\nformat: decimal");
+/// assert_eq!(money.location.line(), 3);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct NamedSchemaItem {
@@ -105,6 +275,39 @@ pub struct NamedSchemaItem {
 }
 
 /// A reusable fragment.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use std::path::Path;
+///
+/// let source = r#"
+/// /// @openapi-fragment Paged(limit)
+/// /// - name: limit
+/// ///   in: query
+/// ///   schema: { type: integer, maximum: {{limit}} }
+/// fn _fragments() {}
+/// "#;
+/// let items = extract::extract_str(
+///     Path::new("src/lib.rs"),
+///     source,
+///     Options::new(),
+///     &mut Diagnostics::new(),
+/// )?;
+/// let Some(Item::Fragment(paged)) = items.first() else {
+///     return Err("no fragment".into());
+/// };
+/// assert_eq!(paged.name, "Paged");
+/// assert_eq!(paged.params, ["limit"]);
+/// assert_eq!(
+///     paged.body,
+///     "- name: limit\n  in: query\n  schema: { type: integer, maximum: {{limit}} }"
+/// );
+/// assert_eq!(paged.location.line(), 2);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct FragmentItem {
@@ -119,6 +322,39 @@ pub struct FragmentItem {
 }
 
 /// A generic schema template.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use serde_json::json;
+/// use std::path::Path;
+///
+/// let source = r#"
+/// /// @openapi
+/// pub struct Page<T> {
+///     pub items: Vec<T>,
+///     pub total: u64,
+/// }
+/// "#;
+/// let items = extract::extract_str(
+///     Path::new("src/lib.rs"),
+///     source,
+///     Options::new(),
+///     &mut Diagnostics::new(),
+/// )?;
+/// let Some(Item::Blueprint(page)) = items.first() else {
+///     return Err("no blueprint".into());
+/// };
+/// assert_eq!(page.name, "Page");
+/// assert_eq!(page.params, ["T"]);
+/// assert_eq!(
+///     page.schema["properties"]["items"],
+///     json!({ "type": "array", "items": { "$ref": "$T" } })
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct BlueprintItem {
@@ -135,6 +371,37 @@ pub struct BlueprintItem {
 }
 
 /// An operation in the route DSL.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use std::path::Path;
+///
+/// let source = r#"
+/// /// Get a user
+/// /// @route GET /users/{id}
+/// pub async fn get_user(Path(id): Path<u64>) -> Json<User> {}
+/// "#;
+/// let items = extract::extract_str(
+///     Path::new("src/lib.rs"),
+///     source,
+///     Options::new(),
+///     &mut Diagnostics::new(),
+/// )?;
+/// let Some(Item::Route(route)) = items.first() else {
+///     return Err("no route".into());
+/// };
+/// assert_eq!(route.lines, [" Get a user", " @route GET /users/{id}"]);
+/// assert_eq!(route.line_numbers, [2, 3]);
+/// assert_eq!(route.operation_id.as_deref(), Some("get_user"));
+/// let signature = route.signature.as_ref().ok_or("no signature")?;
+/// assert_eq!(signature.path.len(), 1);
+/// assert_eq!(signature.path[0].to_string(), "u64");
+/// assert_eq!(signature.response.as_ref().map(ToString::to_string).as_deref(), Some("User"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RouteItem {
@@ -142,7 +409,8 @@ pub struct RouteItem {
     pub lines: Vec<String>,
     /// Source line of each entry of `lines`.
     pub line_numbers: Vec<usize>,
-    /// The default operationId (function name, or derived from method and path).
+    /// The default operationId: the function name; `None` for a block in
+    /// file docs (`//!`), whose operationId is derived from method and path.
     pub operation_id: Option<String>,
     /// Tags of the enclosing modules, applied when the route has no `@tag`.
     pub tags: Vec<String>,
@@ -158,6 +426,34 @@ pub struct RouteItem {
 }
 
 /// An AsyncAPI channel block.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use std::path::Path;
+///
+/// let source = r#"
+/// /// A user signed up.
+/// /// @channel user/{id}/signedup
+/// /// @send UserSignedUp: $User
+/// fn publish_signup() {}
+/// "#;
+/// let items = extract::extract_str(
+///     Path::new("src/lib.rs"),
+///     source,
+///     Options::new(),
+///     &mut Diagnostics::new(),
+/// )?;
+/// let Some(Item::Channel(channel)) = items.first() else {
+///     return Err("no channel".into());
+/// };
+/// assert_eq!(channel.lines[1], " @channel user/{id}/signedup");
+/// assert_eq!(channel.line_numbers, [2, 3, 4]);
+/// assert_eq!(channel.operation_id.as_deref(), Some("publish_signup"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ChannelItem {
@@ -172,6 +468,30 @@ pub struct ChannelItem {
 }
 
 /// A regular expression constant.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use std::path::Path;
+///
+/// let source = r#"
+/// static SLUG: LazyLock<Regex> =
+///     LazyLock::new(|| Regex::new("^[a-z0-9-]+$").expect("valid pattern"));
+/// "#;
+/// let items = extract::extract_str(
+///     Path::new("src/lib.rs"),
+///     source,
+///     Options::new(),
+///     &mut Diagnostics::new(),
+/// )?;
+/// let Some(Item::Pattern(slug)) = items.first() else {
+///     return Err("no pattern".into());
+/// };
+/// assert_eq!((slug.name.as_str(), slug.pattern.as_str()), ("SLUG", "^[a-z0-9-]+$"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PatternItem {
@@ -184,6 +504,43 @@ pub struct PatternItem {
 }
 
 /// How [`extract`] reads annotations.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use oas_forge::schema::TypeMapper;
+/// use oas_forge::template::Variables;
+/// use serde_json::json;
+/// use std::path::Path;
+///
+/// let types = TypeMapper::new().with_type("UserId", json!({ "type": "string", "format": "uuid" }));
+/// let variables = Variables::from([("EXAMPLE_NAME".to_string(), "Ada".to_string())]);
+/// let options = Options::new().types(&types).variables(&variables);
+///
+/// let source = r#"
+/// /// @openapi
+/// pub struct User {
+///     pub id: UserId,
+///     /// @example {{EXAMPLE_NAME}}
+///     pub name: String,
+/// }
+/// "#;
+/// let items =
+///     extract::extract_str(Path::new("src/lib.rs"), source, options, &mut Diagnostics::new())?;
+/// let Some(Item::Schema(user)) = items.first() else {
+///     return Err("no schema".into());
+/// };
+/// assert_eq!(
+///     user.schema["properties"],
+///     json!({
+///         "id": { "type": "string", "format": "uuid" },
+///         "name": { "type": "string", "examples": ["Ada"] },
+///     })
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub struct Options<'a> {
@@ -196,6 +553,7 @@ pub struct Options<'a> {
 
 impl Default for Options<'_> {
     fn default() -> Self {
+        /// No variables, shared by every default.
         static NONE: Variables = Variables::new();
         Self {
             types: TypeMapper::builtin(),
@@ -206,17 +564,104 @@ impl Default for Options<'_> {
 
 impl<'a> Options<'a> {
     /// The built-in type table and no variables.
+    ///
+    /// # Examples
+    ///
+    /// Types outside the built-in table become smart references, resolved
+    /// later against the documented schemas:
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::Diagnostics;
+    /// use oas_forge::extract::{self, Item, Options};
+    /// use serde_json::json;
+    /// use std::path::Path;
+    ///
+    /// let source = "/// @openapi\npub struct User {\n    pub id: UserId,\n    pub age: u8,\n}\n";
+    /// let items = extract::extract_str(
+    ///     Path::new("src/lib.rs"),
+    ///     source,
+    ///     Options::new(),
+    ///     &mut Diagnostics::new(),
+    /// )?;
+    /// let Some(Item::Schema(user)) = items.first() else {
+    ///     return Err("no schema".into());
+    /// };
+    /// assert_eq!(
+    ///     user.schema["properties"],
+    ///     json!({
+    ///         "id": { "$ref": "$UserId" },
+    ///         "age": { "type": "integer", "format": "int32", "minimum": 0, "maximum": 255 },
+    ///     })
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Sets the type mapping.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::Diagnostics;
+    /// use oas_forge::extract::{self, Item, Options};
+    /// use oas_forge::schema::TypeMapper;
+    /// use serde_json::json;
+    /// use std::path::Path;
+    ///
+    /// let types = TypeMapper::new().with_type("UserId", json!({ "type": "string", "format": "uuid" }));
+    /// let source = "/// @openapi\npub struct User {\n    pub id: UserId,\n}\n";
+    /// let items = extract::extract_str(
+    ///     Path::new("src/lib.rs"),
+    ///     source,
+    ///     Options::new().types(&types),
+    ///     &mut Diagnostics::new(),
+    /// )?;
+    /// let Some(Item::Schema(user)) = items.first() else {
+    ///     return Err("no schema".into());
+    /// };
+    /// assert_eq!(user.schema["properties"]["id"], json!({ "type": "string", "format": "uuid" }));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn types(mut self, types: &'a TypeMapper) -> Self {
         self.types = types;
         self
     }
 
     /// Sets the values of `{{NAME}}` placeholders.
+    ///
+    /// # Examples
+    ///
+    /// A value that is a single placeholder stays a string:
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::Diagnostics;
+    /// use oas_forge::extract::{self, Item, Options};
+    /// use oas_forge::template::Variables;
+    /// use serde_json::json;
+    /// use std::path::Path;
+    ///
+    /// let variables = Variables::from([("EXAMPLE_ID".to_string(), "42".to_string())]);
+    /// let source = r#"
+    /// /// @openapi
+    /// pub struct User {
+    ///     /// @example {{EXAMPLE_ID}}
+    ///     pub id: u64,
+    /// }
+    /// "#;
+    /// let items = extract::extract_str(
+    ///     Path::new("src/lib.rs"),
+    ///     source,
+    ///     Options::new().variables(&variables),
+    ///     &mut Diagnostics::new(),
+    /// )?;
+    /// let Some(Item::Schema(user)) = items.first() else {
+    ///     return Err("no schema".into());
+    /// };
+    /// assert_eq!(user.schema["properties"]["id"]["examples"], json!(["42"]));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn variables(mut self, variables: &'a Variables) -> Self {
         self.variables = variables;
         self
@@ -227,6 +672,24 @@ impl<'a> Options<'a> {
 ///
 /// # Errors
 /// [`Error::Parse`] when the file is not valid Rust.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::Error;
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use oas_forge::source::{SourceFile, SourceKind};
+///
+/// let file = SourceFile::new("src/lib.rs", SourceKind::Rust, "/// @openapi\npub struct Ping;\n");
+/// let items = extract::extract(&file, Options::new(), &mut Diagnostics::new())?;
+/// assert!(matches!(&items[..], [Item::Schema(ping)] if ping.name == "Ping"));
+///
+/// let broken = SourceFile::new("src/lib.rs", SourceKind::Rust, "pub struct {");
+/// let error = extract::extract(&broken, Options::new(), &mut Diagnostics::new());
+/// assert!(matches!(error, Err(Error::Parse { .. })));
+/// # Ok::<(), oas_forge::Error>(())
+/// ```
 pub fn extract(
     source: &SourceFile,
     options: Options<'_>,
@@ -239,6 +702,38 @@ pub fn extract(
 ///
 /// # Errors
 /// [`Error::Parse`] when the text is not valid Rust.
+///
+/// # Examples
+///
+/// Problems with single annotations are findings, not errors:
+///
+/// ```
+/// use oas_forge::diagnostics::{Code, Diagnostics};
+/// use oas_forge::extract::{self, Item, Options};
+/// use std::path::Path;
+///
+/// let source = r#"
+/// static SLUG: LazyLock<Regex> = LazyLock::new(|| Regex::new("^[a-z0-9-]+$").expect("valid"));
+///
+/// /// @openapi
+/// /// @openapi rename
+/// pub struct Post {
+///     #[validate(regex(path = *SLUG))]
+///     pub slug: String,
+/// }
+/// "#;
+/// let mut diagnostics = Diagnostics::new();
+/// let items = extract::extract_str(
+///     Path::new("src/posts.rs"),
+///     source,
+///     Options::new(),
+///     &mut diagnostics,
+/// )?;
+/// assert!(matches!(&items[..], [Item::Pattern(_), Item::Schema(_)]));
+/// let codes: Vec<Code> = diagnostics.iter().map(|d| d.code()).collect();
+/// assert_eq!(codes, [Code::InvalidSchemaDirective]);
+/// # Ok::<(), oas_forge::Error>(())
+/// ```
 pub fn extract_str(
     path: &Path,
     text: &str,
@@ -262,17 +757,28 @@ pub fn extract_str(
     Ok(visitor.items)
 }
 
+/// Walks a parsed file and collects its annotations in source order.
 struct Extractor<'a> {
+    /// The file, for locations.
     path: &'a Path,
+    /// How annotations are read.
     options: Options<'a>,
+    /// The annotations found so far.
     items: Vec<Item>,
+    /// Tags of the enclosing modules (`tags: [A, B]` in their doc comments),
+    /// outermost first.
     tags: Vec<String>,
+    /// `@route-defaults` blocks of the enclosing modules, outermost first;
+    /// each starts with its `@route-defaults` header.
     defaults: Vec<String>,
+    /// The source line of each entry of `defaults` (1-based).
     default_line_numbers: Vec<usize>,
+    /// Where findings go.
     diagnostics: &'a mut Diagnostics,
 }
 
 impl Extractor<'_> {
+    /// The location of the 1-based `line` of the file.
     fn location(&self, line: usize) -> Location {
         Location::new(self.path, line)
     }
@@ -323,6 +829,8 @@ impl Extractor<'_> {
         self.items.extend(items);
     }
 
+    /// Adds the free blocks of an item's doc comment (`@openapi…`,
+    /// `@asyncapi`), with the tags of the enclosing modules.
     fn blocks(&mut self, lines: &[DocLine]) {
         let items = blocks::item_blocks(self.path, lines, &self.tags, self.diagnostics);
         self.items.extend(items);

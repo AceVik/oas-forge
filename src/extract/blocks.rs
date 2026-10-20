@@ -261,6 +261,8 @@ pub(super) fn file_blocks(
     items
 }
 
+/// Whether a trimmed file doc line starts a block: `@openapi…`,
+/// `@asyncapi`, `@route`, `@webhook` or `@channel`.
 fn is_header(trimmed: &str) -> bool {
     if !trimmed.starts_with('@') {
         return false;
@@ -269,6 +271,8 @@ fn is_header(trimmed: &str) -> bool {
     is_block_header(trimmed) || dsl::is_route(&line) || dsl::is_channel(&line)
 }
 
+/// Whether a trimmed line is a separator: three or more of the same
+/// character out of `-=*_~#` (`-----`).
 fn is_separator(trimmed: &str) -> bool {
     let mut chars = trimmed.chars();
     match chars.next() {
@@ -279,6 +283,8 @@ fn is_separator(trimmed: &str) -> bool {
     }
 }
 
+/// Turns the collected file-level `block` (header line first) into items
+/// and empties it.
 fn close(path: &Path, block: &mut Vec<DocLine>, items: &mut Vec<Item>, diags: &mut Diagnostics) {
     let Some((header, rest)) = block.split_first() else {
         return;

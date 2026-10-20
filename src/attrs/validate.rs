@@ -12,6 +12,29 @@ use syn::punctuated::Punctuated;
 use syn::{Attribute, Expr, ExprLit, ExprUnary, Lit, Meta, UnOp};
 
 /// How a string length is counted.
+///
+/// JSON Schema counts characters, so other units become the character bounds
+/// every valid value satisfies.
+///
+/// # Examples
+///
+/// garde's `length(min = 8, max = 64)` counts UTF-8 bytes: 8 bytes are at
+/// least 2 characters of up to 4 bytes each.
+///
+/// ```
+/// use oas_forge::attrs::{Constraints, LengthUnit, Rule};
+/// use serde_json::json;
+///
+/// let length = |unit| Rule::Length { min: Some(8), max: Some(64), unit };
+///
+/// let mut bytes = json!({ "type": "string" });
+/// Constraints::new(vec![length(LengthUnit::Bytes)]).apply(&mut bytes);
+/// assert_eq!(bytes, json!({ "type": "string", "minLength": 2, "maxLength": 64 }));
+///
+/// let mut chars = json!({ "type": "string" });
+/// Constraints::new(vec![length(LengthUnit::Chars)]).apply(&mut chars);
+/// assert_eq!(chars, json!({ "type": "string", "minLength": 8, "maxLength": 64 }));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum LengthUnit {
@@ -26,6 +49,34 @@ pub enum LengthUnit {
 }
 
 /// One validation rule.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::attrs::{Constraints, Rule};
+/// use serde_json::json;
+///
+/// let mut percent = json!({ "type": "integer" });
+/// Constraints::new(vec![Rule::Range {
+///     min: Some(0.into()),
+///     max: None,
+///     exclusive_min: None,
+///     exclusive_max: Some(100.into()),
+/// }])
+/// .apply(&mut percent);
+/// assert_eq!(
+///     percent,
+///     json!({ "type": "integer", "minimum": 0, "exclusiveMaximum": 100 })
+/// );
+///
+/// // garde's `inner(email)` applies to the items of a list.
+/// let mut emails = json!({ "type": "array", "items": { "type": "string" } });
+/// Constraints::new(vec![Rule::Inner(vec![Rule::Format("email".into())])]).apply(&mut emails);
+/// assert_eq!(
+///     emails,
+///     json!({ "type": "array", "items": { "type": "string", "format": "email" } })
+/// );
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Rule {
@@ -68,6 +119,53 @@ pub enum Rule {
 }
 
 /// The validation rules of a field.
+///
+/// # Examples
+///
+/// The rules are read from `#[validate(...)]` and `#[garde(...)]` during
+/// extraction:
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use serde_json::json;
+/// use std::path::Path;
+///
+/// let source = r#"
+/// /// @openapi
+/// pub struct SignUp {
+///     #[validate(email, length(max = 255))]
+///     pub email: String,
+///     #[garde(range(min = 18, max = 150))]
+///     pub age: u8,
+///     #[validate(required)]
+///     pub nick: Option<String>,
+/// }
+/// "#;
+/// let items = extract::extract_str(
+///     Path::new("src/lib.rs"),
+///     source,
+///     Options::new(),
+///     &mut Diagnostics::new(),
+/// )?;
+/// let Some(Item::Schema(sign_up)) = items.first() else {
+///     return Err("no schema".into());
+/// };
+/// assert_eq!(
+///     sign_up.schema,
+///     json!({
+///         "type": "object",
+///         "properties": {
+///             "email": { "type": "string", "format": "email", "maxLength": 255 },
+///             "age": { "type": "integer", "format": "int32", "minimum": 18, "maximum": 150 },
+///             // `required`: the `Option` must be present and is not nullable.
+///             "nick": { "type": "string" },
+///         },
+///         "required": ["email", "age", "nick"],
+///     })
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Default, PartialEq)]
 #[non_exhaustive]
 pub struct Constraints {
@@ -81,21 +179,87 @@ pub(crate) const PATTERN_KEY: &str = "x-oas-forge-pattern";
 
 impl Constraints {
     /// Constraints from rules.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::attrs::{Constraints, LengthUnit, Rule};
+    /// use serde_json::json;
+    ///
+    /// let constraints = Constraints::new(vec![
+    ///     Rule::Format("email".into()),
+    ///     Rule::Length { min: None, max: Some(255), unit: LengthUnit::Chars },
+    /// ]);
+    /// let mut schema = json!({ "type": "string" });
+    /// constraints.apply(&mut schema);
+    /// assert_eq!(schema, json!({ "type": "string", "format": "email", "maxLength": 255 }));
+    /// ```
     pub fn new(rules: Vec<Rule>) -> Self {
         Self { rules }
     }
 
     /// Whether there is no rule.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::attrs::{Constraints, Rule};
+    ///
+    /// assert!(Constraints::default().is_empty());
+    /// assert!(!Constraints::new(vec![Rule::Required]).is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.rules.is_empty()
     }
 
     /// Whether a `required` rule forces an `Option` field to be present.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::attrs::{Constraints, Rule};
+    ///
+    /// assert!(Constraints::new(vec![Rule::Required]).requires_value());
+    /// assert!(!Constraints::new(vec![Rule::Format("email".into())]).requires_value());
+    /// ```
     pub fn requires_value(&self) -> bool {
         self.rules.contains(&Rule::Required)
     }
 
     /// Adds the keywords of every rule to `schema`, chosen by its `type`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::attrs::{Constraints, LengthUnit, Rule};
+    /// use serde_json::json;
+    ///
+    /// let constraints = Constraints::new(vec![Rule::Length {
+    ///     min: Some(1),
+    ///     max: Some(10),
+    ///     unit: LengthUnit::Chars,
+    /// }]);
+    /// let mut name = json!({ "type": "string" });
+    /// let mut tags = json!({ "type": "array", "items": { "type": "string" } });
+    /// let mut labels = json!({ "type": "object", "additionalProperties": { "type": "string" } });
+    /// for schema in [&mut name, &mut tags, &mut labels] {
+    ///     constraints.apply(schema);
+    /// }
+    /// assert_eq!(name, json!({ "type": "string", "minLength": 1, "maxLength": 10 }));
+    /// assert_eq!(
+    ///     tags,
+    ///     json!({ "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 10 })
+    /// );
+    /// assert_eq!(
+    ///     labels,
+    ///     json!({
+    ///         "type": "object",
+    ///         "additionalProperties": { "type": "string" },
+    ///         "minProperties": 1,
+    ///         "maxProperties": 10,
+    ///     })
+    /// );
+    /// ```
     pub fn apply(&self, schema: &mut Value) {
         for rule in &self.rules {
             apply_rule(rule, schema);
@@ -119,9 +283,13 @@ impl Constraints {
     }
 }
 
+/// Collects the rules of a field's validation attributes.
 #[derive(Default)]
 struct Parser {
+    /// The rules in declaration order (`validator` before `garde`).
     rules: Vec<Rule>,
+    /// Why values were left out, one sentence each ("`length(max = MAX)` is
+    /// not a literal").
     problems: Vec<String>,
 }
 
@@ -275,6 +443,8 @@ impl Parser {
         (min.is_some() || max.is_some()).then_some((min, max))
     }
 
+    /// `min`, `max`, `exclusive_min`, `exclusive_max` and `equal` of a
+    /// `range` rule; `None` without a usable bound.
     fn range(&mut self, args: &[Meta]) -> Option<Rule> {
         let mut min = None;
         let mut max = None;
@@ -435,6 +605,7 @@ fn unusable(expr: &Expr) -> &'static str {
     }
 }
 
+/// The source text of `expr`, for messages.
 fn quote_expr(expr: &Expr) -> String {
     quote::ToTokens::to_token_stream(expr).to_string()
 }
@@ -454,13 +625,20 @@ fn escape(text: &str) -> String {
 /// The kind of value a schema describes, by its `type`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
+    /// `string`
     String,
+    /// `array`
     Array,
+    /// `object`
     Object,
+    /// `integer` or `number`
     Number,
+    /// Any other or no `type`, such as a `$ref`.
     Unknown,
 }
 
+/// The kind of `schema`; of a list of types (`["string", "null"]`), the
+/// first that is not `null`.
 fn kind(schema: &Value) -> Kind {
     let type_name = match schema.get("type") {
         Some(Value::String(t)) => t.as_str(),
@@ -480,6 +658,8 @@ fn kind(schema: &Value) -> Kind {
     }
 }
 
+/// Adds the keywords of `rule` to `schema`, chosen by its [`Kind`]; a
+/// schema that is not an object is left as it is.
 fn apply_rule(rule: &Rule, schema: &mut Value) {
     let kind = kind(schema);
     let Value::Object(map) = schema else { return };

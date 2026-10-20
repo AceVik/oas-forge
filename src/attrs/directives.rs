@@ -41,6 +41,8 @@ pub(crate) enum ItemKind {
 }
 
 impl ItemDocs {
+    /// Reads the doc `lines` of an item of `kind`. Problems are collected
+    /// in `problems`, not reported.
     pub(crate) fn parse(lines: &[DocLine], kind: ItemKind) -> Self {
         let mut docs = Self::default();
         let mut description_lines = Vec::new();
@@ -170,6 +172,7 @@ impl ItemDocs {
     }
 }
 
+/// `text` trimmed and without surrounding double quotes.
 fn unquote(text: &str) -> &str {
     text.trim().trim_matches('"')
 }

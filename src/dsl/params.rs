@@ -19,7 +19,9 @@ pub(super) const LOCATIONS: &[&str] = &["path", "query", "header", "cookie", "qu
 
 /// A parsed parameter directive.
 pub(super) struct Parameter {
+    /// The parameter name.
     pub(super) name: String,
+    /// The Parameter object (`name`, `in`, `required`, `schema`, ...).
     pub(super) value: Value,
     /// Tokens that are neither a known flag nor a quoted description; they
     /// are reported and ignored.
@@ -200,6 +202,8 @@ fn set(schema: &mut Value, key: &str, value: Value) {
     }
 }
 
+/// Whether `token` is a flag or a quoted description rather than a type:
+/// `required`, `deprecated`, `default=…`, `"Page size"`.
 fn is_flag(token: &str) -> bool {
     token.starts_with('"')
         || matches!(

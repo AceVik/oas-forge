@@ -58,6 +58,43 @@ pub(crate) const METHODS: &[&str] = &[
 /// What a handler's signature says about its operation (signature
 /// inference). Built by the extraction from framework extractors such as
 /// axum's `Path`, `Query` and `Json`.
+///
+/// # Examples
+///
+/// What `async fn create_user(Json(user): Json<NewUser>) -> Json<User>`
+/// says, filling the request body and the success response of its route:
+///
+/// ```
+/// use oas_forge::diagnostics::{Diagnostics, Location};
+/// use oas_forge::dsl::{self, RouteSource, Signature};
+/// use oas_forge::schema::TypeExpr;
+/// use serde_json::json;
+///
+/// let mut signature = Signature::default();
+/// signature.body = TypeExpr::parse("NewUser").map(|ty| (ty, "application/json".to_string()));
+/// signature.response = TypeExpr::parse("User");
+///
+/// let lines = ["@route POST /users".to_string()];
+/// let location = Location::new("api.rs", 1);
+/// let route = dsl::compile(
+///     RouteSource::new(&lines, &location).signature(Some(&signature)),
+///     &mut Diagnostics::new(),
+/// )
+/// .ok_or("the route is invalid")?;
+/// let operation = &route.document["paths"]["/users"]["post"];
+/// assert_eq!(
+///     operation["requestBody"],
+///     json!({
+///         "content": { "application/json": { "schema": { "$ref": "$NewUser" } } },
+///         "required": true,
+///     })
+/// );
+/// assert_eq!(
+///     operation["responses"]["200"]["content"]["application/json"]["schema"],
+///     json!({ "$ref": "$User" })
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Signature {
@@ -76,7 +113,11 @@ pub struct Signature {
     pub response: Option<TypeExpr>,
 }
 
-/// One route block.
+/// One route block: its lines and how to read them. Created with
+/// [`RouteSource::new`], refined with the setters and compiled with
+/// [`compile`].
+///
+/// # Examples
 ///
 /// ```
 /// # use oas_forge::diagnostics::{Diagnostics, Location};
@@ -87,8 +128,10 @@ pub struct Signature {
 ///     RouteSource::new(&lines, &location).operation_id(Some("ping")),
 ///     &mut Diagnostics::new(),
 /// )
-/// .unwrap();
+/// .ok_or("the route is invalid")?;
 /// assert_eq!(route.path, "/ping");
+/// assert_eq!(route.document["paths"]["/ping"]["get"]["operationId"], "ping");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
@@ -115,6 +158,26 @@ pub struct RouteSource<'a> {
 
 impl<'a> RouteSource<'a> {
     /// A block of `lines` starting at `location`, with the built-in type table.
+    ///
+    /// # Examples
+    ///
+    /// Without further settings the operationId is derived from method and
+    /// path:
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Diagnostics, Location};
+    /// use oas_forge::dsl::{self, RouteSource};
+    ///
+    /// let lines = ["@route GET /users/{id: u64}".to_string()];
+    /// let location = Location::new("api.rs", 1);
+    /// let route = dsl::compile(RouteSource::new(&lines, &location), &mut Diagnostics::new())
+    ///     .ok_or("the route is invalid")?;
+    /// assert_eq!(
+    ///     route.document["paths"]["/users/{id}"]["get"]["operationId"],
+    ///     "get_users_id"
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new(lines: &'a [String], location: &'a Location) -> Self {
         Self {
             lines,
@@ -129,36 +192,185 @@ impl<'a> RouteSource<'a> {
     }
 
     /// Sets the source line of each entry of `lines`.
+    ///
+    /// # Examples
+    ///
+    /// Findings point at the line they are about instead of the block start:
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Code, Diagnostics, Location};
+    /// use oas_forge::dsl::{self, RouteSource};
+    ///
+    /// let lines = ["List users", "@route GET /users", "@limit 10"].map(String::from);
+    /// let location = Location::new("api.rs", 10);
+    /// let mut diagnostics = Diagnostics::new();
+    /// let route = dsl::compile(
+    ///     RouteSource::new(&lines, &location).line_numbers(&[10, 11, 12]),
+    ///     &mut diagnostics,
+    /// );
+    /// assert!(route.is_some());
+    /// let finding = diagnostics.iter().next().ok_or("no finding")?;
+    /// assert_eq!(finding.code(), Code::UnknownDirective);
+    /// assert_eq!(finding.location(), Some(&Location::new("api.rs", 12)));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn line_numbers(mut self, line_numbers: &'a [usize]) -> Self {
         self.line_numbers = line_numbers;
         self
     }
 
     /// Sets the default operationId (derived from method and path when `None`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Diagnostics, Location};
+    /// use oas_forge::dsl::{self, RouteSource};
+    ///
+    /// let lines = ["@route GET /users".to_string()];
+    /// let location = Location::new("api.rs", 1);
+    /// let source = RouteSource::new(&lines, &location);
+    ///
+    /// let named = dsl::compile(source.operation_id(Some("list_users")), &mut Diagnostics::new())
+    ///     .ok_or("the route is invalid")?;
+    /// assert_eq!(named.document["paths"]["/users"]["get"]["operationId"], "list_users");
+    ///
+    /// let derived = dsl::compile(source.operation_id(None), &mut Diagnostics::new())
+    ///     .ok_or("the route is invalid")?;
+    /// assert_eq!(derived.document["paths"]["/users"]["get"]["operationId"], "get_users");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn operation_id(mut self, operation_id: Option<&'a str>) -> Self {
         self.operation_id = operation_id;
         self
     }
 
     /// Sets the tags of routes without `@tag`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Diagnostics, Location};
+    /// use oas_forge::dsl::{self, RouteSource};
+    /// use serde_json::json;
+    ///
+    /// let tags = ["Users".to_string()];
+    /// let location = Location::new("api.rs", 1);
+    ///
+    /// let lines = ["@route GET /users".to_string()];
+    /// let route = dsl::compile(
+    ///     RouteSource::new(&lines, &location).default_tags(&tags),
+    ///     &mut Diagnostics::new(),
+    /// )
+    /// .ok_or("the route is invalid")?;
+    /// assert_eq!(route.document["paths"]["/users"]["get"]["tags"], json!(["Users"]));
+    ///
+    /// // `@tag` replaces the default tags.
+    /// let lines = ["@route GET /users", "@tag Admin"].map(String::from);
+    /// let route = dsl::compile(
+    ///     RouteSource::new(&lines, &location).default_tags(&tags),
+    ///     &mut Diagnostics::new(),
+    /// )
+    /// .ok_or("the route is invalid")?;
+    /// assert_eq!(route.document["paths"]["/users"]["get"]["tags"], json!(["Admin"]));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn default_tags(mut self, tags: &'a [String]) -> Self {
         self.default_tags = tags;
         self
     }
 
     /// Sets the type mapping.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Diagnostics, Location};
+    /// use oas_forge::dsl::{self, RouteSource};
+    /// use oas_forge::schema::TypeMapper;
+    /// use serde_json::json;
+    ///
+    /// let types = TypeMapper::new().with_type("UserId", json!({ "type": "string", "format": "uuid" }));
+    /// let lines = ["@route GET /users/{id: UserId}".to_string()];
+    /// let location = Location::new("api.rs", 1);
+    /// let route = dsl::compile(
+    ///     RouteSource::new(&lines, &location).types(&types),
+    ///     &mut Diagnostics::new(),
+    /// )
+    /// .ok_or("the route is invalid")?;
+    /// assert_eq!(
+    ///     route.document["paths"]["/users/{id}"]["get"]["parameters"][0]["schema"],
+    ///     json!({ "type": "string", "format": "uuid" })
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn types(mut self, types: &'a TypeMapper) -> Self {
         self.types = types;
         self
     }
 
     /// Sets the `@route-defaults` lines of the enclosing modules.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Diagnostics, Location};
+    /// use oas_forge::dsl::{self, RouteSource};
+    /// use serde_json::json;
+    ///
+    /// let defaults = ["@route-defaults", "@prefix /api", "@tag Users", "@security bearer"]
+    ///     .map(String::from);
+    /// let lines = ["@route GET /users".to_string()];
+    /// let location = Location::new("api.rs", 1);
+    /// let route = dsl::compile(
+    ///     RouteSource::new(&lines, &location).defaults(&defaults),
+    ///     &mut Diagnostics::new(),
+    /// )
+    /// .ok_or("the route is invalid")?;
+    /// assert_eq!(route.path, "/api/users");
+    /// let operation = &route.document["paths"]["/api/users"]["get"];
+    /// assert_eq!(operation["tags"], json!(["Users"]));
+    /// assert_eq!(operation["security"], json!([{ "bearer": [] }]));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn defaults(mut self, defaults: &'a [String]) -> Self {
         self.defaults = defaults;
         self
     }
 
     /// Sets the handler's signature for inference.
+    ///
+    /// # Examples
+    ///
+    /// The path parameter of `async fn get_user(Path(id): Path<u64>)`, which
+    /// the block leaves undeclared:
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Diagnostics, Location};
+    /// use oas_forge::dsl::{self, RouteSource, Signature};
+    /// use oas_forge::schema::TypeExpr;
+    /// use serde_json::json;
+    ///
+    /// let mut signature = Signature::default();
+    /// signature.path = vec![TypeExpr::parse("u64").ok_or("not a type")?];
+    /// let lines = ["@route GET /users/{id}".to_string()];
+    /// let location = Location::new("api.rs", 1);
+    /// let route = dsl::compile(
+    ///     RouteSource::new(&lines, &location).signature(Some(&signature)),
+    ///     &mut Diagnostics::new(),
+    /// )
+    /// .ok_or("the route is invalid")?;
+    /// assert_eq!(
+    ///     route.document["paths"]["/users/{id}"]["get"]["parameters"],
+    ///     json!([{
+    ///         "name": "id",
+    ///         "in": "path",
+    ///         "required": true,
+    ///         "schema": { "type": "integer", "format": "int64", "minimum": 0 },
+    ///     }])
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn signature(mut self, signature: Option<&'a Signature>) -> Self {
         self.signature = signature;
         self
@@ -166,6 +378,29 @@ impl<'a> RouteSource<'a> {
 }
 
 /// A compiled route.
+///
+/// # Examples
+///
+/// A webhook is keyed by its name under `webhooks`:
+///
+/// ```
+/// use oas_forge::diagnostics::{Diagnostics, Location};
+/// use oas_forge::dsl::{self, RouteSource};
+/// use serde_json::json;
+///
+/// let lines = ["@webhook newUser", "@body $User"].map(String::from);
+/// let location = Location::new("api.rs", 1);
+/// let route = dsl::compile(RouteSource::new(&lines, &location), &mut Diagnostics::new())
+///     .ok_or("the route is invalid")?;
+/// assert_eq!(route.path, "newUser");
+/// assert_eq!(route.method, "post");
+/// assert!(route.webhook);
+/// assert_eq!(
+///     route.document["webhooks"]["newUser"]["post"]["requestBody"]["content"],
+///     json!({ "application/json": { "schema": { "$ref": "$User" } } })
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct CompiledRoute {
@@ -184,46 +419,91 @@ pub struct CompiledRoute {
 /// Where lines of an embedded YAML section go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scope {
+    /// The operation: after `@openapi` or `@openapi operation`, or from a
+    /// line that starts with an operation field (`responses:`, `x-…:`).
     Operation,
+    /// The path item (`@openapi path`).
     PathItem,
+    /// The whole document (`@openapi document`).
     Document,
 }
 
+/// What the lines of a route block (or of the module defaults) declare so
+/// far, before [`Compiler::finish`] turns it into a document fragment.
 #[derive(Default)]
 struct Builder {
+    /// The path item key of the method (see [`method_key`]); empty until a
+    /// valid `@route` or `@webhook` line.
     method: String,
+    /// The normalized path of `@route`, without the module prefix (added by
+    /// [`Compiler::finish`]); empty for a webhook.
     path: String,
+    /// The name of a `@webhook`; `None` for a `@route`.
     webhook: Option<String>,
+    /// The `@prefix` paths of the module defaults, joined without trailing
+    /// `/`; empty in a route block.
     prefix: String,
+    /// Operation fields set by directives (`operationId`, `deprecated`,
+    /// `externalDocs`, `servers`, `requestBody`).
     operation: Map<String, Value>,
+    /// Parameters and struct expansion markers in declaration order; a later
+    /// declaration of the same name and location replaces an earlier one.
     parameters: Vec<Value>,
+    /// The responses of `@return`, `@return-header` and `@problem`, by
+    /// status code.
     responses: Map<String, Value>,
+    /// The `@security` requirements (`{}` for `@security none`); `None`
+    /// without a `@security` line.
     security: Option<Vec<Value>>,
+    /// The `@tag` names without duplicates; `None` without a `@tag` line, so
+    /// that the default tags apply.
     tags: Option<Vec<String>>,
+    /// The summary: `@summary`, or the first prose line.
     summary: Option<String>,
+    /// The description lines (`@description` and the prose after the
+    /// summary), blank lines included.
     description: Vec<String>,
+    /// Whether prose lines continue a `@description`; then lines such as
+    /// `tags: …` are text, not YAML. Ends at the next directive.
     in_description: bool,
+    /// The lines of embedded YAML: their scope, their index in
+    /// [`RouteSource::lines`] (`None` for module defaults) and their text.
     yaml: Vec<(Scope, Option<usize>, String)>,
+    /// The embedded YAML section that is open; `None` in prose.
     scope: Option<Scope>,
+    /// The path parameters declared so far (inline, with `@param path` or
+    /// inferred from the signature), checked against the placeholders of
+    /// the path.
     declared: BTreeSet<String>,
+    /// Document parts that directives add (`components.schemas` of
+    /// `@problem`); `@openapi document` YAML is kept in `yaml`.
     document: Map<String, Value>,
+    /// Whether `@no-infer` turns signature inference off.
     no_infer: bool,
+    /// The number of `@route` and `@webhook` lines, valid or not: a block
+    /// needs exactly one.
     route_lines: usize,
     /// The tags and security so far come from an enclosing module; the next
     /// `@tag` or `@security` of an inner module replaces them.
     outer_tags: bool,
+    /// Like `outer_tags`, for the security requirements.
     outer_security: bool,
     /// Where the YAML of each module's defaults starts in `yaml`.
     module_yaml: Vec<usize>,
 }
 
+/// An inline path parameter: `{id}`, `{id: u64}`, `{id "User id"}` or
+/// `{id: u64 "User id"}`. Captures the name, the type and the description.
 static INLINE_PARAM_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\{(\w+)(?::\s*([^"}]+))?(?:\s*"([^"]+)")?\}"#).expect("constant pattern")
 });
 
+/// A placeholder of a normalized path (`{id}`); captures the name.
 static PLACEHOLDER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\{(\w+)\}").expect("constant pattern"));
 
+/// Whether `line` is a `@route` or `@webhook` directive (`@routes` and
+/// `@route-defaults` are not).
 fn is_header(line: &str) -> bool {
     let line = line.trim();
     ["@route", "@webhook"].iter().any(|header| {
@@ -233,12 +513,78 @@ fn is_header(line: &str) -> bool {
 }
 
 /// Whether `lines` contain a `@route` or `@webhook` directive.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::dsl;
+///
+/// assert!(dsl::is_route(&["List users".into(), "  @route GET /users".into()]));
+/// assert!(dsl::is_route(&["@webhook newUser".into()]));
+/// assert!(!dsl::is_route(&["@routes".into(), "@tag Users".into()]));
+/// ```
 pub fn is_route(lines: &[String]) -> bool {
     lines.iter().any(|l| is_header(l))
 }
 
 /// Compiles a route block. Returns `None` (with error diagnostics) when the
 /// route is invalid.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::{Diagnostics, Location};
+/// use oas_forge::dsl::{self, RouteSource};
+/// use serde_json::json;
+///
+/// let lines = [
+///     "Get a user",
+///     r#"@route GET /users/{id: u64 "User id"}"#,
+///     "@return 200: $User",
+///     r#"@problem 404 "No such user""#,
+/// ]
+/// .map(String::from);
+/// let location = Location::new("api.rs", 1);
+/// let mut diagnostics = Diagnostics::new();
+/// let route = dsl::compile(
+///     RouteSource::new(&lines, &location).operation_id(Some("get_user")),
+///     &mut diagnostics,
+/// )
+/// .ok_or("the route is invalid")?;
+/// assert!(diagnostics.is_empty());
+/// assert_eq!((route.path.as_str(), route.method.as_str()), ("/users/{id}", "get"));
+///
+/// let operation = &route.document["paths"]["/users/{id}"]["get"];
+/// assert_eq!(operation["summary"], "Get a user");
+/// assert_eq!(
+///     operation["parameters"],
+///     json!([{
+///         "name": "id",
+///         "in": "path",
+///         "required": true,
+///         "description": "User id",
+///         "schema": { "type": "integer", "format": "int64", "minimum": 0 },
+///     }])
+/// );
+/// // `$User` stays a smart reference until the generator resolves it.
+/// assert_eq!(
+///     operation["responses"]["200"]["content"]["application/json"]["schema"],
+///     json!({ "$ref": "$User" })
+/// );
+/// // `@problem` adds the schema its response refers to.
+/// assert_eq!(
+///     operation["responses"]["404"]["content"]["application/problem+json"]["schema"],
+///     json!({ "$ref": "#/components/schemas/ProblemDetails" })
+/// );
+/// assert!(route.document["components"]["schemas"]["ProblemDetails"].is_object());
+///
+/// // A path parameter without a declaration makes the route invalid.
+/// let lines = ["@route GET /users/{id}".to_string()];
+/// let mut diagnostics = Diagnostics::new();
+/// assert!(dsl::compile(RouteSource::new(&lines, &location), &mut diagnostics).is_none());
+/// assert!(diagnostics.has_errors());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn compile(source: RouteSource<'_>, diagnostics: &mut Diagnostics) -> Option<CompiledRoute> {
     let mut compiler = Compiler {
         source,
@@ -267,12 +613,18 @@ pub fn compile(source: RouteSource<'_>, diagnostics: &mut Diagnostics) -> Option
     compiler.finish(builder, defaults)
 }
 
+/// Compiles one route block and reports its findings.
 struct Compiler<'s, 'd> {
+    /// The block and how to read it.
     source: RouteSource<'s>,
+    /// Where findings go.
     diagnostics: &'d mut Diagnostics,
 }
 
 impl Compiler<'_, '_> {
+    /// The source location of entry `index` of the block's lines; the start
+    /// of the block when `index` is `None` (module defaults, findings about
+    /// the whole block) or has no line number.
     fn location(&self, index: Option<usize>) -> Location {
         match index.and_then(|i| self.source.line_numbers.get(i)) {
             Some(line) => Location::new(self.source.location.file(), *line),
@@ -280,16 +632,21 @@ impl Compiler<'_, '_> {
         }
     }
 
+    /// Reports a finding with `code` at entry `index` (see [`Self::location`]).
     fn report(&mut self, code: Code, index: Option<usize>, message: impl Into<String>) {
         let location = self.location(index);
         self.diagnostics
             .push(Diagnostic::new(code, message).at(location));
     }
 
+    /// Reports a directive with an invalid argument ([`Code::InvalidDirective`]).
     fn invalid(&mut self, index: Option<usize>, message: impl Into<String>) {
         self.report(Code::InvalidDirective, index, message);
     }
 
+    /// Reads one line into `b`: a directive, a line of embedded YAML, the
+    /// summary or a description line. `index` is the line's entry in the
+    /// block (`None` for module defaults, then `defaults` is set).
     fn line(&mut self, b: &mut Builder, index: Option<usize>, line: &str, defaults: bool) {
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -335,6 +692,10 @@ impl Compiler<'_, '_> {
         }
     }
 
+    /// Applies one directive (`directive` is the text after `@`). `@route`
+    /// and `@webhook` belong to the block, `@route-defaults` and `@prefix` to
+    /// module defaults; elsewhere, like unknown names, they are reported as
+    /// unknown directives.
     fn directive(
         &mut self,
         b: &mut Builder,
@@ -517,6 +878,9 @@ impl Compiler<'_, '_> {
         }
     }
 
+    /// Adds the parameter of `@param <location> rest` (and its short forms).
+    /// An unknown location or a malformed declaration is reported and
+    /// skipped; unknown flags are reported and ignored.
     fn parameter(&mut self, b: &mut Builder, index: Option<usize>, location: &str, rest: &str) {
         if !params::LOCATIONS.contains(&location) {
             self.invalid(
@@ -544,6 +908,7 @@ impl Compiler<'_, '_> {
         add_parameter(&mut b.parameters, parameter.value);
     }
 
+    /// Reads `@route METHOD /path`, declaring the path's inline parameters.
     fn route(&mut self, b: &mut Builder, index: Option<usize>, rest: &str) {
         b.route_lines += 1;
         let Some((method, raw_path)) = rest.split_once(char::is_whitespace) else {
@@ -597,6 +962,7 @@ impl Compiler<'_, '_> {
         path
     }
 
+    /// Reads `@webhook [METHOD] name`; the method defaults to `post`.
     fn webhook(&mut self, b: &mut Builder, index: Option<usize>, rest: &str) {
         b.route_lines += 1;
         let tokens: Vec<&str> = rest.split_whitespace().collect();
@@ -624,6 +990,9 @@ impl Compiler<'_, '_> {
         b.webhook = Some(name.to_string());
     }
 
+    /// Completes the route with the module `defaults`, the signature and
+    /// the embedded YAML, and wraps the operation in its document fragment.
+    /// `None` when the route is invalid (the finding is reported).
     fn finish(&mut self, mut b: Builder, defaults: Builder) -> Option<CompiledRoute> {
         if b.method.is_empty() || (b.path.is_empty() && b.webhook.is_none()) {
             // An invalid `@route` or `@webhook` line has been reported.

@@ -16,8 +16,11 @@ pub(super) const PROBLEM_SCHEMA: &str = "ProblemDetails";
 
 /// A request body: `@body [optional] Type [media...] ["description"]`.
 pub(super) struct Body {
+    /// The Media Type objects by media type.
     pub(super) content: Map<String, Value>,
+    /// `false` for `optional` and for `Option<T>` types.
     pub(super) required: bool,
+    /// The quoted description, if any.
     pub(super) description: Option<String>,
 }
 
@@ -47,12 +50,15 @@ pub(super) fn body(rest: &str, types: &TypeMapper) -> Result<Body, String> {
 
 /// A response: `@return CODE: [Type] [media...] ["description"]`.
 pub(super) struct Response {
+    /// The status code or range (`200`, `4XX`, `default`).
     pub(super) code: String,
+    /// The Response object.
     pub(super) value: Value,
 }
 
 /// Parses a `@return` directive; the error says what is wrong with it.
 pub(super) fn response(rest: &str, types: &TypeMapper) -> Result<Response, String> {
+    /// The finding for a `@return` line that is not `code: …`.
     const SYNTAX: &str = "`@return` needs `code: [Type] [media...] [\"description\"]`";
     let (code, residue) = rest.split_once(':').ok_or(SYNTAX)?;
     let code = code.trim().to_string();
@@ -175,6 +181,7 @@ fn split_media(text: &str) -> (String, Vec<String>) {
     (tokens.join(" "), media)
 }
 
+/// The media types written in the directive, or `default` without any.
 fn media_or(media: &[String], default: &str) -> Vec<String> {
     if media.is_empty() {
         vec![default.to_string()]
@@ -192,6 +199,8 @@ pub(super) fn type_schema(text: &str, types: &TypeMapper) -> Result<Value, Strin
 /// [`type_schema`] and whether a value is required (`false` for
 /// `Option<T>`).
 fn mapped_schema(text: &str, types: &TypeMapper) -> Result<(Value, bool), String> {
+    /// Generic types the type table maps itself; other generics
+    /// (`Page<User>`) are instances of blueprints.
     const STD: &[&str] = &[
         "Option<", "Vec<", "Box<", "Arc<", "Rc<", "Cow<", "Json<", "Form<",
     ];

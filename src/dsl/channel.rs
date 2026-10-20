@@ -311,6 +311,7 @@ fn derived_id(address: &str) -> String {
     }
 }
 
+/// The names of the `{placeholders}` of a channel address, in order.
 fn placeholders(address: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = address;

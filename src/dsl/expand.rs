@@ -106,11 +106,17 @@ fn identity(parameter: &Value) -> (Value, Value) {
 /// `anyOf: [{$ref}, {}]`).
 #[derive(Default)]
 struct Fields {
+    /// The properties by name; the first schema that has a name wins.
     properties: Map<String, Value>,
+    /// The names of the required properties (none of optional schemas).
     required: Vec<String>,
 }
 
 impl Fields {
+    /// Adds the properties of `schema`, following references into
+    /// `schemas` (`components.schemas`) and flattened `allOf` parts up to
+    /// [`MAX_FLATTEN_DEPTH`]. With `optional` set, the properties it adds
+    /// are not required.
     fn collect(&mut self, schema: &Value, schemas: &Value, optional: bool, depth: usize) {
         if depth > MAX_FLATTEN_DEPTH {
             return;
@@ -207,6 +213,7 @@ fn from_schema(
         .collect()
 }
 
+/// Removes empty `parameters` lists (an expansion may leave nothing).
 fn remove_empty_parameters(document: &mut Value) {
     for_each_operation(document, |_, operation| {
         if operation

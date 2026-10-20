@@ -23,6 +23,8 @@ pub(crate) fn metas(attrs: &[Attribute], name: &str) -> Vec<Meta> {
     out
 }
 
+/// Adds the nested items of `meta` to `out` when it is `name(...)`, also
+/// inside (nested) `cfg_attr`.
 fn collect(meta: &Meta, name: &str, out: &mut Vec<Meta>) {
     let Meta::List(list) = meta else {
         return;

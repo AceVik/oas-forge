@@ -55,9 +55,15 @@ struct Naming {
     /// Whether `name` comes from `#[serde(rename)]` or `@openapi rename`
     /// (then no `rename_all` rule applies to it).
     explicit: bool,
+    /// How the fields or variants inside the item are renamed:
+    /// `@openapi rename-all`, else `#[serde(rename_all)]`.
     rename_all: Option<RenameRule>,
+    /// The description, `@openapi` directives and `@example`s of the doc
+    /// comment.
     docs: ItemDocs,
+    /// The `#[serde(...)]` attributes.
     serde: SerdeAttrs,
+    /// Whether the item has a `#[deprecated]` attribute.
     deprecated: bool,
 }
 
@@ -67,8 +73,11 @@ enum Field {
     Skip,
     /// A property of the object.
     Property {
+        /// The serialized name.
         name: String,
+        /// The schema, with description, examples and override.
         schema: Value,
+        /// Whether the property belongs in `required`.
         required: bool,
     },
     /// `#[serde(flatten)]` of a struct or enum: its properties are merged in.
@@ -79,6 +88,7 @@ enum Field {
 
 /// The serialized form of an enum variant's data.
 enum Content {
+    /// A unit variant: no data.
     Unit,
     /// A newtype variant: the schema of its single field.
     Newtype(Value),
@@ -90,22 +100,42 @@ enum Content {
 
 /// How an enum is represented (serde's four modes).
 enum Representation<'a> {
+    /// Serde's default: unit variants are strings, the others
+    /// `{"Variant": data}`.
     External,
-    Internal { tag: &'a str },
-    Adjacent { tag: &'a str, content: &'a str },
+    /// `#[serde(tag = "...")]`: the tag next to the variant's fields.
+    Internal {
+        /// The tag property.
+        tag: &'a str,
+    },
+    /// `#[serde(tag = "...", content = "...")]`: the tag and the data in two
+    /// properties.
+    Adjacent {
+        /// The tag property.
+        tag: &'a str,
+        /// The property that holds the data.
+        content: &'a str,
+    },
+    /// `#[serde(untagged)]`: the data alone.
     Untagged,
 }
 
+/// Reflects the structs, enums and type aliases of one file into schemas.
 pub(super) struct Reflector<'a> {
+    /// The file, for locations.
     path: &'a Path,
+    /// How Rust types map to schemas.
     types: &'a TypeMapper,
+    /// Values of `{{NAME}}` placeholders in overrides and `@example`s.
     variables: &'a Variables,
+    /// Where findings go.
     diagnostics: &'a mut Diagnostics,
     /// `@openapi-fragment` blocks found in the doc comments read so far.
     fragments: Vec<Item>,
 }
 
 impl<'a> Reflector<'a> {
+    /// A reflector for the file at `path`.
     pub(super) fn new(
         path: &'a Path,
         options: Options<'a>,
@@ -126,10 +156,14 @@ impl<'a> Reflector<'a> {
         std::mem::take(&mut self.fragments)
     }
 
+    /// The location of the 1-based `line` of the file.
     fn location(&self, line: usize) -> Location {
         Location::new(self.path, line)
     }
 
+    /// Reads the attributes and doc comment of an item, field or variant
+    /// (`kind`) named `default` in Rust. Invalid directives are reported;
+    /// fragments in the doc comment are kept for [`Self::take_fragments`].
     fn naming(&mut self, attrs: &[syn::Attribute], default: &str, kind: ItemKind) -> Naming {
         let serde = SerdeAttrs::parse(attrs);
         let docs = ItemDocs::parse(&doc_lines(attrs), kind);
@@ -1214,6 +1248,8 @@ fn with_module(path: &str) -> Option<Value> {
     )
 }
 
+/// A [`Item::Blueprint`] when the item has type parameters (`blueprint`),
+/// otherwise a [`Item::Schema`].
 fn wrap_item(
     name: String,
     rust_name: String,

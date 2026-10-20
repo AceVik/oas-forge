@@ -60,6 +60,7 @@ pub(super) fn from_macro(path: &Path, mac: &syn::Macro) -> Vec<Item> {
     items
 }
 
+/// Whether `token` is the identifier `name`.
 fn is_ident(token: &TokenTree, name: &str) -> bool {
     matches!(token, TokenTree::Ident(i) if i == name)
 }
