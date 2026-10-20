@@ -32,6 +32,8 @@ pub(super) fn kinds(items: &[Item]) -> Vec<String> {
             Item::Blueprint(b) => format!("blueprint:{}", b.name),
             Item::Route(r) => format!("route:{}", r.operation_id.as_deref().unwrap_or("-")),
             Item::Pattern(p) => format!("pattern:{}", p.name),
+            Item::AsyncApi(_) => "asyncapi".into(),
+            Item::Channel(c) => format!("channel:{}", c.operation_id.as_deref().unwrap_or("-")),
             other => panic!("unexpected item {other:?}"),
         })
         .collect()

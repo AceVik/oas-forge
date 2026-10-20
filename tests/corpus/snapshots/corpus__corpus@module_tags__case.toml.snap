@@ -4,6 +4,9 @@ expression: snapshot
 input_file: tests/corpus/cases/module_tags/case.toml
 ---
 {
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
   "description": "Modules: tags from module docs injected into manual path blocks",
   "diagnostics": [],
   "fragments": {
@@ -76,6 +79,52 @@ input_file: tests/corpus/cases/module_tags/case.toml
     "lints": [],
     "validation": []
   },
+  "json_schema": {
+    "document": {
+      "$defs": {},
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/deep": {
+          "get": {
+            "responses": {
+              "200": {
+                "description": "OK"
+              }
+            },
+            "tags": [
+              "Outer",
+              "Inner"
+            ]
+          }
+        },
+        "/shallow": {
+          "get": {
+            "responses": {
+              "200": {
+                "description": "OK"
+              }
+            },
+            "tags": [
+              "Outer"
+            ]
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
   "paths": {
     "document": {
       "/deep": {
@@ -109,5 +158,43 @@ input_file: tests/corpus/cases/module_tags/case.toml
   "schemas": {
     "document": {},
     "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/deep": {
+          "get": {
+            "responses": {
+              "200": {
+                "description": "OK"
+              }
+            },
+            "tags": [
+              "Outer",
+              "Inner"
+            ]
+          }
+        },
+        "/shallow": {
+          "get": {
+            "responses": {
+              "200": {
+                "description": "OK"
+              }
+            },
+            "tags": [
+              "Outer"
+            ]
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
   }
 }

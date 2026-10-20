@@ -42,11 +42,15 @@ fn default_inputs() -> Vec<String> {
     vec!["src".to_string()]
 }
 
-const STRATEGIES: [(OutputKind, &str); 4] = [
+const STRATEGIES: [(OutputKind, &str); 8] = [
     (OutputKind::Full, "full"),
     (OutputKind::Schemas, "schemas"),
     (OutputKind::Paths, "paths"),
     (OutputKind::Fragments, "fragments"),
+    (OutputKind::JsonSchema, "json_schema"),
+    (OutputKind::OpenApi30, "openapi_30"),
+    (OutputKind::Swagger20, "swagger_2"),
+    (OutputKind::AsyncApi, "asyncapi"),
 ];
 
 #[test]
@@ -80,8 +84,18 @@ fn run_case(case_file: &Path) -> Value {
                 .collect();
             result.insert("diagnostics".into(), json!(diagnostics));
             for (kind, name) in STRATEGIES {
-                let entry = match spec.render(kind) {
-                    Ok(doc) => describe(kind, round_trip(doc)),
+                let entry = match spec.render_with_diagnostics(kind) {
+                    Ok((doc, findings)) => {
+                        let mut entry = describe(kind, round_trip(doc));
+                        if !findings.is_empty() {
+                            let findings: Vec<String> = findings
+                                .iter()
+                                .map(|d| normalize(&d.to_string(), &dir))
+                                .collect();
+                            entry["diagnostics"] = json!(findings);
+                        }
+                        entry
+                    }
                     Err(error) => json!({ "error": normalize(&error.to_string(), &dir) }),
                 };
                 result.insert(name.into(), entry);
@@ -130,16 +144,32 @@ fn round_trip(doc: Value) -> Value {
 
 /// Attaches spec validation (full documents) and lints to a generated output.
 fn describe(kind: OutputKind, doc: Value) -> Value {
-    let known: Option<BTreeSet<String>> = match kind {
-        OutputKind::Schemas => doc.as_object().map(|m| m.keys().cloned().collect()),
-        OutputKind::Paths => None,
-        _ => Some(spec::component_schemas(&doc)),
+    let names: BTreeSet<String> = match kind {
+        OutputKind::Schemas => doc
+            .as_object()
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default(),
+        _ => spec::component_schemas(&doc),
+    };
+    let refs = match kind {
+        OutputKind::Paths => spec::Refs::Unknown,
+        OutputKind::Schemas => spec::Refs::Schemas(&names),
+        // Fragments may refer to schemas of other crates.
+        OutputKind::Fragments => spec::Refs::Schemas(&names),
+        _ => spec::Refs::SelfContained,
     };
     let mut entry = Map::new();
-    if kind == OutputKind::Full {
+    if matches!(
+        kind,
+        OutputKind::Full
+            | OutputKind::JsonSchema
+            | OutputKind::OpenApi30
+            | OutputKind::Swagger20
+            | OutputKind::AsyncApi
+    ) {
         entry.insert("validation".into(), json!(spec::validate(&doc)));
     }
-    entry.insert("lints".into(), json!(spec::lint(&doc, known.as_ref())));
+    entry.insert("lints".into(), json!(spec::lint(&doc, refs)));
     entry.insert("document".into(), doc);
     Value::Object(entry)
 }

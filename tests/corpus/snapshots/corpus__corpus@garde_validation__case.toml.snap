@@ -4,6 +4,9 @@ expression: snapshot
 input_file: tests/corpus/cases/garde_validation/case.toml
 ---
 {
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
   "description": "garde: length modes, ranges, text rules, inner rules and pattern constants from another file",
   "diagnostics": [
     "warning[OF1007]: regular expression constant `UNKNOWN` is not defined in the scanned code; the pattern is not documented (<case>/src/lib.rs:7)"
@@ -154,6 +157,153 @@ input_file: tests/corpus/cases/garde_validation/case.toml
     "lints": [],
     "validation": []
   },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Account": {
+          "properties": {
+            "age": {
+              "format": "int32",
+              "maximum": 130,
+              "minimum": 18,
+              "type": "integer"
+            },
+            "email": {
+              "format": "email",
+              "type": "string"
+            },
+            "handle": {
+              "pattern": "^@[a-z0-9_]+$",
+              "type": "string"
+            },
+            "homepage": {
+              "format": "uri",
+              "type": "string"
+            },
+            "password": {
+              "maxLength": 64,
+              "minLength": 2,
+              "type": "string"
+            },
+            "phone": {
+              "maxLength": 16,
+              "pattern": "^\\+",
+              "type": "string"
+            },
+            "tags": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 5,
+              "type": "array"
+            },
+            "unresolved": {
+              "type": "string"
+            },
+            "username": {
+              "maxLength": 20,
+              "minLength": 3,
+              "pattern": "^[\\x00-\\x7F]*$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "username",
+            "password",
+            "email",
+            "age",
+            "phone",
+            "handle",
+            "tags",
+            "homepage",
+            "unresolved"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Account": {
+            "properties": {
+              "age": {
+                "format": "int32",
+                "maximum": 130,
+                "minimum": 18,
+                "type": "integer"
+              },
+              "email": {
+                "format": "email",
+                "type": "string"
+              },
+              "handle": {
+                "pattern": "^@[a-z0-9_]+$",
+                "type": "string"
+              },
+              "homepage": {
+                "format": "uri",
+                "type": "string"
+              },
+              "password": {
+                "maxLength": 64,
+                "minLength": 2,
+                "type": "string"
+              },
+              "phone": {
+                "maxLength": 16,
+                "pattern": "^\\+",
+                "type": "string"
+              },
+              "tags": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 5,
+                "type": "array"
+              },
+              "unresolved": {
+                "type": "string"
+              },
+              "username": {
+                "maxLength": 20,
+                "minLength": 3,
+                "pattern": "^[\\x00-\\x7F]*$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "username",
+              "password",
+              "email",
+              "age",
+              "phone",
+              "handle",
+              "tags",
+              "homepage",
+              "unresolved"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {}
+    },
+    "lints": [],
+    "validation": []
+  },
   "paths": {
     "document": {},
     "lints": []
@@ -223,5 +373,80 @@ input_file: tests/corpus/cases/garde_validation/case.toml
       }
     },
     "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "Account": {
+          "properties": {
+            "age": {
+              "format": "int32",
+              "maximum": 130,
+              "minimum": 18,
+              "type": "integer"
+            },
+            "email": {
+              "format": "email",
+              "type": "string"
+            },
+            "handle": {
+              "pattern": "^@[a-z0-9_]+$",
+              "type": "string"
+            },
+            "homepage": {
+              "format": "uri",
+              "type": "string"
+            },
+            "password": {
+              "maxLength": 64,
+              "minLength": 2,
+              "type": "string"
+            },
+            "phone": {
+              "maxLength": 16,
+              "pattern": "^\\+",
+              "type": "string"
+            },
+            "tags": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 5,
+              "type": "array"
+            },
+            "unresolved": {
+              "type": "string"
+            },
+            "username": {
+              "maxLength": 20,
+              "minLength": 3,
+              "pattern": "^[\\x00-\\x7F]*$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "username",
+            "password",
+            "email",
+            "age",
+            "phone",
+            "handle",
+            "tags",
+            "homepage",
+            "unresolved"
+          ],
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {},
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
   }
 }

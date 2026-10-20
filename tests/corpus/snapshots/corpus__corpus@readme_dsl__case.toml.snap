@@ -4,6 +4,9 @@ expression: snapshot
 input_file: tests/corpus/cases/readme_dsl/case.toml
 ---
 {
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
   "description": "README: Route DSL examples (basic, inline params, flexible params, responses, body, security, raw YAML)",
   "diagnostics": [
     "warning[OF2005]: embedded OpenAPI YAML is invalid and was ignored: duplicate mapping key: description (<case>/src/lib.rs:54)"
@@ -487,7 +490,293 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
     "lints": [],
     "validation": []
   },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "CreateRequest": {
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "Page_User": {
+          "properties": {
+            "data": {
+              "items": {
+                "$ref": "#/$defs/User"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "type": "object"
+        },
+        "User": {
+          "properties": {
+            "id": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
   "known_bug": "The # comment line becomes the summary; the documented example repeats the description key, so its embedded YAML is rejected (OF2005)",
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "CreateRequest": {
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "Page_User": {
+            "properties": {
+              "data": {
+                "items": {
+                  "$ref": "#/components/schemas/User"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "data"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/complex": {
+          "get": {
+            "operationId": "complex_handler",
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            },
+            "summary": "# You can inject raw parameters alongside DSL",
+            "tags": [
+              "Items"
+            ]
+          }
+        },
+        "/protected": {
+          "get": {
+            "operationId": "protected",
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            },
+            "security": [
+              {
+                "oidc": [
+                  "read",
+                  "write"
+                ]
+              },
+              {
+                "basic": []
+              }
+            ]
+          }
+        },
+        "/search": {
+          "get": {
+            "operationId": "search",
+            "parameters": [
+              {
+                "deprecated": true,
+                "description": "Filter by name",
+                "example": "Alice",
+                "in": "query",
+                "name": "filter",
+                "required": false,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "description": "Tracing ID",
+                "in": "header",
+                "name": "X-Trace-ID",
+                "required": true,
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/users": {
+          "get": {
+            "description": "Returns a paginated list of users.",
+            "operationId": "list_users",
+            "parameters": [
+              {
+                "description": "Page number",
+                "in": "query",
+                "name": "page",
+                "required": false,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/User"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "List of users"
+              }
+            },
+            "summary": "List Users",
+            "tags": [
+              "Users"
+            ]
+          },
+          "post": {
+            "operationId": "create_user",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Page_User"
+                    }
+                  }
+                },
+                "description": "List"
+              },
+              "201": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                },
+                "description": "Created"
+              },
+              "204": {
+                "description": "Deleted"
+              },
+              "400": {
+                "description": "Invalid Input"
+              }
+            }
+          }
+        },
+        "/users/create": {
+          "post": {
+            "operationId": "create",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CreateRequest"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/users/{id}": {
+          "get": {
+            "operationId": "get_user",
+            "parameters": [
+              {
+                "description": "The unique ID",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
   "paths": {
     "document": {
       "/complex": {
@@ -718,5 +1007,230 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
       }
     },
     "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "CreateRequest": {
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "Page_User": {
+          "properties": {
+            "data": {
+              "items": {
+                "$ref": "#/definitions/User"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "type": "object"
+        },
+        "User": {
+          "properties": {
+            "id": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/complex": {
+          "get": {
+            "operationId": "complex_handler",
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            },
+            "summary": "# You can inject raw parameters alongside DSL",
+            "tags": [
+              "Items"
+            ]
+          }
+        },
+        "/protected": {
+          "get": {
+            "operationId": "protected",
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            },
+            "security": [
+              {
+                "oidc": [
+                  "read",
+                  "write"
+                ]
+              },
+              {
+                "basic": []
+              }
+            ]
+          }
+        },
+        "/search": {
+          "get": {
+            "operationId": "search",
+            "parameters": [
+              {
+                "description": "Filter by name",
+                "in": "query",
+                "name": "filter",
+                "required": false,
+                "type": "string",
+                "x-deprecated": true,
+                "x-example": "Alice"
+              },
+              {
+                "description": "Tracing ID",
+                "format": "uuid",
+                "in": "header",
+                "name": "X-Trace-ID",
+                "required": true,
+                "type": "string"
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/users": {
+          "get": {
+            "description": "Returns a paginated list of users.",
+            "operationId": "list_users",
+            "parameters": [
+              {
+                "description": "Page number",
+                "format": "int64",
+                "in": "query",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "name": "page",
+                "required": false,
+                "type": "integer"
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "List of users",
+                "schema": {
+                  "items": {
+                    "$ref": "#/definitions/User"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "summary": "List Users",
+            "tags": [
+              "Users"
+            ]
+          },
+          "post": {
+            "operationId": "create_user",
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "List",
+                "schema": {
+                  "$ref": "#/definitions/Page_User"
+                }
+              },
+              "201": {
+                "description": "Created",
+                "schema": {
+                  "$ref": "#/definitions/User"
+                }
+              },
+              "204": {
+                "description": "Deleted"
+              },
+              "400": {
+                "description": "Invalid Input"
+              }
+            }
+          }
+        },
+        "/users/create": {
+          "post": {
+            "consumes": [
+              "application/json"
+            ],
+            "operationId": "create",
+            "parameters": [
+              {
+                "in": "body",
+                "name": "body",
+                "required": true,
+                "schema": {
+                  "$ref": "#/definitions/CreateRequest"
+                }
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/users/{id}": {
+          "get": {
+            "operationId": "get_user",
+            "parameters": [
+              {
+                "description": "The unique ID",
+                "format": "int64",
+                "in": "path",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "name": "id",
+                "required": true,
+                "type": "integer"
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
   }
 }

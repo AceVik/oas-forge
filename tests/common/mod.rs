@@ -190,3 +190,17 @@ pub const ROOT_DOC: &str = r#"
 ///   version: 1.0.0
 fn root() {}
 "#;
+
+/// Builds a [`oas_forge::Spec`] from in-memory files (written to a temporary
+/// project); the project is returned to keep it alive.
+pub fn spec_of(files: &[(&str, &str)]) -> (oas_forge::Spec, Project) {
+    let project = Project::new();
+    for (name, content) in files {
+        project.file(&format!("src/{name}"), content);
+    }
+    let spec = oas_forge::Generator::new()
+        .input(project.path("src"))
+        .build()
+        .unwrap_or_else(|e| panic!("{e}"));
+    (spec, project)
+}

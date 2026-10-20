@@ -17,6 +17,10 @@ output = ["openapi.yaml", "openapi.json"]
 output_schemas = ["schemas.yaml"]
 output_paths = ["paths.yaml"]
 output_fragments = ["fragments.yaml"]
+output_json_schema = ["schemas.json"]
+output_openapi_30 = ["openapi-3.0.yaml"]
+output_swagger2 = ["swagger.yaml"]
+output_asyncapi = ["asyncapi.yaml"]
 "#;
 
 mod toml_format {
@@ -32,6 +36,11 @@ mod toml_format {
         assert_eq!(config.output_schemas, paths(&["schemas.yaml"]));
         assert_eq!(config.output_paths, paths(&["paths.yaml"]));
         assert_eq!(config.output_fragments, paths(&["fragments.yaml"]));
+        assert_eq!(config.output_json_schema, paths(&["schemas.json"]));
+        assert_eq!(config.output_openapi_30, paths(&["openapi-3.0.yaml"]));
+        assert_eq!(config.output_swagger2, paths(&["swagger.yaml"]));
+        assert_eq!(config.output_asyncapi, paths(&["asyncapi.yaml"]));
+        assert_eq!(config.outputs().count(), 9);
     }
 
     #[test]
@@ -77,7 +86,11 @@ mod merging {
                 "openapi.json",
                 "schemas.yaml",
                 "paths.yaml",
-                "fragments.yaml"
+                "fragments.yaml",
+                "schemas.json",
+                "openapi-3.0.yaml",
+                "swagger.yaml",
+                "asyncapi.yaml"
             ]
             .map(PathBuf::from)
         );

@@ -1,5 +1,16 @@
 //! Output strategies and file writing.
+//!
+//! Besides the OpenAPI document itself (in full or in parts), the generator
+//! exports the same API as a JSON Schema bundle, an OpenAPI 3.0 or Swagger 2.0
+//! document. Constructs a target cannot express are approximated and reported.
 
+pub(crate) mod asyncapi;
+mod json_schema;
+mod openapi30;
+mod refs;
+mod swagger2;
+
+use super::diagnostics::Diagnostics;
 use super::error::{Error, Result};
 use super::template::registry::{FORMAT_KEY, FRAGMENTS_KEY, Registry, TEMPLATES_KEY};
 use super::yaml;
@@ -19,6 +30,15 @@ pub enum OutputKind {
     /// The specification without `openapi`, `info` and `servers`, plus the
     /// templates of this crate for consumption by other crates.
     Fragments,
+    /// The component schemas as a JSON Schema 2020-12 bundle (`$defs`).
+    JsonSchema,
+    /// The full specification lowered to OpenAPI 3.0.3.
+    OpenApi30,
+    /// The full specification converted to Swagger 2.0.
+    Swagger20,
+    /// The AsyncAPI document of `@asyncapi` and `@channel` blocks; requires a
+    /// root with `asyncapi` and `info`.
+    AsyncApi,
 }
 
 /// File format, chosen by the file extension (`.json` → JSON, otherwise YAML).
@@ -53,12 +73,20 @@ impl Format {
     }
 }
 
-/// Top-level keys of an OpenAPI/AsyncAPI document in specification order.
+/// Top-level keys of an OpenAPI/Swagger/AsyncAPI document and of a JSON
+/// Schema bundle in specification order.
 const ROOT_ORDER: &[&str] = &[
+    "$schema",
+    "swagger",
     "openapi",
     "asyncapi",
     "$self",
     "info",
+    "host",
+    "basePath",
+    "schemes",
+    "consumes",
+    "produces",
     "jsonSchemaDialect",
     "servers",
     "channels",
@@ -66,6 +94,11 @@ const ROOT_ORDER: &[&str] = &[
     "paths",
     "webhooks",
     "components",
+    "definitions",
+    "parameters",
+    "responses",
+    "securityDefinitions",
+    "$defs",
     "security",
     "tags",
     "externalDocs",
@@ -78,8 +111,27 @@ pub(crate) fn is_root(document: &Value) -> bool {
         .is_some_and(|m| m.contains_key("openapi") && m.contains_key("info"))
 }
 
-/// The value an output of `kind` receives.
-pub(crate) fn render(kind: OutputKind, document: &Value, registry: &Registry) -> Result<Value> {
+/// What outputs are rendered from.
+pub(crate) struct RenderInput<'a> {
+    /// The merged document in the dialect of its root.
+    pub document: &'a Value,
+    /// The merged document in the canonical dialect (JSON Schema 2020-12),
+    /// before version-specific lowering.
+    pub canonical: &'a Value,
+    /// The merged AsyncAPI document, with the schemas it uses.
+    pub asyncapi: &'a Value,
+    /// The templates of the run.
+    pub registry: &'a Registry,
+}
+
+/// The value an output of `kind` receives; approximations are reported to
+/// `diagnostics`.
+pub(crate) fn render(
+    kind: OutputKind,
+    input: &RenderInput<'_>,
+    diagnostics: &mut Diagnostics,
+) -> Result<Value> {
+    let document = input.document;
     match kind {
         OutputKind::Full => {
             if !is_root(document) {
@@ -96,12 +148,14 @@ pub(crate) fn render(kind: OutputKind, document: &Value, registry: &Registry) ->
             .cloned()
             .unwrap_or_else(|| Value::Object(Map::new()))),
         OutputKind::Fragments => {
-            let mut fragment = document.clone();
+            // Fragments travel to other crates, which lower them for their
+            // own root: keep the canonical dialect.
+            let mut fragment = input.canonical.clone();
             if let Value::Object(map) = &mut fragment {
                 for key in ["openapi", "info", "servers"] {
                     map.remove(key);
                 }
-                let transport = registry.export();
+                let transport = input.registry.export();
                 if !transport.is_empty() {
                     let components = map
                         .entry("components")
@@ -112,6 +166,29 @@ pub(crate) fn render(kind: OutputKind, document: &Value, registry: &Registry) ->
                 }
             }
             Ok(ordered(fragment))
+        }
+        OutputKind::JsonSchema => Ok(ordered(json_schema::bundle(input.canonical))),
+        OutputKind::OpenApi30 => {
+            if !is_root(input.canonical) {
+                return Err(Error::NoRootFound);
+            }
+            Ok(ordered(openapi30::export(input.canonical, diagnostics)))
+        }
+        OutputKind::Swagger20 => {
+            if !is_root(input.canonical) {
+                return Err(Error::NoRootFound);
+            }
+            Ok(ordered(swagger2::export(input.canonical, diagnostics)))
+        }
+        OutputKind::AsyncApi => {
+            let root = input
+                .asyncapi
+                .as_object()
+                .is_some_and(|m| m.contains_key("asyncapi") && m.contains_key("info"));
+            if !root {
+                return Err(Error::NoAsyncApiRoot);
+            }
+            Ok(ordered(asyncapi::export(input.asyncapi, diagnostics)))
         }
     }
 }
@@ -145,15 +222,29 @@ fn ordered(document: Value) -> Value {
     }
     out.extend(map);
     if let Some(Value::Object(components)) = out.get_mut("components") {
-        for section in components.values_mut() {
-            if let Value::Object(entries) = section {
-                let mut sorted: Vec<_> = std::mem::take(entries).into_iter().collect();
-                sorted.sort_by(|a, b| a.0.cmp(&b.0));
-                entries.extend(sorted);
-            }
+        components.values_mut().for_each(sort_entries);
+    }
+    for section in [
+        "$defs",
+        "definitions",
+        "parameters",
+        "responses",
+        "securityDefinitions",
+    ] {
+        if let Some(entries) = out.get_mut(section) {
+            sort_entries(entries);
         }
     }
     Value::Object(out)
+}
+
+/// Sorts the entries of a map by name.
+fn sort_entries(section: &mut Value) {
+    if let Value::Object(entries) = section {
+        let mut sorted: Vec<_> = std::mem::take(entries).into_iter().collect();
+        sorted.sort_by(|a, b| a.0.cmp(&b.0));
+        entries.extend(sorted);
+    }
 }
 
 /// Writes `text` to `path` atomically, unless the file already has exactly

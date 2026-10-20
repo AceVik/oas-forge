@@ -43,6 +43,8 @@ pub enum Error {
     },
     /// The full specification needs a root document with `openapi` and `info`.
     NoRootFound,
+    /// The AsyncAPI output needs a root document with `asyncapi` and `info`.
+    NoAsyncApiRoot,
     /// More than one document declares `openapi` and `info`.
     MultipleRootsFound {
         /// Where the root documents were defined.
@@ -89,6 +91,9 @@ impl fmt::Display for Error {
             } => write!(f, "YAML error in {location}: {message}\nContext:\n{context}"),
             Self::NoRootFound => f.write_str(
                 "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields.",
+            ),
+            Self::NoAsyncApiRoot => f.write_str(
+                "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields.",
             ),
             Self::MultipleRootsFound { locations } => {
                 f.write_str(

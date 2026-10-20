@@ -33,6 +33,14 @@ the schema (`MappedType::nullable`) so that parameters can turn `Option<T>`
 into `required: false` without a nullable schema, while properties and bodies
 render it.
 
+Exports (OpenAPI 3.0, Swagger 2.0, the JSON Schema bundle, AsyncAPI) start
+from the canonical document, so lowering never stacks. Their findings belong
+to the export: `Generator::build` adds them to the run only for configured
+outputs, so a plain OpenAPI run is not cluttered by targets nobody asked for.
+AsyncAPI schemas are lowered to draft 7 (tuples as `items` arrays, a string
+`discriminator`); only the component schemas the AsyncAPI document uses are
+copied into it.
+
 ## Consequences
 One schema generator, many targets. Target differences live in one module and
 are covered by validation against the official schemas.

@@ -106,3 +106,11 @@ fn impl_methods_are_extracted() {
         yaml("paths: { /method: {} }")
     );
 }
+
+#[test]
+fn channel_handlers_and_asyncapi_blocks() {
+    let items = extract(
+        "/// @channel orders\n/// @send Placed: $Order\nfn publish() {}\n/// @asyncapi\n/// info: { description: x }\n/// @openapi\n/// paths: {}\nfn docs() {}",
+    );
+    assert_eq!(kinds(&items), ["channel:publish", "asyncapi", "document"]);
+}

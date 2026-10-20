@@ -1,0 +1,341 @@
+//! `src/output/swagger2.rs`: the Swagger 2.0 export.
+
+use crate::common::{spec, spec_of};
+use oas_forge::output::OutputKind;
+use serde_json::{Value, json};
+
+fn swagger(files: &[(&str, &str)]) -> (Value, Vec<String>) {
+    let (spec, _project) = spec_of(files);
+    let (document, diagnostics) = spec.render_with_diagnostics(OutputKind::Swagger20).unwrap();
+    let errors = spec::validate(&document);
+    assert!(errors.is_empty(), "{errors:?}\n{document:#}");
+    (
+        document,
+        diagnostics
+            .iter()
+            .map(|d| d.message().to_string())
+            .collect(),
+    )
+}
+
+fn root(extra: &str) -> String {
+    format!("openapi: 3.1.0\ninfo: {{ title: T, version: '1', summary: S }}\n{extra}")
+}
+
+#[test]
+fn servers_become_host_base_path_and_schemes() {
+    let (document, messages) = swagger(&[(
+        "root.yaml",
+        &root(
+            "servers:\n  - url: https://{region}.example.com:8443/api/v1/\n    variables: { region: { default: eu } }\n  - url: http://other",
+        ),
+    )]);
+    assert_eq!(document["host"], "eu.example.com:8443");
+    assert_eq!(document["basePath"], "/api/v1");
+    assert_eq!(document["schemes"], json!(["https"]));
+    assert!(document["info"].get("summary").is_none());
+    assert!(
+        messages.iter().any(|m| m.contains("multiple servers")),
+        "{messages:?}"
+    );
+
+    let (document, _) = swagger(&[("root.yaml", &root("servers: [{ url: /relative }]"))]);
+    assert_eq!(document["basePath"], "/relative");
+    assert!(document.get("host").is_none());
+    let (document, _) = swagger(&[(
+        "root.yaml",
+        &root("servers: [{ url: 'ftp://files.example.com' }]"),
+    )]);
+    assert_eq!(document["host"], "files.example.com");
+    assert!(document.get("schemes").is_none());
+}
+
+#[test]
+fn parameters_are_inline_and_cookies_dropped() {
+    let (document, messages) = swagger(&[
+        ("root.yaml", &root("")),
+        (
+            "api.rs",
+            r#"
+/// @openapi
+struct Filter { a: u8 }
+/// @route GET /items/{id: u32}
+/// @param query tags: Vec<String> "Tags"
+/// @param query csv: Vec<u8> explode=false
+/// @param query pipes: Vec<u8> style=pipeDelimited
+/// @param query spaces: Vec<u8> style=spaceDelimited
+/// @param header X-Ids: Vec<u8>
+/// @param query filter: $Filter deprecated example=x
+/// @param query opt: Option<String> allow-empty
+/// @param cookie session: String
+/// @return 200:
+fn list() {}
+"#,
+        ),
+    ]);
+    let parameters = document["paths"]["/items/{id}"]["get"]["parameters"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let by_name = |name: &str| {
+        parameters
+            .iter()
+            .find(|p| p["name"] == name)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(
+        by_name("id"),
+        json!({ "name": "id", "in": "path", "required": true, "type": "integer", "format": "int64", "minimum": 0, "maximum": 4294967295u32 })
+    );
+    assert_eq!(by_name("tags")["collectionFormat"], "multi");
+    assert_eq!(by_name("tags")["items"], json!({ "type": "string" }));
+    assert_eq!(by_name("csv")["collectionFormat"], "csv");
+    assert_eq!(by_name("pipes")["collectionFormat"], "pipes");
+    assert_eq!(by_name("spaces")["collectionFormat"], "ssv");
+    assert_eq!(by_name("X-Ids")["collectionFormat"], "csv");
+    let filter = by_name("filter");
+    assert_eq!(
+        (
+            &filter["type"],
+            &filter["x-deprecated"],
+            &filter["x-example"]
+        ),
+        (&json!("string"), &json!(true), &json!("x"))
+    );
+    assert_eq!(by_name("opt")["allowEmptyValue"], true);
+    assert!(parameters.iter().all(|p| p["in"] != "cookie"));
+    assert!(
+        messages.iter().any(|m| m.contains("cookie parameters")),
+        "{messages:?}"
+    );
+    assert!(
+        messages.iter().any(|m| m.contains("objects or references")),
+        "{messages:?}"
+    );
+}
+
+#[test]
+fn bodies_become_body_or_form_parameters() {
+    let (document, _) = swagger(&[
+        (
+            "root.yaml",
+            &root(
+                "components:\n  requestBodies:\n    Shared: { content: { application/json: { schema: { type: string } } }, required: true }",
+            ),
+        ),
+        (
+            "api.rs",
+            r#"
+/// @openapi
+struct Upload {
+    /// The file.
+    /// @openapi format: binary
+    file: String,
+    note: Option<String>,
+}
+/// @route POST /json
+/// @body $Upload application/json text/plain "The upload"
+fn json_body() {}
+/// @route POST /form
+/// @body $Upload multipart/form-data
+fn form() {}
+/// @route POST /urlencoded
+/// @body $Upload application/x-www-form-urlencoded
+fn urlencoded() {}
+/// @route POST /shared
+/// requestBody: { $ref: '#/components/requestBodies/Shared' }
+fn shared() {}
+"#,
+        ),
+    ]);
+    let post = |path: &str| document["paths"][path]["post"].clone();
+    assert_eq!(
+        post("/json")["consumes"],
+        json!(["application/json", "text/plain"])
+    );
+    assert_eq!(
+        post("/json")["parameters"],
+        json!([{ "name": "body", "in": "body", "required": true, "schema": { "$ref": "#/definitions/Upload" }, "description": "The upload" }])
+    );
+    let form = post("/form")["parameters"].clone();
+    assert_eq!(
+        form[0],
+        json!({ "name": "file", "in": "formData", "required": true, "description": "The file.", "type": "file" })
+    );
+    assert_eq!(form[1]["required"], false);
+    assert_eq!(
+        post("/urlencoded")["parameters"][0]["type"],
+        "string",
+        "files only in multipart"
+    );
+    assert_eq!(
+        post("/shared")["parameters"][0]["schema"],
+        json!({ "type": "string" })
+    );
+}
+
+#[test]
+fn responses_headers_ranges_and_media_types() {
+    let (document, messages) = swagger(&[
+        (
+            "root.yaml",
+            &root("components:\n  responses:\n    NotFound: { description: Missing }"),
+        ),
+        (
+            "api.rs",
+            r#"
+/// @route GET /x
+/// @return 2XX: String text/plain application/problem+json "Ok"
+/// @return-header 2XX X-Rate: u32 "Rate"
+/// @return-header 2XX X-Obj: $Thing
+/// responses:
+///   '404': { $ref: '#/components/responses/NotFound' }
+///   '500': { description: Boom, links: { a: { operationId: x } }, x-extra: 1 }
+fn x() {}
+"#,
+        ),
+    ]);
+    let operation = &document["paths"]["/x"]["get"];
+    assert_eq!(
+        operation["produces"],
+        json!(["text/plain", "application/problem+json"])
+    );
+    let ok = &operation["responses"]["200"];
+    assert_eq!(ok["description"], "Ok");
+    assert_eq!(
+        ok["schema"],
+        json!({ "type": "string" }),
+        "the JSON media type wins"
+    );
+    assert_eq!(ok["headers"]["X-Rate"]["type"], "integer");
+    assert_eq!(ok["headers"]["X-Obj"]["type"], "string");
+    assert_eq!(
+        operation["responses"]["404"],
+        json!({ "$ref": "#/responses/NotFound" })
+    );
+    assert_eq!(
+        operation["responses"]["500"],
+        json!({ "description": "Boom", "x-extra": 1 })
+    );
+    assert_eq!(
+        document["responses"]["NotFound"],
+        json!({ "description": "Missing" })
+    );
+    for expected in ["status code ranges", "response links"] {
+        assert!(
+            messages.iter().any(|m| m.contains(expected)),
+            "{expected}: {messages:?}"
+        );
+    }
+}
+
+#[test]
+fn security_schemes_become_security_definitions() {
+    let (document, messages) = swagger(&[(
+        "root.yaml",
+        &root(
+            r#"components:
+  securitySchemes:
+    basic: { type: http, scheme: Basic, description: Login }
+    bearer: { type: http, scheme: bearer }
+    header: { type: apiKey, in: header, name: X-Key }
+    cookie: { type: apiKey, in: cookie, name: sid }
+    implicit: { type: oauth2, flows: { implicit: { authorizationUrl: 'https://a', scopes: { r: read } } } }
+    password: { type: oauth2, flows: { password: { tokenUrl: 'https://t', scopes: {} } } }
+    client: { type: oauth2, flows: { clientCredentials: { tokenUrl: 'https://t', scopes: {} } } }
+    code: { type: oauth2, flows: { authorizationCode: { authorizationUrl: 'https://a', tokenUrl: 'https://t', scopes: {} }, implicit: { authorizationUrl: 'https://a', scopes: {} } } }
+    oidc: { type: openIdConnect, openIdConnectUrl: 'https://o' }
+    broken: { type: oauth2, flows: {} }
+security:
+  - basic: []"#,
+        ),
+    )]);
+    let definitions = &document["securityDefinitions"];
+    assert_eq!(
+        definitions["basic"],
+        json!({ "type": "basic", "description": "Login" })
+    );
+    assert_eq!(
+        definitions["bearer"],
+        json!({ "type": "apiKey", "in": "header", "name": "Authorization" })
+    );
+    assert_eq!(
+        definitions["header"],
+        json!({ "type": "apiKey", "in": "header", "name": "X-Key" })
+    );
+    assert_eq!(definitions["implicit"]["flow"], "implicit");
+    assert_eq!(definitions["password"]["flow"], "password");
+    assert_eq!(definitions["client"]["flow"], "application");
+    assert_eq!(
+        definitions["code"]["flow"], "implicit",
+        "the first flow in Swagger order"
+    );
+    for missing in ["cookie", "oidc", "broken"] {
+        assert!(definitions.get(missing).is_none(), "{missing}");
+    }
+    assert_eq!(document["security"], json!([{ "basic": [] }]));
+    assert_eq!(
+        messages.len(),
+        5,
+        "cookie, bearer, OIDC, several flows, info.summary: {messages:?}"
+    );
+}
+
+#[test]
+fn schemas_follow_the_swagger_dialect() {
+    let (document, _) = swagger(&[
+        ("root.yaml", &root("")),
+        (
+            "lib.rs",
+            "/// @openapi\nstruct S { a: Option<String>, #[serde(skip_serializing)] p: String, #[deprecated] d: u8 }\n/// @openapi\n#[serde(tag = \"t\")]\nenum E { A { x: u8 } }\n/// @openapi\n#[serde(untagged)]\nenum U { A(u8), B(String) }",
+        ),
+    ]);
+    let definitions = &document["definitions"];
+    assert_eq!(
+        definitions["S"]["properties"]["a"],
+        json!({ "type": "string", "x-nullable": true })
+    );
+    assert_eq!(definitions["S"]["properties"]["p"]["x-writeOnly"], true);
+    assert_eq!(definitions["S"]["properties"]["d"]["x-deprecated"], true);
+    assert_eq!(definitions["E"]["discriminator"], "t");
+    assert!(definitions["E"]["x-oneOf"].is_array());
+    assert!(definitions["U"]["x-anyOf"].is_array());
+}
+
+#[test]
+fn unsupported_structure_is_reported() {
+    let (document, messages) = swagger(&[
+        (
+            "root.yaml",
+            &root(
+                "tags: [{ name: A, summary: S }]\ncomponents:\n  links: { L: { operationId: x } }",
+            ),
+        ),
+        (
+            "api.rs",
+            "/// @openapi\n/// paths:\n///   /p:\n///     summary: S\n///     parameters: [{ name: q, in: query, schema: { type: string } }]\n///     trace: { responses: { '200': { description: OK } } }\n///     get:\n///       servers: [{ url: 'https://x' }]\n///       callbacks: { c: {} }\n///       x-op: 1\n///       responses: { '200': { description: OK } }\n///     x-item: 1\nfn p() {}",
+        ),
+    ]);
+    let item = &document["paths"]["/p"];
+    assert!(item.get("summary").is_none() && item.get("trace").is_none());
+    assert_eq!(item["parameters"][0]["type"], "string");
+    assert_eq!(
+        (&item["x-item"], &item["get"]["x-op"]),
+        (&json!(1), &json!(1))
+    );
+    assert!(document["tags"][0].get("summary").is_none());
+    for expected in [
+        "`TRACE`",
+        "path item",
+        "callbacks",
+        "operation `servers`",
+        "`components.links`",
+        "tag `summary`",
+    ] {
+        assert!(
+            messages.iter().any(|m| m.contains(expected)),
+            "{expected}: {messages:?}"
+        );
+    }
+}

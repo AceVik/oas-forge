@@ -4,6 +4,9 @@ expression: snapshot
 input_file: tests/corpus/cases/serde_enums_mixed/case.toml
 ---
 {
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
   "description": "serde enums: rename_all_fields, skipped and untagged variants, adjacent tuples, internally tagged newtypes",
   "diagnostics": [],
   "fragments": {
@@ -452,6 +455,457 @@ input_file: tests/corpus/cases/serde_enums_mixed/case.toml
     "lints": [],
     "validation": []
   },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Circle": {
+          "properties": {
+            "radius": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "radius"
+          ],
+          "type": "object"
+        },
+        "Command": {
+          "anyOf": [
+            {
+              "enum": [
+                "Start",
+                "Stop"
+              ],
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "Configure": {
+                  "properties": {
+                    "max_items": {
+                      "format": "int64",
+                      "maximum": 4294967295,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "max_items"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "Configure"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "Event": {
+          "description": "A change event.",
+          "discriminator": {
+            "mapping": {
+              "moved": "#/$defs/EventMoved",
+              "ping": "#/$defs/EventPing",
+              "user-created": "#/$defs/EventUserCreated"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/EventUserCreated"
+            },
+            {
+              "$ref": "#/$defs/EventMoved"
+            },
+            {
+              "$ref": "#/$defs/EventPing"
+            }
+          ],
+          "type": "object"
+        },
+        "EventMoved": {
+          "properties": {
+            "kind": {
+              "description": "Discriminator: moved",
+              "enum": [
+                "moved"
+              ],
+              "type": "string"
+            },
+            "payload": {
+              "items": false,
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "double",
+                  "type": "number"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "payload"
+          ],
+          "type": "object"
+        },
+        "EventPing": {
+          "properties": {
+            "kind": {
+              "description": "Discriminator: ping",
+              "enum": [
+                "ping"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "EventUserCreated": {
+          "description": "Created.",
+          "properties": {
+            "kind": {
+              "description": "Discriminator: user-created",
+              "enum": [
+                "user-created"
+              ],
+              "type": "string"
+            },
+            "payload": {
+              "properties": {
+                "displayName": {
+                  "type": "string"
+                },
+                "userId": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "userId",
+                "displayName"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "payload"
+          ],
+          "type": "object"
+        },
+        "Shape": {
+          "discriminator": {
+            "mapping": {
+              "Circle": "#/$defs/ShapeCircle",
+              "sq": "#/$defs/ShapeSquare"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ShapeCircle"
+            },
+            {
+              "$ref": "#/$defs/ShapeSquare"
+            }
+          ],
+          "type": "object"
+        },
+        "ShapeCircle": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Circle"
+            }
+          ],
+          "properties": {
+            "type": {
+              "description": "Discriminator: Circle",
+              "enum": [
+                "Circle"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        "ShapeSquare": {
+          "properties": {
+            "side": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "description": "Discriminator: sq",
+              "enum": [
+                "sq"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "side"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "diagnostics": [
+      "note[OF6001]: OpenAPI 3.0 has no equivalent for tuple items (`prefixItems`); the schema was approximated"
+    ],
+    "document": {
+      "components": {
+        "schemas": {
+          "Circle": {
+            "properties": {
+              "radius": {
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "radius"
+            ],
+            "type": "object"
+          },
+          "Command": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Start",
+                  "Stop"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "Configure": {
+                    "properties": {
+                      "max_items": {
+                        "format": "int64",
+                        "maximum": 4294967295,
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "max_items"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "Configure"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "Event": {
+            "description": "A change event.",
+            "discriminator": {
+              "mapping": {
+                "moved": "#/components/schemas/EventMoved",
+                "ping": "#/components/schemas/EventPing",
+                "user-created": "#/components/schemas/EventUserCreated"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EventUserCreated"
+              },
+              {
+                "$ref": "#/components/schemas/EventMoved"
+              },
+              {
+                "$ref": "#/components/schemas/EventPing"
+              }
+            ],
+            "type": "object"
+          },
+          "EventMoved": {
+            "properties": {
+              "kind": {
+                "description": "Discriminator: moved",
+                "enum": [
+                  "moved"
+                ],
+                "type": "string"
+              },
+              "payload": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    {
+                      "format": "double",
+                      "type": "number"
+                    }
+                  ]
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              }
+            },
+            "required": [
+              "kind",
+              "payload"
+            ],
+            "type": "object"
+          },
+          "EventPing": {
+            "properties": {
+              "kind": {
+                "description": "Discriminator: ping",
+                "enum": [
+                  "ping"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          "EventUserCreated": {
+            "description": "Created.",
+            "properties": {
+              "kind": {
+                "description": "Discriminator: user-created",
+                "enum": [
+                  "user-created"
+                ],
+                "type": "string"
+              },
+              "payload": {
+                "properties": {
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "userId": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "userId",
+                  "displayName"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "kind",
+              "payload"
+            ],
+            "type": "object"
+          },
+          "Shape": {
+            "discriminator": {
+              "mapping": {
+                "Circle": "#/components/schemas/ShapeCircle",
+                "sq": "#/components/schemas/ShapeSquare"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ShapeCircle"
+              },
+              {
+                "$ref": "#/components/schemas/ShapeSquare"
+              }
+            ],
+            "type": "object"
+          },
+          "ShapeCircle": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Circle"
+              }
+            ],
+            "properties": {
+              "type": {
+                "description": "Discriminator: Circle",
+                "enum": [
+                  "Circle"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          "ShapeSquare": {
+            "properties": {
+              "side": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": {
+                "description": "Discriminator: sq",
+                "enum": [
+                  "sq"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "side"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {}
+    },
+    "lints": [],
+    "validation": []
+  },
   "paths": {
     "document": {},
     "lints": []
@@ -671,5 +1125,223 @@ input_file: tests/corpus/cases/serde_enums_mixed/case.toml
       }
     },
     "lints": []
+  },
+  "swagger_2": {
+    "diagnostics": [
+      "note[OF6001]: Swagger 2.0 has no equivalent for `anyOf` (kept as `x-anyOf`); the schema was approximated",
+      "note[OF6001]: Swagger 2.0 has no equivalent for `oneOf` (kept as `x-oneOf`); the schema was approximated",
+      "note[OF6001]: Swagger 2.0 has no equivalent for tuple items (`prefixItems`); the schema was approximated"
+    ],
+    "document": {
+      "definitions": {
+        "Circle": {
+          "properties": {
+            "radius": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "radius"
+          ],
+          "type": "object"
+        },
+        "Command": {
+          "x-anyOf": [
+            {
+              "enum": [
+                "Start",
+                "Stop"
+              ],
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "Configure": {
+                  "properties": {
+                    "max_items": {
+                      "format": "int64",
+                      "maximum": 4294967295,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "max_items"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "Configure"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "Event": {
+          "description": "A change event.",
+          "discriminator": "kind",
+          "type": "object",
+          "x-oneOf": [
+            {
+              "$ref": "#/definitions/EventUserCreated"
+            },
+            {
+              "$ref": "#/definitions/EventMoved"
+            },
+            {
+              "$ref": "#/definitions/EventPing"
+            }
+          ]
+        },
+        "EventMoved": {
+          "properties": {
+            "kind": {
+              "description": "Discriminator: moved",
+              "enum": [
+                "moved"
+              ],
+              "type": "string"
+            },
+            "payload": {
+              "items": {
+                "x-anyOf": [
+                  {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  {
+                    "format": "double",
+                    "type": "number"
+                  }
+                ]
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "payload"
+          ],
+          "type": "object"
+        },
+        "EventPing": {
+          "properties": {
+            "kind": {
+              "description": "Discriminator: ping",
+              "enum": [
+                "ping"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "EventUserCreated": {
+          "description": "Created.",
+          "properties": {
+            "kind": {
+              "description": "Discriminator: user-created",
+              "enum": [
+                "user-created"
+              ],
+              "type": "string"
+            },
+            "payload": {
+              "properties": {
+                "displayName": {
+                  "type": "string"
+                },
+                "userId": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "userId",
+                "displayName"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "payload"
+          ],
+          "type": "object"
+        },
+        "Shape": {
+          "discriminator": "type",
+          "type": "object",
+          "x-oneOf": [
+            {
+              "$ref": "#/definitions/ShapeCircle"
+            },
+            {
+              "$ref": "#/definitions/ShapeSquare"
+            }
+          ]
+        },
+        "ShapeCircle": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Circle"
+            }
+          ],
+          "properties": {
+            "type": {
+              "description": "Discriminator: Circle",
+              "enum": [
+                "Circle"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        "ShapeSquare": {
+          "properties": {
+            "side": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "description": "Discriminator: sq",
+              "enum": [
+                "sq"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "side"
+          ],
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {},
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
   }
 }

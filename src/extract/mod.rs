@@ -39,6 +39,10 @@ pub enum Item {
     /// A regular expression constant (`static RE: LazyLock<Regex> = ...`),
     /// referenced by validation attributes.
     Pattern(PatternItem),
+    /// A free AsyncAPI YAML block (`@asyncapi`).
+    AsyncApi(DocumentItem),
+    /// An AsyncAPI channel in the channel DSL (`@channel`).
+    Channel(ChannelItem),
 }
 
 impl Item {
@@ -52,6 +56,8 @@ impl Item {
             Self::Blueprint(i) => &i.location,
             Self::Route(i) => &i.location,
             Self::Pattern(i) => &i.location,
+            Self::AsyncApi(i) => &i.location,
+            Self::Channel(i) => &i.location,
         }
     }
 }
@@ -144,6 +150,20 @@ pub struct RouteItem {
     pub location: Location,
 }
 
+/// An AsyncAPI channel block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ChannelItem {
+    /// The doc lines of the block.
+    pub lines: Vec<String>,
+    /// Source line of each entry of `lines`.
+    pub line_numbers: Vec<usize>,
+    /// The operationId (the function name), if any.
+    pub operation_id: Option<String>,
+    /// Where the block starts.
+    pub location: Location,
+}
+
 /// A regular expression constant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -212,7 +232,14 @@ impl Extractor<'_> {
     fn function(&mut self, attrs: &[syn::Attribute], sig: &syn::Signature, line: usize) {
         let lines = doc_lines(attrs);
         let texts: Vec<String> = lines.iter().map(|l| l.text.clone()).collect();
-        if dsl::is_route(&texts) {
+        if dsl::is_channel(&texts) {
+            self.items.push(Item::Channel(ChannelItem {
+                line_numbers: lines.iter().map(|l| l.line).collect(),
+                lines: texts,
+                operation_id: Some(sig.ident.to_string()),
+                location: self.location(lines.first().map_or(line, |l| l.line)),
+            }));
+        } else if dsl::is_route(&texts) {
             self.items.push(Item::Route(RouteItem {
                 lines: texts,
                 line_numbers: lines.iter().map(|l| l.line).collect(),

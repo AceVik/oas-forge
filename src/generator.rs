@@ -80,6 +80,10 @@ impl Generator {
             output_schemas,
             output_paths,
             output_fragments,
+            output_json_schema,
+            output_openapi_30,
+            output_swagger2,
+            output_asyncapi,
             types,
             ..
         } = config;
@@ -93,6 +97,10 @@ impl Generator {
             (OutputKind::Schemas, output_schemas),
             (OutputKind::Paths, output_paths),
             (OutputKind::Fragments, output_fragments),
+            (OutputKind::JsonSchema, output_json_schema),
+            (OutputKind::OpenApi30, output_openapi_30),
+            (OutputKind::Swagger20, output_swagger2),
+            (OutputKind::AsyncApi, output_asyncapi),
         ] {
             self.outputs
                 .extend(paths.unwrap_or_default().into_iter().map(|p| (kind, p)));
@@ -130,6 +138,27 @@ impl Generator {
     /// Writes the headless specification for other crates to `path`.
     pub fn output_fragments(self, path: impl Into<PathBuf>) -> Self {
         self.output_as(OutputKind::Fragments, path)
+    }
+
+    /// Writes the component schemas as a JSON Schema 2020-12 bundle to `path`.
+    pub fn output_json_schema(self, path: impl Into<PathBuf>) -> Self {
+        self.output_as(OutputKind::JsonSchema, path)
+    }
+
+    /// Writes the specification lowered to OpenAPI 3.0.3 to `path`.
+    pub fn output_openapi_30(self, path: impl Into<PathBuf>) -> Self {
+        self.output_as(OutputKind::OpenApi30, path)
+    }
+
+    /// Writes the specification converted to Swagger 2.0 to `path`.
+    pub fn output_swagger2(self, path: impl Into<PathBuf>) -> Self {
+        self.output_as(OutputKind::Swagger20, path)
+    }
+
+    /// Writes the AsyncAPI document (from `@asyncapi` and `@channel` blocks)
+    /// to `path`.
+    pub fn output_asyncapi(self, path: impl Into<PathBuf>) -> Self {
+        self.output_as(OutputKind::AsyncApi, path)
     }
 
     /// Writes the output strategy `kind` to `path`.
@@ -200,17 +229,32 @@ impl Generator {
             types: &self.types,
             infer: self.infer,
         };
-        let (document, registry) = run(&sources, settings, &mut diagnostics)?;
-        if self.deny_warnings {
-            diagnostics.deny_warnings();
-        }
-        Ok(Spec {
-            document,
-            registry,
+        let documents = run(&sources, settings, &mut diagnostics)?;
+        let mut spec = Spec {
+            document: documents.document,
+            canonical: documents.canonical,
+            asyncapi: documents.asyncapi,
+            registry: documents.registry,
             outputs: self.outputs.clone(),
             diagnostics,
             watched: sources.watched().to_vec(),
-        })
+            rendered: BTreeMap::new(),
+        };
+        // Configured outputs are rendered now, so their findings (e.g. what
+        // an OpenAPI 3.0 export cannot express) are part of the run.
+        let mut kinds: Vec<OutputKind> = self.outputs.iter().map(|(kind, _)| *kind).collect();
+        kinds.sort_unstable();
+        kinds.dedup();
+        for kind in kinds {
+            if let Ok((value, findings)) = spec.render_with_diagnostics(kind) {
+                spec.diagnostics.extend(findings);
+                spec.rendered.insert(kind, value);
+            }
+        }
+        if self.deny_warnings {
+            spec.diagnostics.deny_warnings();
+        }
+        Ok(spec)
     }
 
     /// Runs the pipeline and writes every configured output.
@@ -239,10 +283,13 @@ impl Generator {
 #[derive(Debug, Clone)]
 pub struct Spec {
     document: Value,
+    canonical: Value,
+    asyncapi: Value,
     registry: Registry,
     outputs: Vec<(OutputKind, PathBuf)>,
     diagnostics: Diagnostics,
     watched: Vec<PathBuf>,
+    rendered: BTreeMap<OutputKind, Value>,
 }
 
 impl Spec {
@@ -271,7 +318,27 @@ impl Spec {
     /// # Errors
     /// [`Error::NoRootFound`] for [`OutputKind::Full`] without root document.
     pub fn render(&self, kind: OutputKind) -> Result<Value> {
-        output::render(kind, &self.document, &self.registry)
+        if let Some(value) = self.rendered.get(&kind) {
+            return Ok(value.clone());
+        }
+        self.render_with_diagnostics(kind).map(|(value, _)| value)
+    }
+
+    /// The value an output strategy receives and what it could not express
+    /// (e.g. constructs an OpenAPI 3.0 export approximates).
+    ///
+    /// # Errors
+    /// [`Error::NoRootFound`] for outputs that need a root document.
+    pub fn render_with_diagnostics(&self, kind: OutputKind) -> Result<(Value, Diagnostics)> {
+        let input = output::RenderInput {
+            document: &self.document,
+            canonical: &self.canonical,
+            asyncapi: &self.asyncapi,
+            registry: &self.registry,
+        };
+        let mut diagnostics = Diagnostics::new();
+        let value = output::render(kind, &input, &mut diagnostics)?;
+        Ok((value, diagnostics))
     }
 
     /// Writes every configured output (skipping files whose content is
@@ -309,6 +376,18 @@ impl Spec {
 struct Snippet {
     value: Value,
     location: Location,
+    /// Part of the AsyncAPI document instead of the OpenAPI document.
+    asyncapi: bool,
+}
+
+impl Snippet {
+    fn openapi(value: Value, location: Location) -> Self {
+        Self {
+            value,
+            location,
+            asyncapi: false,
+        }
+    }
 }
 
 /// A piece of text that still has to go through the lexical stage.
@@ -328,6 +407,11 @@ enum Pending {
         text: String,
         location: Location,
     },
+    AsyncApi {
+        text: String,
+        location: Location,
+    },
+    Channel(Box<extract::ChannelItem>),
 }
 
 /// Runs every stage on `sources`; returns the merged document and registry.
@@ -343,7 +427,7 @@ pub(crate) fn run(
     sources: &SourceSet,
     settings: Settings<'_>,
     diagnostics: &mut Diagnostics,
-) -> Result<(Value, Registry)> {
+) -> Result<Documents> {
     let Settings { types, .. } = settings;
     let mut registry = Registry::new();
     let mut patterns = BTreeMap::new();
@@ -436,23 +520,56 @@ pub(crate) fn run(
         };
         refs::resolve(&mut body, targets, &location, diagnostics);
         resolve_patterns(&mut body, &patterns, &location, diagnostics);
-        generated.push(Snippet {
-            value: json!({ "components": { "schemas": { name: body } } }),
+        generated.push(Snippet::openapi(
+            json!({ "components": { "schemas": { name: body } } }),
             location,
-        });
+        ));
     }
 
     // Pass 5: merge.
-    let mut document = merge_all(snippets, generated, diagnostics)?;
+    let (asyncapi, snippets): (Vec<Snippet>, Vec<Snippet>) =
+        snippets.into_iter().partition(|s| s.asyncapi);
+    let mut asyncapi = merge_documents(asyncapi, Vec::new(), is_asyncapi_root, diagnostics)?;
+    refs::unescape(&mut asyncapi);
+    let mut document = merge_documents(snippets, generated, output::is_root, diagnostics)?;
     refs::unescape(&mut document);
     output::strip_transport(&mut document);
     normalize(&mut document);
     dsl::expand::expand_parameters(&mut document, diagnostics);
+    let canonical = document.clone();
     if let Some(dialect) = Dialect::of_document(&document) {
         dialect::lower(&mut document, dialect, diagnostics);
     }
     lint::check(&document, diagnostics);
-    Ok((document, registry))
+    if !asyncapi.as_object().is_some_and(Map::is_empty) {
+        output::asyncapi::add_shared_schemas(&mut asyncapi, &canonical);
+        lint::check(&asyncapi, diagnostics);
+    }
+    Ok(Documents {
+        document,
+        canonical,
+        asyncapi,
+        registry,
+    })
+}
+
+/// Whether a snippet is the root of the AsyncAPI document.
+fn is_asyncapi_root(value: &Value) -> bool {
+    value
+        .as_object()
+        .is_some_and(|m| m.contains_key("asyncapi") && m.contains_key("info"))
+}
+
+/// The documents of a pipeline run.
+pub(crate) struct Documents {
+    /// The merged document in the dialect of its root.
+    pub(crate) document: Value,
+    /// The merged document before version-specific lowering.
+    pub(crate) canonical: Value,
+    /// The merged AsyncAPI document (empty without `@asyncapi`/`@channel`).
+    pub(crate) asyncapi: Value,
+    /// The templates of the run.
+    pub(crate) registry: Registry,
 }
 
 fn register(
@@ -479,10 +596,10 @@ fn register(
             }
             known.insert(schema.name.clone());
             registry.add_alias(&schema.rust_name, &schema.name);
-            snippets.push(Snippet {
-                value: json!({ "components": { "schemas": { schema.name: schema.schema } } }),
-                location: schema.location,
-            });
+            snippets.push(Snippet::openapi(
+                json!({ "components": { "schemas": { schema.name: schema.schema } } }),
+                schema.location,
+            ));
         }
         Item::Blueprint(blueprint) => {
             registry.add_alias(&blueprint.rust_name, &blueprint.name);
@@ -521,6 +638,16 @@ fn register(
             ));
         }
         Item::Route(route) => pending.push((snippets.len(), Pending::Route(Box::new(route)))),
+        Item::AsyncApi(document) => pending.push((
+            snippets.len(),
+            Pending::AsyncApi {
+                text: document.text,
+                location: document.location,
+            },
+        )),
+        Item::Channel(channel) => {
+            pending.push((snippets.len(), Pending::Channel(Box::new(channel))));
+        }
         // Collected by the caller before registration.
         Item::Pattern(_) => {}
     }
@@ -549,7 +676,7 @@ fn materialize(
                 return Ok(None);
             };
             apply_tags(&mut value, &tags);
-            Ok(Some(Snippet { value, location }))
+            Ok(Some(Snippet::openapi(value, location)))
         }
         Pending::NamedSchema {
             name,
@@ -559,10 +686,10 @@ fn materialize(
             let Some(value) = parse_any(&text, registry, variables, &location, diagnostics)? else {
                 return Ok(None);
             };
-            Ok(Some(Snippet {
-                value: json!({ "components": { "schemas": { name: value } } }),
+            Ok(Some(Snippet::openapi(
+                json!({ "components": { "schemas": { name: value } } }),
                 location,
-            }))
+            )))
         }
         Pending::File { text, location } => {
             let Some(mut value) = parse_text(&text, registry, variables, &location, diagnostics)?
@@ -570,7 +697,47 @@ fn materialize(
                 return Ok(None);
             };
             output::strip_transport(&mut value);
-            Ok(Some(Snippet { value, location }))
+            // A file with an `asyncapi` root belongs to the AsyncAPI document.
+            let asyncapi = value.get("asyncapi").is_some();
+            Ok(Some(Snippet {
+                value,
+                location,
+                asyncapi,
+            }))
+        }
+        Pending::AsyncApi { text, location } => {
+            let Some(value) = parse_text(&text, registry, variables, &location, diagnostics)?
+            else {
+                return Ok(None);
+            };
+            Ok(Some(Snippet {
+                value,
+                location,
+                asyncapi: true,
+            }))
+        }
+        Pending::Channel(channel) => {
+            let text = channel.lines.join("\n");
+            let expanded =
+                lexical::expand(&text, registry, variables, &channel.location, diagnostics);
+            let lines: Vec<String> = expanded.lines().map(str::to_string).collect();
+            let compiled = dsl::compile_channel(
+                dsl::ChannelSource::new(&lines, &channel.location)
+                    .line_numbers(&channel.line_numbers)
+                    .operation_id(channel.operation_id.as_deref())
+                    .types(types),
+                diagnostics,
+            );
+            let Some(compiled) = compiled else {
+                return Ok(None);
+            };
+            let mut value = compiled.document;
+            extend::apply(&mut value, registry, &channel.location, diagnostics);
+            Ok(Some(Snippet {
+                value,
+                location: channel.location,
+                asyncapi: true,
+            }))
         }
         Pending::Route(route) => {
             let text = route.lines.join("\n");
@@ -592,10 +759,7 @@ fn materialize(
             };
             let mut value = compiled.document;
             extend::apply(&mut value, registry, &route.location, diagnostics);
-            Ok(Some(Snippet {
-                value,
-                location: route.location,
-            }))
+            Ok(Some(Snippet::openapi(value, route.location)))
         }
     }
 }
@@ -678,22 +842,22 @@ fn apply_tags(document: &mut Value, tags: &[String]) {
 }
 
 /// Merges all snippets onto the root document (exactly one root allowed).
-fn merge_all(
+fn merge_documents(
     snippets: Vec<Snippet>,
     generated: Vec<Snippet>,
+    is_root: fn(&Value) -> bool,
     diagnostics: &mut Diagnostics,
 ) -> Result<Value> {
     let roots: Vec<Location> = snippets
         .iter()
-        .filter(|s| output::is_root(&s.value))
+        .filter(|s| is_root(&s.value))
         .map(|s| s.location.clone())
         .collect();
     if roots.len() > 1 {
         return Err(Error::MultipleRootsFound { locations: roots });
     }
-    let (root, others): (Vec<Snippet>, Vec<Snippet>) = snippets
-        .into_iter()
-        .partition(|s| output::is_root(&s.value));
+    let (root, others): (Vec<Snippet>, Vec<Snippet>) =
+        snippets.into_iter().partition(|s| is_root(&s.value));
     let mut document = root
         .into_iter()
         .next()
@@ -749,6 +913,6 @@ pub fn generate_from_sources(
         types: TypeMapper::builtin(),
         infer: true,
     };
-    let (document, _) = run(&SourceSet::from_files(files), settings, &mut diagnostics)?;
-    Ok((document, diagnostics))
+    let documents = run(&SourceSet::from_files(files), settings, &mut diagnostics)?;
+    Ok((documents.document, diagnostics))
 }

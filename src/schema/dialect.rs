@@ -1,7 +1,7 @@
 //! Schema dialects of the supported targets (ADR 0002).
 //!
 //! The pipeline produces JSON Schema 2020-12 as used by OpenAPI 3.1 and 3.2.
-//! [`lower`] rewrites the schemas of a document for an older target, e.g.
+//! [`lower`] rewrites a document for an older or different target, e.g.
 //! `type: [string, "null"]` to `type: string` plus `nullable: true` for
 //! OpenAPI 3.0.
 
@@ -9,7 +9,7 @@ use crate::diagnostics::{Code, Diagnostic, Diagnostics};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
 
-/// A schema dialect.
+/// A target dialect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum Dialect {
@@ -19,6 +19,10 @@ pub enum Dialect {
     OpenApi31,
     /// OpenAPI 3.2: JSON Schema 2020-12.
     OpenApi32,
+    /// Swagger 2.0: a subset of JSON Schema draft 4 without `oneOf`/`anyOf`.
+    Swagger20,
+    /// AsyncAPI 3: JSON Schema draft 7 with a string `discriminator`.
+    AsyncApi3,
 }
 
 impl Dialect {
@@ -33,6 +37,27 @@ impl Dialect {
             Self::OpenApi32
         })
     }
+
+    /// How the target is named in messages.
+    fn label(self) -> &'static str {
+        match self {
+            Self::OpenApi30 => "OpenAPI 3.0",
+            Self::OpenApi31 => "OpenAPI 3.1",
+            Self::OpenApi32 => "OpenAPI 3.2",
+            Self::Swagger20 => "Swagger 2.0",
+            Self::AsyncApi3 => "AsyncAPI 3",
+        }
+    }
+
+    /// Whether the target has OpenAPI 3.1 features (webhooks).
+    fn has_webhooks(self) -> bool {
+        matches!(self, Self::OpenApi31 | Self::OpenApi32)
+    }
+
+    /// Whether the target has OpenAPI 3.2 features (`query`, streams, ...).
+    fn has_32_features(self) -> bool {
+        self == Self::OpenApi32
+    }
 }
 
 /// Keywords whose value is a schema.
@@ -40,6 +65,7 @@ const SCHEMA_KEYWORDS: &[&str] = &[
     "items",
     "not",
     "additionalProperties",
+    "additionalItems",
     "contains",
     "propertyNames",
     "if",
@@ -50,7 +76,7 @@ const SCHEMA_KEYWORDS: &[&str] = &[
     "contentSchema",
 ];
 /// Keywords whose value is an array of schemas.
-const SCHEMA_ARRAYS: &[&str] = &["allOf", "anyOf", "oneOf", "prefixItems"];
+const SCHEMA_ARRAYS: &[&str] = &["allOf", "anyOf", "oneOf", "prefixItems", "items"];
 /// Keywords whose value is a map of schemas.
 const SCHEMA_MAPS: &[&str] = &[
     "properties",
@@ -62,40 +88,147 @@ const SCHEMA_MAPS: &[&str] = &[
 /// Keys whose values are data, never schemas or document structure.
 const DATA_KEYS: &[&str] = &["example", "examples", "default", "enum", "const", "value"];
 
+/// The keywords of an OpenAPI 3.0 Schema object (plus `$ref`).
+const SCHEMA_30: &[&str] = &[
+    "$ref",
+    "title",
+    "multipleOf",
+    "maximum",
+    "exclusiveMaximum",
+    "minimum",
+    "exclusiveMinimum",
+    "maxLength",
+    "minLength",
+    "pattern",
+    "maxItems",
+    "minItems",
+    "uniqueItems",
+    "maxProperties",
+    "minProperties",
+    "required",
+    "enum",
+    "type",
+    "not",
+    "allOf",
+    "oneOf",
+    "anyOf",
+    "items",
+    "properties",
+    "additionalProperties",
+    "description",
+    "format",
+    "default",
+    "nullable",
+    "discriminator",
+    "readOnly",
+    "writeOnly",
+    "example",
+    "externalDocs",
+    "deprecated",
+    "xml",
+];
+
+/// The keywords of a Swagger 2.0 Schema object.
+const SCHEMA_20: &[&str] = &[
+    "$ref",
+    "title",
+    "multipleOf",
+    "maximum",
+    "exclusiveMaximum",
+    "minimum",
+    "exclusiveMinimum",
+    "maxLength",
+    "minLength",
+    "pattern",
+    "maxItems",
+    "minItems",
+    "uniqueItems",
+    "maxProperties",
+    "minProperties",
+    "required",
+    "enum",
+    "type",
+    "allOf",
+    "items",
+    "properties",
+    "additionalProperties",
+    "description",
+    "format",
+    "default",
+    "discriminator",
+    "readOnly",
+    "example",
+    "externalDocs",
+    "xml",
+];
+
 /// Rewrites an OpenAPI `document` for `dialect`.
 ///
 /// Operations and fields that need a newer version (OpenAPI 3.2: `query`,
 /// `additionalOperations`, `querystring` parameters, `itemSchema`; 3.1:
 /// `webhooks`) are removed and reported as [`Code::UnsupportedFeature`].
-/// For OpenAPI 3.0 every schema is rewritten; constructs without an
-/// equivalent are approximated and reported once per kind as
-/// [`Code::LossyLowering`].
+/// Schemas are rewritten for the dialect; constructs without an equivalent
+/// are approximated and reported once per kind as [`Code::LossyLowering`].
 pub fn lower(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnostics) {
-    if dialect < Dialect::OpenApi32 {
+    if !dialect.has_32_features() && dialect != Dialect::AsyncApi3 {
         restrict(document, dialect, diagnostics);
     }
-    if dialect != Dialect::OpenApi30 {
+    if matches!(dialect, Dialect::OpenApi31 | Dialect::OpenApi32) {
         return;
     }
     let mut lost = BTreeSet::new();
-    walk_document(document, &mut |schema| lower_30(schema, &mut lost));
+    walk_document(document, &mut |schema| {
+        lower_schema(schema, dialect, &mut lost)
+    });
+    report_lost(lost, dialect, diagnostics);
+}
+
+/// Rewrites a single schema (and its subschemas) for `dialect`.
+pub fn lower_schema_value(schema: &mut Value, dialect: Dialect, diagnostics: &mut Diagnostics) {
+    if matches!(dialect, Dialect::OpenApi31 | Dialect::OpenApi32) {
+        return;
+    }
+    let mut lost = BTreeSet::new();
+    walk_schema(schema, &mut |schema| {
+        lower_schema(schema, dialect, &mut lost)
+    });
+    report_lost(lost, dialect, diagnostics);
+}
+
+fn report_lost(lost: BTreeSet<String>, dialect: Dialect, diagnostics: &mut Diagnostics) {
     for what in lost {
         diagnostics.push(Diagnostic::new(
             Code::LossyLowering,
-            format!("OpenAPI 3.0 has no equivalent for {what}; the schema was approximated"),
+            format!(
+                "{} has no equivalent for {what}; the schema was approximated",
+                dialect.label()
+            ),
         ));
+    }
+}
+
+fn lower_schema(schema: &mut Map<String, Value>, dialect: Dialect, lost: &mut BTreeSet<String>) {
+    match dialect {
+        Dialect::OpenApi30 => {
+            lower_30(schema, lost);
+            allow(schema, SCHEMA_30, lost);
+            wrap_ref_siblings(schema);
+        }
+        Dialect::Swagger20 => {
+            lower_30(schema, lost);
+            lower_20(schema, lost);
+            allow(schema, SCHEMA_20, lost);
+            wrap_ref_siblings(schema);
+        }
+        Dialect::AsyncApi3 => lower_draft7(schema, lost),
+        Dialect::OpenApi31 | Dialect::OpenApi32 => {}
     }
 }
 
 /// Removes what `dialect` cannot express, reporting each kind once.
 fn restrict(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnostics) {
     let mut removed = BTreeSet::new();
-    let version = if dialect == Dialect::OpenApi30 {
-        "3.0"
-    } else {
-        "3.1"
-    };
-    if dialect == Dialect::OpenApi30
+    if !dialect.has_webhooks()
         && let Some(map) = document.as_object_mut()
         && map.remove("webhooks").is_some()
     {
@@ -128,7 +261,10 @@ fn restrict(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnostic
     for (what, needed) in removed {
         diagnostics.push(Diagnostic::new(
             Code::UnsupportedFeature,
-            format!("{what} need OpenAPI {needed} or newer; the root declares {version}, so they were removed"),
+            format!(
+                "{what} need OpenAPI {needed} or newer and were left out of the {} document",
+                dialect.label()
+            ),
         ));
     }
 }
@@ -170,15 +306,16 @@ fn remove_item_schemas(
     }
 }
 
-/// Calls `f` for every schema object of an OpenAPI document, outermost first
-/// (so `f` sees subschemas before they are rewritten).
+/// Calls `f` for every schema object of a document, outermost first (so `f`
+/// sees subschemas before they are rewritten).
 fn walk_document(value: &mut Value, f: &mut impl FnMut(&mut Map<String, Value>)) {
     match value {
         Value::Object(map) => {
             for (key, child) in map.iter_mut() {
                 match key.as_str() {
-                    "schema" => walk_schema(child, f),
-                    "schemas" => {
+                    // `payload`: AsyncAPI messages.
+                    "schema" | "payload" => walk_schema(child, f),
+                    "schemas" | "definitions" => {
                         if let Value::Object(schemas) = child {
                             schemas.values_mut().for_each(|s| walk_schema(s, f));
                         }
@@ -200,21 +337,21 @@ fn walk_schema(value: &mut Value, f: &mut impl FnMut(&mut Map<String, Value>)) {
     f(map);
     for (key, child) in map.iter_mut() {
         let key = key.as_str();
-        if SCHEMA_KEYWORDS.contains(&key) {
-            walk_schema(child, f);
-        } else if SCHEMA_ARRAYS.contains(&key) {
-            if let Value::Array(items) = child {
+        match child {
+            Value::Array(items) if SCHEMA_ARRAYS.contains(&key) => {
                 items.iter_mut().for_each(|i| walk_schema(i, f));
             }
-        } else if SCHEMA_MAPS.contains(&key)
-            && let Value::Object(entries) = child
-        {
-            entries.values_mut().for_each(|s| walk_schema(s, f));
+            Value::Object(entries) if SCHEMA_MAPS.contains(&key) => {
+                entries.values_mut().for_each(|s| walk_schema(s, f));
+            }
+            child if SCHEMA_KEYWORDS.contains(&key) => walk_schema(child, f),
+            _ => {}
         }
     }
 }
 
-fn lower_30(schema: &mut Map<String, Value>, lost: &mut BTreeSet<&'static str>) {
+/// OpenAPI 3.0: `nullable`, no `const`, boolean exclusive bounds, no tuples.
+fn lower_30(schema: &mut Map<String, Value>, lost: &mut BTreeSet<String>) {
     // `type: [T, "null"]` / `type: "null"`
     match schema.get("type").cloned() {
         Some(Value::Array(types)) => {
@@ -289,32 +426,96 @@ fn lower_30(schema: &mut Map<String, Value>, lost: &mut BTreeSet<&'static str>) 
     if let Some(Value::Array(items)) = schema.remove("prefixItems") {
         let items: Vec<Value> = items.into_iter().filter(|i| !is_null_schema(i)).collect();
         schema.insert("items".into(), json!({ "anyOf": items }));
-        lost.insert("tuple items (`prefixItems`)");
+        lost.insert("tuple items (`prefixItems`)".into());
     }
     if schema.get("items") == Some(&Value::Bool(false)) {
         schema.remove("items");
-    }
-    for keyword in [
-        "unevaluatedProperties",
-        "unevaluatedItems",
-        "propertyNames",
-        "dependentSchemas",
-    ] {
-        if schema.remove(keyword).is_some() {
-            lost.insert(match keyword {
-                "unevaluatedProperties" => "`unevaluatedProperties`",
-                "unevaluatedItems" => "`unevaluatedItems`",
-                "propertyNames" => "`propertyNames`",
-                _ => "`dependentSchemas`",
-            });
-        }
     }
     if let Some(Value::Array(examples)) = schema.remove("examples")
         && let Some(first) = examples.into_iter().next()
     {
         schema.entry("example").or_insert(first);
     }
-    // 3.0 ignores the siblings of `$ref`.
+    if schema
+        .get("required")
+        .and_then(Value::as_array)
+        .is_some_and(Vec::is_empty)
+    {
+        schema.remove("required");
+    }
+}
+
+/// Swagger 2.0 on top of 3.0: no `nullable`, `oneOf`, `anyOf`, `not`,
+/// `writeOnly` or `deprecated` (kept as `x-` extensions), and a string
+/// `discriminator`.
+fn lower_20(schema: &mut Map<String, Value>, lost: &mut BTreeSet<String>) {
+    for (keyword, extension) in [
+        ("nullable", "x-nullable"),
+        ("writeOnly", "x-writeOnly"),
+        ("deprecated", "x-deprecated"),
+    ] {
+        if let Some(value) = schema.remove(keyword) {
+            schema.insert(extension.into(), value);
+        }
+    }
+    for keyword in ["oneOf", "anyOf", "not"] {
+        if let Some(value) = schema.remove(keyword) {
+            schema.insert(format!("x-{keyword}"), value);
+            lost.insert(format!("`{keyword}` (kept as `x-{keyword}`)"));
+        }
+    }
+    discriminator_as_string(schema);
+}
+
+/// AsyncAPI 3 schemas are draft 7: tuples are item arrays and the
+/// discriminator is a property name.
+fn lower_draft7(schema: &mut Map<String, Value>, lost: &mut BTreeSet<String>) {
+    if let Some(Value::Array(items)) = schema.remove("prefixItems") {
+        if let Some(rest) = schema.remove("items") {
+            schema.insert("additionalItems".into(), rest);
+        }
+        schema.insert("items".into(), Value::Array(items));
+    }
+    for keyword in [
+        "unevaluatedProperties",
+        "unevaluatedItems",
+        "dependentSchemas",
+    ] {
+        if schema.remove(keyword).is_some() {
+            lost.insert(format!("`{keyword}`"));
+        }
+    }
+    if let Some(definitions) = schema.remove("$defs") {
+        schema.insert("definitions".into(), definitions);
+    }
+    discriminator_as_string(schema);
+}
+
+fn discriminator_as_string(schema: &mut Map<String, Value>) {
+    if let Some(Value::Object(discriminator)) = schema.get("discriminator") {
+        let name = discriminator
+            .get("propertyName")
+            .cloned()
+            .unwrap_or_default();
+        schema.insert("discriminator".into(), name);
+    }
+}
+
+/// Removes keywords the target does not know (`x-` extensions stay).
+fn allow(schema: &mut Map<String, Value>, allowed: &[&str], lost: &mut BTreeSet<String>) {
+    let unknown: Vec<String> = schema
+        .keys()
+        .filter(|k| !k.starts_with("x-") && !allowed.contains(&k.as_str()))
+        .cloned()
+        .collect();
+    for keyword in unknown {
+        schema.remove(&keyword);
+        lost.insert(format!("`{keyword}`"));
+    }
+}
+
+/// OpenAPI 3.0 and Swagger 2.0 ignore the siblings of `$ref`.
+fn wrap_ref_siblings(schema: &mut Map<String, Value>) {
     if schema.contains_key("$ref") && schema.len() > 1 {
         let reference = schema.remove("$ref").unwrap_or_default();
         let mut all_of = match schema.remove("allOf") {

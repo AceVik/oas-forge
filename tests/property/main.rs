@@ -269,6 +269,20 @@ proptest! {
     }
 
     #[test]
+    fn channel_dsl_never_panics(lines in prop::collection::vec(
+        (prop::sample::select(vec!["@channel", "@send", "@receive", "@tag", "@summary", "@description", ""]), tricky_text())
+            .prop_map(|(d, rest)| format!("{d} {rest}")),
+        0..8,
+    )) {
+        let mut all = vec!["@channel a/{b}".to_string()];
+        all.extend(lines);
+        let compiled = dsl::compile_channel(dsl::ChannelSource::new(&all, &here()), &mut Diagnostics::new());
+        if let Some(compiled) = compiled {
+            prop_assert!(compiled.document["channels"][&compiled.id].is_object());
+        }
+    }
+
+    #[test]
     fn extraction_never_panics_on_doc_comments(docs in prop::collection::vec(tricky_text(), 0..6)) {
         let attrs: Vec<syn::Attribute> = docs.iter().map(|d| syn::parse_quote!(#[doc = #d])).collect();
         let file: syn::File = syn::parse_quote! {

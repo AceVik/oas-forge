@@ -5,7 +5,7 @@
 //! at the next header, at a non-doc attribute, at a separator line such as
 //! `//! -----`, or where the doc comment is interrupted by a non-doc line.
 
-use super::{DocumentItem, FragmentItem, Item, NamedSchemaItem, RouteItem};
+use super::{ChannelItem, DocumentItem, FragmentItem, Item, NamedSchemaItem, RouteItem};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::docs::{DocLine, doc_text, join, line_of, unindent};
 use crate::dsl;
@@ -14,6 +14,13 @@ use syn::spanned::Spanned;
 
 /// The header of module-wide route defaults.
 const ROUTE_DEFAULTS: &str = "@route-defaults";
+/// The header of a free AsyncAPI block.
+const ASYNCAPI: &str = "@asyncapi";
+
+/// Headers of the free blocks of an item's doc comment.
+fn is_block_header(trimmed: &str) -> bool {
+    trimmed.starts_with("@openapi") || trimmed == ASYNCAPI
+}
 
 /// The `@openapi…` sections of an item's doc comment (functions, methods, modules).
 ///
@@ -24,7 +31,7 @@ pub(super) fn item_blocks(
     tags: &[String],
     diagnostics: &mut Diagnostics,
 ) -> Vec<Item> {
-    if !lines.iter().any(|l| l.trimmed().starts_with("@openapi")) {
+    if !lines.iter().any(|l| is_block_header(l.trimmed())) {
         return Vec::new();
     }
     let lines = unindent(lines);
@@ -41,7 +48,7 @@ pub(super) fn item_blocks(
             body.clear();
             continue;
         }
-        if trimmed.starts_with("@openapi") {
+        if is_block_header(trimmed) {
             if let Some(h) = header.take() {
                 section(path, &h, &body, tags, diagnostics, &mut items);
             }
@@ -78,7 +85,15 @@ fn section(
     let location = Location::new(path, first_body_line);
     let head = header.text.as_str();
 
-    if let Some(rest) = head.strip_prefix("@openapi-fragment") {
+    if head == ASYNCAPI {
+        if !text.is_empty() {
+            items.push(Item::AsyncApi(DocumentItem {
+                text,
+                location,
+                tags: Vec::new(),
+            }));
+        }
+    } else if let Some(rest) = head.strip_prefix("@openapi-fragment") {
         let (name, params) = signature(rest.trim());
         items.push(Item::Fragment(FragmentItem {
             name,
@@ -136,7 +151,7 @@ pub(super) fn route_defaults(lines: &[DocLine]) -> Vec<String> {
     };
     lines[start + 1..]
         .iter()
-        .take_while(|l| !l.trimmed().starts_with("@openapi"))
+        .take_while(|l| !is_block_header(l.trimmed()))
         .map(|l| l.text.clone())
         .collect()
 }
@@ -215,7 +230,8 @@ pub(super) fn file_blocks(
 }
 
 fn is_header(trimmed: &str) -> bool {
-    trimmed.starts_with("@openapi") || dsl::is_route(&[trimmed.to_string()])
+    let line = [trimmed.to_string()];
+    is_block_header(trimmed) || dsl::is_route(&line) || dsl::is_channel(&line)
 }
 
 fn is_separator(trimmed: &str) -> bool {
@@ -233,7 +249,14 @@ fn close(path: &Path, block: &mut Vec<DocLine>, items: &mut Vec<Item>, diags: &m
         return;
     };
     let trimmed = header.trimmed();
-    if trimmed.starts_with("@route") || trimmed.starts_with("@webhook") {
+    if dsl::is_channel(&[trimmed.to_string()]) {
+        items.push(Item::Channel(ChannelItem {
+            lines: block.iter().map(|l| l.text.clone()).collect(),
+            line_numbers: block.iter().map(|l| l.line).collect(),
+            operation_id: None,
+            location: Location::new(path, header.line),
+        }));
+    } else if trimmed.starts_with("@route") || trimmed.starts_with("@webhook") {
         items.push(Item::Route(RouteItem {
             lines: block.iter().map(|l| l.text.clone()).collect(),
             line_numbers: block.iter().map(|l| l.line).collect(),

@@ -144,7 +144,8 @@ fn every_schema_position_of_a_document_is_lowered() {
     });
     lower(&mut document, Dialect::OpenApi30, &mut Diagnostics::new());
     let text = serde_json::to_string(&document).unwrap();
-    assert_eq!(text.matches("\"nullable\":true").count(), 9, "{text}");
+    // `$defs` is not a 3.0 keyword and is dropped.
+    assert_eq!(text.matches("\"nullable\":true").count(), 8, "{text}");
     assert_eq!(
         document.pointer("/paths/~1a/get/responses/200/content/application~1json/example"),
         Some(&json!({ "type": ["string", "null"] })),

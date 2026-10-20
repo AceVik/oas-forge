@@ -13,12 +13,14 @@
 //! inside the block; `@openapi path` and `@openapi document` blocks target the
 //! path item and the document. Explicit YAML wins over the DSL (with a note).
 
+mod channel;
 pub(crate) mod expand;
 mod operation;
 mod params;
 mod responses;
 mod tokens;
 
+pub use channel::{ChannelSource, CompiledChannel, compile_channel, is_channel};
 pub(crate) use params::EXPAND_KEY;
 
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};

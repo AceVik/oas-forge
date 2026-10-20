@@ -207,3 +207,11 @@ fn file_level_fragments_and_generic_headers() {
     assert_eq!(kinds(&items), ["fragment:Err"]);
     assert_eq!(codes(&diagnostics), [Code::UnnamedBlueprint]);
 }
+
+#[test]
+fn asyncapi_and_channel_blocks() {
+    let items = extract(
+        "//! @asyncapi\n//! asyncapi: 3.1.0\n//! @channel a/b\n//! @send M: u8\n//! @openapi\n//! paths: {}",
+    );
+    assert_eq!(kinds(&items), ["asyncapi", "channel:-", "document"]);
+}

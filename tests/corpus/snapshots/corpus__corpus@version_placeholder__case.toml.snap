@@ -4,6 +4,9 @@ expression: snapshot
 input_file: tests/corpus/cases/version_placeholder/case.toml
 ---
 {
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
   "description": "Variables: {{CARGO_PKG_VERSION}} quoted and unquoted",
   "diagnostics": [],
   "fragments": {
@@ -27,6 +30,28 @@ input_file: tests/corpus/cases/version_placeholder/case.toml
       ": value is not valid under any of the schemas listed in the 'anyOf' keyword"
     ]
   },
+  "json_schema": {
+    "document": {
+      "$defs": {},
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "info": {
+        "description": "Built from version <pkg-version>",
+        "title": "Versioned",
+        "version": "<pkg-version>"
+      },
+      "openapi": "3.0.3",
+      "paths": {},
+      "x-unquoted-version": "<pkg-version>"
+    },
+    "lints": [],
+    "validation": []
+  },
   "paths": {
     "document": {},
     "lints": []
@@ -34,5 +59,18 @@ input_file: tests/corpus/cases/version_placeholder/case.toml
   "schemas": {
     "document": {},
     "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "info": {
+        "description": "Built from version <pkg-version>",
+        "title": "Versioned",
+        "version": "<pkg-version>"
+      },
+      "paths": {},
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
   }
 }

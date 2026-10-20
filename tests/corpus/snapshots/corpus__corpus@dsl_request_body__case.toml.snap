@@ -4,6 +4,9 @@ expression: snapshot
 input_file: tests/corpus/cases/dsl_request_body/case.toml
 ---
 {
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
   "description": "Route DSL: @body with refs, std generics, custom generics and media types",
   "diagnostics": [],
   "fragments": {
@@ -385,6 +388,245 @@ input_file: tests/corpus/cases/dsl_request_body/case.toml
     "lints": [],
     "validation": []
   },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "CreateUser": {
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "Page_CreateUser": {
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/$defs/CreateUser"
+              },
+              "type": "array"
+            },
+            "total": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "total"
+          ],
+          "type": "object"
+        },
+        "User": {
+          "properties": {
+            "id": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "CreateUser": {
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "Page_CreateUser": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/CreateUser"
+                },
+                "type": "array"
+              },
+              "total": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/bulk": {
+          "post": {
+            "operationId": "bulk",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/CreateUser"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "204": {
+                "description": "ok"
+              }
+            }
+          }
+        },
+        "/paged": {
+          "post": {
+            "operationId": "paged",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Page_CreateUser"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "204": {
+                "description": "ok"
+              }
+            }
+          }
+        },
+        "/raw": {
+          "post": {
+            "operationId": "raw",
+            "requestBody": {
+              "content": {
+                "text/plain": {
+                  "schema": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "204": {
+                "description": "ok"
+              }
+            }
+          }
+        },
+        "/users": {
+          "post": {
+            "operationId": "create",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CreateUser"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "201": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                },
+                "description": "Created"
+              }
+            }
+          }
+        },
+        "/users/{id}": {
+          "put": {
+            "operationId": "replace",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "requestBody": {
+              "content": {
+                "application/xml": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CreateUser"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
   "paths": {
     "document": {
       "/bulk": {
@@ -565,5 +807,200 @@ input_file: tests/corpus/cases/dsl_request_body/case.toml
       }
     },
     "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "CreateUser": {
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "Page_CreateUser": {
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/definitions/CreateUser"
+              },
+              "type": "array"
+            },
+            "total": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "total"
+          ],
+          "type": "object"
+        },
+        "User": {
+          "properties": {
+            "id": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/bulk": {
+          "post": {
+            "consumes": [
+              "application/json"
+            ],
+            "operationId": "bulk",
+            "parameters": [
+              {
+                "in": "body",
+                "name": "body",
+                "required": true,
+                "schema": {
+                  "items": {
+                    "$ref": "#/definitions/CreateUser"
+                  },
+                  "type": "array"
+                }
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "ok"
+              }
+            }
+          }
+        },
+        "/paged": {
+          "post": {
+            "consumes": [
+              "application/json"
+            ],
+            "operationId": "paged",
+            "parameters": [
+              {
+                "in": "body",
+                "name": "body",
+                "required": true,
+                "schema": {
+                  "$ref": "#/definitions/Page_CreateUser"
+                }
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "ok"
+              }
+            }
+          }
+        },
+        "/raw": {
+          "post": {
+            "consumes": [
+              "text/plain"
+            ],
+            "operationId": "raw",
+            "parameters": [
+              {
+                "in": "body",
+                "name": "body",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "ok"
+              }
+            }
+          }
+        },
+        "/users": {
+          "post": {
+            "consumes": [
+              "application/json"
+            ],
+            "operationId": "create",
+            "parameters": [
+              {
+                "in": "body",
+                "name": "body",
+                "required": true,
+                "schema": {
+                  "$ref": "#/definitions/CreateUser"
+                }
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "201": {
+                "description": "Created",
+                "schema": {
+                  "$ref": "#/definitions/User"
+                }
+              }
+            }
+          }
+        },
+        "/users/{id}": {
+          "put": {
+            "consumes": [
+              "application/xml"
+            ],
+            "operationId": "replace",
+            "parameters": [
+              {
+                "format": "int64",
+                "in": "path",
+                "minimum": 0,
+                "name": "id",
+                "required": true,
+                "type": "integer"
+              },
+              {
+                "in": "body",
+                "name": "body",
+                "required": true,
+                "schema": {
+                  "$ref": "#/definitions/CreateUser"
+                }
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "$ref": "#/definitions/User"
+                }
+              }
+            }
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
   }
 }

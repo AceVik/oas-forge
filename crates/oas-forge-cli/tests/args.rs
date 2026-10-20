@@ -139,3 +139,50 @@ fn run_returns_every_written_file() {
     assert!(outcome.diagnostics.is_empty(), "{:?}", outcome.diagnostics);
     assert_eq!(project.read_yaml("out.yaml")["info"]["title"], "Test API");
 }
+
+#[test]
+fn export_flags_reach_the_configuration() {
+    let cli = parse(&[
+        "oas-forge",
+        "--output-json-schema",
+        "s.json",
+        "--output-openapi-30",
+        "v30.yaml",
+        "--output-swagger2",
+        "v2.yaml",
+        "--output-asyncapi",
+        "events.yaml",
+    ]);
+    let project = Project::new();
+    let config = cli.resolve_config(project.root()).unwrap();
+    assert_eq!(config.output_json_schema, paths(&["s.json"]));
+    assert_eq!(config.output_openapi_30, paths(&["v30.yaml"]));
+    assert_eq!(config.output_swagger2, paths(&["v2.yaml"]));
+    assert_eq!(config.output_asyncapi, paths(&["events.yaml"]));
+    assert!(config.output.is_none(), "an export counts as an output");
+}
+
+#[test]
+fn run_writes_exports() {
+    let project = Project::new();
+    project.file("src/main.rs", ROOT_DOC);
+    let src = project.path("src").display().to_string();
+    let v30 = project.path("v30.json").display().to_string();
+    let v2 = project.path("v2.yaml").display().to_string();
+    let outcome = run(
+        &parse(&[
+            "oas-forge",
+            "-i",
+            &src,
+            "--output-openapi-30",
+            &v30,
+            "--output-swagger2",
+            &v2,
+        ]),
+        project.root(),
+    )
+    .unwrap();
+    assert_eq!(outcome.outputs.len(), 2);
+    assert_eq!(project.read_yaml("v30.json")["openapi"], "3.0.3");
+    assert_eq!(project.read_yaml("v2.yaml")["swagger"], "2.0");
+}

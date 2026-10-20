@@ -126,8 +126,20 @@ fn validator(kind: SpecKind) -> &'static jsonschema::Validator {
 }
 
 /// Validates a complete document against the official schema of the
-/// specification it declares. Returns one message per violation.
+/// specification it declares (a JSON Schema bundle against the 2020-12
+/// meta-schema, with every reference resolved). Returns one message per
+/// violation.
 pub fn validate(doc: &Value) -> Vec<String> {
+    if doc.get("$schema").is_some() {
+        let mut errors = Vec::new();
+        if let Err(e) = jsonschema::meta::validate(doc) {
+            errors.push(format!("{}: {}", e.instance_path(), e.masked()));
+        }
+        if let Err(e) = jsonschema::validator_for(doc) {
+            errors.push(format!("bundle: {e}"));
+        }
+        return errors;
+    }
     let Some(kind) = SpecKind::detect(doc) else {
         return vec!["document declares no supported specification version".to_string()];
     };
@@ -145,11 +157,22 @@ pub fn is_valid(doc: &Value) -> bool {
     SpecKind::detect(doc).is_some_and(|kind| validator(kind).is_valid(doc))
 }
 
-/// Generator-specific lints. `schemas` lists the component schema names the
-/// document can reference (`None` when they are unknown, e.g. paths-only output).
-pub fn lint(doc: &Value, schemas: Option<&BTreeSet<String>>) -> Vec<String> {
+/// What local references of a document can point to.
+#[derive(Debug, Clone, Copy)]
+pub enum Refs<'a> {
+    /// The document is complete: every `#/...` reference must resolve in it.
+    SelfContained,
+    /// A part of a document: `#/components/schemas/<name>` must name one of these.
+    Schemas(&'a BTreeSet<String>),
+    /// A part of a document whose schemas are unknown (paths-only output).
+    Unknown,
+}
+
+/// Generator-specific lints: dangling and unresolved references, leftover
+/// markers, duplicate operationIds.
+pub fn lint(doc: &Value, refs: Refs<'_>) -> Vec<String> {
     let mut findings = BTreeSet::new();
-    walk(doc, &mut String::new(), schemas, &mut findings);
+    walk(doc, doc, &mut String::new(), refs, &mut findings);
 
     let mut operation_ids = BTreeMap::<&str, usize>::new();
     if let Some(paths) = doc.get("paths").and_then(Value::as_object) {
@@ -178,9 +201,10 @@ pub fn component_schemas(doc: &Value) -> BTreeSet<String> {
 }
 
 fn walk(
+    root: &Value,
     value: &Value,
     pointer: &mut String,
-    schemas: Option<&BTreeSet<String>>,
+    refs: Refs<'_>,
     findings: &mut BTreeSet<String>,
 ) {
     match value {
@@ -196,10 +220,10 @@ fn walk(
                     // Template transport: bodies are unexpanded on purpose.
                 } else if key == "$ref" {
                     if let Some(target) = child.as_str() {
-                        check_ref(target, pointer, schemas, findings);
+                        check_ref(root, target, pointer, refs, findings);
                     }
                 } else {
-                    walk(child, pointer, schemas, findings);
+                    walk(root, child, pointer, refs, findings);
                 }
                 pointer.truncate(len);
             }
@@ -208,7 +232,7 @@ fn walk(
             for (i, child) in items.iter().enumerate() {
                 let len = pointer.len();
                 pointer.push_str(&format!("/{i}"));
-                walk(child, pointer, schemas, findings);
+                walk(root, child, pointer, refs, findings);
                 pointer.truncate(len);
             }
         }
@@ -227,13 +251,21 @@ fn walk(
 }
 
 fn check_ref(
+    root: &Value,
     target: &str,
     pointer: &str,
-    schemas: Option<&BTreeSet<String>>,
+    refs: Refs<'_>,
     findings: &mut BTreeSet<String>,
 ) {
-    if let Some(name) = target.strip_prefix("#/components/schemas/") {
-        if schemas.is_some_and(|known| !known.contains(name)) {
+    if let Some(local) = target.strip_prefix('#') {
+        let dangling = match refs {
+            Refs::SelfContained => root.pointer(local).is_none(),
+            Refs::Schemas(known) => target
+                .strip_prefix("#/components/schemas/")
+                .is_some_and(|name| !known.contains(name)),
+            Refs::Unknown => false,
+        };
+        if dangling {
             findings.insert(format!("{pointer}: dangling $ref `{target}`"));
         }
     } else if !target.starts_with("#/")

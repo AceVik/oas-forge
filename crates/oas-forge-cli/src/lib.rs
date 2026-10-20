@@ -36,6 +36,22 @@ pub struct Cli {
     #[arg(long = "output-fragments")]
     pub output_fragments: Option<Vec<PathBuf>>,
 
+    /// Output file(s) for the component schemas as a JSON Schema 2020-12 bundle
+    #[arg(long = "output-json-schema")]
+    pub output_json_schema: Option<Vec<PathBuf>>,
+
+    /// Output file(s) for the specification lowered to OpenAPI 3.0.3
+    #[arg(long = "output-openapi-30")]
+    pub output_openapi_30: Option<Vec<PathBuf>>,
+
+    /// Output file(s) for the specification converted to Swagger 2.0
+    #[arg(long = "output-swagger2")]
+    pub output_swagger2: Option<Vec<PathBuf>>,
+
+    /// Output file(s) for the AsyncAPI document (@asyncapi and @channel blocks)
+    #[arg(long = "output-asyncapi")]
+    pub output_asyncapi: Option<Vec<PathBuf>>,
+
     /// Path to a configuration file (toml)
     #[arg(long = "config")]
     pub config: Option<PathBuf>,
@@ -67,6 +83,10 @@ impl Cli {
         flags.output_schemas = self.output_schemas.clone();
         flags.output_paths = self.output_paths.clone();
         flags.output_fragments = self.output_fragments.clone();
+        flags.output_json_schema = self.output_json_schema.clone();
+        flags.output_openapi_30 = self.output_openapi_30.clone();
+        flags.output_swagger2 = self.output_swagger2.clone();
+        flags.output_asyncapi = self.output_asyncapi.clone();
         flags
     }
 }

@@ -32,6 +32,14 @@ pub struct Config {
     pub output_paths: Option<Vec<PathBuf>>,
     /// Files receiving the headless specification (no root) for other crates.
     pub output_fragments: Option<Vec<PathBuf>>,
+    /// Files receiving the component schemas as a JSON Schema 2020-12 bundle.
+    pub output_json_schema: Option<Vec<PathBuf>>,
+    /// Files receiving the specification lowered to OpenAPI 3.0.3.
+    pub output_openapi_30: Option<Vec<PathBuf>>,
+    /// Files receiving the specification converted to Swagger 2.0.
+    pub output_swagger2: Option<Vec<PathBuf>>,
+    /// Files receiving the AsyncAPI document.
+    pub output_asyncapi: Option<Vec<PathBuf>>,
     /// Schemas for Rust types, by type name or path, as with
     /// [`Generator::map_type`](crate::Generator::map_type):
     ///
@@ -121,6 +129,10 @@ impl Config {
             output_schemas,
             output_paths,
             output_fragments,
+            output_json_schema,
+            output_openapi_30,
+            output_swagger2,
+            output_asyncapi,
             types,
         } = other;
         if let Some(types) = types {
@@ -132,6 +144,10 @@ impl Config {
         overlay(&mut self.output_schemas, output_schemas);
         overlay(&mut self.output_paths, output_paths);
         overlay(&mut self.output_fragments, output_fragments);
+        overlay(&mut self.output_json_schema, output_json_schema);
+        overlay(&mut self.output_openapi_30, output_openapi_30);
+        overlay(&mut self.output_swagger2, output_swagger2);
+        overlay(&mut self.output_asyncapi, output_asyncapi);
     }
 
     /// Every configured output file, across all output strategies.
@@ -141,6 +157,10 @@ impl Config {
             &self.output_schemas,
             &self.output_paths,
             &self.output_fragments,
+            &self.output_json_schema,
+            &self.output_openapi_30,
+            &self.output_swagger2,
+            &self.output_asyncapi,
         ]
         .into_iter()
         .flatten()

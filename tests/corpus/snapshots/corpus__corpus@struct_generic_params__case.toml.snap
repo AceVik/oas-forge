@@ -4,6 +4,9 @@ expression: snapshot
 input_file: tests/corpus/cases/struct_generic_params/case.toml
 ---
 {
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
   "description": "Structs: generic structs used without an @openapi<T> blueprint",
   "diagnostics": [
     "warning[OF3007]: `$T` does not name a known schema (<case>/src/lib.rs:7)"
@@ -120,7 +123,122 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
     ],
     "validation": []
   },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Envelope": {
+          "properties": {
+            "data": {
+              "$ref": "$T"
+            },
+            "items": {
+              "items": {
+                "$ref": "$T"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "data",
+            "items"
+          ],
+          "type": "object"
+        },
+        "Response": {
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/Envelope"
+            }
+          },
+          "required": [
+            "user"
+          ],
+          "type": "object"
+        },
+        "User": {
+          "properties": {
+            "id": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [
+      "/$defs/Envelope/properties/data/$ref: unresolved $ref `$T`",
+      "/$defs/Envelope/properties/items/items/$ref: unresolved $ref `$T`"
+    ],
+    "validation": [
+      "bundle: Resource '$T' is not present in a registry and retrieving it failed: No base URI is available"
+    ]
+  },
   "known_bug": "Generic structs without @openapi<T> leave $T and $Envelope unresolved",
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Envelope": {
+            "properties": {
+              "data": {
+                "$ref": "$T"
+              },
+              "items": {
+                "items": {
+                  "$ref": "$T"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "data",
+              "items"
+            ],
+            "type": "object"
+          },
+          "Response": {
+            "properties": {
+              "user": {
+                "$ref": "#/components/schemas/Envelope"
+              }
+            },
+            "required": [
+              "user"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {}
+    },
+    "lints": [
+      "/components/schemas/Envelope/properties/data/$ref: unresolved $ref `$T`",
+      "/components/schemas/Envelope/properties/items/items/$ref: unresolved $ref `$T`"
+    ],
+    "validation": []
+  },
   "paths": {
     "document": {},
     "lints": []
@@ -173,5 +291,63 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
       "/Envelope/properties/data/$ref: unresolved $ref `$T`",
       "/Envelope/properties/items/items/$ref: unresolved $ref `$T`"
     ]
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "Envelope": {
+          "properties": {
+            "data": {
+              "$ref": "$T"
+            },
+            "items": {
+              "items": {
+                "$ref": "$T"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "data",
+            "items"
+          ],
+          "type": "object"
+        },
+        "Response": {
+          "properties": {
+            "user": {
+              "$ref": "#/definitions/Envelope"
+            }
+          },
+          "required": [
+            "user"
+          ],
+          "type": "object"
+        },
+        "User": {
+          "properties": {
+            "id": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {},
+      "swagger": "2.0"
+    },
+    "lints": [
+      "/definitions/Envelope/properties/data/$ref: unresolved $ref `$T`",
+      "/definitions/Envelope/properties/items/items/$ref: unresolved $ref `$T`"
+    ],
+    "validation": []
   }
 }

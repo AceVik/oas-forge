@@ -164,6 +164,20 @@ Every 0.1 route block still compiles; these outputs changed:
   documented in the same run; a struct from another crate's fragments file
   is not expanded (warning `OF2008`).
 
+### Output formats
+- **Fragments stay canonical.** The fragments output always uses the JSON
+  Schema 2020-12 dialect, even when the crate's own root is `openapi: 3.0.x`;
+  the consuming crate lowers them for its root.
+- **AsyncAPI is a separate document.** YAML files and doc blocks with an
+  `asyncapi:` root, `@asyncapi` blocks and `@channel` blocks go to the
+  AsyncAPI output (`output_asyncapi`), not into the OpenAPI document. 0.1
+  merged an `asyncapi` YAML file into the OpenAPI specification.
+- New outputs: `output_json_schema` (a JSON Schema 2020-12 bundle),
+  `output_openapi_30`, `output_swagger2` and `output_asyncapi`. What a target
+  cannot express is reported (`OF6001` notes, `OF6002` warnings) when the
+  output is configured; `Spec::render_with_diagnostics` returns the findings
+  for any output.
+
 ### Templates and references
 - **`@extend`: local values win** (`fragment_extend`). Values written next to
   `@extend` override the fragment, like inheritance. 0.1 let the fragment win.

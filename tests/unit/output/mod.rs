@@ -1,4 +1,9 @@
-//! `src/output.rs`: formats, output strategies and writing.
+//! `src/output/`: formats, output strategies, exports and writing.
+
+mod asyncapi;
+mod json_schema;
+mod openapi30;
+mod swagger2;
 
 use crate::common::{Project, ROOT_DOC, yaml};
 use oas_forge::error::Error;

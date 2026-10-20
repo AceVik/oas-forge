@@ -4,6 +4,9 @@ expression: snapshot
 input_file: tests/corpus/cases/dsl_security/case.toml
 ---
 {
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
   "description": "Route DSL: @security with and without scopes",
   "diagnostics": [],
   "fragments": {
@@ -74,6 +77,51 @@ input_file: tests/corpus/cases/dsl_security/case.toml
     "lints": [],
     "validation": []
   },
+  "json_schema": {
+    "document": {
+      "$defs": {},
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/secure": {
+          "get": {
+            "operationId": "secure",
+            "responses": {
+              "200": {
+                "description": "ok"
+              }
+            },
+            "security": [
+              {
+                "bearer": []
+              },
+              {
+                "oauth2": [
+                  "read:users",
+                  "write:users"
+                ]
+              },
+              {
+                "apiKey": []
+              }
+            ]
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
   "paths": {
     "document": {
       "/secure": {
@@ -106,5 +154,42 @@ input_file: tests/corpus/cases/dsl_security/case.toml
   "schemas": {
     "document": {},
     "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/secure": {
+          "get": {
+            "operationId": "secure",
+            "responses": {
+              "200": {
+                "description": "ok"
+              }
+            },
+            "security": [
+              {
+                "bearer": []
+              },
+              {
+                "oauth2": [
+                  "read:users",
+                  "write:users"
+                ]
+              },
+              {
+                "apiKey": []
+              }
+            ]
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
   }
 }
