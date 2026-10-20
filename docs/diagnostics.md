@@ -26,6 +26,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF0002` | error | An input file exceeds the size limit (16 MiB) | Exclude it or raise `max_file_size` |
 | `OF0003` | note | A configured output inside an input directory was not read | Nothing to do |
 | `OF0004` | note | No `openapi`/`info` root in the sources; it was generated from the package | Write a root to choose the values yourself, or call `without_package()` |
+| `OF0005` | warning | A symbolic link in an input directory is broken or forms a loop; it was skipped | Fix or remove the link |
 
 ## Extraction (OF1xxx)
 

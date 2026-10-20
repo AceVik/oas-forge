@@ -124,7 +124,9 @@ impl SourceSet {
     }
 
     /// Reads every supported file below `inputs` (recursively, sorted) and every
-    /// existing file of `includes` (in the given order).
+    /// existing file of `includes` (in the given order). Symbolic links are
+    /// followed; broken links and loops are reported and skipped. A file that
+    /// is reached more than once is read once.
     ///
     /// # Errors
     /// [`Error::Io`] when an input directory cannot be walked or a file cannot
@@ -142,11 +144,20 @@ impl SourceSet {
 
         for root in inputs {
             watched.push(root.clone());
-            for entry in walkdir::WalkDir::new(root).sort_by_file_name() {
-                let entry = entry.map_err(|e| {
-                    let path = e.path().unwrap_or(root).to_path_buf();
-                    Error::io(&path, std::io::Error::other(e))
-                })?;
+            let walk = walkdir::WalkDir::new(root)
+                .follow_links(true)
+                .sort_by_file_name();
+            for entry in walk {
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(error) => {
+                        if let Some(skipped) = unfollowable_link(&error) {
+                            diagnostics.push(skipped);
+                            continue;
+                        }
+                        return Err(walk_error(root, error));
+                    }
+                };
                 if entry.file_type().is_file() {
                     any_file = true;
                     candidates.push(entry.into_path());
@@ -170,11 +181,18 @@ impl SourceSet {
         }
 
         let mut files = Vec::new();
+        // Overlapping inputs, includes inside inputs and links reach the
+        // same file more than once; it is read at its first position.
+        let mut seen = BTreeSet::new();
         for path in candidates {
             let Some(kind) = SourceKind::of(&path) else {
                 continue;
             };
-            if excluded.contains(&normalize(&path)) {
+            let normalized = normalize(&path);
+            if !seen.insert(normalized.clone()) {
+                continue;
+            }
+            if excluded.contains(&normalized) {
                 diagnostics.push(
                     Diagnostic::new(
                         Code::OutputNotRead,
@@ -216,6 +234,39 @@ impl SourceSet {
     pub fn watched(&self) -> &[PathBuf] {
         &self.watched
     }
+}
+
+/// The finding for a symbolic link below an input directory that cannot be
+/// followed (broken, or a loop); `None` for other walk errors.
+fn unfollowable_link(error: &walkdir::Error) -> Option<Diagnostic> {
+    let path = error.path()?;
+    let reason = if let Some(ancestor) = error.loop_ancestor() {
+        format!("it forms a loop with {}", ancestor.display())
+    } else if error.depth() > 0
+        && std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
+    {
+        "its target does not exist or cannot be read".to_string()
+    } else {
+        return None;
+    };
+    Some(
+        Diagnostic::new(
+            Code::UnreadableLink,
+            format!("symbolic link is skipped: {reason}"),
+        )
+        .at(Location::new(path, 1)),
+    )
+}
+
+/// An [`Error::Io`] for a failed directory walk, without repeating the
+/// walker's own prefix.
+fn walk_error(root: &Path, error: walkdir::Error) -> Error {
+    let path = error.path().unwrap_or(root).to_path_buf();
+    let message = error.to_string();
+    let source = error
+        .into_io_error()
+        .unwrap_or_else(|| std::io::Error::other(message));
+    Error::io(&path, source)
 }
 
 /// A comparable form of a path that does not need the file to exist.

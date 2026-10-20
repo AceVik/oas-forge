@@ -203,3 +203,86 @@ fn unreadable_files_are_io_errors() {
         other => panic!("expected an IO error, got {other:?}"),
     }
 }
+
+#[test]
+fn files_are_read_once_even_when_inputs_overlap() {
+    let project = Project::new();
+    project
+        .file("src/a.rs", "")
+        .file("src/api/b.rs", "")
+        .file("src/root.yaml", "");
+    let (set, diagnostics) = discover(
+        &[project.path("src"), project.path("src/api")],
+        &[
+            project.path("src/root.yaml"),
+            project.path("src/../src/a.rs"),
+        ],
+        &DiscoverOptions::default(),
+    );
+    assert_eq!(
+        names(&set.unwrap(), project.root()),
+        ["src/a.rs", "src/api/b.rs", "src/root.yaml"]
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+#[cfg(unix)]
+mod symbolic_links {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    #[test]
+    fn linked_files_and_directories_are_read() {
+        let project = Project::new();
+        project
+            .file("src/a.rs", "")
+            .file("shared/linked.rs", "")
+            .file("shared/dir/inner.rs", "");
+        symlink(
+            project.path("shared/linked.rs"),
+            project.path("src/linked.rs"),
+        )
+        .unwrap();
+        symlink(project.path("shared/dir"), project.path("src/dir")).unwrap();
+        // A second link to a file that is already read adds nothing.
+        symlink(project.path("src/a.rs"), project.path("src/z.rs")).unwrap();
+        let (set, diagnostics) = discover(&[project.path("src")], &[], &DiscoverOptions::default());
+        assert_eq!(
+            names(&set.unwrap(), project.root()),
+            ["src/a.rs", "src/dir/inner.rs", "src/linked.rs"]
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn loops_and_broken_links_are_reported_and_skipped() {
+        let project = Project::new();
+        project.file("src/a.rs", "");
+        symlink(project.path("src"), project.path("src/loop")).unwrap();
+        symlink(
+            project.path("src/missing.rs"),
+            project.path("src/broken.rs"),
+        )
+        .unwrap();
+        let (set, diagnostics) = discover(&[project.path("src")], &[], &DiscoverOptions::default());
+        assert_eq!(names(&set.unwrap(), project.root()), ["src/a.rs"]);
+        assert_eq!(
+            codes(&diagnostics),
+            [Code::UnreadableLink, Code::UnreadableLink]
+        );
+        let locations: Vec<String> = diagnostics
+            .iter()
+            .map(|d| d.location().unwrap().file().display().to_string())
+            .collect();
+        assert!(locations[0].ends_with("broken.rs"), "{locations:?}");
+        assert!(locations[1].ends_with("loop"), "{locations:?}");
+    }
+}
+
+#[test]
+fn walk_errors_are_reported_once() {
+    let project = Project::new();
+    let (result, _) = discover(&[project.path("nope")], &[], &DiscoverOptions::default());
+    let message = result.unwrap_err().to_string();
+    assert_eq!(message.matches("IO error").count(), 1, "{message}");
+}

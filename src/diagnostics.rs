@@ -129,6 +129,8 @@ codes! {
     OutputNotRead = "OF0003", Note;
     /// The root document was generated from package metadata.
     GeneratedRoot = "OF0004", Note;
+    /// A symbolic link in an input directory is broken or forms a loop.
+    UnreadableLink = "OF0005", Warning;
 
     /// An `@openapi` override is not valid YAML.
     InvalidOverride = "OF1001", Warning;
