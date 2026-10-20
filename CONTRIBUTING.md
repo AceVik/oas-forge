@@ -23,6 +23,7 @@ Include the diagnostic codes you see (`OF…`). Security problems go to
    changes and describe user-visible ones in the changelog.
 5. Update the guide in `docs/` when syntax or options change. Examples
    marked `<!-- corpus: name -->` must stay identical to their corpus case.
+   New items get doc comments; public ones an example that runs.
 6. Run the checks:
 
    ```bash
@@ -35,7 +36,11 @@ Include the diagnostic codes you see (`OF…`). Security problems go to
    typos
    ```
 
+For larger changes, `cargo mutants --package oas-forge --test-tool nextest
+-f src/<file>.rs` shows behaviour the tests do not pin down.
+
 Tools: [`cargo-insta`](https://insta.rs/docs/cli/),
+[`cargo-mutants`](https://mutants.rs),
 [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny),
 [`typos`](https://github.com/crate-ci/typos) and, for coverage,
 [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov).

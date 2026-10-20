@@ -30,6 +30,7 @@ PROPTEST_CASES=20000 cargo test --release --test property
 cargo llvm-cov --workspace --summary-only
 cargo build --manifest-path examples/Cargo.toml
 typos                                   # spelling (config: _typos.toml)
+cargo mutants --package oas-forge --test-tool nextest -f src/<changed>.rs
 ```
 
 All of them must pass before a change is done. CI also checks the minimal
@@ -43,12 +44,13 @@ MSRV build, `cargo publish --dry-run` on release, and audits the workflows with
 | :--- | :--- | :--- |
 | Input discovery | `src/source.rs` | sorted walk, size limit, outputs excluded |
 | Rust extraction | `src/extract/` | `reflect.rs` (types → schemas), `blocks.rs` (YAML blocks), `signature.rs` (handler inference), `constants.rs` (regex constants) |
+| Doc comments | `src/docs.rs` | lines with positions, Javadoc blocks, Markdown-aware descriptions |
 | Attributes | `src/attrs/` | `serde.rs`, `validate.rs` (validator + garde), `rename.rs`, `directives.rs` (`@openapi …` lines) |
 | Text expansion | `src/template/lexical.rs` | the only text-level step: `@insert`, `@extend` markers, `{{vars}}`, `\$` |
 | Templates | `src/template/` | `registry.rs`, `extend.rs`, `generics.rs` (`$Page<User>`), `refs.rs` (`$User`) |
 | Route and channel DSL | `src/dsl/` | `mod.rs` (compiler), `params.rs`, `responses.rs`, `operation.rs`, `channel.rs`, `expand.rs` |
 | Merging | `src/merge.rs` | policies `Document`, `Extend`, `Operation`, `Override` (ADR 0003) |
-| Types | `src/schema/types.rs` | `TypeExpr` parser and `TypeMapper` table |
+| Types | `src/schema/types.rs`, `shadow.rs` | `TypeExpr` parser and `TypeMapper` table; `shadow.rs` lets documented types win over built-in names |
 | Dialects | `src/schema/dialect.rs` | 2020-12 → 3.0 / Swagger 2.0 / AsyncAPI lowering |
 | Outputs | `src/output/` | rendering, exports, atomic writes |
 | Orchestration | `src/generator.rs` | `Generator`, `Spec`, the pipeline `run` |
@@ -80,10 +82,15 @@ The pipeline is described in `docs/architecture.md`.
 6. **Determinism.** No `HashMap` iteration into output. Same input, any file
    order, any OS: byte-identical output.
 7. **Public API.** No `syn` or YAML types in public signatures; add
-   `#[non_exhaustive]` to public structs and enums that may grow; every public
-   item has docs (`#![deny(missing_docs)]`).
-8. **YAML only through `src/yaml.rs`.**
-9. **`serde_json::json!` keys are expressions.** `json!({ name: v })` uses the
+   `#[non_exhaustive]` to public structs and enums that may grow.
+8. **Documentation.** Every item, private ones included, has a doc comment
+   (`missing_docs`, `clippy::missing_docs_in_private_items`); every public
+   function and type has an `# Examples` doctest that runs and asserts real
+   output (`no_run` only when it writes files), and fallible ones an
+   `# Errors` section. Identifiers go in backticks (`clippy::doc_markdown`;
+   allowed words are in `clippy.toml`). All of it is denied in `src/lib.rs`.
+9. **YAML only through `src/yaml.rs`.**
+10. **`serde_json::json!` keys are expressions.** `json!({ name: v })` uses the
    value of `name` as key; write `json!({ "name": v })` for a literal key.
 
 ## Tests
@@ -109,7 +116,10 @@ Helpers are in `tests/common/` (`extract`, `schema`, `route`, `pipeline`,
 - Examples in `README.md` and `docs/*.md` after `<!-- corpus: name -->` must
   equal `tests/corpus/cases/name/src/lib.rs` (`readme_*`, `guide_*`). Change
   both together.
-- Coverage stays at or above 98 % of lines.
+- Coverage stays at or above 98 % of lines. Line coverage is not enough:
+  run `cargo mutants` on the modules you change; every surviving mutant gets
+  a test, or an entry with its reason in `.cargo/mutants.toml` when it cannot
+  change behaviour.
 
 ## Writing annotations (quick reference)
 
