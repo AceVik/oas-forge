@@ -4,66 +4,93 @@ expression: text
 input_file: tests/corpus/cases/readme_schemas/case.toml
 ---
 # full output
-openapi: "3.1.0"
+openapi: "3.1.1"
 info:
-  title: Corpus
+  title: shop
   version: "1.0.0"
 components:
   schemas:
-    Email:
-      type: string
-      description: E-Mail address.
-      example: johnd@mail.com
-      format: email
-    PhoneNumber:
-      type: string
-      format: tel
-      pattern: ^\+?[1-9]\d{1,14}$
-      description: E.164 formatted phone number.
-      example: "+491701234567"
-    Role:
-      type: string
-      enum:
-      - Admin
-      - Moderator
-      - User
-      description: Description of user roles within the system.
-    User:
+    Address:
       type: object
       properties:
-        id:
-          type: integer
-          format: int64
-          minimum: 0
-          maximum: 4294967295
-        username:
+        city:
+          type: string
+        zip:
+          type: string
+      required:
+      - city
+      - zip
+      description: A postal address.
+    Customer:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        tags:
+          type: array
+          items:
+            type: string
+          uniqueItems: true
+          examples:
+          - - vip
+            - newsletter
+        payment:
+          anyOf:
+          - $ref: "#/components/schemas/Payment"
+          - type: "null"
+        fax:
           type:
           - string
           - "null"
-          description: The username of the user.
-          example: johndoe
-        email:
-          $ref: "#/components/schemas/Email"
-          description: The email address of the user.
-          example: johndoe@mail.com
-        phone:
-          $ref: "#/components/schemas/PhoneNumber"
-        role:
-          $ref: "#/components/schemas/Role"
-          description: The role assigned to the user.
-          default: User
-        is_active:
-          type: boolean
-        created_at:
-          type: string
-          format: date-time
-          description: The timestamp when the user was created.
-          example: "2024-01-01T12:00:00"
+          deprecated: true
       required:
-      - id
       - email
-      - phone
-      - role
-      - is_active
-      - created_at
-      description: Description of a User entity.
+      - name
+      allOf:
+      - $ref: "#/components/schemas/Address"
+      description: A customer.
+    Payment:
+      type: object
+      oneOf:
+      - $ref: "#/components/schemas/PaymentCard"
+      - $ref: "#/components/schemas/PaymentInvoice"
+      discriminator:
+        propertyName: type
+        mapping:
+          card: "#/components/schemas/PaymentCard"
+          invoice: "#/components/schemas/PaymentInvoice"
+      description: How an order is paid.
+    PaymentCard:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - card
+          description: "Discriminator: card"
+        last4:
+          type: string
+      required:
+      - type
+      - last4
+    PaymentInvoice:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - invoice
+          description: "Discriminator: invoice"
+        due_days:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 65535
+      required:
+      - type
+      - due_days

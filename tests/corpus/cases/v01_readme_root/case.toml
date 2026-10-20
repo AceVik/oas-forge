@@ -1,0 +1,2 @@
+description = "0.1 README (kept for compatibility): root documentation examples (basic, variables, security schemes, attached to app logic)"
+known_bug = "The documented openIdConnectUrl contains a pasted Markdown link and is not a valid URL"

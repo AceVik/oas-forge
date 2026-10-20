@@ -1,0 +1,10 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/v01_readme_root/case.toml
+---
+{
+  "description": "0.1 README (kept for compatibility): root documentation examples (basic, variables, security schemes, attached to app logic)",
+  "error": "YAML error in <case>/src/lib.rs:16: while parsing a block mapping, did not find expected key\nContext:\n    14 |     OidcAuth:\n    15 |       type: openIdConnect\n  > 16 |       openIdConnectUrl: [https://auth.example.com/.well-known/openid-configuration](https://auth.example.com/.well-known/openid-configuration)\n    17 | # Apply BearerAuth globally to all routes (optional)\n    18 | security:",
+  "known_bug": "The documented openIdConnectUrl contains a pasted Markdown link and is not a valid URL"
+}

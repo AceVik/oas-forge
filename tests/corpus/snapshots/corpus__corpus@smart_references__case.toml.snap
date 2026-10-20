@@ -9,7 +9,8 @@ input_file: tests/corpus/cases/smart_references/case.toml
   },
   "description": "Smart references: known/unknown names, quoted, inside text, escaped",
   "diagnostics": [
-    "warning[OF3007]: `$Unknown` does not name a known schema (<case>/src/lib.rs:13)"
+    "warning[OF3007]: `$Unknown` does not name a known schema (<case>/src/lib.rs:13)",
+    "warning[OF5001]: `$ref: #/components/schemas/Unknown` points to a component that does not exist"
   ],
   "fragments": {
     "document": {
@@ -46,7 +47,7 @@ input_file: tests/corpus/cases/smart_references/case.toml
                           "$ref": "#/components/schemas/User"
                         },
                         {
-                          "$ref": "$Unknown"
+                          "$ref": "#/components/schemas/Unknown"
                         }
                       ]
                     }
@@ -60,7 +61,7 @@ input_file: tests/corpus/cases/smart_references/case.toml
       }
     },
     "lints": [
-      "/paths/~1refs/get/responses/200/content/application~1json/schema/oneOf/2/$ref: unresolved $ref `$Unknown`"
+      "/paths/~1refs/get/responses/200/content/application~1json/schema/oneOf/2/$ref: dangling $ref `#/components/schemas/Unknown`"
     ]
   },
   "full": {
@@ -103,7 +104,7 @@ input_file: tests/corpus/cases/smart_references/case.toml
                           "$ref": "#/components/schemas/User"
                         },
                         {
-                          "$ref": "$Unknown"
+                          "$ref": "#/components/schemas/Unknown"
                         }
                       ]
                     }
@@ -117,7 +118,7 @@ input_file: tests/corpus/cases/smart_references/case.toml
       }
     },
     "lints": [
-      "/paths/~1refs/get/responses/200/content/application~1json/schema/oneOf/2/$ref: unresolved $ref `$Unknown`"
+      "/paths/~1refs/get/responses/200/content/application~1json/schema/oneOf/2/$ref: dangling $ref `#/components/schemas/Unknown`"
     ],
     "validation": []
   },
@@ -182,7 +183,7 @@ input_file: tests/corpus/cases/smart_references/case.toml
                           "$ref": "#/components/schemas/User"
                         },
                         {
-                          "$ref": "$Unknown"
+                          "$ref": "#/components/schemas/Unknown"
                         }
                       ]
                     }
@@ -196,7 +197,7 @@ input_file: tests/corpus/cases/smart_references/case.toml
       }
     },
     "lints": [
-      "/paths/~1refs/get/responses/200/content/application~1json/schema/oneOf/2/$ref: unresolved $ref `$Unknown`"
+      "/paths/~1refs/get/responses/200/content/application~1json/schema/oneOf/2/$ref: dangling $ref `#/components/schemas/Unknown`"
     ],
     "validation": []
   },
@@ -218,7 +219,7 @@ input_file: tests/corpus/cases/smart_references/case.toml
                         "$ref": "#/components/schemas/User"
                       },
                       {
-                        "$ref": "$Unknown"
+                        "$ref": "#/components/schemas/Unknown"
                       }
                     ]
                   }
@@ -230,9 +231,7 @@ input_file: tests/corpus/cases/smart_references/case.toml
         }
       }
     },
-    "lints": [
-      "/~1refs/get/responses/200/content/application~1json/schema/oneOf/2/$ref: unresolved $ref `$Unknown`"
-    ]
+    "lints": []
   },
   "schemas": {
     "document": {
@@ -293,7 +292,7 @@ input_file: tests/corpus/cases/smart_references/case.toml
                       "$ref": "#/definitions/User"
                     },
                     {
-                      "$ref": "$Unknown"
+                      "$ref": "#/definitions/Unknown"
                     }
                   ]
                 }
@@ -305,7 +304,7 @@ input_file: tests/corpus/cases/smart_references/case.toml
       "swagger": "2.0"
     },
     "lints": [
-      "/paths/~1refs/get/responses/200/schema/x-oneOf/2/$ref: unresolved $ref `$Unknown`"
+      "/paths/~1refs/get/responses/200/schema/x-oneOf/2/$ref: dangling $ref `#/definitions/Unknown`"
     ],
     "validation": []
   }

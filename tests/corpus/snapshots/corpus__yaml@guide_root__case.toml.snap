@@ -1,0 +1,35 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/guide_root/case.toml
+---
+# full output
+openapi: "3.1.1"
+info:
+  title: Accounts
+  version: "<pkg-version>"
+  description: |
+    User accounts and sessions.
+
+    Built from revision `3f2c1ab`.
+servers:
+- url: https://eu.example.com
+paths:
+  /me:
+    get:
+      summary: Who is signed in
+      operationId: me
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: string
+components:
+  securitySchemes:
+    session:
+      type: openIdConnect
+      openIdConnectUrl: $$ISSUER_URL/.well-known/openid-configuration
+security:
+- session: []

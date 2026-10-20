@@ -1,0 +1,229 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/guide_root/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Guide (templates): a root document with variables and a runtime placeholder",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "securitySchemes": {
+          "session": {
+            "openIdConnectUrl": "$$ISSUER_URL/.well-known/openid-configuration",
+            "type": "openIdConnect"
+          }
+        }
+      },
+      "paths": {
+        "/me": {
+          "get": {
+            "operationId": "me",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Who is signed in"
+          }
+        }
+      },
+      "security": [
+        {
+          "session": []
+        }
+      ]
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "securitySchemes": {
+          "session": {
+            "openIdConnectUrl": "$$ISSUER_URL/.well-known/openid-configuration",
+            "type": "openIdConnect"
+          }
+        }
+      },
+      "info": {
+        "description": "User accounts and sessions.\n\nBuilt from revision `3f2c1ab`.\n",
+        "title": "Accounts",
+        "version": "<pkg-version>"
+      },
+      "openapi": "3.1.1",
+      "paths": {
+        "/me": {
+          "get": {
+            "operationId": "me",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Who is signed in"
+          }
+        }
+      },
+      "security": [
+        {
+          "session": []
+        }
+      ],
+      "servers": [
+        {
+          "url": "https://eu.example.com"
+        }
+      ]
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {},
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "securitySchemes": {
+          "session": {
+            "openIdConnectUrl": "$$ISSUER_URL/.well-known/openid-configuration",
+            "type": "openIdConnect"
+          }
+        }
+      },
+      "info": {
+        "description": "User accounts and sessions.\n\nBuilt from revision `3f2c1ab`.\n",
+        "title": "Accounts",
+        "version": "<pkg-version>"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/me": {
+          "get": {
+            "operationId": "me",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Who is signed in"
+          }
+        }
+      },
+      "security": [
+        {
+          "session": []
+        }
+      ],
+      "servers": [
+        {
+          "url": "https://eu.example.com"
+        }
+      ]
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/me": {
+        "get": {
+          "operationId": "me",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "string"
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          },
+          "summary": "Who is signed in"
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  },
+  "swagger_2": {
+    "diagnostics": [
+      "note[OF6001]: Swagger 2.0 has no OpenID Connect and mutual TLS security schemes; the export leaves them out or approximates them"
+    ],
+    "document": {
+      "host": "eu.example.com",
+      "info": {
+        "description": "User accounts and sessions.\n\nBuilt from revision `3f2c1ab`.\n",
+        "title": "Accounts",
+        "version": "<pkg-version>"
+      },
+      "paths": {
+        "/me": {
+          "get": {
+            "operationId": "me",
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "summary": "Who is signed in"
+          }
+        }
+      },
+      "schemes": [
+        "https"
+      ],
+      "security": [
+        {
+          "session": []
+        }
+      ],
+      "securityDefinitions": {},
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

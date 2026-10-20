@@ -177,13 +177,35 @@ mod builder {
         let project = Project::new();
         project
             .file("src/root.rs", ROOT_DOC)
-            .file("src/a.rs", "/// @route GET /x\n/// @frobnicate\nfn x() {}");
-        Generator::new()
+            .file("src/a.rs", "/// @route GET /x\n/// @frobnicate\n/// @description {{env:HOME}} {{env:OAS_FORGE_UNSET_X}} {{env:HOME}}\nfn x() {}");
+        let generator = Generator::new()
             .input(project.path("src"))
             .output(project.path("api.yaml"))
-            .emit_cargo_directives(true)
-            .generate()
-            .unwrap();
+            .emit_cargo_directives(true);
+        generator.generate().unwrap();
+
+        let spec = generator.build().unwrap();
+        assert_eq!(spec.watched_env(), ["HOME", "OAS_FORGE_UNSET_X"]);
+        let mut out = Vec::new();
+        spec.write_cargo_directives(&mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines[0],
+            format!("cargo:rerun-if-changed={}", project.path("src").display())
+        );
+        assert_eq!(lines[1], "cargo:rerun-if-env-changed=HOME");
+        assert_eq!(lines[2], "cargo:rerun-if-env-changed=OAS_FORGE_UNSET_X");
+        // Variables are substituted before the DSL is compiled.
+        assert!(
+            lines[3].starts_with("cargo:warning=warning[OF3009]"),
+            "{text}"
+        );
+        assert!(
+            lines[4].starts_with("cargo:warning=warning[OF2006]"),
+            "{text}"
+        );
+        assert_eq!(lines.len(), 5, "{text}");
     }
 }
 
@@ -596,9 +618,12 @@ mod pipeline_stages {
             fn docs() {}
             "##,
         )]);
+        // `$Missing` is reported where it is written and, as a pointer that
+        // leads nowhere, by the lints.
         assert_eq!(
             codes(&diagnostics),
             [
+                Code::UnresolvedReference,
                 Code::DanglingReference,
                 Code::DanglingReference,
                 Code::DuplicateOperationId
@@ -609,7 +634,9 @@ mod pipeline_stages {
             .map(|d| d.message().to_string())
             .collect();
         assert!(
-            messages[0].contains("Missing") && messages[1].contains("Ignored"),
+            messages[0].contains("$Missing")
+                && messages[1].contains("#/components/schemas/Missing")
+                && messages[2].contains("Ignored"),
             "{messages:?}"
         );
     }
@@ -1435,5 +1462,26 @@ mod empty_blocks {
             document,
             json!({ "openapi": "3.1.0", "info": { "title": "T", "version": "1" } })
         );
+    }
+}
+
+mod dsl_references {
+    use super::*;
+
+    #[test]
+    fn dsl_types_follow_renamed_schemas() {
+        let (document, diagnostics) = pipeline(&[(
+            "api.rs",
+            "/// @openapi rename \"Member\"\nstruct TeamMember { id: u8 }\n/// @route GET /a\n/// @return 200: $TeamMember\n/// @return 201: TeamMember\nfn a() {}",
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let responses = &document["paths"]["/a"]["get"]["responses"];
+        for code in ["200", "201"] {
+            assert_eq!(
+                responses[code]["content"]["application/json"]["schema"],
+                json!({ "$ref": "#/components/schemas/Member" }),
+                "{code}"
+            );
+        }
     }
 }

@@ -17,12 +17,12 @@ paths:
       - name: id
         in: path
         required: true
+        description: Kunden-Nr.
         schema:
           type: integer
           format: int64
           minimum: 0
           maximum: 4294967295
-        description: Kunden-Nr.
       responses:
         "200":
           description: Gefunden ✓

@@ -68,6 +68,13 @@ pub fn expand(
     joined.replace("\\$", &ESCAPED_DOLLAR.to_string())
 }
 
+/// The names of the `{{env:NAME}}` placeholders in `text`, in order.
+pub fn environment_variables(text: &str) -> impl Iterator<Item = &str> {
+    variable_re()
+        .captures_iter(text)
+        .filter_map(|caps| caps.get(1)?.as_str().strip_prefix("env:"))
+}
+
 /// Substitutes `{{NAME}}` from `variables` and `{{env:NAME}}` from the
 /// environment. A placeholder that is the whole, unquoted value of a mapping
 /// entry or list item is inserted as a quoted string so that values like

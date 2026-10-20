@@ -21,7 +21,7 @@ paths:
                 oneOf:
                 - $ref: "#/components/schemas/User"
                 - $ref: "#/components/schemas/User"
-                - $ref: $Unknown
+                - $ref: "#/components/schemas/Unknown"
 components:
   schemas:
     User:

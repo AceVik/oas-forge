@@ -21,22 +21,16 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "The zero-runtime OpenAPI 3.1 compiler for Rust. Extracts, links, and merges code-first documentation."
+description = "Compile-time OpenAPI for Rust: OpenAPI 3.2/3.1/3.0, Swagger 2.0, JSON Schema and AsyncAPI from your code and doc comments, without macros or runtime cost."
 documentation = "https://docs.rs/oas-forge"
 readme = "README.md"
 keywords = ["openapi", "compile-time", "generator", "documentation", "build-script"]
 categories = ["development-tools", "web-programming", "development-tools::build-utils", "api-bindings"]
-exclude = [
-    ".github",
-    ".gitignore",
-    "tests",
-    "static",
-    "examples",
-    "crates",
-    "docs",
-    "AGENTS.md",
-    "deny.toml",
-]
+# An allowlist, so local files never end up in the published crate.
+include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/LICENSE", "/CHANGELOG.md", "/SECURITY.md"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 syn = { version = "3", features = ["full", "visit"] }

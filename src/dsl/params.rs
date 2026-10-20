@@ -141,10 +141,11 @@ pub(super) fn inline_path(
 ) -> Value {
     let schema = TypeExpr::parse(type_text.unwrap_or("String"))
         .map_or_else(|| json!({ "type": "string" }), |t| types.map(&t).schema);
-    let mut param = json!({ "name": name, "in": "path", "required": true, "schema": schema });
+    let mut param = json!({ "name": name, "in": "path", "required": true });
     if let Some(d) = description {
         param["description"] = json!(d);
     }
+    param["schema"] = schema;
     param
 }
 

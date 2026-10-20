@@ -1,0 +1,75 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/guide_schemas/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Directory
+  version: "1.0.0"
+paths:
+  /members:
+    get:
+      summary: List members
+      operationId: members
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Page_Member"
+components:
+  schemas:
+    Member:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+        displayName:
+          type: string
+          minLength: 1
+        role:
+          $ref: "#/components/schemas/Role"
+        nick:
+          type:
+          - string
+          - "null"
+          deprecated: true
+      required:
+      - id
+      - displayName
+      - role
+      description: A team member.
+      examples:
+      - id: 7
+        displayName: Ada
+        role: admin
+    MemberId:
+      type: string
+      format: uuid
+      description: An opaque identifier.
+    Page_Member:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Member"
+        next:
+          type:
+          - string
+          - "null"
+      required:
+      - items
+      description: One page of results.
+    Role:
+      type: string
+      enum:
+      - admin
+      - member
+      description: What a member may do.

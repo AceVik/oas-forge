@@ -1,52 +1,39 @@
-//! @openapi
-//! openapi: 3.1.0
-//! info:
-//!   title: Corpus
-//!   version: 1.0.0
+use serde::Serialize;
+use std::collections::BTreeSet;
+use validator::Validate;
 
-//! @openapi-type PhoneNumber
-//! type: string
-//! format: tel
-//! pattern: "^\\+?[1-9]\\d{1,14}$"
-//! description: E.164 formatted phone number.
-//! example: "+491701234567"
-
-/// E-Mail address.
+/// How an order is paid.
 /// @openapi
-/// example: "johnd@mail.com"
-/// format: email
-pub type Email = String;
-
-/// Description of user roles within the system.
-/// @openapi
-pub enum Role {
-  Admin,
-  Moderator,
-  User,
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Payment {
+    Card { last4: String },
+    Invoice { due_days: u16 },
 }
 
-/// Description of a User entity.
+/// A postal address.
 /// @openapi
-pub struct User {
-  pub id: u32,
+#[derive(Serialize)]
+pub struct Address {
+    pub city: String,
+    pub zip: String,
+}
 
-  /// The username of the user.
-  /// @openapi example: "johndoe"
-  pub username: Option<String>,
-
-  /// The email address of the user.
-  /// @openapi example: "johndoe@mail.com"
-  pub email: Email,
-
-  pub phone: PhoneNumber,
-
-  /// The role assigned to the user.
-  /// @openapi default: "User"
-  pub role: Role,
-
-  pub is_active: bool,
-
-  /// The timestamp when the user was created.
-  /// @openapi example: "2024-01-01T12:00:00"
-  pub created_at: chrono::NaiveDateTime,
+/// A customer.
+/// @openapi
+#[derive(Serialize, Validate)]
+pub struct Customer {
+    #[validate(email)]
+    pub email: String,
+    #[validate(length(min = 1, max = 64))]
+    pub name: String,
+    /// The address fields are part of the customer object.
+    #[serde(flatten)]
+    pub address: Address,
+    /// @example [vip, newsletter]
+    #[serde(default)]
+    pub tags: BTreeSet<String>,
+    pub payment: Option<Payment>,
+    #[deprecated]
+    pub fax: Option<String>,
 }

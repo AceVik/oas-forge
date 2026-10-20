@@ -6,6 +6,7 @@ mod common;
 
 mod cross_crate;
 mod determinism;
+mod docs;
 mod examples;
 mod generator;
 mod pipeline;

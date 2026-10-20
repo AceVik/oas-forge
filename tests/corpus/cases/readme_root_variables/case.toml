@@ -1,1 +1,0 @@
-description = "README: root with an unquoted {{CARGO_PKG_VERSION}} and $$OIDC_URL runtime placeholder"

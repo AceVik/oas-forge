@@ -63,11 +63,9 @@ mod request_body {
     }
 
     #[test]
-    fn non_rust_names_become_component_refs() {
-        assert_eq!(
-            body_schema("$User"),
-            json!({ "$ref": "#/components/schemas/User" })
-        );
+    fn sigil_names_are_smart_references() {
+        // Resolved later, like `$ref: $User` in YAML.
+        assert_eq!(body_schema("$User"), json!({ "$ref": "$User" }));
         assert_eq!(
             body_schema("user-input"),
             json!({ "$ref": "#/components/schemas/user-input" })
@@ -178,11 +176,8 @@ mod return_directive {
     }
 
     #[test]
-    fn non_rust_names_become_component_refs() {
-        assert_eq!(
-            schema_of("$User \"Found\""),
-            json!({ "$ref": "#/components/schemas/User" })
-        );
+    fn sigil_and_non_rust_names_become_references() {
+        assert_eq!(schema_of("$User \"Found\""), json!({ "$ref": "$User" }));
         assert_eq!(
             schema_of("api-error"),
             json!({ "$ref": "#/components/schemas/api-error" })
@@ -339,7 +334,7 @@ mod dsl_v2 {
             .clone();
         assert_eq!(
             responses["200"]["content"],
-            json!({ "text/event-stream": { "itemSchema": { "$ref": "#/components/schemas/Event" } } })
+            json!({ "text/event-stream": { "itemSchema": { "$ref": "$Event" } } })
         );
         assert_eq!(
             responses["206"]["content"]["application/jsonl"]["itemSchema"]["type"],

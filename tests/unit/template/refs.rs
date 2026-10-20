@@ -145,7 +145,8 @@ fn references_to_built_in_types_become_their_schema() {
             "b": { "type": "integer", "format": "int32", "minimum": 0, "maximum": 255 },
             "c": { "type": "string", "format": "uuid" },
             "d": { "type": "array" },
-            "e": { "$ref": "$Unknown" },
+            // Reported, and still a well-formed pointer.
+            "e": { "$ref": "#/components/schemas/Unknown" },
         })
     );
     assert_eq!(codes(&diagnostics), [Code::UnresolvedReference]);

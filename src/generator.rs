@@ -20,7 +20,7 @@ use super::template::refs::{self, KnownSchemas, Targets};
 use super::template::{Blueprint, Fragment, Registry, extend};
 use super::yaml;
 use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 /// Builds OpenAPI documents from Rust sources.
@@ -296,6 +296,14 @@ impl Generator {
             outputs: self.outputs.clone(),
             diagnostics,
             watched: sources.watched().to_vec(),
+            watched_env: sources
+                .files()
+                .iter()
+                .flat_map(|file| lexical::environment_variables(file.text()))
+                .map(str::to_string)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
             rendered: BTreeMap::new(),
         };
         // Configured outputs are rendered now, so their findings (e.g. what
@@ -347,6 +355,7 @@ pub struct Spec {
     outputs: Vec<(OutputKind, PathBuf)>,
     diagnostics: Diagnostics,
     watched: Vec<PathBuf>,
+    watched_env: Vec<String>,
     rendered: BTreeMap<OutputKind, Value>,
 }
 
@@ -369,6 +378,11 @@ impl Spec {
     /// Inputs whose changes affect the result.
     pub fn watched(&self) -> &[PathBuf] {
         &self.watched
+    }
+
+    /// Environment variables the inputs read with `{{env:NAME}}`, sorted.
+    pub fn watched_env(&self) -> &[String] {
+        &self.watched_env
     }
 
     /// The value an output strategy receives.
@@ -434,17 +448,33 @@ impl Spec {
         Ok(outdated)
     }
 
-    /// Prints diagnostics as `cargo:warning=` and the inputs as
-    /// `cargo:rerun-if-changed=` (for build scripts).
+    /// Prints the [cargo directives](Spec::write_cargo_directives) of a
+    /// build script to standard output.
     pub fn print_cargo_directives(&self) {
+        // Cargo reads the directives from standard output; nothing to do if
+        // it is closed.
+        let _ = self.write_cargo_directives(&mut std::io::stdout().lock());
+    }
+
+    /// Writes the inputs as `cargo:rerun-if-changed=`, the environment
+    /// variables they read as `cargo:rerun-if-env-changed=` and the warnings
+    /// and errors as `cargo:warning=`, one per line.
+    ///
+    /// # Errors
+    /// Errors of `out`.
+    pub fn write_cargo_directives(&self, out: &mut impl std::io::Write) -> std::io::Result<()> {
         for path in &self.watched {
-            println!("cargo:rerun-if-changed={}", path.display());
+            writeln!(out, "cargo:rerun-if-changed={}", path.display())?;
+        }
+        for name in &self.watched_env {
+            writeln!(out, "cargo:rerun-if-env-changed={name}")?;
         }
         for diagnostic in &self.diagnostics {
             if diagnostic.severity() != Severity::Note {
-                println!("cargo:warning={diagnostic}");
+                writeln!(out, "cargo:warning={diagnostic}")?;
             }
         }
+        Ok(())
     }
 }
 

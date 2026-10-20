@@ -1,0 +1,609 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/guide_schemas/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Guide (schemas): directives, renaming, skip, examples, deprecated, transparent and generics",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Member": {
+            "description": "A team member.",
+            "examples": [
+              {
+                "displayName": "Ada",
+                "id": 7,
+                "role": "admin"
+              }
+            ],
+            "properties": {
+              "displayName": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "id": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "nick": {
+                "deprecated": true,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "role": {
+                "$ref": "#/components/schemas/Role"
+              }
+            },
+            "required": [
+              "id",
+              "displayName",
+              "role"
+            ],
+            "type": "object"
+          },
+          "MemberId": {
+            "description": "An opaque identifier.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "Page_Member": {
+            "description": "One page of results.",
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/Member"
+                },
+                "type": "array"
+              },
+              "next": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "type": "object"
+          },
+          "Role": {
+            "description": "What a member may do.",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "type": "string"
+          }
+        },
+        "x-oas-forge-format": 1,
+        "x-oas-forge-templates": {
+          "Page": {
+            "body": "type: object\nproperties:\n  items:\n    type: array\n    items:\n      $ref: $T\n  next:\n    type:\n    - string\n    - \"null\"\nrequired:\n- items\ndescription: One page of results.\n",
+            "params": [
+              "T"
+            ]
+          }
+        }
+      },
+      "paths": {
+        "/members": {
+          "get": {
+            "operationId": "members",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Page_Member"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "List members"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Member": {
+            "description": "A team member.",
+            "examples": [
+              {
+                "displayName": "Ada",
+                "id": 7,
+                "role": "admin"
+              }
+            ],
+            "properties": {
+              "displayName": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "id": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "nick": {
+                "deprecated": true,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "role": {
+                "$ref": "#/components/schemas/Role"
+              }
+            },
+            "required": [
+              "id",
+              "displayName",
+              "role"
+            ],
+            "type": "object"
+          },
+          "MemberId": {
+            "description": "An opaque identifier.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "Page_Member": {
+            "description": "One page of results.",
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/Member"
+                },
+                "type": "array"
+              },
+              "next": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "type": "object"
+          },
+          "Role": {
+            "description": "What a member may do.",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Directory",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/members": {
+          "get": {
+            "operationId": "members",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Page_Member"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "List members"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Member": {
+          "description": "A team member.",
+          "examples": [
+            {
+              "displayName": "Ada",
+              "id": 7,
+              "role": "admin"
+            }
+          ],
+          "properties": {
+            "displayName": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "nick": {
+              "deprecated": true,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "role": {
+              "$ref": "#/$defs/Role"
+            }
+          },
+          "required": [
+            "id",
+            "displayName",
+            "role"
+          ],
+          "type": "object"
+        },
+        "MemberId": {
+          "description": "An opaque identifier.",
+          "format": "uuid",
+          "type": "string"
+        },
+        "Page_Member": {
+          "description": "One page of results.",
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/$defs/Member"
+              },
+              "type": "array"
+            },
+            "next": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "items"
+          ],
+          "type": "object"
+        },
+        "Role": {
+          "description": "What a member may do.",
+          "enum": [
+            "admin",
+            "member"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Member": {
+            "description": "A team member.",
+            "example": {
+              "displayName": "Ada",
+              "id": 7,
+              "role": "admin"
+            },
+            "properties": {
+              "displayName": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "id": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "nick": {
+                "deprecated": true,
+                "nullable": true,
+                "type": "string"
+              },
+              "role": {
+                "$ref": "#/components/schemas/Role"
+              }
+            },
+            "required": [
+              "id",
+              "displayName",
+              "role"
+            ],
+            "type": "object"
+          },
+          "MemberId": {
+            "description": "An opaque identifier.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "Page_Member": {
+            "description": "One page of results.",
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/Member"
+                },
+                "type": "array"
+              },
+              "next": {
+                "nullable": true,
+                "type": "string"
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "type": "object"
+          },
+          "Role": {
+            "description": "What a member may do.",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Directory",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/members": {
+          "get": {
+            "operationId": "members",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Page_Member"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "List members"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/members": {
+        "get": {
+          "operationId": "members",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Page_Member"
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          },
+          "summary": "List members"
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Member": {
+        "description": "A team member.",
+        "examples": [
+          {
+            "displayName": "Ada",
+            "id": 7,
+            "role": "admin"
+          }
+        ],
+        "properties": {
+          "displayName": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nick": {
+            "deprecated": true,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "role"
+        ],
+        "type": "object"
+      },
+      "MemberId": {
+        "description": "An opaque identifier.",
+        "format": "uuid",
+        "type": "string"
+      },
+      "Page_Member": {
+        "description": "One page of results.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Member"
+            },
+            "type": "array"
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "Role": {
+        "description": "What a member may do.",
+        "enum": [
+          "admin",
+          "member"
+        ],
+        "type": "string"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "Member": {
+          "description": "A team member.",
+          "example": {
+            "displayName": "Ada",
+            "id": 7,
+            "role": "admin"
+          },
+          "properties": {
+            "displayName": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "nick": {
+              "type": "string",
+              "x-deprecated": true,
+              "x-nullable": true
+            },
+            "role": {
+              "$ref": "#/definitions/Role"
+            }
+          },
+          "required": [
+            "id",
+            "displayName",
+            "role"
+          ],
+          "type": "object"
+        },
+        "MemberId": {
+          "description": "An opaque identifier.",
+          "format": "uuid",
+          "type": "string"
+        },
+        "Page_Member": {
+          "description": "One page of results.",
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/definitions/Member"
+              },
+              "type": "array"
+            },
+            "next": {
+              "type": "string",
+              "x-nullable": true
+            }
+          },
+          "required": [
+            "items"
+          ],
+          "type": "object"
+        },
+        "Role": {
+          "description": "What a member may do.",
+          "enum": [
+            "admin",
+            "member"
+          ],
+          "type": "string"
+        }
+      },
+      "info": {
+        "title": "Directory",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/members": {
+          "get": {
+            "operationId": "members",
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "$ref": "#/definitions/Page_Member"
+                }
+              }
+            },
+            "summary": "List members"
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

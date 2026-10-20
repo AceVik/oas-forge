@@ -60,7 +60,7 @@ fn a_channel_with_one_action() {
     );
     assert_eq!(
         document["components"]["messages"]["SignedUp"],
-        json!({ "name": "SignedUp", "payload": { "$ref": "#/components/schemas/User" }, "description": "New user" })
+        json!({ "name": "SignedUp", "payload": { "$ref": "$User" }, "description": "New user" })
     );
 }
 

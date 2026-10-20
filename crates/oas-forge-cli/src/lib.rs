@@ -4,6 +4,9 @@
 //! argument handling and configuration layering can be tested without
 //! spawning a process.
 
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
+
 use clap::{Parser, ValueEnum};
 use oas_forge::{Config, Diagnostic, Error, Generator, Package, Severity};
 use std::path::{Path, PathBuf};

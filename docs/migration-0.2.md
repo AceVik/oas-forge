@@ -27,6 +27,9 @@ That still works unchanged. Everything else moved:
 - **In-memory results.** `Generator::build()` runs the pipeline without writing
   and returns a `Spec` with the document, the template registry and all
   diagnostics. `Spec::render(kind)` returns any output strategy as a value.
+- **Build scripts.** `emit_cargo_directives(true)` also prints
+  `cargo:rerun-if-env-changed` for every `{{env:NAME}}` in the inputs;
+  `Spec::write_cargo_directives` writes the directives to any writer.
 - **New builder options.** `var(name, value)` for `{{name}}` placeholders,
   `deny_warnings(true)`, `max_file_size(bytes)`, `emit_cargo_directives(true)`
   (prints `cargo:warning=` and `cargo:rerun-if-changed=` in build scripts),
@@ -186,7 +189,13 @@ Every 0.1 route block still compiles; these outputs changed:
   `@extend` override the fragment, like inheritance. 0.1 let the fragment win.
 - **Smart references only replace whole values** (`smart_references`,
   `unicode_docs`). `$ref: $User` still becomes `#/components/schemas/User`, but
-  `$User` inside a sentence stays text. Unknown names are reported (`OF3007`).
+  `$User` inside a sentence stays text. Unknown names are reported (`OF3007`);
+  in a `$ref` they still become `#/components/schemas/Name`, so the
+  reference is well-formed and the lints report it as dangling (`OF5001`).
+  0.1 left `$ref: $Name` in the output.
+- **DSL types are smart references.** `@return 200: $User` is resolved like
+  `$ref: $User` in YAML: a renamed type is found under its Rust name and an
+  unknown name is reported where it is written.
 - **Renamed types are found under their Rust name** (`struct_renamed_reference`):
   a field of type `Profile` points to `UserProfile` when `Profile` is renamed.
 - **Unquoted placeholders stay strings** (`readme_root_variables`,
@@ -271,6 +280,12 @@ meaning of documents is the same, with these exceptions:
   than 256 nesting levels are rejected.
 - Written YAML quotes version-like strings (`openapi: "3.1.0"`) and status codes
   (`"200":`) with double quotes. The values are unchanged.
+
+### Documentation
+The README was rewritten. Every example of the 0.1 README still works and is
+kept as a corpus case (`v01_readme_*`); the new examples are corpus cases as
+well (`readme_*`, `guide_*`), so they are validated against the official
+schemas on every test run.
 
 ### Error messages
 - YAML errors point at the offending line instead of the `@openapi` header,

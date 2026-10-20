@@ -1,7 +1,8 @@
 use crate::common::{codes, here};
 use oas_forge::diagnostics::{Code, Diagnostics};
 use oas_forge::template::lexical::{
-    ESCAPED_DOLLAR, EXTEND_KEY, expand, split_args, substitute, substitute_params,
+    ESCAPED_DOLLAR, EXTEND_KEY, environment_variables, expand, split_args, substitute,
+    substitute_params,
 };
 use oas_forge::template::{Fragment, Registry, Variables};
 
@@ -214,6 +215,13 @@ mod variables {
             run_with("a: {{Q}}", &Registry::new(), &vars).0,
             "a: 'it''s'"
         );
+    }
+
+    #[test]
+    fn environment_placeholders_are_listed() {
+        let names: Vec<&str> =
+            environment_variables("a: {{env:A}} {{ env:B.C }}\nb: {{NAME}} {{env:A}}").collect();
+        assert_eq!(names, ["A", "B.C", "A"]);
     }
 
     #[test]

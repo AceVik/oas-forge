@@ -1,0 +1,231 @@
+# Documents and templates
+
+Besides types and routes, the sources can contain plain OpenAPI YAML: the
+root document, extra paths or components, reusable fragments and named
+schemas. All of it is merged into one document.
+
+## YAML blocks
+
+An `@openapi` line followed by YAML on a function, a module, a unit struct
+or in a file comment (`//!`) is a free document snippet:
+
+```rust,ignore
+/// @openapi
+/// paths:
+///   /health:
+///     get:
+///       summary: Liveness probe
+///       responses:
+///         '204': { description: Alive }
+pub async fn health() {}
+```
+
+- Several blocks in one `//!` comment are separate snippets. A block ends at
+  the next `@openapi…` header, at a separator line such as `//! ---` (note
+  `OF1003`) or at a gap in the comment.
+- `.yaml`, `.yml` and `.json` files in the input directories, and files
+  passed with `include`, are snippets as well. A missing include is reported
+  (`OF0001`).
+- Snippets must be mappings at the top level; anything else is an error with
+  its location.
+- `$Name` values are [smart references](schemas.md#references-in-yaml).
+
+## Root documents
+
+Exactly one snippet is the root: it has `openapi` and `info`. Two roots are
+an error that names both locations.
+
+<!-- corpus: guide_root -->
+```rust
+//! @openapi
+//! openapi: 3.1.1
+//! info:
+//!   title: Accounts
+//!   version: '{{CARGO_PKG_VERSION}}'
+//!   description: |
+//!     User accounts and sessions.
+//!
+//!     Built from revision `{{GIT_REVISION}}`.
+//! servers:
+//!   - url: https://{{STAGE}}.example.com
+//! security:
+//!   - session: []
+//! components:
+//!   securitySchemes:
+//!     session:
+//!       type: openIdConnect
+//!       openIdConnectUrl: $$ISSUER_URL/.well-known/openid-configuration
+
+/// Who is signed in
+/// @route GET /me
+/// @return 200: String
+pub async fn me() {}
+```
+
+Here `{{CARGO_PKG_VERSION}}`, `{{GIT_REVISION}}` and `{{STAGE}}` are filled in
+at build time (see [variables](#variables)), while `$$ISSUER_URL` stays in the
+document for the service to replace when it serves the document.
+
+Without any root, the root is generated from the package metadata: `openapi:
+3.1.1`, `info.title` from the package name, `info.version`,
+`info.description`, `info.license` (SPDX) and `externalDocs` from the
+homepage or repository (note `OF0004`). An `info` block without `openapi`
+is completed with the package values instead. Build scripts use the running
+package automatically, the CLI the `Cargo.toml` of the working directory;
+`Generator::without_package()` turns this off.
+
+The `openapi` version of the root selects the schema dialect of the whole
+document; see [Outputs](outputs.md#versions).
+
+## Merging
+
+Snippets are merged in source order (files sorted by path, items in file
+order):
+
+| Value | Merge |
+| :--- | :--- |
+| mappings | recursively, key by key |
+| lists | appended, duplicates removed; `parameters` are matched by name and location |
+| positional lists (`allOf`, `oneOf`, `anyOf`, `prefixItems`) | a different list replaces the old one, with a warning |
+| scalars | the later value wins; a different value is reported (`OF4001`) with both locations |
+
+Top-level `tags` become unique tag objects. Two items that produce the same
+schema name are merged too (`OF1004`); rename one of them to keep both.
+The full rules are in [ADR 0003](adr/0003-merge-policies.md).
+
+## Fragments
+
+A fragment is reusable YAML with parameters:
+
+<!-- corpus: guide_fragments -->
+```rust
+//! @openapi
+//! openapi: 3.1.0
+//! info: { title: Admin, version: 1.0.0 }
+//! components:
+//!   securitySchemes:
+//!     oidc: { type: openIdConnect, openIdConnectUrl: 'https://id.example.com/.well-known/openid-configuration' }
+//!
+//! @openapi-fragment Paging
+//! - name: page
+//!   in: query
+//!   schema: { type: integer, minimum: 1, default: 1 }
+//! - name: size
+//!   in: query
+//!   schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+//!
+//! @openapi-fragment Secured(role)
+//! security:
+//!   - oidc: [{{role}}]
+//! responses:
+//!   '401': { description: Not signed in }
+//!   '403': { description: 'Requires the {{role}} role' }
+
+/// List audit events
+/// @route GET /audit
+/// @return 200: Vec<String>
+/// @extend Secured(admin)
+/// parameters:
+///   @insert Paging
+pub async fn audit() {}
+
+/// @openapi
+/// paths:
+///   /reports:
+///     get:
+///       summary: List reports
+///       @extend Secured("auditor")
+///       responses:
+///         '200': { description: The reports }
+pub async fn reports() {}
+```
+
+- `@openapi-fragment Name(param, …)` defines a fragment, in a file comment
+  or on any item. The parameters are optional; `{{param}}` in the body is
+  replaced by the argument.
+- `@insert Name(args)` pastes the fragment's text at that line, indented
+  like the line, before the YAML is parsed. Use it for list items. Inserts
+  may insert other fragments, up to a depth of 8. `@insert Name` without
+  arguments and without such a fragment means a reusable parameter:
+  `- $ref: '#/components/parameters/Name'`.
+- `@extend Name(args)` parses the fragment and merges it into the mapping
+  that contains the line. Values written next to it win, like inheritance.
+  It also works in routes.
+- Arguments are separated by commas; quote an argument that contains one
+  (`Secured("a, b")`).
+
+Unknown fragments (`OF3001`), invalid fragment YAML (`OF3002`) and missing
+arguments (`OF3003`) are reported.
+
+## Named schemas
+
+`@openapi-type Name` defines a schema in YAML, for types from other crates
+or types without Rust definition:
+
+```rust,ignore
+//! @openapi-type Money
+//! type: string
+//! pattern: '^-?\d+\.\d{2}$'
+//! examples: ['12.50']
+```
+
+Fields of type `Money` and `$Money` in YAML refer to it.
+
+## Variables
+
+`{{NAME}}` placeholders work in every YAML block, route, channel, type
+override and `@example`:
+
+| Placeholder | Value |
+| :--- | :--- |
+| `{{CARGO_PKG_NAME}}`, `{{CARGO_PKG_VERSION}}`, `{{CARGO_PKG_VERSION_MAJOR}}`, …, `{{CARGO_PKG_DESCRIPTION}}`, `{{CARGO_PKG_LICENSE}}`, `{{CARGO_PKG_REPOSITORY}}`, `{{CARGO_PKG_HOMEPAGE}}` | the package; in a build script from Cargo, in the CLI from `Cargo.toml` |
+| `{{NAME}}` | `Generator::var("NAME", value)`, `[variables]` in the configuration or `--var NAME=VALUE` |
+| `{{env:NAME}}` | the environment variable `NAME` at build time; unset variables are reported (`OF3009`) |
+
+A placeholder that is the whole value of a mapping entry or list item is
+inserted as a quoted string, so `version: {{CARGO_PKG_VERSION}}` stays the
+string `"1.10"` instead of the number `1.1`. Unknown placeholders are left
+as they are.
+
+With `emit_cargo_directives(true)`, every `{{env:NAME}}` in the inputs is
+also printed as `cargo:rerun-if-env-changed=NAME`, so Cargo reruns the
+build script when the variable changes.
+
+## Escapes
+
+`\$` at the start of a value writes a literal `$` (so `\$User` is the text
+`$User`, not a reference). A value such as `$$ISSUER_URL/…` is not a
+reference and needs no escape.
+
+## Cross-crate templates
+
+A library crate can publish its schemas, generic templates and fragments for
+other crates:
+
+```rust,no_run
+// build.rs of the shared crate
+fn main() {
+    let out = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("fragments.yaml");
+    oas_forge::Generator::new()
+        .input("src")
+        .output_fragments(&out)
+        .emit_cargo_directives(true)
+        .generate()
+        .expect("OpenAPI fragments");
+    // With `links = "shared_models"` in Cargo.toml, dependents read this
+    // path from DEP_SHARED_MODELS_FRAGMENTS.
+    println!("cargo::metadata=fragments={}", out.display());
+}
+```
+
+The fragments output has no root. Besides `paths` and `components`, it
+carries the templates in `components.x-oas-forge-templates` and
+`components.x-oas-forge-fragments` with a format marker
+(`x-oas-forge-format: 1`, [ADR 0005](adr/0005-template-wire-format.md)).
+A crate that `include`s the file can use the shared types, instantiate
+`$Paginated<User>` with its own `User`, and `@insert` or `@extend` the shared
+fragments. The `x-oas-forge-*` keys never appear in a full document.
+
+The [`examples/`](../examples) workspace shows the setup: `shared-models`
+declares `links`, so Cargo runs its build script first, and `microservice`
+depends on it and includes the file.

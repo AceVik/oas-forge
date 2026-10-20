@@ -138,6 +138,13 @@ fn resolve_at(
             for child in map.values_mut() {
                 resolve_at(child, targets, location, diagnostics, reported);
             }
+            // An unknown name (reported above) still becomes a pointer, so
+            // the reference stays well-formed and the lints see it.
+            if let Some(Value::String(target)) = map.get_mut("$ref")
+                && let Some(name) = reference_name(target)
+            {
+                *target = format!("#/components/schemas/{name}");
+            }
         }
         _ => {}
     }

@@ -189,8 +189,10 @@ pub(super) fn type_schema(text: &str, types: &TypeMapper) -> Value {
         // `Page<User>` and `$Page<User>`: instantiated from the blueprint.
         return json!({ "$ref": format!("${}", text.trim_start_matches('$')) });
     }
-    if let Some(name) = text.strip_prefix('$') {
-        return json!({ "$ref": format!("#/components/schemas/{name}") });
+    if text.starts_with('$') {
+        // Resolved with the other smart references: renamed types are found
+        // under their Rust name, unknown names are reported.
+        return json!({ "$ref": text });
     }
     match TypeExpr::parse(text) {
         Some(t) => types.map(&t).into_schema(),

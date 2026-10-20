@@ -16,9 +16,9 @@ paths:
       - name: org
         in: path
         required: true
+        description: Organization slug
         schema:
           type: string
-        description: Organization slug
       - name: id
         in: path
         required: true

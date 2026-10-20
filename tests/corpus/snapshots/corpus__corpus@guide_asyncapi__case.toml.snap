@@ -1,0 +1,477 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/guide_asyncapi/case.toml
+---
+{
+  "asyncapi": {
+    "document": {
+      "asyncapi": "3.0.0",
+      "channels": {
+        "orders": {
+          "address": "order/{id}/events",
+          "messages": {
+            "OrderChanged": {
+              "$ref": "#/components/messages/OrderChanged"
+            }
+          },
+          "parameters": {
+            "id": {}
+          }
+        },
+        "payments_confirmed": {
+          "address": "payments/confirmed",
+          "messages": {
+            "PaymentConfirmed": {
+              "$ref": "#/components/messages/PaymentConfirmed"
+            }
+          }
+        }
+      },
+      "components": {
+        "messages": {
+          "OrderChanged": {
+            "description": "A change of the order",
+            "name": "OrderChanged",
+            "payload": {
+              "$ref": "#/components/schemas/OrderEvent"
+            }
+          },
+          "PaymentConfirmed": {
+            "name": "PaymentConfirmed",
+            "payload": {
+              "properties": {
+                "orderId": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "orderId"
+              ],
+              "type": "object"
+            }
+          }
+        },
+        "schemas": {
+          "Order": {
+            "description": "An order.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "total_cents": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "total_cents"
+            ],
+            "type": "object"
+          },
+          "OrderEvent": {
+            "description": "What changed.",
+            "discriminator": "type",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OrderEventPlaced"
+              },
+              {
+                "$ref": "#/components/schemas/OrderEventCancelled"
+              }
+            ],
+            "type": "object"
+          },
+          "OrderEventCancelled": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "description": "Discriminator: cancelled",
+                "enum": [
+                  "cancelled"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "id"
+            ],
+            "type": "object"
+          },
+          "OrderEventPlaced": {
+            "properties": {
+              "order": {
+                "$ref": "#/components/schemas/Order"
+              },
+              "type": {
+                "description": "Discriminator: placed",
+                "enum": [
+                  "placed"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "order"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "defaultContentType": "application/json",
+      "info": {
+        "title": "Order events",
+        "version": "1.0.0"
+      },
+      "operations": {
+        "on_payment": {
+          "action": "receive",
+          "channel": {
+            "$ref": "#/channels/payments_confirmed"
+          },
+          "messages": [
+            {
+              "$ref": "#/channels/payments_confirmed/messages/PaymentConfirmed"
+            }
+          ],
+          "summary": "Payment confirmations from the payment provider."
+        },
+        "publish_order_event": {
+          "action": "send",
+          "channel": {
+            "$ref": "#/channels/orders"
+          },
+          "description": "Every change of an order, keyed by order id.",
+          "messages": [
+            {
+              "$ref": "#/channels/orders/messages/OrderChanged"
+            }
+          ],
+          "summary": "Order lifecycle",
+          "tags": [
+            {
+              "name": "Orders"
+            }
+          ]
+        }
+      },
+      "servers": {
+        "production": {
+          "host": "kafka.example.com:9092",
+          "protocol": "kafka"
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "description": "Guide (AsyncAPI): root block, channels with send and receive, shared schemas",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Order": {
+            "description": "An order.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "total_cents": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "total_cents"
+            ],
+            "type": "object"
+          },
+          "OrderEvent": {
+            "description": "What changed.",
+            "discriminator": {
+              "mapping": {
+                "cancelled": "#/components/schemas/OrderEventCancelled",
+                "placed": "#/components/schemas/OrderEventPlaced"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OrderEventPlaced"
+              },
+              {
+                "$ref": "#/components/schemas/OrderEventCancelled"
+              }
+            ],
+            "type": "object"
+          },
+          "OrderEventCancelled": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "description": "Discriminator: cancelled",
+                "enum": [
+                  "cancelled"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "id"
+            ],
+            "type": "object"
+          },
+          "OrderEventPlaced": {
+            "properties": {
+              "order": {
+                "$ref": "#/components/schemas/Order"
+              },
+              "type": {
+                "description": "Discriminator: placed",
+                "enum": [
+                  "placed"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "order"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "error": "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields."
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Order": {
+          "description": "An order.",
+          "properties": {
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "total_cents": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "total_cents"
+          ],
+          "type": "object"
+        },
+        "OrderEvent": {
+          "description": "What changed.",
+          "discriminator": {
+            "mapping": {
+              "cancelled": "#/$defs/OrderEventCancelled",
+              "placed": "#/$defs/OrderEventPlaced"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/OrderEventPlaced"
+            },
+            {
+              "$ref": "#/$defs/OrderEventCancelled"
+            }
+          ],
+          "type": "object"
+        },
+        "OrderEventCancelled": {
+          "properties": {
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "description": "Discriminator: cancelled",
+              "enum": [
+                "cancelled"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id"
+          ],
+          "type": "object"
+        },
+        "OrderEventPlaced": {
+          "properties": {
+            "order": {
+              "$ref": "#/$defs/Order"
+            },
+            "type": {
+              "description": "Discriminator: placed",
+              "enum": [
+                "placed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "order"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "error": "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields."
+  },
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Order": {
+        "description": "An order.",
+        "properties": {
+          "id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_cents": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "total_cents"
+        ],
+        "type": "object"
+      },
+      "OrderEvent": {
+        "description": "What changed.",
+        "discriminator": {
+          "mapping": {
+            "cancelled": "#/components/schemas/OrderEventCancelled",
+            "placed": "#/components/schemas/OrderEventPlaced"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/OrderEventPlaced"
+          },
+          {
+            "$ref": "#/components/schemas/OrderEventCancelled"
+          }
+        ],
+        "type": "object"
+      },
+      "OrderEventCancelled": {
+        "properties": {
+          "id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "description": "Discriminator: cancelled",
+            "enum": [
+              "cancelled"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
+      "OrderEventPlaced": {
+        "properties": {
+          "order": {
+            "$ref": "#/components/schemas/Order"
+          },
+          "type": {
+            "description": "Discriminator: placed",
+            "enum": [
+              "placed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "order"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "error": "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields."
+  }
+}

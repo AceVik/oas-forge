@@ -143,9 +143,9 @@ paths:
       - name: id
         in: path
         required: true
+        description: Explicit wins
         schema:
           type: string
-        description: Explicit wins
       responses:
         default:
           description: Default response

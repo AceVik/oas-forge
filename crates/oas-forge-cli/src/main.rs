@@ -1,3 +1,7 @@
+//! The `oas-forge` binary.
+
+#![forbid(unsafe_code)]
+
 use clap::Parser;
 use colored::Colorize;
 use oas_forge::Error;

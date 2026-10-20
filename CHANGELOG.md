@@ -2,28 +2,110 @@
 
 All notable changes to `oas-forge` will be documented in this file.
 
-## [Unreleased]
+## [0.2.0] — Unreleased
 
-### Fixed
-- **Unicode Panic in Generics:** Non-ASCII text (e.g. umlauts in doc comments) before a `$Ref` corrupted the output or panicked, because char indices were used as byte offsets. Any such snippet previously failed the whole generation with a YAML error.
-- **`@return` Panics:** An unmatched trailing quote (`@return 200: User"` or `@return 200: User "`) no longer panics. Inline JSON schemas without a description (`@return 200: { "type": "string" }`) are no longer mistaken for a description, and an empty type (`@return 200:`) yields a response without body instead of a broken `$ref`.
-- **`@security` Panic:** An unclosed scope list (`@security OAuth2(`) no longer panics; `OAuth2(read` no longer drops the last character and `OAuth2()` yields an empty scope list instead of `[""]`.
-- **Module Tag Panic:** A `]` before the `[` in a module doc line containing `tags:` no longer panics; empty tag lists (`tags: []`) no longer inject an empty tag.
-- **Blueprint Parameter Substitution:** Placeholders are replaced as whole identifiers in a single pass. `$T` no longer rewrites `$Tag` into `$Userag`, and an argument that matches another parameter name is no longer substituted twice.
-- **Lifetimes in Wrapper Types:** Lifetime arguments are skipped, so `Cow<'a, str>` maps to `string` instead of `$ref: $Cow`.
-- **CLI Default Output:** Without any output option the CLI now writes `openapi.yaml` as documented instead of failing; empty output lists count as unset. The success message lists every written file.
-- **Silent Data Loss in the Merger:** A snippet that was not a YAML mapping replaced everything merged before it, so e.g. an empty `/// @openapi` block wiped all schemas. Empty snippets are now skipped.
-- **Documentation Above `@openapi`:** Plain doc lines before the first `@openapi` header (such as a summary line on a handler) are no longer emitted as a snippet of their own.
-- **Field Names in Tagged Enums:** `#[serde(rename_all)]` on a tagged enum now renames only the variants, as serde does. Variant fields follow the variant's own `rename_all` or the enum's `rename_all_fields`.
+A rewrite of the generator around explicit pipeline stages, with full serde,
+validator and garde support, OpenAPI 3.2, a route DSL that embeds any OpenAPI
+YAML, new output formats and diagnostics with stable codes. Everything that
+worked in 0.1 keeps working unless the
+[migration guide](docs/migration-0.2.md) lists it.
 
 ### Added
-- `-I` as short flag for `--include`, as already shown in the README. The README CLI examples now use the correct binary name `oas-forge`.
-- Support for `#[serde(rename_all_fields = "...")]` on tagged enums, and `doc_parser::serde_attr` to read string-valued serde attributes.
+- **Schemas that match serde:** `rename`/`rename_all` (also
+  `serialize`/`deserialize` forms and `rename_all_fields`), `flatten` for
+  structs and maps, `skip`, `skip_serializing` (`writeOnly`),
+  `skip_deserializing` (`readOnly`), `skip_serializing_if`, `default`,
+  `transparent`, `deny_unknown_fields`, `into`/`from`, known `with` modules,
+  `cfg_attr`, and all four enum representations including untagged variants.
+- **validator and garde:** `length`, `range` (floats, negatives, exclusive
+  bounds), `email`, `url`, `ip`, `contains`, `does_not_contain`, `regex`
+  (resolved from `static`/`LazyLock` constants), `required`, garde length
+  modes and `inner(…)`.
+- **Type table:** integer ranges, `NonZero*`, `i128`/`u128`, `char`, sets
+  with `uniqueItems`, arrays `[T; N]`, tuples, `Duration`, `SystemTime`,
+  `chrono`, `time`, `jiff`, `uuid`, `ulid`, `url`, decimals, `bytes`, IP
+  addresses, `IndexMap`/`IndexSet`; `Generator::map_type` and `[types]` for
+  custom mappings.
+- **Route DSL 2.0:** any Operation Object field as embedded YAML,
+  `@openapi operation|path|document` scopes, `@param <in>`, struct expansion
+  (`@query-params $Paging`), parameter flags (`default`, `enum`, `min`,
+  `max`, `pattern`, `format`, `style`, `explode`, …), `@body` with several
+  media types and `optional`, `@return` with ranges, `default`, media types
+  and `stream<T>`, `@return-header`, `@problem` (RFC 9457), `@summary`,
+  `@description`, `@deprecated`, `@operation-id`, `@external-docs`,
+  `@server`, `@security a + b` and `@security none`, `@extend` in routes.
+- **OpenAPI 3.2:** `QUERY`, `additionalOperations`, `querystring`
+  parameters, streamed responses (`itemSchema`). OpenAPI 3.1 webhooks with
+  `@webhook`.
+- **Module defaults:** `@route-defaults` with `@prefix`, parameters, tags,
+  security and responses for every route in a module.
+- **Signature inference** for axum and actix-web handlers (`Path`, `Query`,
+  `Json`, `Form`, `Multipart`, `Json<T>` return types); `@no-infer`.
+- **Outputs:** OpenAPI 3.0.3 and Swagger 2.0 exports, a JSON Schema 2020-12
+  bundle and AsyncAPI 3 (`@asyncapi` blocks and the `@channel` DSL with
+  `@send`/`@receive`). What a target cannot express is reported.
+- **Root from `Cargo.toml`:** without an `openapi`/`info` root, the root is
+  generated from the package metadata (`Package`).
+- **Generics without `@openapi<T>`:** generic structs and enums are
+  instantiated where they are used (`Page<User>` → `Page_User`).
+- **Directives:** `@openapi skip`, `@example`, `#[deprecated]` on types,
+  fields, variants and handlers; overrides on enum variants.
+- **Variables:** all `CARGO_PKG_*`, `{{env:NAME}}`, `Generator::var`,
+  `[variables]`, `--var`; `cargo:rerun-if-env-changed` for every
+  environment variable used.
+- **Diagnostics** with stable codes (`OF0001`–`OF6002`), severities and
+  source locations; `Diagnostic::to_json`.
+- **Lints:** dangling references, duplicate operationIds, undefined
+  security schemes, path parameter mismatches; strict lints for unused
+  components and missing descriptions.
+- **Library API:** `Generator::build` returns a `Spec` (document,
+  diagnostics, `render`, `write`, `check`, `write_cargo_directives`); every
+  pipeline stage is a public module.
+- **CLI:** `--check`, `--deny-warnings`, `--strict`,
+  `--message-format json`, `--var`, the export flags; the package metadata
+  of `Cargo.toml` is used.
+- Files are written atomically and only when they change.
 
 ### Changed
-- **Non-Mapping Snippets Are an Error:** A top-level snippet that is not a YAML mapping (plain text in an `@openapi` block, a YAML file containing only a list, …) now fails generation with its file, line and context instead of silently replacing the merged document. Projects that hit this previously produced an incomplete spec.
-- **Test Suite:** All tests moved out of `src/` into four suites under `tests/` (`unit` mirroring `src/`, `integration`, `cli`, `property`). Line coverage is ~99 %.
-- Route DSL regexes are compiled once instead of on every `@route`.
+- The CLI is a separate crate: `cargo install oas-forge-cli` (the binary is
+  still `oas-forge`). The library has no CLI dependencies and no `cli`
+  feature.
+- Rust 1.89 or newer is required.
+- Output changes where 0.1 was wrong: unsigned integers have `minimum: 0`
+  and `u32` is `int64`; `Option` fields are nullable; rejected routes fail
+  the run; `@extend` lets local values win; smart references only replace
+  whole values; unknown references are pointers that the lints report;
+  top-level `tags` are tag objects. The [migration guide](docs/migration-0.2.md)
+  lists every change with its corpus case.
+- Findings are diagnostics instead of `log` messages.
+- `Error` is `#[non_exhaustive]` and carries locations instead of foreign
+  error types.
+
+### Fixed
+- Non-ASCII text before a `$Ref` no longer corrupts the output or panics.
+- `@return`, `@security` and module tag lines with unbalanced quotes,
+  brackets or parentheses no longer panic.
+- Blueprint parameters are substituted as whole identifiers (`$T` no longer
+  rewrites `$Tag`).
+- `Cow<'a, str>` and other types with lifetimes map correctly.
+- A snippet that is not a mapping no longer replaces everything merged
+  before it; it is an error with its location.
+- Doc lines before `@openapi` are no longer emitted as a separate snippet.
+- `rename_all` on tagged enums renames only the variants, as serde does.
+- Generated output files are no longer read back as inputs.
+- Unsigned integers, `Option` fields, `$Vec<T>` bodies, `@return` of
+  generics with several arguments (`$Result<A, B>`) and nested generic
+  arguments are documented correctly.
+- A final line break of block scalars survives variable substitution.
+
+### Security
+- `serde_yaml_ng` (and the unmaintained `unsafe-libyaml`, RUSTSEC-2024-0449)
+  replaced by `serde-saphyr`, a pure Rust YAML library; documents are size-
+  and depth-limited.
+- `anyhow` advisory RUSTSEC-2026-0190 resolved; `cargo deny` checks
+  advisories, licenses, bans and sources in CI.
+- Input files are size-limited (16 MiB by default), nesting of fragments and
+  generics is bounded, and `#![forbid(unsafe_code)]` holds for both crates.
 
 ## [0.1.4] — 2026-03-13
 
