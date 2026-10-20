@@ -122,6 +122,17 @@ mod operation {
     use super::*;
 
     #[test]
+    fn other_lists_are_joined_without_duplicates() {
+        let (value, conflicts) = merged(
+            json!({ "tags": ["a"], "parameters": [{ "name": "q", "in": "query" }] }),
+            json!({ "tags": ["a", "b"] }),
+            Policy::Operation,
+        );
+        assert_eq!(value["tags"], json!(["a", "b"]));
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
     fn parameters_are_matched_by_name_and_location() {
         let (value, _) = merged(
             json!({ "parameters": [

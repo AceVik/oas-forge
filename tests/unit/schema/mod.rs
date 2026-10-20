@@ -94,3 +94,24 @@ mod strip_null {
         }
     }
 }
+
+#[test]
+fn nullable_keeps_constants_exact() {
+    // `{type: [string, null], const: "a"}` would still reject `null`.
+    let schema = json!({ "type": "string", "const": "a" });
+    assert_eq!(
+        nullable(schema.clone()),
+        json!({ "anyOf": [schema, { "type": "null" }] })
+    );
+}
+
+#[test]
+fn nullable_recognizes_null_alternatives() {
+    let with_null = json!({ "anyOf": [{ "type": "string" }, { "type": "null" }] });
+    assert_eq!(nullable(with_null.clone()), with_null);
+    let without = json!({ "anyOf": [{ "type": "string" }, { "type": "integer" }] });
+    assert_eq!(
+        nullable(without.clone()),
+        json!({ "anyOf": [without, { "type": "null" }] })
+    );
+}

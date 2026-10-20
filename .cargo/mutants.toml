@@ -1,0 +1,19 @@
+# cargo-mutants: `cargo mutants --package oas-forge --test-tool nextest`
+# https://mutants.rs
+#
+# Mutants that cannot change observable behaviour (or need the process's
+# working directory), each with the reason.
+exclude_re = [
+    # Delegates to `load_from(".")`; testing it would change the working
+    # directory of the whole test process. `load_from` is tested.
+    "replace Config::load -> ",
+    # YAML positions are 1-based; a line 0 never occurs.
+    "src/yaml.rs:.*replace > with >= in parse",
+    # Fast path and whitespace tidying of `to_string`: every candidate result
+    # is checked by parsing it back, so these only change which equivalent
+    # text is written for lines that hold nothing but spaces.
+    "src/yaml.rs:.*in to_string",
+    # A nullable reference merged into its parent is turned into `allOf` by
+    # the reference-sibling rule right after; the result is the same.
+    "src/schema/dialect.rs:.*replace match guard inner.contains_key\\(\"\\$ref\"\\) with false in lower_30",
+]

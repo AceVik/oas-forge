@@ -265,3 +265,61 @@ mod single_schemas {
         assert_eq!(codes(&diagnostics), [Code::LossyLowering]);
     }
 }
+
+/// Values that only look like schemas are data and stay as written.
+mod data_is_not_lowered {
+    use super::*;
+
+    #[test]
+    fn examples_of_media_types_are_kept() {
+        let example = json!({ "schema": { "type": ["string", "null"] } });
+        let mut document = json!({
+            "openapi": "3.0.3",
+            "paths": { "/a": { "get": { "responses": { "200": {
+                "description": "OK",
+                "content": { "application/json": {
+                    "schema": { "type": ["string", "null"] },
+                    "example": example,
+                }}
+            }}}}}
+        });
+        lower(&mut document, Dialect::OpenApi30, &mut Diagnostics::new());
+        let media =
+            &document["paths"]["/a"]["get"]["responses"]["200"]["content"]["application/json"];
+        assert_eq!(
+            media["schema"],
+            json!({ "type": "string", "nullable": true })
+        );
+        assert_eq!(media["example"], example);
+    }
+
+    #[test]
+    fn enum_values_are_not_subschemas() {
+        let value = json!({ "type": ["string", "null"] });
+        assert_eq!(
+            lowered(json!({ "enum": [value.clone()] })).0,
+            json!({ "enum": [value] })
+        );
+    }
+}
+
+#[test]
+fn querystring_parameters_of_path_items_need_32() {
+    let mut document = json!({
+        "openapi": "3.1.1",
+        "paths": { "/search": {
+            "parameters": [
+                { "name": "filter", "in": "querystring", "content": { "application/json": {} } },
+                { "name": "page", "in": "query" },
+            ],
+            "get": { "responses": {} },
+        }}
+    });
+    let mut diagnostics = Diagnostics::new();
+    lower(&mut document, Dialect::OpenApi31, &mut diagnostics);
+    assert_eq!(
+        document["paths"]["/search"]["parameters"],
+        json!([{ "name": "page", "in": "query" }])
+    );
+    assert!(!diagnostics.is_empty());
+}

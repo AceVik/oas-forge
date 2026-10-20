@@ -131,3 +131,22 @@ fn import_ignores_documents_without_components() {
     registry.import(&mut document, &here(), &mut Diagnostics::new());
     assert_eq!(document, json!({ "paths": {} }));
 }
+
+#[test]
+fn either_kind_of_template_is_worth_exporting() {
+    let mut fragments = Registry::new();
+    fragments.add_fragment("F", fragment(&[], "x: 1"));
+    assert!(fragments.has_templates());
+
+    let mut blueprints = Registry::new();
+    blueprints.add_blueprint(
+        "Page",
+        Blueprint {
+            params: vec!["T".into()],
+            schema: json!({ "items": "$T" }),
+        },
+    );
+    assert!(blueprints.has_templates());
+    let names: Vec<&String> = blueprints.blueprints().map(|(name, _)| name).collect();
+    assert_eq!(names, ["Page"]);
+}

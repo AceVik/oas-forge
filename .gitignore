@@ -5,3 +5,5 @@ target/
 .DS_Store
 # Local archives and backups
 *.zip
+# cargo-mutants
+mutants.out*/
