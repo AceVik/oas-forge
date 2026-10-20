@@ -95,6 +95,7 @@ jobs:
       - if: matrix.musl
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: Build
+        shell: bash
         env:
           TARGET: ${{ matrix.target }}
         run: cargo build --release --locked -p oas-forge-cli --target "$TARGET"
@@ -138,10 +139,10 @@ jobs:
         with:
           ref: ${{ env.TAG }}
           persist-credentials: false
+      # The archives of every target and THIRD-PARTY-LICENSES.md.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
-          pattern: "*-*-*"
           merge-multiple: true
       - name: Checksums
         working-directory: dist
@@ -157,14 +158,19 @@ jobs:
             echo "::error::CHANGELOG.md has no section for ${TAG#v}"
             exit 1
           fi
-      - name: Create the release
+      # Safe to re-run: an existing release gets its assets replaced.
+      - name: Create or update the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          prerelease=()
-          if [[ "$TAG" == *-* ]]; then prerelease=(--prerelease); fi
-          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
-            --verify-tag --title "$TAG" --notes-file notes.md "${prerelease[@]}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            prerelease=()
+            if [[ "$TAG" == *-* ]]; then prerelease=(--prerelease); fi
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --title "$TAG" --notes-file notes.md "${prerelease[@]}"
+          fi
 
   publish:
     name: Publish to crates.io
