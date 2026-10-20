@@ -98,11 +98,15 @@ mod strip_null {
 #[test]
 fn nullable_keeps_constants_exact() {
     // `{type: [string, null], const: "a"}` would still reject `null`.
-    let schema = json!({ "type": "string", "const": "a" });
-    assert_eq!(
-        nullable(schema.clone()),
-        json!({ "anyOf": [schema, { "type": "null" }] })
-    );
+    for schema in [
+        json!({ "type": "string", "const": "a" }),
+        json!({ "type": ["string", "integer"], "const": "a" }),
+    ] {
+        assert_eq!(
+            nullable(schema.clone()),
+            json!({ "anyOf": [schema, { "type": "null" }] })
+        );
+    }
 }
 
 #[test]

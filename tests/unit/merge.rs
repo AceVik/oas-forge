@@ -133,6 +133,18 @@ mod operation {
     }
 
     #[test]
+    fn only_parameters_are_matched_by_name_and_location() {
+        let entry = |v: u8| json!({ "name": "a", "in": "q", "v": v });
+        let (value, conflicts) = merged(
+            json!({ "x-list": [entry(1)] }),
+            json!({ "x-list": [entry(2)] }),
+            Policy::Operation,
+        );
+        assert_eq!(value["x-list"], json!([entry(1), entry(2)]));
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
     fn parameters_are_matched_by_name_and_location() {
         let (value, _) = merged(
             json!({ "parameters": [
