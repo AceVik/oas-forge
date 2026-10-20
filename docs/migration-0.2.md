@@ -297,6 +297,12 @@ what 0.1 wrote:
   `@insert`/`@extend` like `@insert` fragments; cycles are reported once
   (`OF3010`) and too many arguments too (`OF3011`). `\$` stays `\$` inside
   `pattern` values, where it is a regular expression escape.
+- **Type names**. A documented type named like a built-in type
+  (`Duration`, `Value`, `Uuid`, `Url`, …) is referenced wherever the bare
+  name is used, in fields as in the route DSL; paths such as
+  `std::time::Duration` and mappings from `map_type`/`[types]` keep the
+  built-in schema. An `@openapi-type Uuid` schema now replaces the built-in
+  mapping for bare uses.
 - **Inputs**. A file reached through two inputs (an `include` inside an
   input directory, overlapping inputs) is read once instead of causing a
   false "multiple roots" error; symbolic links in input directories are

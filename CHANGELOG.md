@@ -109,12 +109,15 @@ worked in 0.1 keeps working unless the
     flattened maps next to flattened structs, closed struct variants,
     generic tagged enums and generic type aliases;
   - nested generic parameters; offset-free date and time formats;
+    documented types win over built-in types of the same name;
+    `@openapi<T>` on type aliases;
   - Javadoc comments, Markdown line breaks, fragments in item doc comments,
     module tag lists, free text after `@openapi`;
   - route DSL: `default` responses and single query parameters no longer
     stop inference, nested module security and tags replace the outer ones
     (security was widened to "outer or inner"), defaults support variables,
-    fragments, YAML and inline prefix parameters, paths are joined with one
+    fragments, YAML and inline prefix parameters and are expanded once per
+    module (one finding, at its line), paths are joined with one
     `/`, invalid inline types are reported, findings after `@insert` point at
     their line;
   - fragments: `@extend` runs the full text stage, cycles and extra arguments
