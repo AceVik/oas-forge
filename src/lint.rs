@@ -158,9 +158,9 @@ fn path_parameter_names(
         .iter()
         .filter_map(|parameter| {
             let parameter = match parameter.get("$ref").and_then(Value::as_str) {
-                Some(target) => {
-                    components?.get(target.strip_prefix("#/components/parameters/")?)?
-                }
+                Some(target) => components?.get(&decode_segment(
+                    target.strip_prefix("#/components/parameters/")?,
+                ))?,
                 None => parameter,
             };
             (parameter.get("in")? == "path")
@@ -337,6 +337,11 @@ fn collect_entry(key: &str, child: &Value, out: &mut References) {
         }
         _ => collect_refs(child, out),
     }
+}
+
+/// Decodes one JSON pointer segment (`~1` is `/`, `~0` is `~`, RFC 6901).
+fn decode_segment(segment: &str) -> String {
+    segment.replace("~1", "/").replace("~0", "~")
 }
 
 /// Decodes the percent-encoded braces (`%7B`, `%7D`) of a reference pointer.

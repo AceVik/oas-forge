@@ -30,7 +30,8 @@ pub(crate) fn add_shared_schemas(asyncapi: &mut Map<String, Value>, openapi: &Va
         }
         let exists = asyncapi
             .get("components")
-            .and_then(|components| components.pointer(&format!("/schemas/{name}")))
+            .and_then(|components| components.get("schemas"))
+            .and_then(|schemas| schemas.get(&name))
             .is_some();
         let Some(schema) = schemas.get(&name) else {
             continue;
@@ -59,8 +60,9 @@ fn collect_refs(value: &Value, out: &mut Vec<String>) {
             for (key, child) in map {
                 match (key.as_str(), child) {
                     ("$ref", Value::String(target)) => {
+                        // A pointer segment: `~1` is `/`, `~0` is `~` (RFC 6901).
                         if let Some(name) = target.strip_prefix(SCHEMA_PREFIX) {
-                            out.push(name.to_string());
+                            out.push(name.replace("~1", "/").replace("~0", "~"));
                         }
                     }
                     (_, child) => collect_refs(child, out),

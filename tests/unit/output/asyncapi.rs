@@ -146,3 +146,19 @@ fn schemas_follow_the_asyncapi_dialect() {
         spec::validate(&document)
     );
 }
+
+/// Reference pointers escape `/` as `~1` (RFC 6901).
+#[test]
+fn shared_schemas_are_found_by_escaped_references() {
+    let (spec, _project) = spec_of(&[(
+        "lib.rs",
+        &format!(
+            "{ROOT}//! channels:\n//!   a:\n//!     messages:\n//!       m:\n//!         payload: {{ $ref: '#/components/schemas/v1~1User' }}\n\n/// @openapi\n/// components:\n///   schemas:\n///     v1/User: {{ type: object }}\nfn docs() {{}}"
+        ),
+    )]);
+    let document = spec.render(OutputKind::AsyncApi).unwrap();
+    assert_eq!(
+        document["components"]["schemas"]["v1/User"],
+        json!({ "type": "object" })
+    );
+}

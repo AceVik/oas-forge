@@ -76,6 +76,31 @@ mod security_schemes {
 mod path_parameters {
     use super::*;
 
+    /// Reference pointers escape `/` as `~1` (RFC 6901).
+    #[test]
+    fn referenced_parameters_with_escaped_names_are_found() {
+        let (_, diagnostics) = pipeline(&[(
+            "lib.rs",
+            r#"
+            /// @openapi
+            /// components:
+            ///   parameters:
+            ///     'user/id': { name: id, in: path, required: true, schema: { type: string } }
+            /// paths:
+            ///   /users/{id}:
+            ///     get:
+            ///       parameters:
+            ///         - $ref: '#/components/parameters/user~1id'
+            ///       responses: { '200': { description: OK } }
+            fn docs() {}
+            "#,
+        )]);
+        assert!(
+            !codes(&diagnostics).contains(&Code::PathParameterMismatch),
+            "{diagnostics:?}"
+        );
+    }
+
     #[test]
     fn placeholders_and_parameters_must_match() {
         let (_, diagnostics) = pipeline(&[(
