@@ -64,6 +64,9 @@ worked in 0.1 keeps working unless the
 - **CLI:** `--check`, `--deny-warnings`, `--strict`,
   `--message-format json`, `--var`, the export flags; the package metadata
   of `Cargo.toml` is used.
+- **API documentation:** every public item has a running example (100 %
+  of the items rustdoc counts), fallible functions document their errors,
+  and every internal item is documented; lints keep it that way.
 - Files are written atomically and only when they change; line endings are
   ignored when comparing, so CRLF checkouts are not outdated.
 - **Release artifacts:** prebuilt CLI binaries for Linux, macOS and Windows
@@ -131,6 +134,12 @@ worked in 0.1 keeps working unless the
   - lints: properties named `mapping` and example data are no longer taken
     for references; lints and exports run in linear time (23–31 % fewer
     instructions on large projects).
+- Found by mutation testing (`cargo mutants`, 91–93 % of mutants caught
+  before, the survivors now covered or documented as equivalent): flags
+  after a quoted parameter description, Swagger hosts of URLs with an empty
+  authority, custom type mappings to references used as `$Name`, `$ref`
+  values that are no schema name (now OF3007), `~1`/`~0` in reference
+  pointers of the path parameter lint and the AsyncAPI schema sharing.
 
 ### Security
 - `serde_yaml_ng` (and the unmaintained `unsafe-libyaml`, RUSTSEC-2024-0449)
