@@ -912,11 +912,12 @@ fn materialize(
         Pending::Channel(channel) => {
             let text = channel.lines.join("\n");
             let expanded =
-                lexical::expand(&text, registry, variables, &channel.location, diagnostics);
-            let lines: Vec<String> = expanded.lines().map(str::to_string).collect();
+                lexical::expand_lines(&text, registry, variables, &channel.location, diagnostics);
+            let line_numbers = source_lines(&expanded, &channel.line_numbers, &channel.location);
+            let lines: Vec<String> = expanded.into_iter().map(|(line, _)| line).collect();
             let compiled = dsl::compile_channel(
                 dsl::ChannelSource::new(&lines, &channel.location)
-                    .line_numbers(&channel.line_numbers)
+                    .line_numbers(&line_numbers)
                     .operation_id(channel.operation_id.as_deref())
                     .types(types),
                 diagnostics,
@@ -941,8 +942,9 @@ fn materialize(
         Pending::Route(route) => {
             let text = route.lines.join("\n");
             let expanded =
-                lexical::expand(&text, registry, variables, &route.location, diagnostics);
-            let lines: Vec<String> = expanded.lines().map(str::to_string).collect();
+                lexical::expand_lines(&text, registry, variables, &route.location, diagnostics);
+            let line_numbers = source_lines(&expanded, &route.line_numbers, &route.location);
+            let lines: Vec<String> = expanded.into_iter().map(|(line, _)| line).collect();
             let defaults = lexical::expand(
                 &route.defaults.join("\n"),
                 registry,
@@ -953,7 +955,7 @@ fn materialize(
             let defaults: Vec<String> = defaults.lines().map(str::to_string).collect();
             let compiled = dsl::compile(
                 RouteSource::new(&lines, &route.location)
-                    .line_numbers(&route.line_numbers)
+                    .line_numbers(&line_numbers)
                     .operation_id(route.operation_id.as_deref())
                     .default_tags(&route.tags)
                     .types(types)
@@ -975,6 +977,15 @@ fn materialize(
             Ok(Some(Snippet::openapi(value, route.location)))
         }
     }
+}
+
+/// The source line of each expanded line (`lexical::expand_lines` offsets
+/// into the block's `line_numbers`).
+fn source_lines(expanded: &[(String, usize)], numbers: &[usize], at: &Location) -> Vec<usize> {
+    expanded
+        .iter()
+        .map(|(_, offset)| numbers.get(*offset).copied().unwrap_or_else(|| at.line()))
+        .collect()
 }
 
 /// Expands and parses a document text; it must be a mapping (or empty).

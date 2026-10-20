@@ -872,6 +872,20 @@ mod types_and_dialects {
 mod operations {
     use super::*;
 
+    /// Lines pasted by `@insert` shift the block; findings after them still
+    /// name their own source line.
+    #[test]
+    fn findings_after_an_insert_point_at_their_line() {
+        let source = "//! @openapi-fragment Paging\n//! - name: page\n//!   in: query\n//! - name: size\n//!   in: query\n\n/// List\n/// @route GET /items\n/// parameters:\n///   @insert Paging\n/// @bogus directive\nfn list() {}\n";
+        let (_, diagnostics) = pipeline(&[("api.rs", source)]);
+        let unknown: Vec<usize> = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::UnknownDirective)
+            .filter_map(|d| d.location().map(|l| l.line()))
+            .collect();
+        assert_eq!(unknown, vec![11], "{diagnostics:?}");
+    }
+
     const MODELS: &str = "/// @openapi\nstruct Paging {\n  /// Page.\n  page: Option<u32>,\n  size: u8,\n}\n/// @openapi\nstruct Ids { org: String, id: u64 }\n/// @openapi\nstruct UserId(u64);";
 
     #[test]
