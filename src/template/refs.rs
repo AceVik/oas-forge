@@ -6,7 +6,7 @@
 use super::lexical::ESCAPED_DOLLAR;
 use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
-use crate::schema::{TypeExpr, TypeMapper};
+use crate::schema::{TypeExpr, TypeMapper, shadow};
 use serde_json::Value;
 use std::collections::{BTreeSet, HashSet};
 
@@ -124,6 +124,14 @@ fn resolve_at(
             }
         }
         Value::Object(map) => {
+            // A bare built-in name (`Duration`) that is also a documented
+            // schema refers to that schema.
+            shadow::choose(map, |name| {
+                known.contains(name)
+                    || registry
+                        .alias(name)
+                        .is_some_and(|alias| known.contains(alias))
+            });
             let schema = map
                 .get("$ref")
                 .and_then(Value::as_str)

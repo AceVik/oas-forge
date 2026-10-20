@@ -14,8 +14,8 @@ use crate::attrs::validate::Constraints;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::docs::{doc_lines, line_of};
 use crate::merge::{Policy, merge};
-use crate::schema::nullable;
 use crate::schema::types::{MappedType, TypeExpr, TypeMapper};
+use crate::schema::{nullable, shadow};
 use crate::template::{Variables, lexical};
 use crate::yaml;
 use serde_json::{Map, Value, json};
@@ -168,16 +168,23 @@ impl<'a> Reflector<'a> {
     }
 
     /// Adds description, `deprecated`, `@example`s and the `@openapi`
-    /// override YAML.
+    /// override YAML (also to the alternatives of built-in names).
     fn finish(&mut self, schema: &mut Value, naming: &Naming, what: &str) {
-        if !naming.docs.description.is_empty()
-            && let Value::Object(map) = schema
-        {
-            map.insert("description".into(), json!(naming.docs.description));
-        }
-        if !naming.docs.examples.is_empty()
-            && let Value::Object(map) = schema
-        {
+        let annotations = self.annotations(naming, what);
+        shadow::for_each(schema, |schema| annotations.apply(schema));
+    }
+
+    /// What the docs of an item, field or variant add to its schema; problems
+    /// are reported here, once.
+    fn annotations(&mut self, naming: &Naming, what: &str) -> Annotations {
+        let mut annotations = Annotations {
+            description: (!naming.docs.description.is_empty())
+                .then(|| naming.docs.description.clone()),
+            examples: None,
+            deprecated: naming.deprecated,
+            overrides: None,
+        };
+        if !naming.docs.examples.is_empty() {
             let examples: Vec<Value> = naming
                 .docs
                 .examples
@@ -208,21 +215,16 @@ impl<'a> Reflector<'a> {
                     }
                 })
                 .collect();
-            map.insert("examples".into(), Value::Array(examples));
-        }
-        if naming.deprecated
-            && let Value::Object(map) = schema
-        {
-            map.insert("deprecated".into(), json!(true));
+            annotations.examples = Some(examples);
         }
         let Some(text) = naming.docs.override_text() else {
-            return;
+            return annotations;
         };
         let start = self.location(naming.docs.override_line().unwrap_or(1));
         let text = lexical::substitute(&text, self.variables, &start, self.diagnostics);
         match yaml::parse(&text) {
             Ok(Value::Null) => {}
-            Ok(Value::Object(value)) => apply_override(schema, value),
+            Ok(Value::Object(value)) => annotations.overrides = Some(value),
             Ok(_) => {
                 self.diagnostics.push(
                     Diagnostic::new(
@@ -249,13 +251,25 @@ impl<'a> Reflector<'a> {
                 );
             }
         }
+        annotations
     }
 
     /// The schema of a container serialized as another type (`into`/`from`).
     fn conversion(&self, serde: &SerdeAttrs) -> Option<Value> {
         let target = serde.into.as_ref().or(serde.from.as_ref())?;
         let ty = TypeExpr::parse(target)?;
-        Some(self.types.map(&ty).into_schema())
+        Some(self.typed(&ty, MappedType::into_schema))
+    }
+
+    /// The schema `build` makes from the mapping of `ty`. When `ty` names
+    /// built-in types bare (`Duration`), it carries the alternatives for
+    /// documented schemas of these names (see [`shadow`]).
+    fn typed(&self, ty: &TypeExpr, build: impl Fn(MappedType) -> Value) -> Value {
+        let eager = build(self.types.map(ty));
+        let names = self.types.shadowable_names(ty);
+        shadow::with_alternatives(eager, &names, |subset| {
+            build(self.types.shadowing(subset).map(ty))
+        })
     }
 
     /// The validation keywords of a field, reporting values that are not literals.
@@ -273,15 +287,6 @@ impl<'a> Reflector<'a> {
         constraints
     }
 
-    /// The type of a field, honouring known `with` modules.
-    fn field_type(&self, ty: &syn::Type, serde: &SerdeAttrs) -> MappedType {
-        let mut mapped = self.types.map(&TypeExpr::from_syn(ty));
-        if let Some(schema) = serde.with.as_deref().and_then(with_module) {
-            mapped.schema = schema;
-        }
-        mapped
-    }
-
     /// The schema of an unnamed field (newtype and tuple members): type,
     /// validation and nullability. `None` when the field is skipped.
     fn unnamed_field(&mut self, field: &syn::Field) -> Option<Value> {
@@ -289,14 +294,16 @@ impl<'a> Reflector<'a> {
         if serde.is_skipped() {
             return None;
         }
-        let mapped = self.field_type(&field.ty, &serde);
         let constraints = self.constraints(&field.attrs, line_of(field.span()));
-        let mut schema = mapped.schema;
-        constraints.apply(&mut schema);
-        if mapped.nullable && !constraints.requires_value() {
-            schema = nullable(schema);
-        }
-        Some(schema)
+        let with = serde.with.as_deref().and_then(with_module);
+        Some(self.typed(&TypeExpr::from_syn(&field.ty), |mapped| {
+            let mut schema = with.clone().unwrap_or(mapped.schema);
+            constraints.apply(&mut schema);
+            if mapped.nullable && !constraints.requires_value() {
+                schema = nullable(schema);
+            }
+            schema
+        }))
     }
 
     /// Reflects one named field.
@@ -318,35 +325,50 @@ impl<'a> Reflector<'a> {
         }
         let name = Self::member_name(&naming, rule, RenameRule::apply_to_field);
 
-        let mapped = self.field_type(&field.ty, serde);
+        let ty = TypeExpr::from_syn(&field.ty);
+        // Known `with` modules replace the type's schema.
+        let with = serde.with.as_deref().and_then(with_module);
+        let mapped = self.types.map(&ty);
         if serde.flatten {
-            let schema = mapped.schema;
-            let map_values = schema.get("additionalProperties").cloned().filter(|_| {
-                schema.get("type") == Some(&json!("object")) && schema.get("properties").is_none()
-            });
-            return match map_values {
-                Some(values) => Field::FlattenMap(values),
+            let is_map = with.is_none()
+                && mapped.schema.get("type") == Some(&json!("object"))
+                && mapped.schema.get("properties").is_none()
+                && mapped.schema.get("additionalProperties").is_some();
+            let mut schema = self.typed(&ty, |m| with.clone().unwrap_or(m.schema));
+            return if is_map {
+                shadow::for_each(&mut schema, |schema| {
+                    *schema = schema
+                        .get("additionalProperties")
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                });
+                Field::FlattenMap(schema)
+            } else if mapped.nullable {
                 // A flattened `Option<T>` may be absent as a whole.
-                None if mapped.nullable => Field::Flatten(json!({ "anyOf": [schema, {}] })),
-                None => Field::Flatten(schema),
+                Field::Flatten(json!({ "anyOf": [schema, {}] }))
+            } else {
+                Field::Flatten(schema)
             };
         }
 
         let constraints = self.constraints(&field.attrs, line_of(field.span()));
-        let mut schema = mapped.schema;
-        constraints.apply(&mut schema);
         let forced = constraints.requires_value();
-        if mapped.nullable && !forced {
-            schema = nullable(schema);
-        }
-        if let Value::Object(map) = &mut schema {
-            if serde.skip_serializing {
-                map.insert("writeOnly".into(), json!(true));
+        let mut schema = self.typed(&ty, |mapped| {
+            let mut schema = with.clone().unwrap_or(mapped.schema);
+            constraints.apply(&mut schema);
+            if mapped.nullable && !forced {
+                schema = nullable(schema);
             }
-            if serde.skip_deserializing {
-                map.insert("readOnly".into(), json!(true));
+            if let Value::Object(map) = &mut schema {
+                if serde.skip_serializing {
+                    map.insert("writeOnly".into(), json!(true));
+                }
+                if serde.skip_deserializing {
+                    map.insert("readOnly".into(), json!(true));
+                }
             }
-        }
+            schema
+        });
         self.finish(&mut schema, &naming, &format!("field `{ident}`"));
         // A custom deserializer makes even an `Option` field mandatory: serde
         // only fills in `None` for a missing field it deserializes itself.
@@ -527,7 +549,7 @@ impl<'a> Reflector<'a> {
         if naming.docs.skip {
             return None;
         }
-        let mut schema = self.types.map(&TypeExpr::from_syn(&item.ty)).into_schema();
+        let mut schema = self.typed(&TypeExpr::from_syn(&item.ty), MappedType::into_schema);
         self.finish(&mut schema, &naming, &format!("type alias `{rust_name}`"));
         // `type Paged<T> = Page<T>` is a template like a generic struct.
         Some(wrap_item(
@@ -1002,6 +1024,34 @@ fn mentions_param(schema: &Value, param: &str) -> bool {
         }
     }
     walk(schema, &hit)
+}
+
+/// What the docs of an item, field or variant add to its schema.
+struct Annotations {
+    description: Option<String>,
+    examples: Option<Vec<Value>>,
+    deprecated: bool,
+    /// The `@openapi` override YAML.
+    overrides: Option<Map<String, Value>>,
+}
+
+impl Annotations {
+    fn apply(&self, schema: &mut Value) {
+        if let Value::Object(map) = schema {
+            if let Some(description) = &self.description {
+                map.insert("description".into(), json!(description));
+            }
+            if let Some(examples) = &self.examples {
+                map.insert("examples".into(), Value::Array(examples.clone()));
+            }
+            if self.deprecated {
+                map.insert("deprecated".into(), json!(true));
+            }
+        }
+        if let Some(overrides) = &self.overrides {
+            apply_override(schema, overrides.clone());
+        }
+    }
 }
 
 /// Merges an `@openapi` override into a reflected schema. An override that

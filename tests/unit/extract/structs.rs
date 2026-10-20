@@ -93,7 +93,7 @@ fn well_known_types_are_resolved_not_referenced() {
         }
         "#,
     );
-    let props = &schema(&items, "TimeLog")["properties"];
+    let props = &crate::extract::eager(&schema(&items, "TimeLog")["properties"]);
     assert_eq!(props["id"], json!({ "type": "string", "format": "uuid" }));
     for field in ["created_at", "raw"] {
         assert_eq!(
@@ -682,7 +682,7 @@ mod serde_fields {
             "/// @openapi\nstruct S {\n  id: u64,\n  #[serde(flatten)]\n  rest: HashMap<String, Value>,\n}",
         );
         let s = schema(&items, "S");
-        assert_eq!(s["additionalProperties"], json!({}));
+        assert_eq!(crate::extract::eager(&s["additionalProperties"]), json!({}));
         assert!(s.get("allOf").is_none());
     }
 
@@ -932,9 +932,15 @@ fn structural_overrides_replace_a_reflected_reference() {
         crate::extract::blueprint(&items, "Wrapper").schema,
         json!({ "type": "object", "properties": { "data": { "$ref": "$T" } } })
     );
+    let id = schema(&items, "Id");
     assert_eq!(
-        schema(&items, "Id"),
+        crate::extract::eager(&id),
         json!({ "type": "string", "format": "uuid", "description": "An id" })
+    );
+    // The alternative for a documented `Uuid` gets the same docs.
+    assert_eq!(
+        id["x-oas-forge-builtin"]["variants"][0]["schema"],
+        json!({ "$ref": "$Uuid", "description": "An id" })
     );
 }
 
@@ -1204,6 +1210,151 @@ mod fragments {
         assert_eq!(
             document["components"]["schemas"]["Page"]["description"],
             "One page."
+        );
+    }
+}
+
+mod builtin_names {
+    use crate::common::pipeline;
+    use serde_json::{Value, json};
+
+    const USER_TYPES: &str = r#"
+        /// A duration of our own.
+        /// @openapi
+        pub struct Duration { pub minutes: u32 }
+        /// @openapi rename "JsonValue"
+        pub enum Value { Text(String), Number(f64) }
+        "#;
+
+    const JOB: &str = r#"
+        use std::collections::HashMap;
+        /// @openapi
+        pub struct Job {
+            /// The timeout.
+            #[deprecated]
+            pub timeout: Duration,
+            pub retry: Option<Duration>,
+            pub steps: Vec<Duration>,
+            pub pair: (Uuid, Duration),
+            pub hooks: Vec<(fn(), Duration)>,
+            pub std: std::time::Duration,
+            pub value: Value,
+            pub json: serde_json::Value,
+            #[serde(flatten)]
+            pub extra: HashMap<String, Duration>,
+        }
+        /// @openapi
+        pub struct Timeout(pub Duration);
+        pub type Delay = Duration;
+        "#;
+
+    fn schemas(files: &[(&str, &str)]) -> Value {
+        let (document, diagnostics) = pipeline(files);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let text = document.to_string();
+        assert!(!text.contains("x-oas-forge-builtin"), "{text}");
+        document["components"]["schemas"].clone()
+    }
+
+    #[test]
+    fn documented_types_win_over_built_in_names() {
+        let schemas = schemas(&[("job.rs", JOB), ("types.rs", USER_TYPES)]);
+        let job = &schemas["Job"]["properties"];
+        let duration = json!({ "$ref": "#/components/schemas/Duration" });
+        assert_eq!(
+            job["timeout"],
+            json!({
+                "$ref": "#/components/schemas/Duration",
+                "description": "The timeout.",
+                "deprecated": true,
+            })
+        );
+        assert_eq!(
+            job["retry"],
+            json!({ "anyOf": [duration, { "type": "null" }] })
+        );
+        assert_eq!(job["steps"]["items"], duration);
+        assert_eq!(job["hooks"]["items"]["prefixItems"], json!([{}, duration]));
+        assert_eq!(
+            job["pair"]["prefixItems"],
+            json!([{ "type": "string", "format": "uuid" }, duration])
+        );
+        // Paths keep the built-in type.
+        assert_eq!(job["std"]["required"], json!(["secs", "nanos"]));
+        assert_eq!(job["json"], json!({}));
+        // References follow the rename of the documented type.
+        assert_eq!(
+            job["value"],
+            json!({ "$ref": "#/components/schemas/JsonValue" })
+        );
+        assert_eq!(schemas["Job"]["additionalProperties"], duration);
+        assert_eq!(schemas["Timeout"], duration);
+        assert_eq!(schemas["Delay"], duration);
+    }
+
+    #[test]
+    fn without_documented_types_the_built_ins_stay() {
+        let schemas = schemas(&[("job.rs", JOB)]);
+        let job = &schemas["Job"]["properties"];
+        assert_eq!(job["timeout"]["required"], json!(["secs", "nanos"]));
+        assert_eq!(job["timeout"]["description"], "The timeout.");
+        assert_eq!(job["retry"]["type"], json!(["object", "null"]));
+        assert_eq!(job["value"], json!({}));
+        assert_eq!(schemas["Timeout"]["type"], "object");
+    }
+
+    #[test]
+    fn named_yaml_schemas_count_as_documented() {
+        let schemas = schemas(&[
+            (
+                "job.rs",
+                "/// @openapi\npub struct Job { pub id: Uuid, pub at: Option<Url> }",
+            ),
+            (
+                "types.rs",
+                "//! @openapi-type Uuid\n//! type: string\n//! pattern: '^[0-9a-f-]{36}$'",
+            ),
+        ]);
+        let job = &schemas["Job"]["properties"];
+        assert_eq!(job["id"], json!({ "$ref": "#/components/schemas/Uuid" }));
+        assert_eq!(
+            job["at"],
+            json!({ "type": ["string", "null"], "format": "uri" })
+        );
+    }
+
+    #[test]
+    fn types_with_very_many_built_in_names_keep_the_built_ins() {
+        let schemas = schemas(&[(
+            "lib.rs",
+            "/// @openapi\npub struct Uuid { pub raw: String }\n/// @openapi\npub struct Job { pub all: (Uuid, Ulid, Url, Uri, Decimal, Bytes, IpAddr) }",
+        )]);
+        assert_eq!(
+            schemas["Job"]["properties"]["all"]["prefixItems"][0],
+            json!({ "type": "string", "format": "uuid" })
+        );
+    }
+
+    #[test]
+    fn custom_mappings_are_not_replaced() {
+        let project = crate::common::Project::new();
+        project
+            .file(
+                "src/job.rs",
+                "/// @openapi\npub struct Job { pub id: Uuid }",
+            )
+            .file(
+                "src/types.rs",
+                "/// @openapi\npub struct Uuid { pub raw: String }",
+            );
+        let spec = oas_forge::Generator::new()
+            .input(project.path("src"))
+            .map_type("Uuid", json!({ "type": "string", "format": "uuid" }))
+            .build()
+            .unwrap();
+        assert_eq!(
+            spec.document()["components"]["schemas"]["Job"]["properties"]["id"],
+            json!({ "type": "string", "format": "uuid" })
         );
     }
 }

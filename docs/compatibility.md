@@ -162,7 +162,10 @@ reported (`OF1006`). Several rules on one field must all hold: a second
 
 Types that are ambiguous by name (`Date`, `Time`, `Duration`) are mapped by
 their path (`time::Date`, `jiff::civil::Date`); use the path or a
-[custom mapping](schemas.md#types-from-other-crates) for others.
+[custom mapping](schemas.md#types-from-other-crates) for others. A bare name
+of the table (`Duration`, `Value`, `Uuid`, …) that is also the name of a
+documented schema refers to that schema
+([own types with built-in names](schemas.md#types-from-other-crates)).
 
 ## Web frameworks
 

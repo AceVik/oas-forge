@@ -1,5 +1,6 @@
 //! Type aliases.
 
+use super::eager;
 use crate::common::{codes, extract, extract_with_diagnostics, schema, schema_names};
 use oas_forge::diagnostics::Code;
 use oas_forge::extract::Item;
@@ -33,11 +34,11 @@ fn aliases_are_exported_even_without_openapi_tag() {
     );
     assert_eq!(schema_names(&items), ["DateTimeUtc", "Log"]);
     assert_eq!(
-        schema(&items, "DateTimeUtc"),
+        eager(&schema(&items, "DateTimeUtc")),
         json!({ "type": "string", "format": "date-time" })
     );
     assert_eq!(
-        schema(&items, "Log")["properties"]["dt"],
+        eager(&schema(&items, "Log")["properties"]["dt"]),
         json!({ "type": "string", "format": "date-time" })
     );
 }

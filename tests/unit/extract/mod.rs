@@ -40,6 +40,23 @@ pub(super) fn kinds(items: &[Item]) -> Vec<String> {
         .collect()
 }
 
+/// `schema` without the alternatives that bare built-in names (`Uuid`)
+/// carry until the references stage (`x-oas-forge-builtin`).
+pub(super) fn eager(schema: &serde_json::Value) -> serde_json::Value {
+    match schema {
+        serde_json::Value::Object(map) => serde_json::Value::Object(
+            map.iter()
+                .filter(|(key, _)| *key != "x-oas-forge-builtin")
+                .map(|(key, value)| (key.clone(), eager(value)))
+                .collect(),
+        ),
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.iter().map(eager).collect())
+        }
+        other => other.clone(),
+    }
+}
+
 /// Every free document item.
 pub(super) fn document_items(items: &[Item]) -> Vec<&DocumentItem> {
     items

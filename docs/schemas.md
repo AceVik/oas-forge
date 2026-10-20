@@ -260,6 +260,13 @@ Many common crates (`chrono`, `time`, `jiff`, `uuid`, `url`,
 `rust_decimal`, `bytes`, `indexmap`, …) are built in; see the
 [type table](compatibility.md#types).
 
+Your own types may have the names of built-in ones. A type written by its
+bare name (`Duration`, `Value`, `Uuid`) refers to the documented schema of
+that name when the sources define one (an `@openapi` type or an
+`@openapi-type` schema, also in another file); otherwise it is the built-in
+type. A path (`std::time::Duration`, `serde_json::Value`) and a custom
+mapping always mean the built-in or mapped type.
+
 ## References in YAML
 
 In any YAML block, a value `$Name` is a reference to the schema `Name`:

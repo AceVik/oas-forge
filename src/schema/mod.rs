@@ -4,6 +4,7 @@
 //! (ADR 0002); [`dialect`] lowers them for other targets.
 
 pub mod dialect;
+pub(crate) mod shadow;
 pub mod types;
 
 pub use types::{MappedType, TypeExpr, TypeMapper};
