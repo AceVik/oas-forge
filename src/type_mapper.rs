@@ -10,10 +10,8 @@ pub fn map_syn_type_to_openapi(ty: &syn::Type) -> (Value, bool) {
                 let ident = seg.ident.to_string();
 
                 if ["Box", "Arc", "Rc", "Cow"].contains(&ident.as_str()) {
-                    if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                        if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                            return map_syn_type_to_openapi(inner);
-                        }
+                    if let Some(inner) = type_args(seg).next() {
+                        return map_syn_type_to_openapi(inner);
                     }
                 }
 
@@ -41,34 +39,26 @@ pub fn map_syn_type_to_openapi(ty: &syn::Type) -> (Value, bool) {
                     "ObjectId" => (json!({ "type": "string", "format": "objectid" }), true),
                     "Value" => (json!({}), true),
                     "Option" => {
-                        if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                            if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                                let (inner_val, _) = map_syn_type_to_openapi(inner);
-                                return (inner_val, false);
-                            }
+                        if let Some(inner) = type_args(seg).next() {
+                            let (inner_val, _) = map_syn_type_to_openapi(inner);
+                            return (inner_val, false);
                         }
                         (json!({}), false)
                     }
                     "Vec" | "LinkedList" | "HashSet" => {
-                        if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                            if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                                let (inner_val, _) = map_syn_type_to_openapi(inner);
-                                return (json!({ "type": "array", "items": inner_val }), true);
-                            }
+                        if let Some(inner) = type_args(seg).next() {
+                            let (inner_val, _) = map_syn_type_to_openapi(inner);
+                            return (json!({ "type": "array", "items": inner_val }), true);
                         }
                         (json!({ "type": "array" }), true)
                     }
                     "HashMap" | "BTreeMap" => {
-                        if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                            if args.args.len() >= 2 {
-                                if let syn::GenericArgument::Type(val_type) = &args.args[1] {
-                                    let (val_schema, _) = map_syn_type_to_openapi(val_type);
-                                    return (
-                                        json!({ "type": "object", "additionalProperties": val_schema }),
-                                        true,
-                                    );
-                                }
-                            }
+                        if let Some(val_type) = type_args(seg).nth(1) {
+                            let (val_schema, _) = map_syn_type_to_openapi(val_type);
+                            return (
+                                json!({ "type": "object", "additionalProperties": val_schema }),
+                                true,
+                            );
                         }
                         (json!({ "type": "object" }), true)
                     }
@@ -89,4 +79,17 @@ pub fn map_syn_type_to_openapi(ty: &syn::Type) -> (Value, bool) {
         syn::Type::Reference(r) => map_syn_type_to_openapi(&r.elem),
         _ => (json!({ "type": "object" }), true),
     }
+}
+
+/// Type arguments of a path segment, skipping lifetimes (`Cow<'a, str>`) and
+/// other non-type generic arguments.
+fn type_args(seg: &syn::PathSegment) -> impl Iterator<Item = &syn::Type> {
+    let args = match &seg.arguments {
+        syn::PathArguments::AngleBracketed(args) => Some(&args.args),
+        _ => None,
+    };
+    args.into_iter().flatten().filter_map(|arg| match arg {
+        syn::GenericArgument::Type(ty) => Some(ty),
+        _ => None,
+    })
 }

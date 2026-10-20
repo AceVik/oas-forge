@@ -204,6 +204,33 @@ pub fn extract_naming_and_doc(
     )
 }
 
+/// Reads a string-valued serde attribute such as `#[serde(rename_all_fields = "camelCase")]`.
+pub fn serde_attr(attrs: &[Attribute], key: &str) -> Option<String> {
+    let mut value = None;
+    for attr in attrs.iter().filter(|a| a.path().is_ident("serde")) {
+        let Meta::List(list) = &attr.meta else {
+            continue;
+        };
+        let Ok(nested) = list.parse_args_with(Punctuated::<Meta, syn::Token![,]>::parse_terminated)
+        else {
+            continue;
+        };
+        for meta in nested {
+            if let Meta::NameValue(nv) = meta {
+                if nv.path.is_ident(key) {
+                    if let Expr::Lit(ExprLit {
+                        lit: Lit::Str(s), ..
+                    }) = nv.value
+                    {
+                        value = Some(s.value());
+                    }
+                }
+            }
+        }
+    }
+    value
+}
+
 use serde_json::{Value, json};
 
 /// Extracts validation attributes from `#[validate(...)]` and maps them to OpenAPI properties.
@@ -285,15 +312,13 @@ pub fn extract_validation(attrs: &[Attribute]) -> Value {
                                 }
                             }
                             // Helper: #[validate(regex = "path")] or #[validate(pattern = "...")]
-                            Meta::NameValue(nv) => {
-                                if nv.path.is_ident("pattern") {
-                                    if let Expr::Lit(ExprLit {
-                                        lit: Lit::Str(s), ..
-                                    }) = nv.value
-                                    {
-                                        validation_schema
-                                            .insert("pattern".to_string(), json!(s.value()));
-                                    }
+                            Meta::NameValue(nv) if nv.path.is_ident("pattern") => {
+                                if let Expr::Lit(ExprLit {
+                                    lit: Lit::Str(s), ..
+                                }) = nv.value
+                                {
+                                    validation_schema
+                                        .insert("pattern".to_string(), json!(s.value()));
                                 }
                             }
                             _ => {}

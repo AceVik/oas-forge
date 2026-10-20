@@ -1,5 +1,9 @@
 use crate::index::Registry;
+use regex::{Captures, Regex};
 use std::collections::HashSet;
+use std::sync::OnceLock;
+
+static PLACEHOLDER_RE: OnceLock<Regex> = OnceLock::new();
 
 pub struct Monomorphizer<'a> {
     registry: &'a mut Registry,
@@ -51,8 +55,9 @@ impl<'a> Monomorphizer<'a> {
 
                     if depth != 0 {
                         // Unbalanced brackets — emit raw text and continue
-                        log::warn!("Unbalanced generic brackets in '{}'", &text[start..i]);
-                        result.push_str(&text[start..i]);
+                        let raw: String = chars[start..i].iter().collect();
+                        log::warn!("Unbalanced generic brackets in '{}'", raw);
+                        result.push_str(&raw);
                         continue;
                     }
 
@@ -67,8 +72,9 @@ impl<'a> Monomorphizer<'a> {
                     result.push('$');
                     result.push_str(&concrete_name);
                 } else {
-                    // Just a regular $Name, push what we scanned
-                    result.push_str(&text[start..i]);
+                    // Just a regular $Name, push what we scanned.
+                    // `start..i` are char indices, so never slice `text` by them.
+                    result.extend(&chars[start..i]);
                 }
             } else {
                 result.push(chars[i]);
@@ -111,8 +117,6 @@ impl<'a> Monomorphizer<'a> {
 
         // 4. Instantiate Blueprint
         if let Some(blueprint) = self.registry.blueprints.get(name).cloned() {
-            let mut content = blueprint.body.clone();
-
             // Check arg count
             if resolved_args.len() != blueprint.params.len() {
                 log::error!(
@@ -123,16 +127,20 @@ impl<'a> Monomorphizer<'a> {
                 );
             }
 
-            // Named Substitution: Replace $Param with $Arg
-            for (idx, param) in blueprint.params.iter().enumerate() {
-                if let Some(arg) = resolved_args.get(idx) {
-                    // Pattern to replace: "$T" -> "$Arg"
-                    // We replace literal "$" + param name
-                    let target = format!("${}", param);
-                    let replacement = format!("${}", arg);
-                    content = content.replace(&target, &replacement);
-                }
-            }
+            // Named Substitution: Replace $Param with $Arg.
+            // Whole identifiers only (`$T` must not match inside `$Tag`), and in a
+            // single pass so a substituted argument is never substituted again.
+            let placeholder_re = PLACEHOLDER_RE.get_or_init(|| Regex::new(r"\$(\w+)").unwrap());
+            let content = placeholder_re
+                .replace_all(&blueprint.body, |caps: &Captures| {
+                    blueprint
+                        .params
+                        .iter()
+                        .position(|param| param == &caps[1])
+                        .and_then(|idx| resolved_args.get(idx))
+                        .map_or_else(|| caps[0].to_string(), |arg| format!("${}", arg))
+                })
+                .into_owned();
 
             self.registry
                 .concrete_schemas
@@ -169,74 +177,5 @@ impl<'a> Monomorphizer<'a> {
             args.push(args_str[start..].trim().to_string());
         }
         args
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_monomorphize_named() {
-        let mut registry = Registry::new();
-        registry.insert_blueprint(
-            "Page".to_string(),
-            vec!["T".to_string()],
-            "data: $ref: $T".to_string(),
-        );
-
-        let mut mono = Monomorphizer::new(&mut registry);
-        let result = mono.process("scheme: $ref: $Page<User>");
-
-        // Should generate Page_User
-        assert_eq!(result, "scheme: $ref: $Page_User");
-
-        // Verify concrete schema content
-        let concrete = registry.concrete_schemas.get("Page_User").unwrap();
-        assert_eq!(concrete, "data: $ref: $User");
-    }
-
-    #[test]
-    fn test_nested_generics() {
-        let mut registry = Registry::new();
-        registry.insert_blueprint(
-            "Wrapper".to_string(),
-            vec!["T".to_string()],
-            "wrap: $T".to_string(),
-        );
-        registry.insert_blueprint(
-            "Inner".to_string(),
-            vec!["U".to_string()],
-            "in: $U".to_string(),
-        );
-
-        let mut mono = Monomorphizer::new(&mut registry);
-        let result = mono.process("$Wrapper<$Inner<Item>>");
-
-        assert_eq!(result, "$Wrapper_Inner_Item");
-
-        // Verify intermediate
-        assert!(registry.concrete_schemas.contains_key("Inner_Item"));
-        let inner = registry.concrete_schemas.get("Inner_Item").unwrap();
-        assert_eq!(inner, "in: $Item");
-
-        // Verify outer
-        assert!(registry.concrete_schemas.contains_key("Wrapper_Inner_Item"));
-        let wrapper = registry.concrete_schemas.get("Wrapper_Inner_Item").unwrap();
-        // Wrapper expects wrap: $T. T is Inner_Item. So wrap: $Inner_Item.
-        assert_eq!(wrapper, "wrap: $Inner_Item");
-    }
-
-    #[test]
-    fn test_unbalanced_generics_no_panic() {
-        let mut registry = Registry::new();
-        let mut mono = Monomorphizer::new(&mut registry);
-
-        // Missing closing bracket — should not panic
-        let result = mono.process("$Foo<Bar");
-        assert_eq!(result, "$Foo<Bar");
-
-        // Deeply unbalanced
-        let result2 = mono.process("$A<B<C>");
-        assert!(result2.contains("$A"));
     }
 }

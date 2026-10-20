@@ -99,9 +99,9 @@ Ideal for CI/CD pipelines.
 ```bash,ignore
 cargo install oas-forge
 # Run generation
-oas_forge -i src -o openapi.yaml 
-oas_forge -i src -I static/openapi.yaml -o openapi.yaml
-oas_forge -i src -i lib -I static/skeleton.yaml -I static/security.json -o openapi.yaml
+oas-forge -i src -o openapi.yaml 
+oas-forge -i src -I static/openapi.yaml -o openapi.yaml
+oas-forge -i src -i lib -I static/skeleton.yaml -I static/security.json -o openapi.yaml
 
 # You get the idea. More complex example:
 oas-forge \
@@ -486,6 +486,8 @@ pub enum MyResult {
 - `MyResult`: container.
 - `MyResultOk`: `{ t: "Ok", c: { type: "string" } }`
 - `MyResultErr`: `{ t: "Err", c: { type: "object", properties: { code: ... } } }`
+
+Field names follow serde: `rename_all` on the enum renames only the variants (the tag values). Fields of struct variants use the variant's own `#[serde(rename_all = "...")]`, falling back to the enum's `#[serde(rename_all_fields = "...")]`.
 
 ### ✅ Validation Attributes
 Supports the `validator` crate's `#[validate(...)]` attributes to automatically populate OpenAPI keywords.

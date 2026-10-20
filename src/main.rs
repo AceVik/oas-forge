@@ -2,17 +2,17 @@
 use colored::Colorize;
 #[cfg(feature = "cli")]
 use oas_forge::{Generator, config::Config};
+#[cfg(feature = "cli")]
+use std::path::PathBuf;
 
 #[cfg(feature = "cli")]
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     // Load configuration (CLI + TOML + Cargo.toml)
-    let config = Config::load();
-    let outputs = config
-        .output
-        .clone()
-        .unwrap_or_else(|| vec![std::path::PathBuf::from("openapi.yaml")]);
+    let mut config = Config::load();
+    apply_default_output(&mut config);
+    let outputs = configured_outputs(&config);
 
     println!("{} Starting oas-forge...", "INFO:".blue().bold());
 
@@ -31,6 +31,30 @@ fn main() -> anyhow::Result<()> {
             Err(anyhow::anyhow!(e))
         }
     }
+}
+
+/// Falls back to `openapi.yaml` when no output of any kind is configured.
+#[cfg(feature = "cli")]
+fn apply_default_output(config: &mut Config) {
+    if configured_outputs(config).is_empty() {
+        config.output = Some(vec![PathBuf::from("openapi.yaml")]);
+    }
+}
+
+/// Every file the generator will write, across all output strategies.
+#[cfg(feature = "cli")]
+fn configured_outputs(config: &Config) -> Vec<PathBuf> {
+    [
+        &config.output,
+        &config.output_schemas,
+        &config.output_paths,
+        &config.output_fragments,
+    ]
+    .into_iter()
+    .flatten()
+    .flatten()
+    .cloned()
+    .collect()
 }
 
 #[cfg(not(feature = "cli"))]

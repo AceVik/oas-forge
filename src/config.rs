@@ -13,10 +13,10 @@ pub struct Config {
     pub input: Option<Vec<PathBuf>>,
 
     /// Specific files to include (e.g., .json, .yaml)
-    #[cfg_attr(feature = "cli", arg(long = "include"))]
+    #[cfg_attr(feature = "cli", arg(short = 'I', long = "include"))]
     pub include: Option<Vec<PathBuf>>,
 
-    /// Output file(s) for the generated OpenAPI definition (defaults to openapi.yaml)
+    /// Output file(s) for the generated OpenAPI definition (defaults to openapi.yaml if no output of any kind is set)
     #[cfg_attr(feature = "cli", arg(short = 'o', long = "output", alias = "out"))]
     pub output: Option<Vec<PathBuf>>,
 

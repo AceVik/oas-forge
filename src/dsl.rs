@@ -3,7 +3,11 @@ use crate::visitor::json_merge;
 use regex::Regex;
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use std::sync::OnceLock;
 use syn;
+
+static PATH_PARAM_RE: OnceLock<Regex> = OnceLock::new();
+static PATH_VAR_RE: OnceLock<Regex> = OnceLock::new();
 
 /// Parses a block of doc comments (lines) into an OpenAPI PathItem (YAML/JSON).
 /// Returns Some(yaml_string) if a @route is detected, otherwise None.
@@ -32,7 +36,8 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
     let mut declared_path_params = HashSet::new();
 
     // Regex for inline path parameters: {name: Type "Desc"}
-    let re = Regex::new(r#"\{(\w+)(?::\s*([^"}]+))?(?:\s*"([^"]+)")?\}"#).unwrap();
+    let re = PATH_PARAM_RE
+        .get_or_init(|| Regex::new(r#"\{(\w+)(?::\s*([^"}]+))?(?:\s*"([^"]+)")?\}"#).unwrap());
 
     for line in doc_lines {
         let trimmed = line.trim();
@@ -261,24 +266,9 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
                 let code = rest[..colon_idx].trim();
                 let residue = rest[colon_idx + 1..].trim();
 
-                let (type_str, desc, is_unit) = if residue.starts_with('"') {
-                    ("()", Some(residue.trim_matches('"').to_string()), true)
-                } else if residue.ends_with('"') && residue.contains(" \"") {
-                    let desc_start = residue.rfind(" \"").unwrap();
-                    (
-                        residue[..desc_start].trim(),
-                        Some(residue[desc_start + 2..residue.len() - 1].to_string()),
-                        false,
-                    )
-                } else if let Some(quote_start) = residue.find('"') {
-                    (
-                        residue[..quote_start].trim(),
-                        Some(residue[quote_start + 1..residue.len() - 1].to_string()),
-                        false,
-                    )
-                } else {
-                    (residue, None, false)
-                };
+                let (type_str, desc) = split_trailing_description(residue);
+                // `@return 204: "Deleted"` has no type at all
+                let is_unit = type_str.is_empty();
 
                 let effective_unit = is_unit || type_str == "()" || type_str == "unit";
                 let is_std_generic = type_str.starts_with("Option<")
@@ -322,10 +312,12 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
             let rest = trimmed.strip_prefix("@security").unwrap().trim();
             let (scheme, scopes) = if let Some(paren_start) = rest.find('(') {
                 let name = rest[..paren_start].trim();
-                let inner = &rest[paren_start + 1..rest.len() - 1];
+                let args = &rest[paren_start + 1..];
+                let inner = args.strip_suffix(')').unwrap_or(args);
                 let s: Vec<String> = inner
                     .split(',')
                     .map(|s| s.trim().trim_matches('"').to_string())
+                    .filter(|s| !s.is_empty())
                     .collect();
                 (name, s)
             } else {
@@ -399,7 +391,7 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
     }
 
     // Validation (Path Params)
-    let validation_re = Regex::new(r"\{(\w+)\}").unwrap();
+    let validation_re = PATH_VAR_RE.get_or_init(|| Regex::new(r"\{(\w+)\}").unwrap());
     if !method.is_empty() && !path.is_empty() {
         for cap in validation_re.captures_iter(&path) {
             let var = cap.get(1).unwrap().as_str();
@@ -441,4 +433,16 @@ pub fn parse_route_dsl(doc_lines: &[String], operation_id: &str) -> Option<Strin
     }
 
     None
+}
+
+/// Splits `Type "Description"` into the type and its trailing quoted description.
+/// An unmatched trailing quote is dropped instead of being treated as a description.
+fn split_trailing_description(residue: &str) -> (&str, Option<String>) {
+    match residue.strip_suffix('"') {
+        Some(body) => match body.rfind('"') {
+            Some(open) => (body[..open].trim(), Some(body[open + 1..].to_string())),
+            None => (body.trim(), None),
+        },
+        None => (residue, None),
+    }
 }

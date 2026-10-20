@@ -57,4 +57,27 @@ If a return type is inferred as `()` or explicit `"No Content"`:
 * **Reason:** HTTP 204 responses cannot have a body.
 
 ### 🔴 Trap 4: Strict Validation
-Every change to `visit_item_fn` **MUST** be accompanied by a regression test in `src/visitor.rs` covering the specific syntax case.
+Every change to `visit_item_fn` **MUST** be accompanied by a regression test in `tests/unit/visitor/functions.rs` (DSL syntax: `tests/unit/dsl.rs`) covering the specific syntax case.
+
+### 🔴 Trap 5: Char vs. Byte Indices
+Doc comments contain arbitrary Unicode (e.g. German umlauts). **NEVER** slice a `&str` with indices obtained from `.chars()`.
+* **WRONG:** `let chars: Vec<char> = text.chars().collect(); ... &text[start..i]`
+* **RIGHT:** `chars[start..i].iter().collect::<String>()`, or use byte offsets from `find`/`char_indices` consistently.
+* **Reason:** Mixed indices corrupt the output or panic on multi-byte characters. The `property` suite fuzzes every stage with Unicode input.
+
+## 5. Testing
+**No test code lives in `src/`.** All tests are in `tests/` and use the public API only:
+
+| Suite | Path | Purpose |
+| :--- | :--- | :--- |
+| `unit` | `tests/unit/` | Mirrors `src/`: `tests/unit/<module>.rs` tests `src/<module>.rs` (`visitor` is split by item kind). |
+| `integration` | `tests/integration/` | `Generator` end-to-end on temp projects, cross-crate transport, golden test against `examples/`. |
+| `cli` | `tests/cli/` | Runs the `oas-forge` binary: exit codes, output, config layering (`Cargo.toml` < `openapi.toml` < `--config` < flags). |
+| `property` | `tests/property/` | `proptest` invariants: no stage may panic on arbitrary doc comments. |
+
+Shared helpers (`extract`, `schema`, `route`, `Project`, …) live in `tests/common/mod.rs`.
+
+* Run everything: `cargo test` (one suite: `cargo test --test unit`).
+* Coverage: `cargo llvm-cov --all-targets --summary-only` (requires `cargo install cargo-llvm-cov`).
+* Deeper fuzzing: `PROPTEST_CASES=10000 cargo test --test property`.
+* If `examples/` output changes intentionally, regenerate the checked-in YAML files, otherwise `integration::examples` fails.

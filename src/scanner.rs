@@ -430,36 +430,3 @@ fn indent(s: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_escaping() {
-        let input = r"price: \$100";
-        let output = finalize_substitution(input);
-        assert_eq!(output, "price: $100");
-    }
-
-    #[test]
-    fn test_vec_macro() {
-        let mut registry = Registry::new();
-        let snippet = Snippet {
-            content: "tags: $Vec<Tag>".to_string(),
-            file_path: PathBuf::from("test.rs"),
-            line_number: 1,
-            operation_id: None,
-        };
-        let processed = preprocess_macros(&snippet, &mut registry);
-        assert!(processed.content.contains("type: array"));
-        assert!(processed.content.contains("items:"));
-        assert!(
-            processed
-                .content
-                .contains("$ref: \"#/components/schemas/Tag\"")
-        );
-    }
-
-    // tests for @return removed as logic moved to dsl.rs
-}
