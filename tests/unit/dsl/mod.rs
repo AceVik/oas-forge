@@ -343,6 +343,46 @@ mod yaml_overrides {
     }
 
     #[test]
+    fn conflict_notes_point_at_the_yaml_line() {
+        let src = lines(&[
+            "@route GET /x",
+            "@return 200: String \"DSL\"",
+            "@return 404: String \"Missing\"",
+            "responses:",
+            "  '404': { description: Gone }",
+            "  '200':",
+            "    content: {}",
+            "    description: YAML",
+            "parameters:",
+            "  - { name: q, in: query, description: DSL }",
+            "@query-param q: String \"Query\"",
+        ]);
+        let numbers: Vec<usize> = (20..20 + src.len()).collect();
+        let location = here();
+        let mut diagnostics = Diagnostics::new();
+        dsl::compile(
+            RouteSource::new(&src, &location)
+                .operation_id(Some("op"))
+                .line_numbers(&numbers),
+            &mut diagnostics,
+        )
+        .unwrap();
+        let notes: Vec<String> = diagnostics
+            .iter()
+            .map(|d| format!("{} {}", d.location().unwrap().line(), d.message()))
+            .collect();
+        assert_eq!(
+            notes,
+            [
+                "24 embedded YAML overrides the DSL value at `/responses/404/description`",
+                "27 embedded YAML overrides the DSL value at `/responses/200/description`",
+                // Array items cannot be matched; the list is the best guess.
+                "28 embedded YAML overrides the DSL value at `/parameters/0/description`",
+            ]
+        );
+    }
+
+    #[test]
     fn a_directive_ends_the_override_block() {
         let op = operation(
             &[
@@ -683,6 +723,22 @@ mod module_defaults {
     }
 
     #[test]
+    fn the_root_route_under_a_prefix_is_the_prefix() {
+        let defaults = ["@route-defaults", "@prefix /v2/tenants/{tenant: String}/"];
+        let (document, diagnostics) = compile_with(&["@route GET /"], &defaults, None);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let paths = document.unwrap()["paths"].clone();
+        assert_eq!(
+            paths.as_object().unwrap().keys().collect::<Vec<_>>(),
+            ["/v2/tenants/{tenant}"]
+        );
+        // Without a prefix, `/` stays the root.
+        assert!(route(&["@route GET /"])["paths"]["/"]["get"].is_object());
+        let (document, _) = compile_with(&["@route GET /users/"], &defaults, None);
+        assert!(document.unwrap()["paths"]["/v2/tenants/{tenant}/users/"].is_object());
+    }
+
+    #[test]
     fn webhooks_get_no_path_parameters_from_defaults() {
         let defaults = [
             "@route-defaults",
@@ -811,6 +867,15 @@ mod inference {
             let op = with(&signature, &["@route GET /x", declared]);
             assert_eq!(params(&op).len(), 1, "{declared}");
         }
+    }
+
+    #[test]
+    fn optional_query_structs_mark_their_expansion() {
+        let mut signature = Signature::default();
+        signature.query = TypeExpr::parse("ListParams");
+        signature.optional_query = true;
+        let op = with(&signature, &["@route GET /x"]);
+        assert_eq!(params(&op)[0]["x-oas-forge-expand"]["optional"], true);
     }
 
     #[test]

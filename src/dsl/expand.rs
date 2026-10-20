@@ -52,7 +52,10 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
                 .and_then(|name| schemas.get(name));
             let new = match schema {
                 Some(schema) => {
-                    from_schema(schema, &schemas, target, &location, marker.get("name"))
+                    // `Option<Query<T>>`: every field may be left out.
+                    let optional = marker.get("optional") == Some(&Value::Bool(true));
+                    let fallback = marker.get("name");
+                    from_schema(schema, &schemas, optional, target, &location, fallback)
                 }
                 None => {
                     let mut diagnostic = Diagnostic::new(
@@ -162,16 +165,18 @@ fn is_empty_or_null(schema: &Value) -> bool {
 }
 
 /// One parameter per property of an object schema (flattened structs
-/// included); a non-object schema is a single parameter called `fallback`.
+/// included, all `optional` if asked); a non-object schema is a single
+/// parameter called `fallback`.
 fn from_schema(
     schema: &Value,
     schemas: &Value,
+    optional: bool,
     target: &str,
     location: &str,
     fallback: Option<&Value>,
 ) -> Vec<Value> {
     let mut fields = Fields::default();
-    fields.collect(schema, schemas, false, 0);
+    fields.collect(schema, schemas, optional, 0);
     if fields.properties.is_empty() {
         return fallback
             .map(|name| vec![json!({ "name": name, "in": location, "required": true, "schema": { "$ref": target } })])

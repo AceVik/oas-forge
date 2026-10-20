@@ -69,6 +69,8 @@ pub struct Signature {
     pub path: Vec<TypeExpr>,
     /// The struct whose fields are query parameters (`Query<T>`).
     pub query: Option<TypeExpr>,
+    /// Whether the query parameters may all be left out (`Option<Query<T>>`).
+    pub optional_query: bool,
     /// The request body type and media type (`Json<T>`, `Form<T>`).
     pub body: Option<(TypeExpr, String)>,
     /// Whether the body may be left out (`Option<Json<T>>`).
@@ -635,7 +637,12 @@ impl Compiler<'_, '_> {
         }
         let webhook = b.webhook.is_some();
         if !webhook {
-            b.path = format!("{}{}", defaults.prefix, b.path);
+            // `/` under a prefix is the prefix itself.
+            b.path = if b.path == "/" && !defaults.prefix.is_empty() {
+                defaults.prefix.clone()
+            } else {
+                format!("{}{}", defaults.prefix, b.path)
+            };
         }
         // Defaults: parameters first, the rest only where the route has none.
         // A webhook has no path, so path parameters do not apply to it.
@@ -891,11 +898,14 @@ impl Compiler<'_, '_> {
                     })
                 });
             if !described {
-                push(
-                    map,
-                    "parameters",
-                    params::expansion("query", &query.to_string(), self.source.location),
-                );
+                let mut marker =
+                    params::expansion("query", &query.to_string(), self.source.location);
+                if signature.optional_query
+                    && let Some(Value::Object(expand)) = marker.get_mut(EXPAND_KEY)
+                {
+                    expand.insert("optional".into(), json!(true));
+                }
+                push(map, "parameters", marker);
             }
         }
         if let Some((ty, media)) = &signature.body
@@ -983,8 +993,13 @@ impl Compiler<'_, '_> {
                         Scope::PathItem => merge(path_item, value, Policy::Operation),
                         Scope::Document => merge(document, value, Policy::Document),
                     };
+                    let text_lines: Vec<&str> = lines.iter().map(|(_, line)| *line).collect();
                     for pointer in conflicts {
-                        let location = self.source.location.clone();
+                        let index = conflict_line(&text_lines, &pointer)
+                            .or(Some(0))
+                            .and_then(|i| lines.get(i))
+                            .and_then(|(index, _)| *index);
+                        let location = self.location(index);
                         self.diagnostics.push(
                             Diagnostic::new(
                                 Code::MergeConflict,
@@ -1011,6 +1026,46 @@ impl Compiler<'_, '_> {
             }
         }
     }
+}
+
+/// The line of `lines` (YAML) that sets the value at the JSON `pointer`:
+/// each segment is looked up as a key below the line of the previous one.
+/// Array indexes cannot be matched to lines; the search stops there.
+fn conflict_line(lines: &[&str], pointer: &str) -> Option<usize> {
+    let indent = |line: &str| line.len() - line.trim_start().len();
+    let mut found: Option<(usize, usize)> = None;
+    for segment in pointer.split('/').skip(1) {
+        let segment = segment.replace("~1", "/").replace("~0", "~");
+        let start = found.map_or(0, |(line, _)| line + 1);
+        let hit = lines
+            .iter()
+            .enumerate()
+            .skip(start)
+            .filter(|(_, line)| !line.trim().is_empty())
+            .take_while(|(_, line)| found.is_none_or(|(_, parent)| indent(line) > parent))
+            .find(|(_, line)| yaml_key(line) == Some(segment.as_str()));
+        match hit {
+            Some((line, text)) => found = Some((line, indent(text))),
+            None => break,
+        }
+    }
+    found.map(|(line, _)| line)
+}
+
+/// The key of a YAML line (`key: …`, `- key: …`, `'200': …`).
+fn yaml_key(line: &str) -> Option<&str> {
+    let mut rest = line.trim_start();
+    while let Some(item) = rest.strip_prefix("- ") {
+        rest = item.trim_start();
+    }
+    let (key, _) = rest.split_once(':')?;
+    let key = key.trim();
+    Some(
+        key.strip_prefix('\'')
+            .and_then(|k| k.strip_suffix('\''))
+            .or_else(|| key.strip_prefix('"').and_then(|k| k.strip_suffix('"')))
+            .unwrap_or(key),
+    )
 }
 
 /// Operation fields in output order; other keys (`x-…`) follow.

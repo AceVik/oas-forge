@@ -1078,6 +1078,27 @@ mod operations {
     }
 
     #[test]
+    fn optional_query_structs_make_every_parameter_optional() {
+        let (document, diagnostics) = pipeline(&[
+            ("models.rs", MODELS),
+            (
+                "api.rs",
+                "/// @route GET /a\n/// @query-param page: u32 required \"Explicit\"\nasync fn a(q: Option<Query<Paging>>) {}",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let required: Vec<String> = document["paths"]["/a"]["get"]["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| format!("{}:{}", p["name"].as_str().unwrap(), p["required"]))
+            .collect();
+        // `size` is required in `Paging`, but the whole query may be missing;
+        // explicit parameters still win.
+        assert_eq!(required, ["page:true", "size:false"]);
+    }
+
+    #[test]
     fn cyclic_flattening_terminates() {
         let (document, _) = pipeline(&[(
             "api.rs",

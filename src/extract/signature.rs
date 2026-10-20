@@ -12,7 +12,9 @@
 //! | `Form<T>`, `web::Form<T>` | `application/x-www-form-urlencoded` body |
 //! | `Multipart` | `multipart/form-data` body |
 //!
-//! A body extractor in `Option` (`Option<Json<T>>`) is an optional body.
+//! A body extractor in `Option` (`Option<Json<T>>`) is an optional body,
+//! `Option<Query<T>>` makes every query parameter optional and
+//! `Option<Path<T>>` is read like `Path<T>`.
 //!
 //! A return type of `Json<T>`, `Result<Json<T>, E>` or `(StatusCode, Json<T>)`
 //! is the success response.
@@ -28,18 +30,20 @@ pub(super) fn infer(signature: &syn::Signature) -> Option<Signature> {
             continue;
         };
         let ty = TypeExpr::from_syn(&argument.ty);
-        // `Option<Json<T>>`: an optional body.
+        // An extractor in `Option` may find nothing: an optional body or
+        // optional query parameters. `Option<Path<T>>` documents the path
+        // parameters of the routes that have them (they are always required).
         let (ty, optional) = match (ty.name(), ty.args()) {
             (Some("Option"), [inner])
-                if matches!(inner.name(), Some("Json" | "Form" | "Multipart")) =>
+                if matches!(
+                    inner.name(),
+                    Some("Json" | "Form" | "Multipart" | "Query" | "Path")
+                ) =>
             {
                 (inner.clone(), true)
             }
             _ => (ty, false),
         };
-        if optional {
-            out.optional_body = true;
-        }
         let inner = ty.args().first().cloned();
         match ty.name() {
             Some("Path") => {
@@ -49,14 +53,22 @@ pub(super) fn infer(signature: &syn::Signature) -> Option<Signature> {
                     None => Vec::new(),
                 };
             }
-            Some("Query") => out.query = inner,
-            Some("Json") => out.body = inner.map(|t| (t, "application/json".to_string())),
+            Some("Query") => {
+                out.query = inner;
+                out.optional_query = optional;
+            }
+            Some("Json") => {
+                out.body = inner.map(|t| (t, "application/json".to_string()));
+                out.optional_body = optional;
+            }
             Some("Form") => {
                 out.body = inner.map(|t| (t, "application/x-www-form-urlencoded".to_string()));
+                out.optional_body = optional;
             }
             Some("Multipart") => {
                 out.body = TypeExpr::parse("serde_json::Map<String, Value>")
                     .map(|t| (t, "multipart/form-data".to_string()));
+                out.optional_body = optional;
             }
             _ => {}
         }

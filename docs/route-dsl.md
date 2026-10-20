@@ -224,8 +224,9 @@ pub async fn upload_avatar() {}
 
 The YAML is merged with what the directives produced: parameters by name and
 location, responses by status code, everything else key by key. When both
-set the same value differently, the YAML wins and a note is reported. YAML
-that is not a mapping is reported (`OF2005`) and ignored.
+set the same value differently, the YAML wins and a note is reported at the
+YAML line that sets it. YAML that is not a mapping is reported (`OF2005`)
+and ignored.
 
 ## Webhooks
 
@@ -284,7 +285,9 @@ pub mod tenants {
 
 `@prefix` is prepended to every path; nested prefixes add up, joined with
 exactly one `/`, and may declare parameters inline
-(`@prefix /tenants/{tenant: String "Tenant slug"}`). Parameters, responses
+(`@prefix /tenants/{tenant: String "Tenant slug"}`). The route `/` under a
+prefix is the prefix itself (`/tenants/{tenant}`, without trailing slash);
+other paths keep a trailing slash they are written with. Parameters, responses
 and other directives are added to each route unless the route sets the same
 itself: the route's tags, security and responses win. Likewise, the `@tag`
 and `@security` lines of an inner module replace those of the outer modules
@@ -304,8 +307,8 @@ open:
 
 | Extractor | Adds |
 | :--- | :--- |
-| `Path<T>`, `web::Path<T>` | the types of undeclared path parameters (a tuple in path order; a struct is expanded) |
-| `Query<T>` | one query parameter per field of `T` |
+| `Path<T>`, `web::Path<T>` | the types of undeclared path parameters (a tuple in path order; a struct is expanded); `Option<Path<T>>` the same (path parameters are always required) |
+| `Query<T>` | one query parameter per field of `T`; in `Option` they are all optional |
 | `Json<T>`, `Form<T>` | the request body (`application/json`, `application/x-www-form-urlencoded`); in `Option` it is optional |
 | `Multipart` | a `multipart/form-data` body |
 | `-> Json<T>`, `-> Result<Json<T>, E>`, `-> (StatusCode, Json<T>)` | the `200` response |

@@ -90,6 +90,14 @@ fn optional_body_extractors() {
     let found = signature("/// @route POST /x\nasync fn h(Json(b): Json<Option<New>>) {}").unwrap();
     assert!(!found.optional_body, "a JSON `null` body is still a body");
     // Other `Option`s are not extractors.
+    let found = signature(
+        "/// @route GET /x/{id}\nasync fn h(q: Option<Query<Filter>>, p: Option<Path<u64>>) {}",
+    )
+    .unwrap();
+    assert_eq!(found.query, Some(ty("Filter")));
+    assert!(found.optional_query);
+    assert_eq!(found.path, [ty("u64")]);
+    assert!(!found.optional_body);
     assert_eq!(
         signature("/// @route POST /x\nasync fn h(o: Option<User>) {}"),
         None

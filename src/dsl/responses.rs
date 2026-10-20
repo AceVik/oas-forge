@@ -32,9 +32,8 @@ pub(super) fn body(rest: &str, types: &TypeMapper) -> Result<Body, String> {
     if type_text.is_empty() {
         return Err("`@body` needs a type".into());
     }
-    let optional =
-        optional || TypeExpr::parse(&type_text).is_some_and(|t| t.name() == Some("Option"));
-    let schema = type_schema(&type_text, types)?;
+    let (schema, required) = mapped_schema(&type_text, types)?;
+    let optional = optional || !required;
     let mut content = Map::new();
     for media in media_or(&media, DEFAULT_MEDIA) {
         content.insert(media, json!({ "schema": schema }));
@@ -187,11 +186,17 @@ fn media_or(media: &[String], default: &str) -> Vec<String> {
 /// The schema of a DSL type: `$Ref`, `Vec<T>`, `$Page<User>`, `{ inline }`.
 /// The error describes text that is neither a type nor valid inline YAML.
 pub(super) fn type_schema(text: &str, types: &TypeMapper) -> Result<Value, String> {
+    mapped_schema(text, types).map(|(schema, _)| schema)
+}
+
+/// [`type_schema`] and whether a value is required (`false` for
+/// `Option<T>`).
+fn mapped_schema(text: &str, types: &TypeMapper) -> Result<(Value, bool), String> {
     const STD: &[&str] = &[
         "Option<", "Vec<", "Box<", "Arc<", "Rc<", "Cow<", "Json<", "Form<",
     ];
     if text.starts_with('{') {
-        return yaml::parse(text).map_err(|e| {
+        return yaml::parse(text).map(|schema| (schema, true)).map_err(|e| {
             format!(
                 "the inline schema `{text}` is not valid YAML: {}",
                 e.message
@@ -200,18 +205,24 @@ pub(super) fn type_schema(text: &str, types: &TypeMapper) -> Result<Value, Strin
     }
     if text.contains('<') && !STD.iter().any(|p| text.starts_with(p)) {
         // `Page<User>` and `$Page<User>`: instantiated from the blueprint.
-        return Ok(json!({ "$ref": format!("${}", text.trim_start_matches('$')) }));
+        let reference = format!("${}", text.trim_start_matches('$'));
+        return Ok((json!({ "$ref": reference }), true));
     }
     if text.starts_with('$') {
         // Resolved with the other smart references: renamed types are found
         // under their Rust name, unknown names are reported.
-        return Ok(json!({ "$ref": text }));
+        return Ok((json!({ "$ref": text }), true));
     }
     match TypeExpr::parse(text) {
-        Some(t) => Ok(types.map(&t).into_schema()),
+        Some(t) => {
+            let mapped = types.map(&t);
+            let required = mapped.required;
+            Ok((mapped.into_schema(), required))
+        }
         // A schema name that is no Rust identifier (`api-error`).
         None if is_component_name(text) => {
-            Ok(json!({ "$ref": format!("#/components/schemas/{text}") }))
+            let reference = format!("#/components/schemas/{text}");
+            Ok((json!({ "$ref": reference }), true))
         }
         None => Err(format!("`{text}` is neither a type nor a schema name")),
     }
