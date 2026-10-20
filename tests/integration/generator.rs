@@ -428,15 +428,13 @@ mod configuration {
             "openapi: 3.1.0\ninfo: { title: Cfg, version: '1' }",
         );
 
-        let config = Config {
-            input: paths(&project, &["src"]),
-            include: paths(&project, &["static/root.yaml"]),
-            output: paths(&project, &["out/full.yaml"]),
-            output_schemas: paths(&project, &["out/schemas.yaml"]),
-            output_paths: paths(&project, &["out/paths.yaml"]),
-            output_fragments: paths(&project, &["out/frag.yaml"]),
-            config_file: None,
-        };
+        let mut config = Config::default();
+        config.input = paths(&project, &["src"]);
+        config.include = paths(&project, &["static/root.yaml"]);
+        config.output = paths(&project, &["out/full.yaml"]);
+        config.output_schemas = paths(&project, &["out/schemas.yaml"]);
+        config.output_paths = paths(&project, &["out/paths.yaml"]);
+        config.output_fragments = paths(&project, &["out/frag.yaml"]);
         Generator::new().with_config(config).generate().unwrap();
 
         assert_eq!(project.read_yaml("out/full.yaml")["info"]["title"], "Cfg");
@@ -451,10 +449,11 @@ mod configuration {
 
         Generator::new()
             .output(project.path("from-builder.yaml"))
-            .with_config(Config {
-                input: paths(&project, &["src"]),
-                output: paths(&project, &["from-config.yaml"]),
-                ..Config::default()
+            .with_config({
+                let mut config = Config::default();
+                config.input = paths(&project, &["src"]);
+                config.output = paths(&project, &["from-config.yaml"]);
+                config
             })
             .generate()
             .unwrap();

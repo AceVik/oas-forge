@@ -38,6 +38,18 @@ pub enum Error {
         source: serde_yaml_ng::Error,
         context: String,
     },
+
+    #[error("Invalid configuration in {}: {message}", file.display())]
+    Config { file: PathBuf, message: String },
+}
+
+impl Error {
+    pub(crate) fn config(file: &std::path::Path, message: impl Into<String>) -> Self {
+        Self::Config {
+            file: file.to_path_buf(),
+            message: message.into(),
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

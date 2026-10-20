@@ -1,29 +1,30 @@
-//! `Config` parsing. Layered loading (`Config::load`) reads the real process
-//! arguments and working directory, so it is covered by the `cli` suite.
+//! `Config` parsing and layered loading (`Cargo.toml` < `openapi.toml`).
+//! Command-line flags are covered by the `oas-forge-cli` crate.
 
+use crate::common::Project;
 use oas_forge::config::Config;
+use oas_forge::error::Error;
 use std::path::PathBuf;
 
 fn paths(items: &[&str]) -> Option<Vec<PathBuf>> {
     Some(items.iter().map(PathBuf::from).collect())
 }
 
-mod toml_file {
+const ALL_FIELDS: &str = r#"
+input = ["src", "lib"]
+include = ["static/root.yaml"]
+output = ["openapi.yaml", "openapi.json"]
+output_schemas = ["schemas.yaml"]
+output_paths = ["paths.yaml"]
+output_fragments = ["fragments.yaml"]
+"#;
+
+mod toml_format {
     use super::*;
 
     #[test]
     fn reads_all_fields() {
-        let config: Config = toml::from_str(
-            r#"
-            input = ["src", "lib"]
-            include = ["static/root.yaml"]
-            output = ["openapi.yaml", "openapi.json"]
-            output_schemas = ["schemas.yaml"]
-            output_paths = ["paths.yaml"]
-            output_fragments = ["fragments.yaml"]
-            "#,
-        )
-        .unwrap();
+        let config = Config::from_toml_str(ALL_FIELDS).unwrap();
 
         assert_eq!(config.input, paths(&["src", "lib"]));
         assert_eq!(config.include, paths(&["static/root.yaml"]));
@@ -35,85 +36,138 @@ mod toml_file {
 
     #[test]
     fn missing_fields_default_to_none() {
-        let config: Config = toml::from_str("input = [\"src\"]").unwrap();
+        let config = Config::from_toml_str("input = [\"src\"]").unwrap();
         assert_eq!(config.input, paths(&["src"]));
         assert!(config.output.is_none());
         assert!(config.include.is_none());
+        assert_eq!(Config::from_toml_str("").unwrap(), Config::default());
     }
 
     #[test]
-    fn config_file_cannot_be_set_from_toml() {
-        let config: Config = toml::from_str("config_file = \"other.toml\"").unwrap();
-        assert!(config.config_file.is_none());
-    }
-
-    #[test]
-    fn rejects_wrong_value_types() {
-        assert!(toml::from_str::<Config>("input = 5").is_err());
+    fn rejects_unknown_keys_and_wrong_types() {
+        for text in ["input = 5", "config_file = \"other.toml\"", "outputs = []"] {
+            assert!(
+                matches!(Config::from_toml_str(text), Err(Error::Config { .. })),
+                "{text}"
+            );
+        }
     }
 }
 
-#[cfg(feature = "cli")]
-mod command_line {
+mod merging {
     use super::*;
-    use clap::Parser;
 
-    /// `parse_from` would exit the test process on invalid arguments.
-    fn parse(args: &[&str]) -> Config {
-        Config::try_parse_from(args).unwrap_or_else(|e| panic!("{e}"))
+    #[test]
+    fn set_fields_replace_and_unset_fields_keep() {
+        let mut base = Config::from_toml_str(ALL_FIELDS).unwrap();
+        base.merge(Config::from_toml_str("output = [\"other.yaml\"]").unwrap());
+
+        assert_eq!(base.output, paths(&["other.yaml"]));
+        assert_eq!(base.input, paths(&["src", "lib"]));
     }
 
     #[test]
-    fn short_and_long_flags() {
-        let config = parse(&[
-            "oas-forge",
-            "-i",
-            "src",
-            "--input",
-            "lib",
-            "--include",
-            "root.yaml",
-            "-I",
-            "security.json",
-            "-o",
-            "a.yaml",
-            "--output",
-            "b.json",
-            "--output-schemas",
-            "s.yaml",
-            "--output-paths",
-            "p.yaml",
-            "--output-fragments",
-            "f.yaml",
-            "--config",
-            "custom.toml",
-        ]);
+    fn outputs_lists_every_strategy() {
+        let config = Config::from_toml_str(ALL_FIELDS).unwrap();
+        let outputs: Vec<_> = config.outputs().cloned().collect();
+        assert_eq!(
+            outputs,
+            [
+                "openapi.yaml",
+                "openapi.json",
+                "schemas.yaml",
+                "paths.yaml",
+                "fragments.yaml"
+            ]
+            .map(PathBuf::from)
+        );
+    }
+}
 
-        assert_eq!(config.input, paths(&["src", "lib"]));
-        assert_eq!(config.include, paths(&["root.yaml", "security.json"]));
-        assert_eq!(config.output, paths(&["a.yaml", "b.json"]));
-        assert_eq!(config.output_schemas, paths(&["s.yaml"]));
-        assert_eq!(config.output_paths, paths(&["p.yaml"]));
-        assert_eq!(config.output_fragments, paths(&["f.yaml"]));
-        assert_eq!(config.config_file, Some(PathBuf::from("custom.toml")));
+mod loading {
+    use super::*;
+
+    const MANIFEST: &str = r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[package.metadata.oas-forge]
+input = ["src"]
+output = ["from-cargo.yaml"]
+"#;
+
+    #[test]
+    fn empty_directory_yields_default() {
+        let project = Project::new();
+        assert_eq!(
+            Config::load_from(project.root()).unwrap(),
+            Config::default()
+        );
     }
 
     #[test]
-    fn out_is_an_alias_for_output() {
-        let config = parse(&["oas-forge", "--out", "spec.yaml"]);
-        assert_eq!(config.output, paths(&["spec.yaml"]));
+    fn reads_cargo_metadata() {
+        let project = Project::new();
+        project.file("Cargo.toml", MANIFEST);
+
+        let config = Config::load_from(project.root()).unwrap();
+
+        assert_eq!(config.input, paths(&["src"]));
+        assert_eq!(config.output, paths(&["from-cargo.yaml"]));
     }
 
     #[test]
-    fn everything_is_optional() {
-        let config = parse(&["oas-forge"]);
-        assert!(config.input.is_none());
-        assert!(config.output.is_none());
-        assert!(config.config_file.is_none());
+    fn manifest_without_metadata_is_fine() {
+        let project = Project::new();
+        project.file("Cargo.toml", "[package]\nname = \"demo\"\n");
+        assert_eq!(
+            Config::load_from(project.root()).unwrap(),
+            Config::default()
+        );
+        project.file("Cargo.toml", "[workspace]\nmembers = []\n");
+        assert_eq!(
+            Config::load_from(project.root()).unwrap(),
+            Config::default()
+        );
     }
 
     #[test]
-    fn unknown_flags_are_rejected() {
-        assert!(Config::try_parse_from(["oas-forge", "--nope"]).is_err());
+    fn openapi_toml_wins_over_cargo_metadata() {
+        let project = Project::new();
+        project
+            .file("Cargo.toml", MANIFEST)
+            .file("openapi.toml", "output = [\"from-openapi-toml.yaml\"]");
+
+        let config = Config::load_from(project.root()).unwrap();
+
+        assert_eq!(config.output, paths(&["from-openapi-toml.yaml"]));
+        assert_eq!(config.input, paths(&["src"]));
+    }
+
+    #[test]
+    fn broken_files_are_errors_naming_the_file() {
+        for (file, content) in [("Cargo.toml", "[package\n"), ("openapi.toml", "input = 5")] {
+            let project = Project::new();
+            project.file(file, content);
+
+            match Config::load_from(project.root()) {
+                Err(Error::Config { file: path, .. }) => assert!(path.ends_with(file)),
+                other => panic!("expected config error for {file}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn from_file_reports_missing_files() {
+        let project = Project::new();
+        let error = Config::from_file(project.path("missing.toml")).unwrap_err();
+        assert!(error.to_string().contains("missing.toml"), "{error}");
+    }
+
+    #[test]
+    fn load_uses_the_current_directory() {
+        // The package root of this crate has no oas-forge metadata.
+        assert_eq!(Config::load().unwrap(), Config::default());
     }
 }

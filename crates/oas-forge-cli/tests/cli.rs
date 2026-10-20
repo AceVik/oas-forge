@@ -1,11 +1,10 @@
 //! End-to-end tests of the `oas-forge` binary: exit codes, console output and
 //! configuration layering (Cargo.toml < openapi.toml < --config < CLI flags).
 
-#[path = "../common/mod.rs"]
-mod common;
+mod support;
 
-use common::{Project, ROOT_DOC};
 use std::process::{Command, Output};
+use support::{Project, ROOT_DOC};
 
 fn oas_forge(project: &Project, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_oas-forge"))

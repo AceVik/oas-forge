@@ -82,12 +82,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "anyhow"
-version = "1.0.104"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
-
-[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -754,11 +748,8 @@ dependencies = [
 
 [[package]]
 name = "oas-forge"
-version = "0.1.4"
+version = "0.2.0"
 dependencies = [
- "anyhow",
- "clap",
- "colored",
  "env_logger",
  "insta",
  "jsonschema",
@@ -774,6 +765,19 @@ dependencies = [
  "thiserror",
  "toml",
  "walkdir",
+]
+
+[[package]]
+name = "oas-forge-cli"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "colored",
+ "env_logger",
+ "oas-forge",
+ "serde_json",
+ "serde_yaml_ng",
+ "tempfile",
 ]
 
 [[package]]
