@@ -156,3 +156,112 @@ fn every_schema_position_of_a_document_is_lowered() {
         json!({ "type": ["a", "null"] })
     );
 }
+
+#[test]
+fn malformed_schema_sections_are_skipped() {
+    let mut document = json!({ "openapi": "3.0.3", "components": { "schemas": 5 } });
+    lower(&mut document, Dialect::OpenApi30, &mut Diagnostics::new());
+    assert_eq!(document["components"]["schemas"], 5);
+}
+
+#[test]
+fn dialects_have_display_names() {
+    let names: Vec<String> = [
+        Dialect::OpenApi30,
+        Dialect::OpenApi31,
+        Dialect::OpenApi32,
+        Dialect::Swagger20,
+        Dialect::AsyncApi3,
+    ]
+    .iter()
+    .map(ToString::to_string)
+    .collect();
+    assert_eq!(
+        names,
+        [
+            "OpenAPI 3.0",
+            "OpenAPI 3.1",
+            "OpenAPI 3.2",
+            "Swagger 2.0",
+            "AsyncAPI 3"
+        ]
+    );
+}
+
+#[test]
+fn empty_tuples_and_required_lists_are_dropped() {
+    assert_eq!(
+        lowered(json!({ "type": "array", "items": false })).0,
+        json!({ "type": "array" })
+    );
+    assert_eq!(
+        lowered(json!({ "type": "object", "required": [] })).0,
+        json!({ "type": "object" })
+    );
+}
+
+#[test]
+fn reference_siblings_join_an_existing_all_of() {
+    assert_eq!(
+        lowered(json!({ "$ref": "#/components/schemas/A", "allOf": [{ "minProperties": 1 }], "description": "d" })).0,
+        json!({
+            "allOf": [{ "$ref": "#/components/schemas/A" }, { "minProperties": 1 }],
+            "description": "d"
+        })
+    );
+}
+
+mod single_schemas {
+    use super::*;
+    use oas_forge::schema::dialect::lower_schema_value;
+
+    fn lower_one(mut schema: Value, dialect: Dialect) -> (Value, Diagnostics) {
+        let mut diagnostics = Diagnostics::new();
+        lower_schema_value(&mut schema, dialect, &mut diagnostics);
+        (schema, diagnostics)
+    }
+
+    #[test]
+    fn openapi_31_and_32_keep_the_schema() {
+        let schema = json!({ "type": ["string", "null"], "prefixItems": [] });
+        for dialect in [Dialect::OpenApi31, Dialect::OpenApi32] {
+            assert_eq!(lower_one(schema.clone(), dialect).0, schema);
+        }
+    }
+
+    #[test]
+    fn openapi_30_and_swagger_lower_and_report() {
+        let (schema, diagnostics) =
+            lower_one(json!({ "type": ["string", "null"] }), Dialect::OpenApi30);
+        assert_eq!(schema, json!({ "type": "string", "nullable": true }));
+        assert!(diagnostics.is_empty());
+
+        let (schema, diagnostics) = lower_one(
+            json!({ "oneOf": [{ "type": "string" }] }),
+            Dialect::Swagger20,
+        );
+        assert_eq!(schema, json!({ "x-oneOf": [{ "type": "string" }] }));
+        assert_eq!(codes(&diagnostics), [Code::LossyLowering]);
+        assert!(
+            diagnostics
+                .iter()
+                .next()
+                .unwrap()
+                .message()
+                .starts_with("Swagger 2.0 has no")
+        );
+    }
+
+    #[test]
+    fn asyncapi_uses_draft_7_definitions() {
+        let (schema, diagnostics) = lower_one(
+            json!({ "$defs": { "A": { "type": "string" } }, "unevaluatedProperties": false }),
+            Dialect::AsyncApi3,
+        );
+        assert_eq!(
+            schema,
+            json!({ "definitions": { "A": { "type": "string" } } })
+        );
+        assert_eq!(codes(&diagnostics), [Code::LossyLowering]);
+    }
+}

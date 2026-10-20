@@ -164,6 +164,52 @@ mod strict_lints {
     use super::*;
 
     #[test]
+    fn documents_without_components_have_nothing_unused() {
+        let diagnostics = strict("/// Lists.\n/// @route GET /a\nfn a() {}");
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn malformed_sections_are_skipped() {
+        let diagnostics = strict(
+            r#"
+            /// @openapi
+            /// paths:
+            ///   /a: ~
+            ///   /b: { get: 5 }
+            /// components:
+            ///   schemas: 5
+            fn docs() {}
+            "#,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn shared_targets_are_visited_once() {
+        let diagnostics = strict(
+            r#"
+            /// Shared.
+            /// @openapi
+            struct Shared { a: u8 }
+            /// Left.
+            /// @openapi
+            struct Left { s: Shared }
+            /// Right.
+            /// @openapi
+            struct Right { s: Shared }
+
+            /// Both.
+            /// @route GET /a
+            /// @return 200: $Left
+            /// @return 201: $Right
+            fn a() {}
+            "#,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
     fn are_off_by_default() {
         let (_, diagnostics) = pipeline(&[(
             "lib.rs",

@@ -318,11 +318,6 @@ impl Diagnostics {
         self.items.push(diagnostic);
     }
 
-    /// Adds all findings of `other`.
-    pub fn extend(&mut self, other: impl IntoIterator<Item = Diagnostic>) {
-        self.items.extend(other);
-    }
-
     /// The findings in the order they were reported.
     pub fn iter(&self) -> std::slice::Iter<'_, Diagnostic> {
         self.items.iter()
@@ -376,6 +371,7 @@ impl<'a> IntoIterator for &'a Diagnostics {
     }
 }
 
+/// Adds all findings of an iterator.
 impl Extend<Diagnostic> for Diagnostics {
     fn extend<I: IntoIterator<Item = Diagnostic>>(&mut self, iter: I) {
         self.items.extend(iter);

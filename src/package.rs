@@ -43,8 +43,7 @@ impl Package {
     /// The package of the build script that is running: Cargo sets
     /// `OUT_DIR` and `CARGO_PKG_*` for build scripts. `None` elsewhere.
     pub fn from_build_env() -> Option<Self> {
-        std::env::var_os("OUT_DIR")?;
-        Self::from_env()
+        std::env::var_os("OUT_DIR").and_then(|_| Self::from_env())
     }
 
     /// The package described by the `CARGO_PKG_*` environment variables.
@@ -95,6 +94,26 @@ impl Package {
             repository: field("repository"),
             homepage: field("homepage"),
         }))
+    }
+
+    /// The `CARGO_PKG_*` variables Cargo sets for this package; like Cargo,
+    /// unset fields are empty strings.
+    pub fn variables(&self) -> Vec<(&'static str, String)> {
+        let mut parts = self.version.split(['.', '-', '+']);
+        let mut part = || parts.next().unwrap_or_default().to_string();
+        let (major, minor, patch) = (part(), part(), part());
+        let field = |value: &Option<String>| value.clone().unwrap_or_default();
+        vec![
+            ("CARGO_PKG_NAME", self.name.clone()),
+            ("CARGO_PKG_VERSION", self.version.clone()),
+            ("CARGO_PKG_VERSION_MAJOR", major),
+            ("CARGO_PKG_VERSION_MINOR", minor),
+            ("CARGO_PKG_VERSION_PATCH", patch),
+            ("CARGO_PKG_DESCRIPTION", field(&self.description)),
+            ("CARGO_PKG_LICENSE", field(&self.license)),
+            ("CARGO_PKG_REPOSITORY", field(&self.repository)),
+            ("CARGO_PKG_HOMEPAGE", field(&self.homepage)),
+        ]
     }
 
     /// The root document: `openapi`, `info` and `externalDocs`.

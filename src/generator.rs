@@ -221,9 +221,17 @@ impl Generator {
         self
     }
 
-    /// Uses `package` for the root document when the sources define none.
-    /// In a build script the running package is used by default.
+    /// Uses `package` for the root document when the sources define none
+    /// and for the `{{CARGO_PKG_*}}` variables ([`Package::variables`]);
+    /// [`Generator::var`] calls after this one win. In a build script the
+    /// running package is used by default.
     pub fn package(mut self, package: Package) -> Self {
+        self.variables.extend(
+            package
+                .variables()
+                .into_iter()
+                .map(|(name, value)| (name.to_string(), value)),
+        );
         self.package = Some(package);
         self
     }
@@ -504,13 +512,8 @@ pub(crate) fn run(
         package,
         ..
     } = settings;
-    let mut registry = Registry::new();
-    let mut patterns = BTreeMap::new();
-    let mut known = KnownSchemas::default();
-    let mut snippets: Vec<Snippet> = Vec::new();
-    let mut pending: Vec<(usize, Pending)> = Vec::new();
-
     // Pass 1: extraction and template registration.
+    let mut collected = Collected::default();
     for file in sources.files() {
         match file.kind() {
             SourceKind::Rust => {
@@ -519,28 +522,19 @@ pub(crate) fn run(
                     extract::Options::new().types(types).variables(variables),
                     diagnostics,
                 )? {
-                    if let Item::Pattern(pattern) = item {
-                        patterns.insert(pattern.name, pattern.pattern);
-                        continue;
-                    }
-                    register(
-                        item,
-                        &mut registry,
-                        &mut known,
-                        &mut snippets,
-                        &mut pending,
-                        diagnostics,
-                    );
+                    collected.register(item, diagnostics);
                 }
             }
             SourceKind::Yaml | SourceKind::Json => {
                 let location = file.location(1);
                 if let Ok(mut value) = yaml::parse(file.text()) {
-                    registry.import(&mut value, &location, &mut Diagnostics::new());
-                    known.collect_from(&value);
+                    collected
+                        .registry
+                        .import(&mut value, &location, &mut Diagnostics::new());
+                    collected.known.collect_from(&value);
                 }
-                pending.push((
-                    snippets.len(),
+                collected.pending.push((
+                    collected.snippets.len(),
                     Pending::File {
                         text: file.text().to_string(),
                         location,
@@ -549,6 +543,13 @@ pub(crate) fn run(
             }
         }
     }
+    let Collected {
+        registry,
+        patterns,
+        mut known,
+        snippets,
+        pending,
+    } = collected;
 
     // Pass 2: lexical expansion, parsing, `@extend`, DSL.
     let mut ordered: Vec<(usize, Snippet)> = snippets
@@ -637,8 +638,10 @@ pub(crate) fn run(
         strict: settings.strict_lints,
     };
     lint::check(&document, lints, diagnostics);
-    if !asyncapi.as_object().is_some_and(Map::is_empty) {
-        output::asyncapi::add_shared_schemas(&mut asyncapi, &canonical);
+    if let Value::Object(map) = &mut asyncapi
+        && !map.is_empty()
+    {
+        output::asyncapi::add_shared_schemas(map, &canonical);
         lint::check(&asyncapi, Lints::default(), diagnostics);
     }
     Ok(Documents {
@@ -668,84 +671,101 @@ pub(crate) struct Documents {
     pub(crate) registry: Registry,
 }
 
-fn register(
-    item: Item,
-    registry: &mut Registry,
-    known: &mut KnownSchemas,
-    snippets: &mut Vec<Snippet>,
-    pending: &mut Vec<(usize, Pending)>,
-    diagnostics: &mut Diagnostics,
-) {
-    match item {
-        Item::Schema(schema) => {
-            if known.contains(&schema.name) {
-                diagnostics.push(
-                    Diagnostic::new(
-                        Code::DuplicateSchema,
-                        format!(
-                            "schema `{}` is defined more than once; the definitions are merged",
-                            schema.name
-                        ),
-                    )
-                    .at(schema.location.clone()),
+/// What pass 1 collects.
+#[derive(Default)]
+struct Collected {
+    registry: Registry,
+    /// Regular expression constants by name.
+    patterns: BTreeMap<String, String>,
+    known: KnownSchemas,
+    /// Snippets that are complete after extraction (reflected schemas).
+    snippets: Vec<Snippet>,
+    /// Texts that are expanded once every template is known, with the
+    /// position among `snippets` they belong to.
+    pending: Vec<(usize, Pending)>,
+}
+
+impl Collected {
+    fn register(&mut self, item: Item, diagnostics: &mut Diagnostics) {
+        let Self {
+            registry,
+            patterns,
+            known,
+            snippets,
+            pending,
+        } = self;
+        match item {
+            Item::Schema(schema) => {
+                if known.contains(&schema.name) {
+                    diagnostics.push(
+                        Diagnostic::new(
+                            Code::DuplicateSchema,
+                            format!(
+                                "schema `{}` is defined more than once; the definitions are merged",
+                                schema.name
+                            ),
+                        )
+                        .at(schema.location.clone()),
+                    );
+                }
+                known.insert(schema.name.clone());
+                registry.add_alias(&schema.rust_name, &schema.name);
+                snippets.push(Snippet::openapi(
+                    json!({ "components": { "schemas": { schema.name: schema.schema } } }),
+                    schema.location,
+                ));
+            }
+            Item::Blueprint(blueprint) => {
+                registry.add_alias(&blueprint.rust_name, &blueprint.name);
+                registry.add_blueprint(
+                    blueprint.name,
+                    Blueprint {
+                        params: blueprint.params,
+                        schema: blueprint.schema,
+                    },
                 );
             }
-            known.insert(schema.name.clone());
-            registry.add_alias(&schema.rust_name, &schema.name);
-            snippets.push(Snippet::openapi(
-                json!({ "components": { "schemas": { schema.name: schema.schema } } }),
-                schema.location,
-            ));
-        }
-        Item::Blueprint(blueprint) => {
-            registry.add_alias(&blueprint.rust_name, &blueprint.name);
-            registry.add_blueprint(
-                blueprint.name,
-                Blueprint {
-                    params: blueprint.params,
-                    schema: blueprint.schema,
+            Item::Fragment(fragment) => registry.add_fragment(
+                fragment.name,
+                Fragment {
+                    params: fragment.params,
+                    body: fragment.body,
                 },
-            );
-        }
-        Item::Fragment(fragment) => registry.add_fragment(
-            fragment.name,
-            Fragment {
-                params: fragment.params,
-                body: fragment.body,
-            },
-        ),
-        Item::Document(document) => pending.push((
-            snippets.len(),
-            Pending::Document {
-                text: document.text,
-                location: document.location,
-                tags: document.tags,
-            },
-        )),
-        Item::NamedSchema(named) => {
-            known.insert(named.name.clone());
-            pending.push((
+            ),
+            Item::Document(document) => pending.push((
                 snippets.len(),
-                Pending::NamedSchema {
-                    name: named.name,
-                    text: named.text,
-                    location: named.location,
+                Pending::Document {
+                    text: document.text,
+                    location: document.location,
+                    tags: document.tags,
                 },
-            ));
+            )),
+            Item::NamedSchema(named) => {
+                known.insert(named.name.clone());
+                pending.push((
+                    snippets.len(),
+                    Pending::NamedSchema {
+                        name: named.name,
+                        text: named.text,
+                        location: named.location,
+                    },
+                ));
+            }
+            Item::Route(route) => pending.push((snippets.len(), Pending::Route(Box::new(route)))),
+            Item::AsyncApi(document) => pending.push((
+                snippets.len(),
+                Pending::AsyncApi {
+                    text: document.text,
+                    location: document.location,
+                },
+            )),
+            Item::Channel(channel) => {
+                pending.push((snippets.len(), Pending::Channel(Box::new(channel))));
+            }
+            Item::Pattern(pattern) => {
+                patterns.insert(pattern.name, pattern.pattern);
+            }
         }
-        Item::Route(route) => pending.push((snippets.len(), Pending::Route(Box::new(route)))),
-        Item::AsyncApi(document) => pending.push((
-            snippets.len(),
-            Pending::AsyncApi {
-                text: document.text,
-                location: document.location,
-            },
-        )),
-        Item::Channel(channel) => {
-            pending.push((snippets.len(), Pending::Channel(Box::new(channel))));
-        }
-        // Collected by the caller before registration.
-        Item::Pattern(_) => {}
     }
 }
 

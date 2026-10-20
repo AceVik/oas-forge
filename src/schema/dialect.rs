@@ -25,6 +25,19 @@ pub enum Dialect {
     AsyncApi3,
 }
 
+/// How the target is named in messages (`OpenAPI 3.0`).
+impl std::fmt::Display for Dialect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::OpenApi30 => "OpenAPI 3.0",
+            Self::OpenApi31 => "OpenAPI 3.1",
+            Self::OpenApi32 => "OpenAPI 3.2",
+            Self::Swagger20 => "Swagger 2.0",
+            Self::AsyncApi3 => "AsyncAPI 3",
+        })
+    }
+}
+
 impl Dialect {
     /// The dialect of a document with an `openapi` version field.
     pub fn of_document(document: &Value) -> Option<Self> {
@@ -36,17 +49,6 @@ impl Dialect {
         } else {
             Self::OpenApi32
         })
-    }
-
-    /// How the target is named in messages.
-    fn label(self) -> &'static str {
-        match self {
-            Self::OpenApi30 => "OpenAPI 3.0",
-            Self::OpenApi31 => "OpenAPI 3.1",
-            Self::OpenApi32 => "OpenAPI 3.2",
-            Self::Swagger20 => "Swagger 2.0",
-            Self::AsyncApi3 => "AsyncAPI 3",
-        }
     }
 
     /// Whether the target has OpenAPI 3.1 features (webhooks).
@@ -201,7 +203,7 @@ fn report_lost(lost: BTreeSet<String>, dialect: Dialect, diagnostics: &mut Diagn
             Code::LossyLowering,
             format!(
                 "{} has no equivalent for {what}; the schema was approximated",
-                dialect.label()
+                dialect
             ),
         ));
     }
@@ -263,7 +265,7 @@ fn restrict(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnostic
             Code::UnsupportedFeature,
             format!(
                 "{what} need OpenAPI {needed} or newer and were left out of the {} document",
-                dialect.label()
+                dialect
             ),
         ));
     }

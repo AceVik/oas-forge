@@ -242,10 +242,16 @@ Every 0.1 route block still compiles; these outputs changed:
   `deprecated: true` on the schema or operation (`rust_attributes`).
 - **New directives** (`rust_attributes`): `@openapi skip` leaves out an item,
   field or variant; `@example value` adds a YAML value (or plain text) to the
-  `examples` of a type, field or variant. Variants also accept `@openapi`
-  overrides; 0.1 ignored them.
+  `examples` of a type, field or variant (named OpenAPI examples of media
+  types and parameters are written as embedded YAML). Variants also accept
+  `@openapi` overrides; 0.1 ignored them.
+- **Types with the same name** in different modules are still merged into one
+  schema, now with warning `OF1004`. Rename one of them
+  (`#[serde(rename = "AdminUser")]` or `@openapi rename "AdminUser"`).
 - **Variables** (`variables`). Every `CARGO_PKG_*` variable Cargo sets for
-  build scripts is predefined, `{{env:NAME}}` reads the environment (unset:
+  build scripts is predefined (`Generator::package` sets them for its package,
+  the CLI takes them from `Cargo.toml` in the working directory),
+  `{{env:NAME}}` reads the environment (unset:
   warning `OF3009`, the placeholder stays), and `[variables]` in the
   configuration or `--var NAME=VALUE` define more. Placeholders also work in
   type overrides and `@example` lines.

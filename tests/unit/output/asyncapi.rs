@@ -24,6 +24,25 @@ fn channels_need_an_asyncapi_root() {
 }
 
 #[test]
+fn schemas_used_twice_are_shared_once() {
+    let (spec, _project) = spec_of(&[(
+        "lib.rs",
+        &format!(
+            "{ROOT}\n/// @openapi\nstruct User {{ a: u8 }}\n/// @channel a\n/// @send A: $User\nfn a() {{}}\n/// @channel b\n/// @receive B: Vec<$User>\nfn b() {{}}"
+        ),
+    )]);
+    let document = spec.render(OutputKind::AsyncApi).unwrap();
+    assert_eq!(
+        document["components"]["schemas"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        ["User"]
+    );
+}
+
+#[test]
 fn only_the_schemas_messages_use_are_shared() {
     let (spec, _project) = spec_of(&[(
         "lib.rs",

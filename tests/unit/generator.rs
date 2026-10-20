@@ -955,6 +955,80 @@ mod operations {
     }
 
     #[test]
+    fn empty_and_free_form_structs_expand_cleanly() {
+        let (document, diagnostics) = pipeline(&[(
+            "api.rs",
+            "/// @openapi\nstruct Empty {}\n/// @openapi-type Loose\n/// type: object\n/// properties: { any: true }\nfn loose() {}\n/// @route GET /a\n/// @query-params $Empty\nfn a() {}\n/// @route GET /b\n/// @query-params $Loose\nfn b() {}",
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert!(document["paths"]["/a"]["get"].get("parameters").is_none());
+        assert_eq!(
+            document["paths"]["/b"]["get"]["parameters"],
+            json!([{ "name": "any", "in": "query", "required": false, "schema": true }])
+        );
+    }
+
+    #[test]
+    fn inferred_parameters_replace_a_malformed_list() {
+        let (document, _) = pipeline(&[
+            ("models.rs", MODELS),
+            (
+                "api.rs",
+                "/// @route GET /a\n/// parameters: oops\nasync fn a(Query(p): Query<Paging>) {}",
+            ),
+        ]);
+        let parameters = document["paths"]["/a"]["get"]["parameters"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(parameters.len(), 2, "{parameters:?}");
+    }
+
+    #[test]
+    fn route_defaults_apply_operation_fields() {
+        let (document, diagnostics) = pipeline(&[(
+            "api.rs",
+            "/// @route-defaults\n/// @deprecated\n/// @external-docs https://example.com \"Docs\"\nmod old {\n  /// @route GET /a\n  fn a() {}\n  /// @route GET /b\n  /// @external-docs https://example.com/b\n  fn b() {}\n}",
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let a = &document["paths"]["/a"]["get"];
+        assert_eq!(a["deprecated"], true);
+        assert_eq!(
+            a["externalDocs"],
+            json!({ "url": "https://example.com", "description": "Docs" })
+        );
+        let b = &document["paths"]["/b"]["get"];
+        assert_eq!(b["deprecated"], true);
+        assert_eq!(
+            b["externalDocs"],
+            json!({ "url": "https://example.com/b" }),
+            "the route wins"
+        );
+    }
+
+    #[test]
+    fn query_parameters_in_yaml_stop_query_inference() {
+        let (document, diagnostics) = pipeline(&[
+            ("models.rs", MODELS),
+            (
+                "api.rs",
+                "/// @route GET /a\n/// parameters:\n///   - { name: q, in: query, schema: { type: string } }\nasync fn a(Query(p): Query<Paging>) {}\n/// @route GET /b\n/// parameters:\n///   - { name: X-Trace, in: header, schema: { type: string } }\nasync fn b(Query(p): Query<Paging>) {}",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let names = |path: &str| -> Vec<String> {
+            document["paths"][path]["get"]["parameters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["name"].as_str().unwrap().to_string())
+                .collect()
+        };
+        assert_eq!(names("/a"), ["q"]);
+        assert_eq!(names("/b"), ["X-Trace", "page", "size"]);
+    }
+
+    #[test]
     fn inference_can_be_switched_off() {
         let project = Project::new();
         project
@@ -1217,6 +1291,38 @@ mod package_root {
     }
 
     #[test]
+    fn the_package_defines_the_cargo_variables() {
+        let project = Project::new();
+        project.file(
+            "src/lib.rs",
+            "/// @openapi\n/// info: { description: '{{CARGO_PKG_NAME}} {{CARGO_PKG_VERSION_MAJOR}} [{{CARGO_PKG_LICENSE}}] {{STAGE}}' }\nfn docs() {}",
+        );
+        let description = |generator: Generator| {
+            generator
+                .input(project.path("src"))
+                .build()
+                .unwrap()
+                .document()["info"]["description"]
+                .clone()
+        };
+        assert_eq!(
+            description(Generator::new().var("STAGE", "dev").package(package())),
+            "shop 2 [] dev",
+            "the package replaces values from the environment"
+        );
+        assert_eq!(
+            description(
+                Generator::new()
+                    .package(package())
+                    .var("CARGO_PKG_NAME", "renamed")
+                    .var("STAGE", "x")
+            ),
+            "renamed 2 [] x",
+            "later variables win"
+        );
+    }
+
+    #[test]
     fn without_a_package_a_full_output_needs_a_root() {
         let project = Project::new();
         project.file("src/lib.rs", "/// @route GET /a\nfn a() {}");
@@ -1281,5 +1387,53 @@ mod checks {
             .unwrap();
         spec.check().unwrap();
         assert!(!project.path("api.yaml").exists());
+    }
+}
+
+mod output_builders {
+    use super::*;
+
+    #[test]
+    fn every_export_has_a_builder_method() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC).file(
+            "src/events.rs",
+            "/// @asyncapi\n/// asyncapi: 3.0.0\n/// info: { title: E, version: '1' }\nfn events() {}\n/// @channel ping\n/// @send Ping: String\nfn ping() {}",
+        );
+        Generator::new()
+            .input(project.path("src"))
+            .output_json_schema(project.path("schemas.json"))
+            .output_openapi_30(project.path("v30.yaml"))
+            .output_swagger2(project.path("v2.yaml"))
+            .output_asyncapi(project.path("events.yaml"))
+            .generate()
+            .unwrap();
+        assert!(project.read_yaml("schemas.json")["$schema"].is_string());
+        assert_eq!(project.read_yaml("v30.yaml")["openapi"], "3.0.3");
+        assert_eq!(project.read_yaml("v2.yaml")["swagger"], "2.0");
+        assert_eq!(project.read_yaml("events.yaml")["asyncapi"], "3.0.0");
+    }
+}
+
+mod empty_blocks {
+    use super::*;
+
+    #[test]
+    fn empty_documents_and_rejected_channels_leave_no_trace() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "root.yaml",
+                "openapi: 3.1.0\ninfo: { title: T, version: '1' }",
+            ),
+            (
+                "lib.rs",
+                "/// @openapi\n/// # only a comment\nfn a() {}\n/// @asyncapi\n/// # nothing\nfn b() {}\n/// @channel\n/// @send M: String\nfn c() {}",
+            ),
+        ]);
+        assert_eq!(codes(&diagnostics), [Code::InvalidRoute]);
+        assert_eq!(
+            document,
+            json!({ "openapi": "3.1.0", "info": { "title": "T", "version": "1" } })
+        );
     }
 }

@@ -107,7 +107,6 @@ impl TypeExpr {
             syn::Type::Slice(s) => Self::Slice(Box::new(Self::from_syn(&s.elem))),
             syn::Type::Reference(r) => Self::Reference(Box::new(Self::from_syn(&r.elem))),
             syn::Type::Paren(p) => Self::from_syn(&p.elem),
-            syn::Type::Group(g) => Self::from_syn(&g.elem),
             syn::Type::Tuple(t) => Self::Tuple(t.elems.iter().map(Self::from_syn).collect()),
             other => Self::Other(quote_type(other)),
         }

@@ -592,9 +592,6 @@ impl Compiler<'_, '_> {
         let webhook = b.webhook.is_some();
         if !webhook {
             b.path = format!("{}{}", defaults.prefix, b.path);
-            if b.path.is_empty() {
-                b.path.push('/');
-            }
         }
         // Defaults: parameters first, the rest only where the route has none.
         for parameter in defaults.parameters.into_iter().rev() {
@@ -676,20 +673,23 @@ impl Compiler<'_, '_> {
 
         let mut path_item = Value::Object(Map::new());
         self.embedded_yaml(&b, &mut operation, &mut path_item, &mut document);
-        if let Some(signature) = signature {
-            self.infer_rest(&b, &mut operation, signature);
+        // Embedded YAML that is not a mapping is rejected, so the operation
+        // is still an object.
+        if let Value::Object(map) = &mut operation {
+            if let Some(signature) = signature {
+                self.infer_rest(&b, map, signature);
+            }
+            // OpenAPI requires at least one response.
+            if let Some(Value::Object(responses)) = map.get_mut("responses")
+                && responses.is_empty()
+            {
+                responses.insert(
+                    "default".into(),
+                    json!({ "description": responses::reason_phrase("default") }),
+                );
+            }
+            order_fields(map);
         }
-        // OpenAPI requires at least one response.
-        if let Some(Value::Object(responses)) = operation.get_mut("responses")
-            && responses.is_empty()
-        {
-            responses.insert(
-                "default".into(),
-                json!({ "description": responses::reason_phrase("default") }),
-            );
-        }
-
-        order_fields(&mut operation);
 
         let mut item = match path_item {
             Value::Object(map) => map,
@@ -810,11 +810,8 @@ impl Compiler<'_, '_> {
 
     /// Query parameters, body and success response from the signature, where
     /// the block (including its YAML) has none.
-    fn infer_rest(&mut self, b: &Builder, operation: &mut Value, signature: &Signature) {
+    fn infer_rest(&mut self, b: &Builder, map: &mut Map<String, Value>, signature: &Signature) {
         let types = self.source.types;
-        let Value::Object(map) = operation else {
-            return;
-        };
         if let Some(query) = &signature.query {
             let yaml_query = map
                 .get("parameters")
@@ -941,10 +938,7 @@ const FIELD_ORDER: &[&str] = &[
 
 /// Puts the fields of an operation in [`FIELD_ORDER`], so inferred and
 /// embedded fields do not depend on where they were added.
-fn order_fields(operation: &mut Value) {
-    let Value::Object(map) = operation else {
-        return;
-    };
+fn order_fields(map: &mut Map<String, Value>) {
     let mut ordered = Map::with_capacity(map.len());
     for key in FIELD_ORDER {
         if let Some(value) = map.remove(*key) {
@@ -980,6 +974,8 @@ fn is_custom(ty: &TypeExpr, types: &TypeMapper) -> bool {
     types.map(ty).schema.get("$ref").is_some()
 }
 
+/// Appends `value` to the list at `key` (a value that is not a list is
+/// replaced).
 fn push(map: &mut Map<String, Value>, key: &str, value: Value) {
     match map.entry(key).or_insert_with(|| json!([])) {
         Value::Array(items) => items.push(value),

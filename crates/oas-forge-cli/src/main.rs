@@ -1,7 +1,7 @@
 use clap::Parser;
 use colored::Colorize;
 use oas_forge::Error;
-use oas_forge::diagnostics::{Diagnostic, Severity};
+use oas_forge::diagnostics::Diagnostic;
 use oas_forge_cli::{Cli, MessageFormat, run};
 use std::process::ExitCode;
 
@@ -73,16 +73,17 @@ fn main() -> ExitCode {
     }
 }
 
-/// `warning[OF5001]: message (file:line)` with a colored label.
+/// `warning[OF5001]: message (file:line)` with a colored label. A
+/// successful run reports warnings only: errors fail it, notes are dropped.
 fn human(diagnostic: &Diagnostic) -> String {
     let label = format!("{}[{}]", diagnostic.severity(), diagnostic.code());
-    let label = match diagnostic.severity() {
-        Severity::Error => label.red().bold(),
-        Severity::Warning => label.yellow().bold(),
-        _ => label.cyan().bold(),
-    };
-    match diagnostic.location() {
-        Some(location) => format!("{label}: {} ({location})", diagnostic.message()),
-        None => format!("{label}: {}", diagnostic.message()),
-    }
+    let location = diagnostic
+        .location()
+        .map(|location| format!(" ({location})"))
+        .unwrap_or_default();
+    format!(
+        "{}: {}{location}",
+        label.yellow().bold(),
+        diagnostic.message()
+    )
 }

@@ -116,10 +116,7 @@ impl Config {
     /// Reads a configuration file in the `openapi.toml` format.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        Self::from_toml_str(&read(path)?).map_err(|e| match e {
-            Error::Config { message, .. } => Error::config(path, message),
-            other => other,
-        })
+        toml::from_str(&read(path)?).map_err(|e| Error::config(path, e.to_string()))
     }
 
     /// Parses a configuration in the `openapi.toml` format.

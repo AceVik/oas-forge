@@ -491,3 +491,22 @@ mod scopes {
         );
     }
 }
+
+mod methods {
+    use super::*;
+
+    #[test]
+    fn a_method_must_be_a_token() {
+        let (document, diagnostics) = try_route(&["@route G(E)T /x"]);
+        assert!(document.is_none());
+        assert_eq!(codes(&diagnostics), [Code::InvalidRoute]);
+        assert!(
+            diagnostics
+                .iter()
+                .next()
+                .unwrap()
+                .message()
+                .contains("`G(E)T` is not an HTTP method")
+        );
+    }
+}

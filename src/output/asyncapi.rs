@@ -11,7 +11,7 @@ const SCHEMA_PREFIX: &str = "#/components/schemas/";
 /// Copies every component schema of the OpenAPI document that the AsyncAPI
 /// document uses (directly or through other schemas) into its components,
 /// unless it defines a schema of that name itself.
-pub(crate) fn add_shared_schemas(asyncapi: &mut Value, openapi: &Value) {
+pub(crate) fn add_shared_schemas(asyncapi: &mut Map<String, Value>, openapi: &Value) {
     let Some(schemas) = openapi
         .pointer("/components/schemas")
         .and_then(Value::as_object)
@@ -19,14 +19,17 @@ pub(crate) fn add_shared_schemas(asyncapi: &mut Value, openapi: &Value) {
         return;
     };
     let mut wanted = Vec::new();
-    collect_refs(asyncapi, &mut wanted);
+    asyncapi
+        .values()
+        .for_each(|value| collect_refs(value, &mut wanted));
     let mut copied = BTreeSet::new();
     while let Some(name) = wanted.pop() {
         if !copied.insert(name.clone()) {
             continue;
         }
         let exists = asyncapi
-            .pointer(&format!("/components/schemas/{name}"))
+            .get("components")
+            .and_then(|components| components.pointer(&format!("/schemas/{name}")))
             .is_some();
         let Some(schema) = schemas.get(&name) else {
             continue;
@@ -35,10 +38,7 @@ pub(crate) fn add_shared_schemas(asyncapi: &mut Value, openapi: &Value) {
         if exists {
             continue;
         }
-        let Value::Object(document) = asyncapi else {
-            return;
-        };
-        let components = document
+        let components = asyncapi
             .entry("components")
             .or_insert_with(|| Value::Object(Map::new()));
         if let Value::Object(components) = components

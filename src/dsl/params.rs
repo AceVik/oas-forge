@@ -82,7 +82,7 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
                 parameter.insert("allowEmptyValue".into(), json!(true));
             }
             ("style", Some(style)) => {
-                parameter.insert("style".into(), json!(style.trim_matches('"')));
+                parameter.insert("style".into(), json!(text(style)));
             }
             ("example", Some(_)) => {
                 parameter.insert("example".into(), parsed().unwrap_or_default());
@@ -95,9 +95,9 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
                 Some(Value::Array(values)) => schema["enum"] = Value::Array(values),
                 _ => ignored.push(token.clone()),
             },
-            ("format", Some(format)) => schema["format"] = json!(format.trim_matches('"')),
+            ("format", Some(format)) => schema["format"] = json!(text(format)),
             ("pattern", Some(pattern)) => {
-                constraints.push(Rule::Pattern(pattern.trim_matches('"').to_string()));
+                constraints.push(Rule::Pattern(text(pattern).to_string()));
             }
             ("min" | "max", Some(_)) => match parsed() {
                 Some(Value::Number(number)) => {
@@ -179,9 +179,9 @@ fn is_flag(token: &str) -> bool {
 
 /// A flag value as YAML (`10` is a number, `[a, b]` a list), falling back to
 /// the text.
-fn scalar(text: &str) -> Value {
-    match yaml::parse(text) {
-        Ok(Value::Null) | Err(_) => json!(text.trim_matches('"')),
+fn scalar(value: &str) -> Value {
+    match yaml::parse(value) {
+        Ok(Value::Null) | Err(_) => json!(text(value)),
         Ok(value) => value,
     }
 }
@@ -213,4 +213,9 @@ fn bound(schema: &Value, lower: bool, number: Number) -> Rule {
             unit: LengthUnit::Chars,
         }
     }
+}
+
+/// A flag value without its surrounding quotes.
+fn text(value: &str) -> &str {
+    unquote(value).unwrap_or(value)
 }

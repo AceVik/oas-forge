@@ -96,13 +96,14 @@ impl fmt::Display for Error {
                 "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields.",
             ),
             Self::MultipleRootsFound { locations } => {
-                f.write_str(
-                    "Validation failed: Multiple Root OpenAPI definitions found. Only one definition can be the Root.",
-                )?;
-                for location in locations {
-                    write!(f, "\n  root defined at {location}")?;
-                }
-                Ok(())
+                let roots: String = locations
+                    .iter()
+                    .map(|location| format!("\n  root defined at {location}"))
+                    .collect();
+                write!(
+                    f,
+                    "Validation failed: Multiple Root OpenAPI definitions found. Only one definition can be the Root.{roots}"
+                )
             }
             Self::NoFilesFound => {
                 f.write_str("Empty input: No files found in the specified directories.")

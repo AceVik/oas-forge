@@ -738,6 +738,17 @@ mod directives {
     }
 
     #[test]
+    fn with_modules_on_newtype_variants_change_the_type() {
+        let items = extract(
+            "/// @openapi\nenum Stamp {\n  #[serde(with = \"chrono::serde::ts_seconds\")]\n  At(DateTime<Utc>),\n}",
+        );
+        assert_eq!(
+            schema(&items, "Stamp")["oneOf"][0]["properties"]["At"],
+            json!({ "type": "integer", "format": "int64" })
+        );
+    }
+
+    #[test]
     fn deprecated_enums_are_marked() {
         let items = extract("/// @openapi\n#[deprecated]\nenum E { A }");
         assert_eq!(schema(&items, "E")["deprecated"], true);

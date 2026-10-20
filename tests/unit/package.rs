@@ -168,10 +168,11 @@ mod environment {
     }
 
     #[test]
-    fn outside_build_scripts_there_is_no_build_package() {
-        // Cargo sets `OUT_DIR` for build scripts only, not for test binaries.
-        assert!(std::env::var_os("OUT_DIR").is_none());
-        assert_eq!(Package::from_build_env(), None);
+    fn the_build_package_needs_out_dir() {
+        // Cargo sets `OUT_DIR` when it runs build scripts, not for test
+        // binaries; the check holds either way.
+        let expected = std::env::var_os("OUT_DIR").and_then(|_| Package::from_env());
+        assert_eq!(Package::from_build_env(), expected);
     }
 }
 
@@ -211,6 +212,24 @@ mod root_documents {
             "https://shop.example.com",
             "the homepage is preferred"
         );
+    }
+
+    #[test]
+    fn variables_follow_cargo() {
+        let mut package = Package::new("shop", "1.12.3-beta.1+build");
+        package.license = Some("MIT".into());
+        let variables: std::collections::BTreeMap<_, _> = package.variables().into_iter().collect();
+        assert_eq!(variables["CARGO_PKG_NAME"], "shop");
+        assert_eq!(variables["CARGO_PKG_VERSION"], "1.12.3-beta.1+build");
+        assert_eq!(variables["CARGO_PKG_VERSION_MAJOR"], "1");
+        assert_eq!(variables["CARGO_PKG_VERSION_MINOR"], "12");
+        assert_eq!(variables["CARGO_PKG_VERSION_PATCH"], "3");
+        assert_eq!(variables["CARGO_PKG_LICENSE"], "MIT");
+        assert_eq!(
+            variables["CARGO_PKG_DESCRIPTION"], "",
+            "unset fields are empty"
+        );
+        assert_eq!(variables.len(), 9);
     }
 
     #[test]

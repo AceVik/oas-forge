@@ -121,6 +121,12 @@ fn every_item_kind_has_a_location() {
         struct Page<T> { items: Vec<T> }
         /// @openapi
         struct S;
+        static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new("^a$").unwrap());
+        /// @asyncapi
+        /// channels: {}
+        fn events() {}
+        /// @channel ping
+        fn ping() {}
         "#,
     );
     let lines: Vec<_> = items.iter().map(|i| i.location().line()).collect();
@@ -132,10 +138,13 @@ fn every_item_kind_has_a_location() {
             "document",
             "fragment:F",
             "blueprint:Page",
-            "schema:S"
+            "schema:S",
+            "pattern:RE",
+            "asyncapi",
+            "channel:ping"
         ]
     );
-    assert_eq!(lines, [2, 4, 7, 9, 12, 14]);
+    assert_eq!(lines, [2, 4, 7, 9, 12, 14, 16, 18, 20]);
 }
 
 #[test]

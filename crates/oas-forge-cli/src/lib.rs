@@ -152,16 +152,19 @@ pub struct Outcome {
 /// Any generator error; [`Error::Diagnostics`] when a diagnostic has error severity.
 pub fn run(cli: &Cli, dir: &Path) -> oas_forge::Result<Outcome> {
     let config = cli.resolve_config(dir)?;
-    let mut generator = Generator::new()
-        .with_config(config)
-        .deny_warnings(cli.deny_warnings)
-        .strict_lints(cli.strict);
+    // The package comes first, so configured variables override its
+    // `CARGO_PKG_*` values.
+    let mut generator = Generator::new();
     let manifest = dir.join("Cargo.toml");
     if manifest.is_file()
         && let Some(package) = Package::from_manifest(&manifest)?
     {
         generator = generator.package(package);
     }
+    let generator = generator
+        .with_config(config)
+        .deny_warnings(cli.deny_warnings)
+        .strict_lints(cli.strict);
     let spec = generator.build()?;
     if spec.diagnostics().has_errors() {
         return Err(Error::Diagnostics(spec.diagnostics().clone().into_vec()));

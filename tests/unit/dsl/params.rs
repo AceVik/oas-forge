@@ -437,3 +437,20 @@ mod dsl_v2 {
         assert!(codes(&diagnostics).is_empty());
     }
 }
+
+#[test]
+fn flag_values_that_are_not_yaml_stay_text() {
+    let op = operation(
+        // An unclosed bracket takes the rest of the line.
+        &[
+            "@route GET /x",
+            "@query-param q: String default= example=[open \"x\"",
+        ],
+        "/x",
+        "get",
+    );
+    let q = param(&op, "q");
+    assert_eq!(q["example"], "[open \"x\"");
+    assert_eq!(q["schema"]["default"], "");
+    assert_eq!(q["required"], false);
+}

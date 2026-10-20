@@ -421,6 +421,32 @@ mod ci {
     }
 
     #[test]
+    fn warnings_are_printed_with_code_and_location() {
+        let project = api_project();
+        project.file(
+            "src/api.rs",
+            "/// @route GET /x\n/// @frobnicate\nfn x() {}",
+        );
+        project.file(
+            "src/twice.rs",
+            "/// @route GET /a\n/// @operation-id same\nfn a() {}\n/// @route GET /b\n/// @operation-id same\nfn b() {}",
+        );
+        let output = oas_forge(&project, &["-i", "src", "-o", "a.yaml"]);
+        assert!(output.status.success());
+        let text = stderr(&output);
+        assert!(
+            text.contains("warning[OF2006]: unknown directive `@frobnicate` ("),
+            "{text}"
+        );
+        assert!(text.contains("api.rs:2)"), "{text}");
+        // Lints of the merged document have no location.
+        assert!(
+            text.contains("warning[OF5002]: operationId `same` is used by 2 operations\n"),
+            "{text}"
+        );
+    }
+
+    #[test]
     fn check_outdated_as_json() {
         let project = api_project();
         let output = oas_forge(
@@ -479,6 +505,8 @@ mod ci {
         assert_eq!(api["info"]["version"], "2.1.0");
         assert_eq!(api["info"]["license"]["identifier"], "MIT");
         assert_eq!(api["components"]["schemas"]["S"]["x-env"], "prod");
+        // From Cargo.toml, not from the environment `cargo test` runs in.
+        assert_eq!(api["components"]["schemas"]["S"]["x-name"], "shop");
         let bad = oas_forge(&project, &["--var", "novalue"]);
         assert!(!bad.status.success());
         assert!(stderr(&bad).contains("NAME=VALUE"));

@@ -159,7 +159,11 @@ impl<'a> Reflector<'a> {
                     );
                     let text = item.strip_prefix("- ").unwrap_or(&item);
                     match yaml::parse(&item) {
-                        Ok(Value::Array(mut values)) if !values[0].is_null() => values.remove(0),
+                        Ok(Value::Array(values)) => values
+                            .into_iter()
+                            .next()
+                            .filter(|value| !value.is_null())
+                            .unwrap_or_else(|| json!(text)),
                         _ => json!(text),
                     }
                 })

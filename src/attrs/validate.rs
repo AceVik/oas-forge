@@ -395,7 +395,6 @@ fn number(expr: &Expr) -> Option<Number> {
             n => Number::from_f64(-n.as_f64()?),
         },
         Expr::Paren(p) => number(&p.expr),
-        Expr::Group(g) => number(&g.expr),
         _ => None,
     }
 }
@@ -498,22 +497,13 @@ fn apply_rule(rule: &Rule, schema: &mut Value) {
             map.remove("format");
             add_subschema(
                 map,
-                json!({ "anyOf": [{ "format": "ipv4" }, { "format": "ipv6" }] }),
+                "anyOf",
+                json!([{ "format": "ipv4" }, { "format": "ipv6" }]),
             );
         }
-        Rule::Pattern(pattern) => {
-            if map.contains_key("pattern") {
-                add_subschema(map, json!({ "pattern": pattern }));
-            } else {
-                map.insert("pattern".into(), json!(pattern));
-            }
-        }
+        Rule::Pattern(pattern) => add_subschema(map, "pattern", json!(pattern)),
         Rule::NotPattern(pattern) => {
-            if map.contains_key("not") {
-                add_subschema(map, json!({ "not": { "pattern": pattern } }));
-            } else {
-                map.insert("not".into(), json!({ "pattern": pattern }));
-            }
+            add_subschema(map, "not", json!({ "pattern": pattern }));
         }
         Rule::PatternConstant(name) => {
             map.insert(PATTERN_KEY.into(), json!(name));
@@ -533,16 +523,15 @@ fn apply_rule(rule: &Rule, schema: &mut Value) {
     }
 }
 
-/// Adds a subschema that must hold as well (`allOf`), or merges its keys when
-/// they are not taken yet.
-fn add_subschema(map: &mut Map<String, Value>, subschema: Value) {
-    let Value::Object(sub) = subschema else {
-        return;
-    };
-    if sub.keys().all(|k| !map.contains_key(k)) {
-        map.extend(sub);
+/// Adds `key: value`, or a subschema `{key: value}` to `allOf` when `key`
+/// is taken already (both must hold).
+fn add_subschema(map: &mut Map<String, Value>, key: &str, value: Value) {
+    if !map.contains_key(key) {
+        map.insert(key.to_string(), value);
         return;
     }
+    let mut sub = Map::new();
+    sub.insert(key.to_string(), value);
     match map.get_mut("allOf") {
         Some(Value::Array(all)) => all.push(Value::Object(sub)),
         _ => {

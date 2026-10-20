@@ -357,6 +357,51 @@ mod validator {
     }
 
     #[test]
+    fn ip_with_both_or_no_versions_accepts_both() {
+        let both =
+            json!({ "type": "string", "anyOf": [{ "format": "ipv4" }, { "format": "ipv6" }] });
+        for attrs in [
+            "#[validate(ip(v4, v6))]",
+            "#[validate(ip(v4 = false))]",
+            "#[validate(ip(v4(x)))]",
+        ] {
+            assert_eq!(field_schema(attrs, "String"), both, "{attrs}");
+        }
+    }
+
+    #[test]
+    fn a_bare_string_argument_is_the_pattern() {
+        assert_eq!(
+            field_schema("#[validate(contains(\"a+\"))]", "String")["pattern"],
+            "a\\+"
+        );
+    }
+
+    #[test]
+    fn repeated_patterns_must_all_hold() {
+        assert_eq!(
+            field_schema(
+                "#[validate(contains(pattern = \"a\"), contains(pattern = \"b\"), does_not_contain(pattern = \"c\"), does_not_contain(pattern = \"d\"))]",
+                "String"
+            ),
+            json!({
+                "type": "string",
+                "pattern": "a",
+                "not": { "pattern": "c" },
+                "allOf": [{ "pattern": "b" }, { "not": { "pattern": "d" } }]
+            })
+        );
+    }
+
+    #[test]
+    fn negative_and_parenthesized_bounds() {
+        assert_eq!(
+            field_schema("#[validate(range(min = -1.5, max = (10)))]", "f64"),
+            json!({ "type": "number", "format": "double", "minimum": -1.5, "maximum": 10 })
+        );
+    }
+
+    #[test]
     fn regex_paths_name_constants() {
         for attrs in [
             "#[validate(regex(path = *SLUG))]",
@@ -437,6 +482,11 @@ mod validator {
             "#[validate(custom(function = \"check\"))]",
             "#[validate(contains)]",
             "#[validate(contains(pattern = 5))]",
+            "#[validate(contains(other = \"x\"))]",
+            "#[validate(does_not_contain)]",
+            "#[validate(length(a::b = 1))]",
+            "#[validate(range(a::b = 1))]",
+            "#[validate(regex(other = SLUG))]",
             "#[validate(regex)]",
             "#[validate(regex(path = 5))]",
             "#[validate(email = )]",
@@ -598,6 +648,14 @@ mod garde {
 
 mod serde_attribute {
     use super::*;
+
+    #[test]
+    fn unknown_flags_and_non_literal_names_are_ignored() {
+        let items = extract(
+            "/// @openapi\n#[serde(borrow, rename(serialize = NAME, deserialize = \"In\"))]\nstruct S { #[serde(rename(serialize = NAME))] a: u8 }",
+        );
+        assert!(schema(&items, "In")["properties"].get("a").is_some());
+    }
 
     #[test]
     fn container_rename_and_rename_all() {

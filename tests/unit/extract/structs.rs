@@ -924,6 +924,32 @@ mod directives {
     }
 
     #[test]
+    fn comment_only_overrides_change_nothing() {
+        let (items, diagnostics) =
+            extract_with_diagnostics("/// @openapi\n/// # just a comment\nstruct S { a: u8 }");
+        assert!(diagnostics.is_empty());
+        assert_eq!(
+            schema(&items, "S"),
+            schema(&extract("/// @openapi\nstruct S { a: u8 }"), "S")
+        );
+    }
+
+    #[test]
+    fn one_way_flags_need_an_object_schema() {
+        use oas_forge::schema::TypeMapper;
+        let types = TypeMapper::new().with_type("Anything", json!(true));
+        let mut diagnostics = Diagnostics::new();
+        let items = extract_str(
+            Path::new("test.rs"),
+            "/// @openapi\nstruct S { #[serde(skip_serializing)] a: Anything }",
+            Options::new().types(&types),
+            &mut diagnostics,
+        )
+        .unwrap();
+        assert_eq!(schema(&items, "S")["properties"]["a"], json!(true));
+    }
+
+    #[test]
     fn without_variables_placeholders_are_kept() {
         let items = extract("/// @openapi\n/// x-stage: '{{STAGE}}'\nstruct S { a: u8 }");
         assert_eq!(schema(&items, "S")["x-stage"], "{{STAGE}}");

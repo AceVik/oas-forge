@@ -357,3 +357,107 @@ fn a_license_identifier_that_repeats_the_name_is_dropped_silently() {
         "{messages:?}"
     );
 }
+
+mod components_and_edge_cases {
+    use super::*;
+
+    #[test]
+    fn reusable_parameters_responses_and_schemes_are_converted() {
+        let (document, messages) = swagger(&[(
+            "root.yaml",
+            &root(
+                r##"paths:
+  /a:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - { name: filter, in: query, content: { application/json: { schema: { type: string } } } }
+        - { name: shape, in: query, schema: { type: object, description: Shape filter } }
+      responses:
+        "404": { $ref: "#/components/responses/NotFound" }
+components:
+  parameters:
+    Limit: { name: limit, in: query, schema: { type: integer } }
+    Session: { name: session, in: cookie, schema: { type: string } }
+  responses:
+    NotFound: { description: Not found }
+  securitySchemes:
+    key: { type: apiKey, in: header, name: X-Key }
+    tls: { type: mutualTLS }
+"##,
+            ),
+        )]);
+        assert_eq!(
+            document["parameters"],
+            json!({ "Limit": { "name": "limit", "in": "query", "type": "integer" } })
+        );
+        assert_eq!(
+            document["responses"],
+            json!({ "NotFound": { "description": "Not found" } })
+        );
+        assert_eq!(
+            document["securityDefinitions"],
+            json!({ "key": { "type": "apiKey", "in": "header", "name": "X-Key" } })
+        );
+        let parameters = &document["paths"]["/a"]["get"]["parameters"];
+        assert_eq!(parameters[0], json!({ "$ref": "#/parameters/Limit" }));
+        assert_eq!(parameters[1]["type"], "string");
+        assert_eq!(
+            parameters[2],
+            json!({ "name": "shape", "in": "query", "type": "string", "description": "Shape filter" })
+        );
+        assert!(
+            messages.iter().any(|m| m.contains("cookie parameters")),
+            "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn path_item_references_and_bodies_without_content() {
+        let (document, _) = swagger(&[(
+            "root.yaml",
+            &root(
+                r##"servers: []
+paths:
+  /a:
+    $ref: "#/components/pathItems/A"
+  /b:
+    post:
+      requestBody: { description: Nothing to send }
+      responses: { "204": { description: Done } }
+"##,
+            ),
+        )]);
+        assert_eq!(
+            document["paths"]["/a"],
+            json!({ "$ref": "#/components/pathItems/A" })
+        );
+        assert!(document["paths"]["/b"]["post"].get("parameters").is_none());
+        assert!(document.get("host").is_none());
+    }
+
+    #[test]
+    fn malformed_sections_pass_through() {
+        let (spec, _project) = spec_of(&[(
+            "root.yaml",
+            "openapi: 3.1.0\ninfo: { title: T, version: '1' }\npaths:\n  /a: 5\n  /b: { get: 5 }\n  /c: { get: { parameters: 5, responses: { '200': 5 } } }\n  /d: { get: { parameters: [5], responses: {} } }\ncomponents: 5",
+        )]);
+        let document = spec.render(OutputKind::Swagger20).unwrap();
+        assert_eq!(document["paths"]["/a"], 5);
+        assert_eq!(document["paths"]["/b"]["get"], 5);
+        assert_eq!(document["paths"]["/c"]["get"]["responses"]["200"], 5);
+        assert_eq!(document["paths"]["/d"]["get"]["parameters"], json!([5]));
+        assert!(document.get("definitions").is_none());
+
+        let (spec, _project) = spec_of(&[(
+            "root.yaml",
+            "openapi: 3.1.0\ninfo: 5\ntags: [5]\npaths:\n  /a: { get: { responses: 5 } }\ncomponents: { parameters: 5, responses: 5, securitySchemes: 5 }",
+        )]);
+        let document = spec.render(OutputKind::Swagger20).unwrap();
+        assert_eq!(document["info"], 5);
+        assert_eq!(document["tags"], json!([5]));
+        assert_eq!(document["parameters"], json!({}));
+        assert_eq!(document["responses"], json!({}));
+        assert_eq!(document["securityDefinitions"], json!({}));
+    }
+}

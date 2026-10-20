@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
+shared-models = { path = "../shared-models" }
 
 [build-dependencies]
 oas-forge = { path = "../.." }

@@ -81,6 +81,16 @@ mod generic_ref {
     }
 
     #[test]
+    fn text_is_the_rust_type_without_sigils() {
+        let text = |t: &str| GenericRef::parse(t).unwrap().text();
+        assert_eq!(text("$Page<models::User>"), "Page<User>");
+        assert_eq!(
+            text("$Map<String, $Pair<A, $Vec<B>>>"),
+            "Map<String, Pair<A, Vec<B>>>"
+        );
+    }
+
+    #[test]
     fn concrete_names_flatten_arguments() {
         let name = |text: &str| GenericRef::parse(text).unwrap().concrete_name();
         assert_eq!(name("$Page<User>"), "Page_User");
