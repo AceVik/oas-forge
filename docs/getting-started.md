@@ -26,9 +26,13 @@ fn main() {
 - `input` directories are read recursively in sorted order: `.rs` files are
   parsed, `.yaml`, `.yml` and `.json` files are merged as OpenAPI snippets.
   `include` adds single files. Configured outputs are never read back as
-  inputs, even inside an input directory.
+  inputs, even inside an input directory. Symbolic links are followed
+  (broken links and loops are reported as `OF0005`), and a file that is
+  reached twice (overlapping inputs, an include inside an input directory)
+  is read once.
 - `emit_cargo_directives(true)` prints `cargo:rerun-if-changed` for every
-  input and `cargo:rerun-if-env-changed` for every `{{env:NAME}}`
+  input and every configuration file read with `Config::load()` (see
+  below), `cargo:rerun-if-env-changed` for every `{{env:NAME}}`
   placeholder, so the script reruns only when something it reads changes,
   and every finding as `cargo:warning`.
 - Files are written atomically and only when their content changes, so an
@@ -119,15 +123,18 @@ oas-forge -i src -o openapi.yaml --var STAGE=prod
 | `--message-format human\|json` | How findings are printed |
 
 Without any output option, the full document goes to `openapi.yaml`. The CLI
-reads the package metadata from `Cargo.toml` in the working directory, both
-for the generated root and for the `{{CARGO_PKG_*}}` variables.
+reads the package metadata from `Cargo.toml` in the working directory
+(fields inherited with `field.workspace = true` come from the workspace
+manifest above it), both for the generated root and for the
+`{{CARGO_PKG_*}}` variables.
 
 Exit status: `0` on success, `1` when the run fails (errors, or warnings with
 `--deny-warnings`) or `--check` finds an outdated output, `2` for invalid
 arguments.
 
-With `--message-format json`, every finding is one JSON object per line on
-standard output:
+Warnings are printed on standard error, also when the run fails. With
+`--message-format json`, every warning and error is one JSON object per line
+on standard output (notes are left out in both formats):
 
 ```json
 {"severity":"warning","code":"OF2006","message":"unknown directive `@frobnicate`","file":"src/api.rs","line":12}

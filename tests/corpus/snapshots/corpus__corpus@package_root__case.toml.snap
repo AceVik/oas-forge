@@ -36,9 +36,6 @@ input_file: tests/corpus/cases/package_root/case.toml
           }
         }
       },
-      "externalDocs": {
-        "url": "https://example.com/shop"
-      },
       "paths": {
         "/products": {
           "get": {

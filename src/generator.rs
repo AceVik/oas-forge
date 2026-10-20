@@ -21,7 +21,7 @@ use super::template::{Blueprint, Fragment, Registry, extend};
 use super::yaml;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Builds OpenAPI documents from Rust sources.
 ///
@@ -45,6 +45,8 @@ pub struct Generator {
     infer: bool,
     package: Option<Package>,
     strict_lints: bool,
+    /// Configuration files the settings were read from (watched by Cargo).
+    config_files: Vec<PathBuf>,
 }
 
 /// The package variables Cargo sets for build scripts.
@@ -87,6 +89,7 @@ impl Default for Generator {
             infer: true,
             package: Package::from_build_env(),
             strict_lints: false,
+            config_files: Vec::new(),
         }
     }
 }
@@ -97,8 +100,14 @@ impl Generator {
         Self::default()
     }
 
-    /// Adds the inputs and outputs of `config`.
+    /// Adds the inputs and outputs of `config`; the files it was read from
+    /// are watched like inputs ([`Spec::watched`]).
     pub fn with_config(mut self, config: Config) -> Self {
+        for file in config.files() {
+            if !self.config_files.contains(file) {
+                self.config_files.push(file.clone());
+            }
+        }
         let Config {
             input,
             include,
@@ -291,11 +300,17 @@ impl Generator {
         let mut spec = Spec {
             document: documents.document,
             canonical: documents.canonical,
+            generated_keys: documents.generated_keys,
             asyncapi: documents.asyncapi,
             registry: documents.registry,
             outputs: self.outputs.clone(),
             diagnostics,
-            watched: sources.watched().to_vec(),
+            watched: sources
+                .watched()
+                .iter()
+                .chain(&self.config_files)
+                .cloned()
+                .collect(),
             watched_env: sources
                 .files()
                 .iter()
@@ -349,7 +364,9 @@ impl Generator {
 #[derive(Debug, Clone)]
 pub struct Spec {
     document: Value,
-    canonical: Value,
+    /// `None` when equal to `document`.
+    canonical: Option<Value>,
+    generated_keys: Vec<String>,
     asyncapi: Value,
     registry: Registry,
     outputs: Vec<(OutputKind, PathBuf)>,
@@ -375,7 +392,8 @@ impl Spec {
         &self.diagnostics
     }
 
-    /// Inputs whose changes affect the result.
+    /// Inputs and configuration files ([`Config::files`]) whose changes
+    /// affect the result.
     pub fn watched(&self) -> &[PathBuf] {
         &self.watched
     }
@@ -404,7 +422,8 @@ impl Spec {
     pub fn render_with_diagnostics(&self, kind: OutputKind) -> Result<(Value, Diagnostics)> {
         let input = output::RenderInput {
             document: &self.document,
-            canonical: &self.canonical,
+            canonical: self.canonical.as_ref().unwrap_or(&self.document),
+            generated_keys: &self.generated_keys,
             asyncapi: &self.asyncapi,
             registry: &self.registry,
         };
@@ -421,8 +440,7 @@ impl Spec {
     pub fn write(&self) -> Result<Vec<PathBuf>> {
         let mut rendered = Vec::new();
         for (kind, path) in &self.outputs {
-            let value = self.render(*kind)?;
-            rendered.push((path, Format::of(path).render(&value)));
+            rendered.push((path, self.text(*kind, path)?));
         }
         for (path, text) in &rendered {
             output::write_if_changed(path, text)?;
@@ -432,7 +450,8 @@ impl Spec {
 
     /// The configured output files whose content differs from what
     /// [`Spec::write`] would write (missing files included), e.g. for a CI
-    /// check that the committed specification is up to date.
+    /// check that the committed specification is up to date. Line endings
+    /// do not count: a file checked out with `\r\n` is up to date.
     ///
     /// # Errors
     /// [`Error::NoRootFound`] or [`Error::NoAsyncApiRoot`] for outputs that
@@ -440,12 +459,20 @@ impl Spec {
     pub fn check(&self) -> Result<Vec<PathBuf>> {
         let mut outdated = Vec::new();
         for (kind, path) in &self.outputs {
-            let text = Format::of(path).render(&self.render(*kind)?);
-            if std::fs::read_to_string(path).ok().as_deref() != Some(text.as_str()) {
+            if !output::is_current(path, &self.text(*kind, path)?) {
                 outdated.push(path.clone());
             }
         }
         Ok(outdated)
+    }
+
+    /// The text the output file `path` of `kind` receives.
+    fn text(&self, kind: OutputKind, path: &Path) -> Result<String> {
+        let format = Format::of(path);
+        match self.rendered.get(&kind) {
+            Some(value) => Ok(format.render(value)),
+            None => Ok(format.render(&self.render_with_diagnostics(kind)?.0)),
+        }
     }
 
     /// Prints the [cargo directives](Spec::write_cargo_directives) of a
@@ -560,7 +587,7 @@ pub(crate) fn run(
                 if let Ok(mut value) = yaml::parse(file.text()) {
                     collected
                         .registry
-                        .import(&mut value, &location, &mut Diagnostics::new());
+                        .import(&mut value, &location, diagnostics);
                     collected.known.collect_from(&value);
                 }
                 collected.pending.push((
@@ -642,10 +669,20 @@ pub(crate) fn run(
     let mut asyncapi = merge_documents(asyncapi, Vec::new(), is_asyncapi_root, diagnostics)?;
     refs::unescape(&mut asyncapi);
     let mut document = merge_documents(snippets, generated, output::is_root, diagnostics)?;
+    let mut generated_keys = Vec::new();
     if !output::is_root(&document)
         && let Some(package) = package
     {
         let mut root = package.root_document();
+        // What only the generated root defines; the fragments output, which
+        // travels to other crates, leaves it out.
+        generated_keys = root
+            .as_object()
+            .into_iter()
+            .flat_map(Map::keys)
+            .filter(|key| document.get(key.as_str()).is_none())
+            .cloned()
+            .collect();
         merge(&mut root, document, Policy::Document);
         document = root;
         diagnostics.push(Diagnostic::new(
@@ -658,12 +695,17 @@ pub(crate) fn run(
     }
     refs::unescape(&mut document);
     output::strip_transport(&mut document);
-    normalize(&mut document);
+    normalize(&mut document, diagnostics);
     dsl::expand::expand_parameters(&mut document, diagnostics);
-    let canonical = document.clone();
-    if let Some(dialect) = Dialect::of_document(&document) {
-        dialect::lower(&mut document, dialect, diagnostics);
-    }
+    // OpenAPI 3.2 is the canonical dialect: only older roots need a copy.
+    let canonical = match Dialect::of_document(&document) {
+        None | Some(Dialect::OpenApi32) => None,
+        Some(dialect) => {
+            let canonical = document.clone();
+            dialect::lower(&mut document, dialect, diagnostics);
+            Some(canonical)
+        }
+    };
     let lints = Lints {
         strict: settings.strict_lints,
     };
@@ -671,12 +713,13 @@ pub(crate) fn run(
     if let Value::Object(map) = &mut asyncapi
         && !map.is_empty()
     {
-        output::asyncapi::add_shared_schemas(map, &canonical);
+        output::asyncapi::add_shared_schemas(map, canonical.as_ref().unwrap_or(&document));
         lint::check(&asyncapi, Lints::default(), diagnostics);
     }
     Ok(Documents {
         document,
         canonical,
+        generated_keys,
         asyncapi,
         registry,
     })
@@ -693,8 +736,11 @@ fn is_asyncapi_root(value: &Value) -> bool {
 pub(crate) struct Documents {
     /// The merged document in the dialect of its root.
     pub(crate) document: Value,
-    /// The merged document before version-specific lowering.
-    pub(crate) canonical: Value,
+    /// The merged document before version-specific lowering; `None` when
+    /// it equals `document` (OpenAPI 3.2 and documents without root).
+    pub(crate) canonical: Option<Value>,
+    /// Top-level keys that only the root generated from the package defines.
+    pub(crate) generated_keys: Vec<String>,
     /// The merged AsyncAPI document (empty without `@asyncapi`/`@channel`).
     pub(crate) asyncapi: Value,
     /// The templates of the run.
@@ -1044,18 +1090,50 @@ fn merge_documents(
 }
 
 /// Final clean-ups of the merged document.
-fn normalize(document: &mut Value) {
-    // `tags: [A, B]` declared on modules: tag objects are required at the top level.
+fn normalize(document: &mut Value, diagnostics: &mut Diagnostics) {
     if let Some(Value::Array(tags)) = document.get_mut("tags") {
-        for tag in tags.iter_mut() {
-            if let Value::String(name) = tag {
-                *tag = json!({ "name": name });
-            }
-        }
-        let mut seen = std::collections::HashSet::new();
-        tags.retain(|t| seen.insert(t.get("name").map(Value::to_string).unwrap_or_default()));
+        *tags = merge_tags(std::mem::take(tags), diagnostics);
     }
     remove_extend_markers(document);
+}
+
+/// Top-level tags as unique objects: `tags: [A, B]` declared on modules
+/// become `{ name: A }`, and definitions of the same name are merged in
+/// order (later values win, conflicts are reported).
+fn merge_tags(tags: Vec<Value>, diagnostics: &mut Diagnostics) -> Vec<Value> {
+    let mut merged: Vec<Value> = Vec::with_capacity(tags.len());
+    for tag in tags {
+        let tag = match tag {
+            Value::String(name) => json!({ "name": name }),
+            other => other,
+        };
+        if !tag.is_object() {
+            if !merged.contains(&tag) {
+                merged.push(tag);
+            }
+            continue;
+        }
+        let name = tag.get("name").cloned();
+        let existing = merged
+            .iter_mut()
+            .find(|t| t.is_object() && t.get("name") == name.as_ref());
+        let Some(existing) = existing else {
+            merged.push(tag);
+            continue;
+        };
+        let label = name.as_ref().map_or_else(String::new, |n| {
+            n.as_str().map_or_else(|| n.to_string(), str::to_string)
+        });
+        for pointer in merge(existing, tag, Policy::Document) {
+            diagnostics.push(Diagnostic::new(
+                Code::MergeConflict,
+                format!(
+                    "the value at `/tags/{label}{pointer}` is set differently by several annotations; the later one wins"
+                ),
+            ));
+        }
+    }
+    merged
 }
 
 fn remove_extend_markers(value: &mut Value) {

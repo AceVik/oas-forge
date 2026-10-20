@@ -27,6 +27,11 @@ Both contain the same document. `Spec::render(kind)` returns any output as a
 - Configured outputs are never read as inputs.
 - `Spec::check()` (CLI `--check`) lists outputs whose file is missing or
   different, without writing.
+- Line endings do not count: a file that Git checked out with `\r\n`
+  (`core.autocrlf`) is up to date and is not rewritten.
+- A full document always validates: `paths: {}` is added when the version
+  requires it (OpenAPI 3.0 always, 3.1 and 3.2 when there are neither
+  `components` nor `webhooks`).
 
 ## Determinism
 
@@ -34,7 +39,8 @@ The same sources produce byte-identical files on every platform and in any
 file order: inputs are read in sorted order, the top-level keys follow the
 specification order (`openapi`, `$self`, `info`, `jsonSchemaDialect`, `servers`,
 `paths`, `webhooks`, `components`, `security`, `tags`, `externalDocs`), the
-entries of every `components` section are sorted by name, and everything
+entries of every `components` section (and of the schemas output) are
+sorted by name, and everything
 else keeps the order of the sources. See
 [ADR 0007](adr/0007-determinism-and-key-order.md).
 
@@ -92,12 +98,19 @@ and `kind`, response `summary`, `components.pathItems` and `mediaTypes`, and
   property name.
 
 Left out or approximated, each reported once (`OF6001`, `OF6002`): cookie
-parameters, `TRACE` operations, callbacks, response links, status ranges
-(`2XX` becomes `200`), operation and path item `servers`, path item
+parameters (and references to them), `TRACE` operations, callbacks, response
+links, status ranges (`2XX` becomes `200`; an explicit `200` of the same
+operation wins), operation and path item `servers`, path item
 `summary`/`description`, HTTP authentication other than basic (documented as
 an `Authorization` header), OpenID Connect, mutual TLS, API keys in cookies,
-more than one OAuth2 flow per scheme, `info.summary`, `license.identifier`
-and tag extensions.
+more than one OAuth2 flow per scheme (the first in Swagger order is used),
+`info.summary`, `license.identifier` and tag extensions.
+
+A security requirement alternative that names a left-out scheme (OpenID
+Connect, mutual TLS, an API key in a cookie) is removed; when no
+alternative remains, the requirements are kept as `x-security` instead of
+`security`, so the operation is not documented as public. References to
+`components.headers` are resolved into the response headers.
 
 ## JSON Schema
 
@@ -116,7 +129,9 @@ validators that do not read OpenAPI.
 `output_fragments` writes the document without `openapi`, `info` and
 `servers`, plus the generic templates and fragments for other crates; see
 [cross-crate templates](templates.md#cross-crate-templates). It also works
-when the crate has no root.
+when the crate has no root; what only the root generated from the package
+defines (such as `externalDocs` from `homepage`) is left out, so it does
+not end up in the documents of the crates that include the fragments.
 
 ## Lints
 

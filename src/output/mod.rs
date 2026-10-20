@@ -118,6 +118,8 @@ pub(crate) struct RenderInput<'a> {
     /// The merged document in the canonical dialect (JSON Schema 2020-12),
     /// before version-specific lowering.
     pub canonical: &'a Value,
+    /// Top-level keys only the root generated from the package defines.
+    pub generated_keys: &'a [String],
     /// The merged AsyncAPI document, with the schemas it uses.
     pub asyncapi: &'a Value,
     /// The templates of the run.
@@ -137,12 +139,20 @@ pub(crate) fn render(
             if !is_root(document) {
                 return Err(Error::NoRootFound);
             }
-            Ok(ordered(document.clone()))
+            let mut full = document.clone();
+            if let Value::Object(map) = &mut full {
+                add_required_paths(map);
+            }
+            Ok(ordered(full))
         }
-        OutputKind::Schemas => Ok(document
-            .pointer("/components/schemas")
-            .cloned()
-            .unwrap_or_else(|| Value::Object(Map::new()))),
+        OutputKind::Schemas => {
+            let mut schemas = document
+                .pointer("/components/schemas")
+                .cloned()
+                .unwrap_or_else(|| Value::Object(Map::new()));
+            sort_entries(&mut schemas);
+            Ok(schemas)
+        }
         OutputKind::Paths => Ok(document
             .get("paths")
             .cloned()
@@ -153,6 +163,11 @@ pub(crate) fn render(
             let mut fragment = input.canonical.clone();
             if let Value::Object(map) = &mut fragment {
                 for key in ["openapi", "info", "servers"] {
+                    map.remove(key);
+                }
+                // A root generated from this crate's package is not part of
+                // what other crates include.
+                for key in input.generated_keys {
                     map.remove(key);
                 }
                 let transport = input.registry.export();
@@ -238,6 +253,21 @@ fn ordered(document: Value) -> Value {
     Value::Object(out)
 }
 
+/// `paths: {}` where the version requires it: OpenAPI 3.0 always, 3.1 and
+/// 3.2 when the document has neither `components` nor `webhooks`.
+fn add_required_paths(map: &mut Map<String, Value>) {
+    if map.contains_key("paths") {
+        return;
+    }
+    let version_30 = map
+        .get("openapi")
+        .and_then(Value::as_str)
+        .is_some_and(|v| v.starts_with("3.0"));
+    if version_30 || !(map.contains_key("components") || map.contains_key("webhooks")) {
+        map.insert("paths".into(), Value::Object(Map::new()));
+    }
+}
+
 /// Sorts the entries of a map by name.
 fn sort_entries(section: &mut Value) {
     if let Value::Object(entries) = section {
@@ -247,10 +277,18 @@ fn sort_entries(section: &mut Value) {
     }
 }
 
-/// Writes `text` to `path` atomically, unless the file already has exactly
-/// this content. Returns whether the file was written.
+/// Whether the file at `path` already has the content `text`. Line endings
+/// do not count, so a file that Git checked out with `\r\n` is current.
+pub(crate) fn is_current(path: &Path, text: &str) -> bool {
+    std::fs::read_to_string(path).is_ok_and(|existing| {
+        existing == text || (existing.contains('\r') && existing.replace("\r\n", "\n") == text)
+    })
+}
+
+/// Writes `text` to `path` atomically, unless the file already has this
+/// content ([`is_current`]). Returns whether the file was written.
 pub(crate) fn write_if_changed(path: &Path, text: &str) -> Result<bool> {
-    if std::fs::read_to_string(path).is_ok_and(|existing| existing == text) {
+    if is_current(path, text) {
         return Ok(false);
     }
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {

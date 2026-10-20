@@ -23,12 +23,11 @@ input_file: tests/corpus/cases/version_placeholder/case.toml
         "version": "<pkg-version>"
       },
       "openapi": "3.1.0",
+      "paths": {},
       "x-unquoted-version": "<pkg-version>"
     },
     "lints": [],
-    "validation": [
-      ": value is not valid under any of the schemas listed in the 'anyOf' keyword"
-    ]
+    "validation": []
   },
   "json_schema": {
     "document": {

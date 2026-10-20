@@ -261,3 +261,70 @@ mod writing {
         assert!(matches!(changed, Err(Error::Io { .. })), "{changed:?}");
     }
 }
+
+mod review_fixes {
+    use super::*;
+    use crate::common::spec as official;
+
+    #[test]
+    fn schemas_output_is_sorted_like_the_components() {
+        let project = Project::new();
+        project.file(
+            "src/lib.rs",
+            "/// @openapi\nstruct Zebra { a: u8 }\n/// @openapi\nstruct Alpha { b: u8 }",
+        );
+        let schemas = spec(&project).render(OutputKind::Schemas).unwrap();
+        let names: Vec<_> = schemas.as_object().unwrap().keys().cloned().collect();
+        assert_eq!(names, ["Alpha", "Zebra"]);
+    }
+
+    #[test]
+    fn full_documents_get_the_paths_their_version_requires() {
+        for (root, extra, expected) in [
+            ("3.0.3", "/// @openapi\nstruct A { a: u8 }", Some(json!({}))),
+            ("3.1.0", "", Some(json!({}))),
+            ("3.2.0", "", Some(json!({}))),
+            ("3.1.0", "/// @openapi\nstruct A { a: u8 }", None),
+        ] {
+            let project = Project::new();
+            project.file(
+                "src/lib.rs",
+                &format!(
+                    "/// @openapi\n/// openapi: {root}\n/// info: {{ title: T, version: '1' }}\nfn root() {{}}\n{extra}"
+                ),
+            );
+            let full = spec(&project).render(OutputKind::Full).unwrap();
+            assert_eq!(full.get("paths").cloned(), expected, "{root} {extra}");
+            let errors = official::validate(&full);
+            assert!(errors.is_empty(), "{root}: {errors:?}\n{full:#}");
+        }
+    }
+
+    #[test]
+    fn line_endings_do_not_make_an_output_outdated() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC);
+        let generator = Generator::new()
+            .input(project.path("src"))
+            .output(project.path("api.yaml"))
+            .output(project.path("api.json"));
+        generator.generate().unwrap();
+        for file in ["api.yaml", "api.json"] {
+            let crlf = project.read(file).replace('\n', "\r\n");
+            project.file(file, &crlf);
+        }
+        let spec = generator.build().unwrap();
+        assert!(spec.check().unwrap().is_empty());
+        spec.write().unwrap();
+        assert!(
+            project.read("api.yaml").contains("\r\n"),
+            "an equivalent file is not rewritten"
+        );
+
+        project.file(
+            "api.yaml",
+            &project.read("api.yaml").replace("Test API", "Old"),
+        );
+        assert_eq!(spec.check().unwrap(), [project.path("api.yaml")]);
+    }
+}

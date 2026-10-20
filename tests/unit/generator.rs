@@ -1582,3 +1582,136 @@ mod dsl_references {
         }
     }
 }
+
+mod review_fixes {
+    use super::*;
+    use oas_forge::Package;
+
+    #[test]
+    fn findings_of_imported_templates_are_reported() {
+        let (_, diagnostics) = pipeline(&[(
+            "shared.yaml",
+            "components:\n  x-oas-forge-format: 99\n  x-oas-forge-templates:\n    Page: { params: [T], body: 'properties: [unclosed' }",
+        )]);
+        assert_eq!(
+            codes(&diagnostics),
+            [Code::UnknownTemplateFormat, Code::InvalidFragment]
+        );
+    }
+
+    #[test]
+    fn tags_with_the_same_name_are_merged() {
+        let (document, diagnostics) = pipeline(&[
+            ("a.yaml", "tags: [Users, Admin]"),
+            (
+                "b.yaml",
+                "tags: [{ name: Users, description: Everything about users }]",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            document["tags"],
+            json!([
+                { "name": "Users", "description": "Everything about users" },
+                { "name": "Admin" }
+            ])
+        );
+
+        let (document, diagnostics) = pipeline(&[
+            ("a.yaml", "tags: [{ name: Users, description: First }]"),
+            ("b.yaml", "tags: [{ name: Users, description: Second }]"),
+        ]);
+        assert_eq!(
+            document["tags"],
+            json!([{ "name": "Users", "description": "Second" }])
+        );
+        assert_eq!(codes(&diagnostics), [Code::MergeConflict]);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message().contains("`/tags/Users/description`")),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn configuration_files_are_watched() {
+        let project = Project::new();
+        project
+            .file("src/root.rs", ROOT_DOC)
+            .file(
+                "Cargo.toml",
+                "[package]\nname = \"demo\"\n[package.metadata.oas-forge.variables]\nSTAGE = \"dev\"\n",
+            )
+            .file("openapi.toml", "[variables]\nSTAGE = \"prod\"\n");
+        let config = Config::load_from(project.root()).unwrap();
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .with_config(config)
+            .build()
+            .unwrap();
+        assert_eq!(
+            spec.watched(),
+            [
+                project.path("src"),
+                project.path("Cargo.toml"),
+                project.path("openapi.toml"),
+            ]
+        );
+
+        // A manifest without settings is not a configuration file.
+        project.file("Cargo.toml", "[package]\nname = \"demo\"\n");
+        let config = Config::load_from(project.root()).unwrap();
+        assert_eq!(config.files(), [project.path("openapi.toml")]);
+    }
+
+    #[test]
+    fn the_generated_root_does_not_leak_into_fragments() {
+        let mut package = Package::new("lib-crate", "1.0.0");
+        package.homepage = Some("https://lib.example.com".into());
+        let project = Project::new();
+        project.file("src/lib.rs", "/// @openapi\nstruct A { a: u8 }");
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .package(package.clone())
+            .build()
+            .unwrap();
+        assert_eq!(
+            spec.render(OutputKind::Full).unwrap()["externalDocs"]["url"],
+            "https://lib.example.com"
+        );
+        let fragments = spec.render(OutputKind::Fragments).unwrap();
+        assert!(fragments.get("externalDocs").is_none(), "{fragments:#}");
+        assert!(fragments["components"]["schemas"].get("A").is_some());
+
+        // Values written in the sources stay.
+        project.file(
+            "src/docs.yaml",
+            "externalDocs: { url: 'https://own.example.com' }",
+        );
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .package(package)
+            .build()
+            .unwrap();
+        assert_eq!(
+            spec.render(OutputKind::Fragments).unwrap()["externalDocs"]["url"],
+            "https://own.example.com"
+        );
+    }
+}
+
+#[test]
+fn configured_outputs_are_rendered_once_and_reused() {
+    let project = Project::new();
+    project.file("src/root.rs", ROOT_DOC);
+    let spec = Generator::new()
+        .input(project.path("src"))
+        .output(project.path("api.yaml"))
+        .build()
+        .unwrap();
+    assert_eq!(
+        spec.render(OutputKind::Full).unwrap(),
+        spec.render_with_diagnostics(OutputKind::Full).unwrap().0
+    );
+}

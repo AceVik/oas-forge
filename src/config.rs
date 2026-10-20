@@ -56,6 +56,9 @@ pub struct Config {
     /// API_URL = "https://api.example.com"
     /// ```
     pub variables: Option<BTreeMap<String, String>>,
+    /// The configuration files the settings were read from.
+    #[serde(skip)]
+    files: Vec<PathBuf>,
 }
 
 /// The `Cargo.toml` subset that carries `[package.metadata.oas-forge]`.
@@ -97,11 +100,12 @@ impl Config {
         if manifest.is_file() {
             let parsed: CargoManifest = toml::from_str(&read(&manifest)?)
                 .map_err(|e| Error::config(&manifest, e.to_string()))?;
-            if let Some(found) = parsed
+            if let Some(mut found) = parsed
                 .package
                 .and_then(|p| p.metadata)
                 .and_then(|m| m.oas_forge)
             {
+                found.files.push(manifest);
                 config.merge(found);
             }
         }
@@ -116,7 +120,18 @@ impl Config {
     /// Reads a configuration file in the `openapi.toml` format.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        toml::from_str(&read(path)?).map_err(|e| Error::config(path, e.to_string()))
+        let mut config: Self =
+            toml::from_str(&read(path)?).map_err(|e| Error::config(path, e.to_string()))?;
+        config.files.push(path.to_path_buf());
+        Ok(config)
+    }
+
+    /// The files the settings were read from (`Cargo.toml` when it has
+    /// `[package.metadata.oas-forge]`, `openapi.toml`, a `--config` file), so
+    /// a build script can rerun when they change
+    /// ([`Generator::with_config`](crate::Generator::with_config) watches them).
+    pub fn files(&self) -> &[PathBuf] {
+        &self.files
     }
 
     /// Parses a configuration in the `openapi.toml` format.
@@ -141,7 +156,13 @@ impl Config {
             output_asyncapi,
             types,
             variables,
+            files,
         } = other;
+        for file in files {
+            if !self.files.contains(&file) {
+                self.files.push(file);
+            }
+        }
         if let Some(types) = types {
             self.types.get_or_insert_with(BTreeMap::new).extend(types);
         }

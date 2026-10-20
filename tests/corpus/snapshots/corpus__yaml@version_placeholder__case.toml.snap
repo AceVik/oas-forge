@@ -9,4 +9,5 @@ info:
   title: Versioned
   version: "<pkg-version>"
   description: Built from version <pkg-version>
+paths: {}
 x-unquoted-version: "<pkg-version>"
