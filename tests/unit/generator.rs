@@ -1632,6 +1632,76 @@ mod dsl_references {
             );
         }
     }
+
+    const ROUTE: &str = "/// @route POST /a/{p: Duration}\n/// @query-param q: Duration default=5 \"Wait\"\n/// @query-param w: std::time::Duration\n/// @header-param X-Id: Uuid\n/// @return-header 200 X-Took: Duration\n/// @body Value\n/// @return 200: Vec<Duration>\n/// @return 201: HashMap<String, Option<Duration>>\nfn a() {}\n/// @route GET /b\nasync fn b() -> Json<Duration> { todo!() }\n/// @channel ticks\n/// @send Tick: Duration\nfn tick() {}";
+
+    #[test]
+    fn documented_types_win_over_bare_built_in_names() {
+        let (document, diagnostics) = pipeline(&[
+            ("api.rs", ROUTE),
+            (
+                "models.rs",
+                "/// @openapi\nstruct Duration { minutes: u32 }\n/// @openapi rename \"AnyValue\"\nstruct Value { raw: String }",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let duration = json!({ "$ref": "#/components/schemas/Duration" });
+        let op = &document["paths"]["/a/{p}"]["post"];
+        let schema = |i: usize| op["parameters"][i]["schema"].clone();
+        assert_eq!(schema(0), duration);
+        // Flags apply to the documented schema too.
+        assert_eq!(
+            schema(1),
+            json!({ "$ref": "#/components/schemas/Duration", "default": 5 })
+        );
+        // Paths keep the built-in type; undocumented names too.
+        assert_eq!(schema(2)["type"], "object");
+        assert_eq!(schema(3), json!({ "type": "string", "format": "uuid" }));
+        let response = &op["responses"]["200"];
+        assert_eq!(response["headers"]["X-Took"]["schema"], duration);
+        assert_eq!(
+            response["content"]["application/json"]["schema"],
+            json!({ "type": "array", "items": duration })
+        );
+        assert_eq!(
+            op["responses"]["201"]["content"]["application/json"]["schema"]["additionalProperties"],
+            json!({ "anyOf": [duration, { "type": "null" }] })
+        );
+        assert_eq!(
+            op["requestBody"]["content"]["application/json"]["schema"],
+            json!({ "$ref": "#/components/schemas/AnyValue" })
+        );
+        assert_eq!(
+            document["paths"]["/b"]["get"]["responses"]["200"]["content"]["application/json"]["schema"],
+            duration
+        );
+        assert!(!document.to_string().contains("x-oas-forge-builtin"));
+    }
+
+    #[test]
+    fn without_documented_types_built_in_names_are_unchanged() {
+        let (document, diagnostics) = pipeline(&[("api.rs", ROUTE)]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let op = &document["paths"]["/a/{p}"]["post"];
+        assert_eq!(op["parameters"][0]["schema"]["type"], "object");
+        assert_eq!(op["parameters"][1]["schema"]["default"], 5);
+        assert_eq!(
+            op["requestBody"]["content"]["application/json"]["schema"],
+            json!({})
+        );
+        assert!(!document.to_string().contains("x-oas-forge-builtin"));
+    }
+
+    #[test]
+    fn yaml_merged_into_a_built_in_schema_keeps_its_order() {
+        let (document, _) = pipeline(&[(
+            "api.rs",
+            "/// @route GET /a\n/// @query-param d: Uuid\n/// parameters:\n///   - { name: d, in: query, schema: { description: Wait, example: 1 } }\nfn a() {}",
+        )]);
+        let schema = document["paths"]["/a"]["get"]["parameters"][0]["schema"].clone();
+        let keys: Vec<_> = schema.as_object().unwrap().keys().cloned().collect();
+        assert_eq!(keys, ["type", "format", "description", "example"]);
+    }
 }
 
 mod review_fixes {

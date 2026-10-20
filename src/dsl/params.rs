@@ -6,7 +6,7 @@
 use super::tokens::{tokenize, unquote};
 use crate::attrs::validate::{Constraints, LengthUnit, Rule};
 use crate::diagnostics::Location;
-use crate::schema::{TypeExpr, TypeMapper};
+use crate::schema::{TypeExpr, TypeMapper, shadow};
 use crate::yaml;
 use serde_json::{Map, Number, Value, json};
 
@@ -40,15 +40,18 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
         _ => ("String", tokens.as_slice()),
     };
     let (mut schema, mut required) = match TypeExpr::parse(type_text) {
-        Some(t) => {
-            let mapped = types.map(&t);
-            (mapped.schema, mapped.required)
-        }
+        // A bare built-in name (`Uuid`) may stand for a documented schema.
+        Some(t) => (
+            shadow::typed(types, &t, |m| m.schema),
+            types.map(&t).required,
+        ),
         None => (json!({ "type": "string" }), true),
     };
 
     let mut parameter = Map::new();
     let mut description: Vec<&str> = Vec::new();
+    // Schema keywords and constraints, applied to every alternative.
+    let mut keywords: Vec<(&str, Value)> = Vec::new();
     let mut constraints = Vec::new();
     let mut ignored = Vec::new();
     let mut has_default = false;
@@ -87,27 +90,38 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
                 parameter.insert("example".into(), parsed().unwrap_or_default());
             }
             ("default", Some(_)) => {
-                set(&mut schema, "default", parsed().unwrap_or_default());
+                keywords.push(("default", parsed().unwrap_or_default()));
                 has_default = true;
             }
             ("enum", Some(_)) => match parsed() {
-                Some(Value::Array(values)) => set(&mut schema, "enum", Value::Array(values)),
+                Some(Value::Array(values)) => keywords.push(("enum", Value::Array(values))),
                 _ => ignored.push(token.clone()),
             },
-            ("format", Some(format)) => set(&mut schema, "format", json!(text(format))),
+            ("format", Some(format)) => keywords.push(("format", json!(text(format)))),
             ("pattern", Some(pattern)) => {
-                constraints.push(Rule::Pattern(text(pattern).to_string()));
+                constraints.push(Ok(Rule::Pattern(text(pattern).to_string())));
             }
             ("min" | "max", Some(_)) => match parsed() {
-                Some(Value::Number(number)) => {
-                    constraints.push(bound(&schema, flag == "min", number))
-                }
+                Some(Value::Number(number)) => constraints.push(Err((flag == "min", number))),
                 _ => ignored.push(token.clone()),
             },
             _ => ignored.push(token.clone()),
         }
     }
-    Constraints::new(constraints).apply(&mut schema);
+    shadow::for_each(&mut schema, |schema| {
+        for (key, value) in &keywords {
+            set(schema, key, value.clone());
+        }
+        // `min`/`max` are a range or a length, depending on the schema.
+        let rules = constraints
+            .iter()
+            .map(|rule| match rule {
+                Ok(rule) => rule.clone(),
+                Err((lower, number)) => bound(schema, *lower, number.clone()),
+            })
+            .collect();
+        Constraints::new(rules).apply(schema);
+    });
 
     // A parameter with a default may be left out, unless marked `required`.
     required = (required && !has_default) || explicitly_required || location == "path";
@@ -142,8 +156,10 @@ pub(super) fn inline_path(
     description: Option<&str>,
     types: &TypeMapper,
 ) -> Value {
-    let schema = TypeExpr::parse(type_text.unwrap_or("String"))
-        .map_or_else(|| json!({ "type": "string" }), |t| types.map(&t).schema);
+    let schema = TypeExpr::parse(type_text.unwrap_or("String")).map_or_else(
+        || json!({ "type": "string" }),
+        |t| shadow::typed(types, &t, |m| m.schema),
+    );
     let mut param = Map::new();
     param.insert("name".into(), json!(name));
     param.insert("in".into(), json!("path"));

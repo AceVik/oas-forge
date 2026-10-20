@@ -1,0 +1,1 @@
+description = "Route and channel DSL: a bare built-in name (Duration, Value) refers to the documented schema of that name; paths and undocumented names keep the built-in type"

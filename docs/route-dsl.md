@@ -105,8 +105,12 @@ Wherever the DSL takes a type:
 | `stream<T>` | a stream of `T` (OpenAPI 3.2 `itemSchema`), for `@return` |
 | `api-error` | a reference to the schema `api-error` (a schema name that is no Rust type) |
 
-Text that is none of these, such as invalid inline YAML, is reported
-(`OF2004`) and the directive ignored.
+A built-in name written bare (`Duration`, `Value`, `Uuid`) refers to the
+documented schema of that name when the sources define one, like a field
+of a reflected struct ([own types with built-in names](schemas.md#types-from-other-crates));
+a path (`std::time::Duration`) and a custom mapping keep the built-in or
+mapped type. Text that is none of these, such as invalid inline YAML, is
+reported (`OF2004`) and the directive ignored.
 
 ## Parameters
 

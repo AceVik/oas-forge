@@ -1,0 +1,102 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/dsl_builtin_names/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /jobs:
+    post:
+      summary: Start a job
+      operationId: start_job
+      parameters:
+      - name: timeout
+        in: query
+        required: false
+        description: Timeout
+        schema:
+          $ref: "#/components/schemas/Duration"
+          default: 5
+      - name: poll
+        in: query
+        required: true
+        description: Poll interval
+        schema:
+          type: object
+          properties:
+            secs:
+              type: integer
+              format: int64
+              minimum: 0
+            nanos:
+              type: integer
+              format: int64
+              minimum: 0
+              maximum: 999999999
+          required:
+          - secs
+          - nanos
+      - name: X-Request-Id
+        in: header
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnyValue"
+        required: true
+      responses:
+        "202":
+          description: Estimated steps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Duration"
+          headers:
+            X-Took:
+              schema:
+                $ref: "#/components/schemas/Duration"
+              required: true
+  /jobs/estimate:
+    get:
+      summary: Estimate a job
+      operationId: estimate
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                anyOf:
+                - $ref: "#/components/schemas/Duration"
+                - type: "null"
+components:
+  schemas:
+    AnyValue:
+      type: object
+      properties:
+        raw:
+          type: string
+      required:
+      - raw
+      description: Any value the client sends.
+    Duration:
+      type: object
+      properties:
+        minutes:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      required:
+      - minutes
+      description: How long something takes, in minutes.

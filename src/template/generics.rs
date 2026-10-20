@@ -6,7 +6,8 @@
 
 use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
-use crate::schema::types::{TypeExpr, TypeMapper, is_container};
+use crate::schema::shadow;
+use crate::schema::types::{MappedType, TypeExpr, TypeMapper, is_container};
 use regex::{Captures, Regex};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -214,11 +215,14 @@ impl<'a> Instantiator<'a> {
         {
             return None;
         }
-        let mapped = self.types.map(&TypeExpr::parse(text)?);
+        let ty = TypeExpr::parse(text)?;
+        let mapped = self.types.map(&ty);
         if !is_container(last_segment(&generic.name)) && mapped.schema.get("$ref").is_some() {
             return None;
         }
-        let mut schema = mapped.into_schema();
+        // A bare built-in name (`$Vec<Duration>`) may stand for a documented
+        // schema.
+        let mut schema = shadow::typed(self.types, &ty, MappedType::into_schema);
         self.apply(&mut schema, location, diagnostics);
         Some(schema)
     }

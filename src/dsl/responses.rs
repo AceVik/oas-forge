@@ -2,7 +2,7 @@
 //! `@problem`.
 
 use super::tokens::{is_media_type, tokenize, trailing_description};
-use crate::schema::{TypeExpr, TypeMapper};
+use crate::schema::{MappedType, TypeExpr, TypeMapper, shadow};
 use crate::yaml;
 use serde_json::{Map, Value, json};
 
@@ -111,10 +111,10 @@ pub(super) fn header(rest: &str, types: &TypeMapper) -> Option<(String, String, 
     } else {
         type_text
     };
-    let mapped = TypeExpr::parse(type_text).map(|t| types.map(&t))?;
+    let ty = TypeExpr::parse(type_text)?;
     let mut header = Map::new();
-    header.insert("schema".into(), mapped.schema);
-    header.insert("required".into(), json!(mapped.required));
+    header.insert("schema".into(), shadow::typed(types, &ty, |m| m.schema));
+    header.insert("required".into(), json!(types.map(&ty).required));
     if let Some(description) = description {
         header.insert("description".into(), json!(description));
     }
@@ -214,11 +214,11 @@ fn mapped_schema(text: &str, types: &TypeMapper) -> Result<(Value, bool), String
         return Ok((json!({ "$ref": text }), true));
     }
     match TypeExpr::parse(text) {
-        Some(t) => {
-            let mapped = types.map(&t);
-            let required = mapped.required;
-            Ok((mapped.into_schema(), required))
-        }
+        // A bare built-in name (`Duration`) may stand for a documented schema.
+        Some(t) => Ok((
+            shadow::typed(types, &t, MappedType::into_schema),
+            types.map(&t).required,
+        )),
         // A schema name that is no Rust identifier (`api-error`).
         None if is_component_name(text) => {
             let reference = format!("#/components/schemas/{text}");

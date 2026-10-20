@@ -1,0 +1,843 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/dsl_builtin_names/case.toml
+---
+{
+  "asyncapi": {
+    "document": {
+      "asyncapi": "3.0.0",
+      "channels": {
+        "jobs_progress": {
+          "address": "jobs/progress",
+          "messages": {
+            "Progress": {
+              "$ref": "#/components/messages/Progress"
+            }
+          }
+        }
+      },
+      "components": {
+        "messages": {
+          "Progress": {
+            "description": "Time left",
+            "name": "Progress",
+            "payload": {
+              "$ref": "#/components/schemas/Duration"
+            }
+          }
+        },
+        "schemas": {
+          "Duration": {
+            "description": "How long something takes, in minutes.",
+            "properties": {
+              "minutes": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "minutes"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus events",
+        "version": "1.0.0"
+      },
+      "operations": {
+        "progress": {
+          "action": "send",
+          "channel": {
+            "$ref": "#/channels/jobs_progress"
+          },
+          "messages": [
+            {
+              "$ref": "#/channels/jobs_progress/messages/Progress"
+            }
+          ],
+          "summary": "Progress of the jobs."
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "description": "Route and channel DSL: a bare built-in name (Duration, Value) refers to the documented schema of that name; paths and undocumented names keep the built-in type",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "AnyValue": {
+            "description": "Any value the client sends.",
+            "properties": {
+              "raw": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "raw"
+            ],
+            "type": "object"
+          },
+          "Duration": {
+            "description": "How long something takes, in minutes.",
+            "properties": {
+              "minutes": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "minutes"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "paths": {
+        "/jobs": {
+          "post": {
+            "operationId": "start_job",
+            "parameters": [
+              {
+                "description": "Timeout",
+                "in": "query",
+                "name": "timeout",
+                "required": false,
+                "schema": {
+                  "$ref": "#/components/schemas/Duration",
+                  "default": 5
+                }
+              },
+              {
+                "description": "Poll interval",
+                "in": "query",
+                "name": "poll",
+                "required": true,
+                "schema": {
+                  "properties": {
+                    "nanos": {
+                      "format": "int64",
+                      "maximum": 999999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "secs": {
+                      "format": "int64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "secs",
+                    "nanos"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "in": "header",
+                "name": "X-Request-Id",
+                "required": true,
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            ],
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/AnyValue"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "202": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Duration"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "Estimated steps",
+                "headers": {
+                  "X-Took": {
+                    "required": true,
+                    "schema": {
+                      "$ref": "#/components/schemas/Duration"
+                    }
+                  }
+                }
+              }
+            },
+            "summary": "Start a job"
+          }
+        },
+        "/jobs/estimate": {
+          "get": {
+            "operationId": "estimate",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/Duration"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Estimate a job"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "AnyValue": {
+            "description": "Any value the client sends.",
+            "properties": {
+              "raw": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "raw"
+            ],
+            "type": "object"
+          },
+          "Duration": {
+            "description": "How long something takes, in minutes.",
+            "properties": {
+              "minutes": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "minutes"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/jobs": {
+          "post": {
+            "operationId": "start_job",
+            "parameters": [
+              {
+                "description": "Timeout",
+                "in": "query",
+                "name": "timeout",
+                "required": false,
+                "schema": {
+                  "$ref": "#/components/schemas/Duration",
+                  "default": 5
+                }
+              },
+              {
+                "description": "Poll interval",
+                "in": "query",
+                "name": "poll",
+                "required": true,
+                "schema": {
+                  "properties": {
+                    "nanos": {
+                      "format": "int64",
+                      "maximum": 999999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "secs": {
+                      "format": "int64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "secs",
+                    "nanos"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "in": "header",
+                "name": "X-Request-Id",
+                "required": true,
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            ],
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/AnyValue"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "202": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Duration"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "Estimated steps",
+                "headers": {
+                  "X-Took": {
+                    "required": true,
+                    "schema": {
+                      "$ref": "#/components/schemas/Duration"
+                    }
+                  }
+                }
+              }
+            },
+            "summary": "Start a job"
+          }
+        },
+        "/jobs/estimate": {
+          "get": {
+            "operationId": "estimate",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/Duration"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Estimate a job"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "AnyValue": {
+          "description": "Any value the client sends.",
+          "properties": {
+            "raw": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "raw"
+          ],
+          "type": "object"
+        },
+        "Duration": {
+          "description": "How long something takes, in minutes.",
+          "properties": {
+            "minutes": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "minutes"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "AnyValue": {
+            "description": "Any value the client sends.",
+            "properties": {
+              "raw": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "raw"
+            ],
+            "type": "object"
+          },
+          "Duration": {
+            "description": "How long something takes, in minutes.",
+            "properties": {
+              "minutes": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "minutes"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/jobs": {
+          "post": {
+            "operationId": "start_job",
+            "parameters": [
+              {
+                "description": "Timeout",
+                "in": "query",
+                "name": "timeout",
+                "required": false,
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Duration"
+                    }
+                  ],
+                  "default": 5
+                }
+              },
+              {
+                "description": "Poll interval",
+                "in": "query",
+                "name": "poll",
+                "required": true,
+                "schema": {
+                  "properties": {
+                    "nanos": {
+                      "format": "int64",
+                      "maximum": 999999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "secs": {
+                      "format": "int64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "secs",
+                    "nanos"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "in": "header",
+                "name": "X-Request-Id",
+                "required": true,
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            ],
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/AnyValue"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "202": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Duration"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "Estimated steps",
+                "headers": {
+                  "X-Took": {
+                    "required": true,
+                    "schema": {
+                      "$ref": "#/components/schemas/Duration"
+                    }
+                  }
+                }
+              }
+            },
+            "summary": "Start a job"
+          }
+        },
+        "/jobs/estimate": {
+          "get": {
+            "operationId": "estimate",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/Duration"
+                        }
+                      ],
+                      "nullable": true
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Estimate a job"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/jobs": {
+        "post": {
+          "operationId": "start_job",
+          "parameters": [
+            {
+              "description": "Timeout",
+              "in": "query",
+              "name": "timeout",
+              "required": false,
+              "schema": {
+                "$ref": "#/components/schemas/Duration",
+                "default": 5
+              }
+            },
+            {
+              "description": "Poll interval",
+              "in": "query",
+              "name": "poll",
+              "required": true,
+              "schema": {
+                "properties": {
+                  "nanos": {
+                    "format": "int64",
+                    "maximum": 999999999,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "secs": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "secs",
+                  "nanos"
+                ],
+                "type": "object"
+              }
+            },
+            {
+              "in": "header",
+              "name": "X-Request-Id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnyValue"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "202": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/Duration"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Estimated steps",
+              "headers": {
+                "X-Took": {
+                  "required": true,
+                  "schema": {
+                    "$ref": "#/components/schemas/Duration"
+                  }
+                }
+              }
+            }
+          },
+          "summary": "Start a job"
+        }
+      },
+      "/jobs/estimate": {
+        "get": {
+          "operationId": "estimate",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/Duration"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          },
+          "summary": "Estimate a job"
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "AnyValue": {
+        "description": "Any value the client sends.",
+        "properties": {
+          "raw": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "raw"
+        ],
+        "type": "object"
+      },
+      "Duration": {
+        "description": "How long something takes, in minutes.",
+        "properties": {
+          "minutes": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "minutes"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "diagnostics": [
+      "note[OF6001]: Swagger 2.0 has no parameters and headers that are objects or references (documented as strings); the export leaves them out or approximates them"
+    ],
+    "document": {
+      "definitions": {
+        "AnyValue": {
+          "description": "Any value the client sends.",
+          "properties": {
+            "raw": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "raw"
+          ],
+          "type": "object"
+        },
+        "Duration": {
+          "description": "How long something takes, in minutes.",
+          "properties": {
+            "minutes": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "minutes"
+          ],
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/jobs": {
+          "post": {
+            "consumes": [
+              "application/json"
+            ],
+            "operationId": "start_job",
+            "parameters": [
+              {
+                "description": "Timeout",
+                "in": "query",
+                "name": "timeout",
+                "required": false,
+                "type": "string"
+              },
+              {
+                "description": "Poll interval",
+                "in": "query",
+                "name": "poll",
+                "required": true,
+                "type": "string"
+              },
+              {
+                "format": "uuid",
+                "in": "header",
+                "name": "X-Request-Id",
+                "required": true,
+                "type": "string"
+              },
+              {
+                "in": "body",
+                "name": "body",
+                "required": true,
+                "schema": {
+                  "$ref": "#/definitions/AnyValue"
+                }
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "202": {
+                "description": "Estimated steps",
+                "headers": {
+                  "X-Took": {
+                    "type": "string"
+                  }
+                },
+                "schema": {
+                  "items": {
+                    "$ref": "#/definitions/Duration"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "summary": "Start a job"
+          }
+        },
+        "/jobs/estimate": {
+          "get": {
+            "operationId": "estimate",
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/Duration"
+                    }
+                  ],
+                  "x-nullable": true
+                }
+              }
+            },
+            "summary": "Estimate a job"
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

@@ -25,7 +25,7 @@ pub(crate) use params::EXPAND_KEY;
 
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
 use crate::merge::{Policy, merge};
-use crate::schema::{TypeExpr, TypeMapper};
+use crate::schema::{MappedType, TypeExpr, TypeMapper, shadow};
 use crate::template::lexical::{DEFAULTS_MARKER, EXTEND_KEY};
 use crate::yaml;
 use operation::Security;
@@ -923,9 +923,8 @@ impl Compiler<'_, '_> {
         if let Some((ty, media)) = &signature.body
             && !map.contains_key("requestBody")
         {
-            let mapped = types.map(ty);
-            let required = mapped.required && !signature.optional_body;
-            let schema = mapped.into_schema();
+            let required = types.map(ty).required && !signature.optional_body;
+            let schema = shadow::typed(types, ty, MappedType::into_schema);
             let mut content = Map::new();
             content.insert(media.clone(), json!({ "schema": schema }));
             map.insert(
@@ -941,7 +940,7 @@ impl Compiler<'_, '_> {
                 .as_object()
                 .is_some_and(|r| r.keys().any(|code| code.starts_with('2')));
             if !has_success && let Value::Object(responses) = responses {
-                let schema = types.map(ty).into_schema();
+                let schema = shadow::typed(types, ty, MappedType::into_schema);
                 let mut content = Map::new();
                 content.insert(responses::DEFAULT_MEDIA.into(), json!({ "schema": schema }));
                 // The success response comes first, before `default` and errors.
