@@ -104,7 +104,7 @@ fn well_known_types_are_resolved_not_referenced() {
     }
     assert_eq!(
         props["modified_at"],
-        json!({ "type": ["string", "null"], "format": "date-time" })
+        json!({ "type": ["string", "null"], "format": "date-time-local" })
     );
     assert_eq!(props["scores"]["items"]["format"], "double");
     assert_eq!(

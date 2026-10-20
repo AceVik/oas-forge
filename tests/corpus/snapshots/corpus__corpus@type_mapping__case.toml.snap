@@ -185,7 +185,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "array"
               },
               "naive_datetime": {
-                "format": "date-time",
+                "format": "date-time-local",
                 "type": "string"
               },
               "non_zero": {
@@ -233,7 +233,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "string"
               },
               "time": {
-                "format": "time",
+                "format": "time-local",
                 "type": "string"
               },
               "tuple": {
@@ -549,7 +549,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "array"
               },
               "naive_datetime": {
-                "format": "date-time",
+                "format": "date-time-local",
                 "type": "string"
               },
               "non_zero": {
@@ -597,7 +597,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "string"
               },
               "time": {
-                "format": "time",
+                "format": "time-local",
                 "type": "string"
               },
               "tuple": {
@@ -918,7 +918,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               "type": "array"
             },
             "naive_datetime": {
-              "format": "date-time",
+              "format": "date-time-local",
               "type": "string"
             },
             "non_zero": {
@@ -966,7 +966,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               "type": "string"
             },
             "time": {
-              "format": "time",
+              "format": "time-local",
               "type": "string"
             },
             "tuple": {
@@ -1286,7 +1286,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "array"
               },
               "naive_datetime": {
-                "format": "date-time",
+                "format": "date-time-local",
                 "type": "string"
               },
               "non_zero": {
@@ -1332,7 +1332,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "string"
               },
               "time": {
-                "format": "time",
+                "format": "time-local",
                 "type": "string"
               },
               "tuple": {
@@ -1659,7 +1659,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
             "type": "array"
           },
           "naive_datetime": {
-            "format": "date-time",
+            "format": "date-time-local",
             "type": "string"
           },
           "non_zero": {
@@ -1707,7 +1707,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
             "type": "string"
           },
           "time": {
-            "format": "time",
+            "format": "time-local",
             "type": "string"
           },
           "tuple": {
@@ -2024,7 +2024,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               "type": "array"
             },
             "naive_datetime": {
-              "format": "date-time",
+              "format": "date-time-local",
               "type": "string"
             },
             "non_zero": {
@@ -2070,7 +2070,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               "type": "string"
             },
             "time": {
-              "format": "time",
+              "format": "time-local",
               "type": "string"
             },
             "tuple": {

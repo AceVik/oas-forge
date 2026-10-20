@@ -147,7 +147,14 @@ mod table {
             ),
             ("NonZero<f32>", json!({ "type": "integer" })),
             ("NonZero", json!({ "type": "integer" })),
-            ("NonZeroX", json!({ "type": "integer" })),
+            // Only the std names: a type that merely starts with `NonZero`
+            // is a reference.
+            ("NonZeroX", json!({ "$ref": "$NonZeroX" })),
+            ("NonZeroAmount", json!({ "$ref": "$NonZeroAmount" })),
+            (
+                "NonZeroUsize",
+                json!({ "type": "integer", "format": "int64", "minimum": 1 }),
+            ),
         ]);
     }
 
@@ -165,7 +172,6 @@ mod table {
         assert_all(
             &[
                 "DateTime<Utc>",
-                "chrono::NaiveDateTime",
                 "DateTimeUtc",
                 "OffsetDateTime",
                 "time::PrimitiveDateTime",
@@ -174,13 +180,23 @@ mod table {
             ],
             json!({ "type": "string", "format": "date-time" }),
         );
+        // Without an offset: not RFC 3339 `date-time`/`time`, but the
+        // `-local` formats of the OpenAPI format registry.
+        assert_all(
+            &[
+                "chrono::NaiveDateTime",
+                "NaiveDateTime",
+                "jiff::civil::DateTime",
+            ],
+            json!({ "type": "string", "format": "date-time-local" }),
+        );
         assert_all(
             &["NaiveDate", "time::Date", "jiff::civil::Date"],
             json!({ "type": "string", "format": "date" }),
         );
         assert_all(
             &["NaiveTime", "time::Time", "jiff::civil::Time"],
-            json!({ "type": "string", "format": "time" }),
+            json!({ "type": "string", "format": "time-local" }),
         );
         assert_all(
             &["jiff::SignedDuration", "jiff::Span"],
@@ -196,7 +212,7 @@ mod table {
         );
         assert_all(&["serde_json::Value", "Value"], json!({}));
         assert_all(
-            &["serde_json::Map<String, Value>"],
+            &["serde_json::Map<String, Value>", "Map<String, Value>"],
             json!({ "type": "object" }),
         );
         assert_all(&["Ipv4Addr"], json!({ "type": "string", "format": "ipv4" }));
@@ -393,10 +409,17 @@ mod table {
             &["User", "crate::models::User", "$User"],
             json!({ "$ref": "$User" }),
         );
-        assert_all(&["Page<User>"], json!({ "$ref": "$Page<User>" }));
+        // Arguments are written as references too (`$T`), so that type
+        // parameters are substituted inside nested arguments of blueprints.
+        assert_all(&["Page<User>"], json!({ "$ref": "$Page<$User>" }));
         assert_all(
             &["models::Pair<u8, Vec<User>>"],
-            json!({ "$ref": "$Pair<u8, Vec<User>>" }),
+            json!({ "$ref": "$Pair<$u8, $Vec<$User>>" }),
+        );
+        // Only `Map<String, Value>` is taken for `serde_json::Map`.
+        assert_all(
+            &["Map<String, User>"],
+            json!({ "$ref": "$Map<$String, $User>" }),
         );
         assert_all(&["$Page<User>"], json!({ "$ref": "$Page<User>" }));
     }
@@ -428,5 +451,38 @@ mod custom_mappings {
         assert_eq!(map("Vec<UserId>")["items"]["format"], "uuid");
         assert_eq!(mapper.custom_types().count(), 3);
         assert_ne!(&mapper, TypeMapper::builtin());
+    }
+}
+
+mod generic_arguments {
+    use crate::common::pipeline;
+    use serde_json::json;
+
+    #[test]
+    fn type_parameters_are_substituted_in_nested_arguments() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            r#"
+            /// @openapi
+            pub struct Wrapper<T> { pub w: T }
+            /// @openapi
+            pub struct Page<T> { pub items: Vec<Wrapper<T>>, pub pairs: Vec<(u8, Wrapper<T>)> }
+            /// @openapi
+            pub struct User { pub id: u64 }
+            /// @openapi
+            pub struct H { pub p: Page<User> }
+            "#,
+        )]);
+        let schemas = &document["components"]["schemas"];
+        assert_eq!(
+            schemas["Page_User"]["properties"]["items"]["items"],
+            json!({ "$ref": "#/components/schemas/Wrapper_User" })
+        );
+        assert_eq!(
+            schemas["Wrapper_User"]["properties"]["w"],
+            json!({ "$ref": "#/components/schemas/User" })
+        );
+        assert!(schemas.get("Wrapper_T").is_none());
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 }

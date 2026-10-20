@@ -394,12 +394,18 @@ impl TypeMapper {
                 Some(inner) => non_zero(inner),
                 None => json!({ "type": "integer" }),
             },
-            _ if name.starts_with("NonZero") => non_zero(
-                &name
-                    .strip_prefix("NonZero")
-                    .unwrap_or_default()
-                    .to_lowercase(),
-            ),
+            // `NonZeroU32`, … (not every type whose name starts with `NonZero`).
+            _ if name
+                .strip_prefix("NonZero")
+                .is_some_and(|inner| integer(&inner.to_lowercase()).is_some()) =>
+            {
+                non_zero(
+                    &name
+                        .strip_prefix("NonZero")
+                        .unwrap_or_default()
+                        .to_lowercase(),
+                )
+            }
             "Vec" | "VecDeque" | "LinkedList" | "BinaryHeap" => array(json!({})),
             "SmallVec" => match first {
                 Some(TypeExpr::Array { elem, .. }) => {
@@ -419,7 +425,10 @@ impl TypeMapper {
                 }
                 Value::Object(schema)
             }
-            "Map" if qualified("serde_json") => json!({ "type": "object" }),
+            // `serde_json::Map`, also imported (`Map<String, Value>`).
+            "Map" if qualified("serde_json") || is_json_map(path, args) => {
+                json!({ "type": "object" })
+            }
             "Value" => json!({}),
             "Range" | "RangeInclusive" => json!({
                 "type": "object",
@@ -430,17 +439,23 @@ impl TypeMapper {
             "Uuid" => json!({ "type": "string", "format": "uuid" }),
             "Ulid" => json!({ "type": "string", "format": "ulid" }),
             "Url" | "Uri" => json!({ "type": "string", "format": "uri" }),
-            "DateTime" | "NaiveDateTime" | "DateTimeUtc" | "OffsetDateTime"
-            | "PrimitiveDateTime" | "UtcDateTime" => {
+            // Date-times without offset (`2024-01-02T03:04:05`) are not RFC 3339
+            // `date-time`s; the OpenAPI format registry calls them
+            // `date-time-local` (and times without offset `time-local`).
+            "NaiveDateTime" => json!({ "type": "string", "format": "date-time-local" }),
+            "DateTime" if qualified("jiff") => {
+                json!({ "type": "string", "format": "date-time-local" })
+            }
+            "DateTime" | "DateTimeUtc" | "OffsetDateTime" | "PrimitiveDateTime" | "UtcDateTime" => {
                 json!({ "type": "string", "format": "date-time" })
             }
             "NaiveDate" => json!({ "type": "string", "format": "date" }),
-            "NaiveTime" => json!({ "type": "string", "format": "time" }),
+            "NaiveTime" => json!({ "type": "string", "format": "time-local" }),
             "Date" if qualified("time") || qualified("jiff") => {
                 json!({ "type": "string", "format": "date" })
             }
             "Time" if qualified("time") || qualified("jiff") => {
-                json!({ "type": "string", "format": "time" })
+                json!({ "type": "string", "format": "time-local" })
             }
             "Timestamp" if qualified("jiff") => json!({ "type": "string", "format": "date-time" }),
             "SignedDuration" | "Span" if qualified("jiff") => {
@@ -489,13 +504,33 @@ impl TypeMapper {
             }
             // `Page<User>`: a generic type, instantiated from its blueprint.
             _ if !args.is_empty() => {
-                let args: Vec<String> = args.iter().map(ToString::to_string).collect();
+                let args: Vec<String> = args.iter().map(generic_arg).collect();
                 json!({ "$ref": format!("${name}<{}>", args.join(", ")) })
             }
             _ => json!({ "$ref": format!("${name}") }),
         };
         MappedType::required(schema)
     }
+}
+
+/// A generic argument of a raw reference. Named types carry a `$`
+/// (`$Page<$T>`, `$Page<$Vec<$T>>`), so that the generics stage substitutes
+/// the type parameters of a blueprint also inside nested arguments.
+fn generic_arg(ty: &TypeExpr) -> String {
+    match ty {
+        TypeExpr::Named { path, args, .. } if args.is_empty() => format!("${}", path.join("::")),
+        TypeExpr::Named { path, args, .. } => {
+            let args: Vec<String> = args.iter().map(generic_arg).collect();
+            format!("${}<{}>", path.join("::"), args.join(", "))
+        }
+        other => other.to_string(),
+    }
+}
+
+/// `Map<String, Value>`: `serde_json::Map` used by its imported name.
+fn is_json_map(path: &[String], args: &[TypeExpr]) -> bool {
+    path.len() == 1
+        && matches!(args, [key, value] if key.name() == Some("String") && value.name() == Some("Value"))
 }
 
 /// The schema of a primitive integer type.

@@ -131,16 +131,17 @@ reported (`OF1006`). Several rules on one field must all hold: a second
 | tuples `(A, B)` | `array` with `prefixItems` |
 | `()` , `PhantomData` | `null` |
 | `serde_json::Value` | any value (`{}`) |
-| `serde_json::Map` | `object` |
+| `serde_json::Map`, `Map<String, Value>` | `object` |
 | `Range`, `RangeInclusive` | `object` with `start` and `end` |
 | `std::time::Duration` | `object` with `secs` and `nanos` |
 | `SystemTime` | `object` with `secs_since_epoch` and `nanos_since_epoch` |
 | `Uuid` | `string`, `uuid` |
 | `Ulid` | `string`, `ulid` |
 | `Url`, `Uri` | `string`, `uri` |
-| `chrono`: `DateTime`, `NaiveDateTime`; `time`: `OffsetDateTime`, `PrimitiveDateTime`, `UtcDateTime`; `jiff::Timestamp` | `string`, `date-time` |
+| `chrono::DateTime`; `time`: `OffsetDateTime`, `PrimitiveDateTime`, `UtcDateTime`; `jiff::Timestamp` | `string`, `date-time` |
+| `NaiveDateTime`, `jiff::civil::DateTime` (no offset) | `string`, `date-time-local` |
 | `NaiveDate`, `time::Date`, `jiff::civil::Date` | `string`, `date` |
-| `NaiveTime`, `time::Time`, `jiff::civil::Time` | `string`, `time` |
+| `NaiveTime`, `time::Time`, `jiff::civil::Time` (no offset) | `string`, `time-local` |
 | `time::Duration` | `[seconds, nanoseconds]` |
 | `jiff::SignedDuration`, `jiff::Span` | `string`, `duration` |
 | `Decimal`, `BigDecimal` | `string`, `decimal` |
