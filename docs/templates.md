@@ -162,8 +162,8 @@ pub async fn reports() {}
 - Arguments are separated by commas; quote an argument that contains one
   (`Secured("a, b")`).
 
-Unknown fragments (`OF3001`), invalid fragment YAML (`OF3002`) and missing
-arguments (`OF3003`) are reported.
+Unknown fragments (`OF3001`), invalid fragment YAML (`OF3002`), missing
+arguments (`OF3003`) and extra arguments (`OF3011`, ignored) are reported.
 
 ## Named schemas
 

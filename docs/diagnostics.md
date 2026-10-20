@@ -68,6 +68,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF3008` | warning | Included templates use an unknown format version | Regenerate the fragments with this version |
 | `OF3009` | warning | `{{env:NAME}}` names an unset environment variable; the placeholder is kept | Set the variable for the build |
 | `OF3010` | warning | A fragment inserts or extends itself, directly or through other fragments; the repeated `@insert`/`@extend` is skipped | Remove the cycle |
+| `OF3011` | warning | A fragment got more arguments than it has parameters; the extra ones are ignored | Remove the extra arguments, or quote an argument that contains a comma |
 
 ## Merging (OF4xxx)
 

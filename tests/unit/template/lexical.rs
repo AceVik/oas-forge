@@ -1,8 +1,8 @@
 use crate::common::{codes, here};
 use oas_forge::diagnostics::{Code, Diagnostics};
 use oas_forge::template::lexical::{
-    ESCAPED_DOLLAR, EXTEND_KEY, environment_variables, expand, split_args, substitute,
-    substitute_params,
+    ESCAPED_DOLLAR, EXTEND_KEY, environment_variables, expand, expand_lines, split_args,
+    substitute, substitute_params,
 };
 use oas_forge::template::{Fragment, Registry, Variables};
 
@@ -76,6 +76,24 @@ mod insert {
             run("@insert Field(\"my, name\", text)", &reg).0,
             "my, name: text"
         );
+    }
+
+    #[test]
+    fn extra_arguments_are_ignored_with_a_warning() {
+        let reg = registry(&[("One", &["a"], "x: {{a}}")]);
+        let (out, diagnostics) = run("@insert One(1, 2)", &reg);
+        assert_eq!(out, "x: 1");
+        assert_eq!(codes(&diagnostics), [Code::ExtraFragmentArgument]);
+        assert_eq!(
+            diagnostics.iter().next().unwrap().message(),
+            "fragment `One` expects 1 argument(s), got 2"
+        );
+        let reg = registry(&[("None", &[], "x: 1")]);
+        assert_eq!(
+            codes(&run("@insert None(1)", &reg).1),
+            [Code::ExtraFragmentArgument]
+        );
+        assert!(run("@insert None()", &reg).1.is_empty());
     }
 
     #[test]
@@ -376,6 +394,33 @@ mod variables {
         );
         assert!(diagnostics.is_empty());
     }
+}
+
+#[test]
+fn expanded_lines_know_their_source_line() {
+    let reg = registry(&[("Two", &[], "a: 1\nb: 2")]);
+    let vars = Variables::from([("MULTI".to_string(), "x\ny".to_string())]);
+    let text = "first: 1\n  @insert Two\nnote: v{{MULTI}}\nprice: \\$1\r\nlast: 2\n";
+    let mut diagnostics = Diagnostics::new();
+    let lines = expand_lines(text, &reg, &vars, &here(), &mut diagnostics);
+    assert_eq!(
+        lines,
+        [
+            ("first: 1".to_string(), 0),
+            ("  a: 1".to_string(), 1),
+            ("  b: 2".to_string(), 1),
+            ("note: vx".to_string(), 2),
+            ("y".to_string(), 2),
+            (format!("price: {ESCAPED_DOLLAR}1"), 3),
+            ("last: 2".to_string(), 4),
+        ]
+    );
+    // The same lines as `expand`.
+    let expanded = run_with(text, &reg, &vars).0;
+    assert_eq!(
+        expanded.lines().collect::<Vec<_>>(),
+        lines.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>()
+    );
 }
 
 #[test]

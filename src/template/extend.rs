@@ -128,15 +128,8 @@ impl Extension<'_> {
             }
             return None;
         }
-        if args.len() < fragment.params.len() {
-            self.report(
-                Code::MissingFragmentArgument,
-                format!(
-                    "fragment `{name}` expects {} argument(s), got {}",
-                    fragment.params.len(),
-                    args.len()
-                ),
-            );
+        if let Some(finding) = lexical::argument_count(name, fragment.params.len(), args.len()) {
+            self.diagnostics.push(finding.at(self.location.clone()));
         }
         let body = substitute_params(&fragment.body, &fragment.params, &args);
         let body = lexical::expand(

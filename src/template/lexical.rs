@@ -42,6 +42,46 @@ pub fn expand(
     location: &Location,
     diagnostics: &mut Diagnostics,
 ) -> String {
+    let (lines, _) = expand_text(text, registry, variables, location, diagnostics);
+    let mut joined = lines.join("\n");
+    if text.ends_with('\n') {
+        // A final line break is content for block scalars (`|`) at the end.
+        joined.push('\n');
+    }
+    joined.replace("\\$", ESCAPED_DOLLAR_TEXT)
+}
+
+/// [`expand`] line by line: the lines of the result (as `str::lines` splits
+/// them), each with the 0-based offset of the line of `text` it comes from.
+/// Lines pasted by `@insert` come from the `@insert` line, so findings about
+/// them can point there.
+pub fn expand_lines(
+    text: &str,
+    registry: &Registry,
+    variables: &Variables,
+    location: &Location,
+    diagnostics: &mut Diagnostics,
+) -> Vec<(String, usize)> {
+    let (lines, offsets) = expand_text(text, registry, variables, location, diagnostics);
+    let mut out = Vec::with_capacity(lines.len());
+    for (line, offset) in lines.iter().zip(offsets) {
+        // A substituted value may contain line breaks.
+        for part in line.split('\n') {
+            let part = part.strip_suffix('\r').unwrap_or(part);
+            out.push((part.replace("\\$", ESCAPED_DOLLAR_TEXT), offset));
+        }
+    }
+    out
+}
+
+/// The expanded and substituted lines of `text` with their source offsets.
+fn expand_text(
+    text: &str,
+    registry: &Registry,
+    variables: &Variables,
+    location: &Location,
+    diagnostics: &mut Diagnostics,
+) -> (Vec<String>, Vec<usize>) {
     let mut expansion = Expansion {
         registry,
         lines: Vec::new(),
@@ -55,18 +95,14 @@ pub fn expand(
     }
     let Expansion { lines, .. } = expansion;
     let mut missing = Vec::new();
-    let mut joined = substitute_lines(
+    let substituted = substitute_lines(
         lines.iter().map(|(line, offset)| (line.as_str(), *offset)),
         variables,
         &mut missing,
-    )
-    .join("\n");
-    if text.ends_with('\n') {
-        // A final line break is content for block scalars (`|`) at the end.
-        joined.push('\n');
-    }
+    );
     report_missing(missing, location, diagnostics);
-    joined.replace("\\$", ESCAPED_DOLLAR_TEXT)
+    let offsets = lines.into_iter().map(|(_, offset)| offset).collect();
+    (substituted, offsets)
 }
 
 /// The names of the `{{env:NAME}}` placeholders in `text`, in order.
@@ -166,18 +202,10 @@ impl Expansion<'_> {
                 }
                 Some(fragment) if self.stack.len() < MAX_INSERT_DEPTH => {
                     let provided = args.unwrap_or_default();
-                    if provided.len() < fragment.params.len() {
-                        self.diagnostics.push(
-                            Diagnostic::new(
-                                Code::MissingFragmentArgument,
-                                format!(
-                                    "fragment `{name}` expects {} argument(s), got {}",
-                                    fragment.params.len(),
-                                    provided.len()
-                                ),
-                            )
-                            .at(location.clone()),
-                        );
+                    if let Some(finding) =
+                        argument_count(name, fragment.params.len(), provided.len())
+                    {
+                        self.diagnostics.push(finding.at(location.clone()));
                     }
                     let body = substitute_params(&fragment.body, &fragment.params, &provided);
                     self.stack.push(name.to_string());
@@ -218,6 +246,20 @@ impl Expansion<'_> {
         }
         self.lines.push((line.to_string(), offset));
     }
+}
+
+/// A finding when a fragment with `expected` parameters gets `got` arguments:
+/// missing ones stay `{{param}}`, extra ones are ignored.
+pub(crate) fn argument_count(name: &str, expected: usize, got: usize) -> Option<Diagnostic> {
+    let code = match got.cmp(&expected) {
+        std::cmp::Ordering::Less => Code::MissingFragmentArgument,
+        std::cmp::Ordering::Equal => return None,
+        std::cmp::Ordering::Greater => Code::ExtraFragmentArgument,
+    };
+    Some(Diagnostic::new(
+        code,
+        format!("fragment `{name}` expects {expected} argument(s), got {got}"),
+    ))
 }
 
 /// Splits `a, "b, c", d` at commas outside quotes and removes the quotes.

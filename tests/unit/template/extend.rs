@@ -165,6 +165,14 @@ fn fragment_bodies_go_through_the_text_stage() {
 }
 
 #[test]
+fn extra_arguments_are_reported() {
+    let reg = registry(&[("One", &["a"], "x: '{{a}}'")]);
+    let (value, diagnostics) = apply(&reg, json!({ marker(1): "One(1, \"2, 3\", 4)" }));
+    assert_eq!(value, json!({ "x": "1" }));
+    assert_eq!(codes(&diagnostics), [Code::ExtraFragmentArgument]);
+}
+
+#[test]
 fn cycles_are_reported_once_and_skipped() {
     let reg = registry(&[
         ("A", &[], "a: 1\n@extend B"),

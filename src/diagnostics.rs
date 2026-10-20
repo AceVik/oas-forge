@@ -186,6 +186,8 @@ codes! {
     UnknownVariable = "OF3009", Warning;
     /// A fragment inserts or extends itself, directly or through others.
     FragmentCycle = "OF3010", Warning;
+    /// A fragment was used with more arguments than parameters.
+    ExtraFragmentArgument = "OF3011", Warning;
 
     /// Two documents set the same value differently.
     MergeConflict = "OF4001", Warning;
