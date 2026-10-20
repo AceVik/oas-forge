@@ -5,12 +5,13 @@
 //! ([`lexical::expand`]): its `@insert`s are pasted, its `@extend`s become
 //! markers that are resolved here, and `{{variables}}` are filled in.
 
-use super::lexical::{self, EXTEND_KEY, Variables, split_args, substitute_params};
+use super::lexical::{self, DEFAULTS_MARKER, EXTEND_KEY, Variables, split_args, substitute_params};
 use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::merge::{Policy, merge};
 use crate::yaml;
 use serde_json::Value;
+use std::cmp::Reverse;
 use std::collections::BTreeSet;
 
 const MAX_DEPTH: usize = 8;
@@ -50,11 +51,12 @@ impl Extension<'_> {
     fn apply_at(&mut self, value: &mut Value) {
         match value {
             Value::Object(map) => {
-                let markers: Vec<String> = map
+                let mut markers: Vec<String> = map
                     .keys()
                     .filter(|k| k.starts_with(EXTEND_KEY))
                     .cloned()
                     .collect();
+                markers.sort_by_key(|key| marker_order(key));
                 let mut fragments = Vec::new();
                 for key in markers {
                     if let Some(spec) = map
@@ -152,5 +154,20 @@ impl Extension<'_> {
                 None
             }
         }
+    }
+}
+
+/// The order in which the markers of one mapping apply; the first fragment
+/// wins conflicts. The mapping's own markers come in line order, then those
+/// of module defaults (`defaults-M-N`), the innermost module first.
+fn marker_order(key: &str) -> (bool, Reverse<usize>, usize) {
+    let number = |text: &str| text.parse().unwrap_or(usize::MAX);
+    let suffix = key.strip_prefix(EXTEND_KEY).unwrap_or(key);
+    match suffix
+        .strip_prefix(DEFAULTS_MARKER)
+        .and_then(|rest| rest.split_once('-'))
+    {
+        Some((module, line)) => (true, Reverse(number(module)), number(line)),
+        None => (false, Reverse(0), number(suffix)),
     }
 }

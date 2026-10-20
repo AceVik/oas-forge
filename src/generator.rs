@@ -614,8 +614,9 @@ pub(crate) fn run(
         .enumerate()
         .map(|(i, s)| (i * 2, s))
         .collect();
+    let mut defaults = DefaultsCache::new();
     for (position, item) in pending {
-        if let Some(snippet) = materialize(item, &registry, settings, diagnostics)? {
+        if let Some(snippet) = materialize(item, &registry, settings, &mut defaults, diagnostics)? {
             known.collect_from(&snippet.value);
             ordered.push((position * 2 + 1, snippet));
         }
@@ -845,11 +846,15 @@ impl Collected {
     }
 }
 
+/// Expanded `@route-defaults` blocks by file and header line.
+type DefaultsCache = BTreeMap<(PathBuf, usize), Vec<String>>;
+
 /// Lexical expansion and parsing of one pending text.
 fn materialize(
     pending: Pending,
     registry: &Registry,
     settings: Settings<'_>,
+    defaults_cache: &mut DefaultsCache,
     diagnostics: &mut Diagnostics,
 ) -> Result<Option<Snippet>> {
     let Settings {
@@ -945,14 +950,8 @@ fn materialize(
                 lexical::expand_lines(&text, registry, variables, &route.location, diagnostics);
             let line_numbers = source_lines(&expanded, &route.line_numbers, &route.location);
             let lines: Vec<String> = expanded.into_iter().map(|(line, _)| line).collect();
-            let defaults = lexical::expand(
-                &route.defaults.join("\n"),
-                registry,
-                variables,
-                &route.location,
-                diagnostics,
-            );
-            let defaults: Vec<String> = defaults.lines().map(str::to_string).collect();
+            let defaults =
+                expand_defaults(&route, registry, variables, defaults_cache, diagnostics);
             let compiled = dsl::compile(
                 RouteSource::new(&lines, &route.location)
                     .line_numbers(&line_numbers)
@@ -977,6 +976,52 @@ fn materialize(
             Ok(Some(Snippet::openapi(value, route.location)))
         }
     }
+}
+
+/// The expanded `@route-defaults` blocks of a route. Each module's block is
+/// expanded once for all routes of the module, so its findings are reported
+/// once, at its own lines.
+fn expand_defaults(
+    route: &extract::RouteItem,
+    registry: &Registry,
+    variables: &Variables,
+    cache: &mut DefaultsCache,
+    diagnostics: &mut Diagnostics,
+) -> Vec<String> {
+    let mut starts: Vec<usize> = route
+        .defaults
+        .iter()
+        .enumerate()
+        .filter(|(i, line)| *i == 0 || line.trim() == "@route-defaults")
+        .map(|(i, _)| i)
+        .collect();
+    starts.push(route.defaults.len());
+    let mut expanded = Vec::new();
+    for range in starts.windows(2) {
+        let (start, end) = match range {
+            [start, end] => (*start, *end),
+            _ => continue,
+        };
+        let block = route.defaults.get(start..end).unwrap_or_default();
+        let line = route.default_line_numbers.get(start).copied();
+        let location = line.map_or_else(
+            || route.location.clone(),
+            |line| Location::new(route.location.file(), line),
+        );
+        let mut expand = || -> Vec<String> {
+            let text = block.join("\n");
+            let text = lexical::expand(&text, registry, variables, &location, diagnostics);
+            text.lines().map(str::to_string).collect()
+        };
+        match line {
+            Some(line) => {
+                let key = (route.location.file().to_path_buf(), line);
+                expanded.extend(cache.entry(key).or_insert_with(expand).iter().cloned());
+            }
+            None => expanded.extend(expand()),
+        }
+    }
+    expanded
 }
 
 /// The source line of each expanded line (`lexical::expand_lines` offsets

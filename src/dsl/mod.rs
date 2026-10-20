@@ -26,7 +26,7 @@ pub(crate) use params::EXPAND_KEY;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
 use crate::merge::{Policy, merge};
 use crate::schema::{TypeExpr, TypeMapper};
-use crate::template::lexical::EXTEND_KEY;
+use crate::template::lexical::{DEFAULTS_MARKER, EXTEND_KEY};
 use crate::yaml;
 use operation::Security;
 use regex::Regex;
@@ -48,9 +48,6 @@ const YAML_KEYS: &[&str] = &[
     "security",
     "servers",
 ];
-
-/// The `@extend` marker prefix of module defaults.
-const DEFAULTS_EXTEND_KEY: &str = "x-oas-forge-extend-defaults-";
 
 /// Methods that are fixed fields of a path item (OpenAPI 3.2 adds `query`);
 /// other methods go to `additionalOperations`.
@@ -216,6 +213,8 @@ struct Builder {
     /// `@tag` or `@security` of an inner module replaces them.
     outer_tags: bool,
     outer_security: bool,
+    /// Where the YAML of each module's defaults starts in `yaml`.
+    module_yaml: Vec<usize>,
 }
 
 static INLINE_PARAM_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -247,10 +246,18 @@ pub fn compile(source: RouteSource<'_>, diagnostics: &mut Diagnostics) -> Option
     };
     // Module defaults are compiled like a block without `@route`.
     let mut defaults = Builder::default();
+    let mut module = 0;
     for line in source.defaults {
+        if line.trim() == "@route-defaults" {
+            module += 1;
+        }
         // `@extend` markers of the defaults must not collide with those of
-        // the route when both are merged into the operation.
-        let line = line.replace(EXTEND_KEY, DEFAULTS_EXTEND_KEY);
+        // the route, nor with those of other modules (each module's block is
+        // expanded on its own).
+        let line = line.replace(
+            EXTEND_KEY,
+            &format!("{EXTEND_KEY}{DEFAULTS_MARKER}{module}-"),
+        );
         compiler.line(&mut defaults, None, &line, true);
     }
     let mut builder = Builder::default();
@@ -347,6 +354,7 @@ impl Compiler<'_, '_> {
             "route-defaults" if defaults => {
                 b.outer_tags = b.tags.is_some();
                 b.outer_security = b.security.is_some();
+                b.module_yaml.push(b.yaml.len());
             }
             "prefix" if defaults => {
                 let prefix = self.path_template(b, rest);
@@ -732,14 +740,18 @@ impl Compiler<'_, '_> {
         let mut path_item = Value::Object(Map::new());
         let yaml = std::mem::take(&mut b.yaml);
         self.embedded_yaml(&yaml, false, &mut operation, &mut path_item, &mut document);
-        // YAML of the module defaults fills what the route leaves open.
-        self.embedded_yaml(
-            &defaults.yaml,
-            true,
-            &mut operation,
-            &mut path_item,
-            &mut document,
-        );
+        // YAML of the module defaults fills what the route leaves open, the
+        // innermost module first: each module is parsed on its own, so inner
+        // values win over outer ones.
+        let mut ends: Vec<usize> = defaults.module_yaml.clone();
+        ends.push(defaults.yaml.len());
+        let mut starts = vec![0];
+        starts.extend(defaults.module_yaml.iter().copied());
+        for (start, end) in starts.into_iter().zip(ends).rev() {
+            if let Some(module) = defaults.yaml.get(start..end) {
+                self.embedded_yaml(module, true, &mut operation, &mut path_item, &mut document);
+            }
+        }
         // Embedded YAML that is not a mapping is rejected, so the operation
         // is still an object.
         if let Value::Object(map) = &mut operation {

@@ -24,6 +24,9 @@ use syn::visit::{self, Visit};
 /// An annotation found in Rust source code.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+// Items are made once per annotation and moved into the pipeline; boxing
+// `Route` would change the public API to save a few bytes.
+#[allow(clippy::large_enum_variant)]
 pub enum Item {
     /// A schema reflected from a struct, enum or type alias.
     Schema(SchemaItem),
@@ -146,6 +149,8 @@ pub struct RouteItem {
     /// `@route-defaults` blocks of the enclosing modules, outermost first;
     /// each starts with its `@route-defaults` header.
     pub defaults: Vec<String>,
+    /// Source line of each entry of `defaults` (in the file of the route).
+    pub default_line_numbers: Vec<usize>,
     /// What the handler's signature says (signature inference).
     pub signature: Option<Signature>,
     /// Where the route block starts.
@@ -250,6 +255,7 @@ pub fn extract_str(
         items: Vec::new(),
         tags: Vec::new(),
         defaults: Vec::new(),
+        default_line_numbers: Vec::new(),
         diagnostics,
     };
     visitor.visit_file(&file);
@@ -262,6 +268,7 @@ struct Extractor<'a> {
     items: Vec<Item>,
     tags: Vec<String>,
     defaults: Vec<String>,
+    default_line_numbers: Vec<usize>,
     diagnostics: &'a mut Diagnostics,
 }
 
@@ -297,6 +304,7 @@ impl Extractor<'_> {
                 operation_id: Some(sig.ident.to_string()),
                 tags: self.tags.clone(),
                 defaults: self.defaults.clone(),
+                default_line_numbers: self.default_line_numbers.clone(),
                 signature: signature::infer(sig),
                 location: self.location(lines.first().map_or(line, |l| l.line)),
             }));
@@ -343,16 +351,22 @@ impl<'ast> Visit<'ast> for Extractor<'_> {
         let saved = (self.tags.len(), self.defaults.len());
         self.tags.extend(blocks::module_tags(&lines));
         let defaults = blocks::route_defaults(&lines);
-        if !defaults.is_empty() {
+        if let [header, rest @ ..] = defaults
+            && !rest.is_empty()
+        {
             // The header separates the modules: inner defaults replace the
             // tags and security of outer ones.
             self.defaults.push("@route-defaults".to_string());
-            self.defaults.extend(defaults);
+            self.defaults.extend(rest.iter().map(|l| l.text.clone()));
+            self.default_line_numbers.push(header.line);
+            self.default_line_numbers
+                .extend(rest.iter().map(|l| l.line));
         }
         self.blocks(&lines);
         visit::visit_item_mod(self, item);
         self.tags.truncate(saved.0);
         self.defaults.truncate(saved.1);
+        self.default_line_numbers.truncate(saved.1);
     }
 
     fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {

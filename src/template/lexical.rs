@@ -17,6 +17,11 @@ const ESCAPED_DOLLAR_TEXT: &str = "\u{E024}";
 /// Prefix of the keys that carry `@extend` markers through YAML parsing.
 pub const EXTEND_KEY: &str = "x-oas-forge-extend-";
 
+/// What follows [`EXTEND_KEY`] in the markers of route defaults
+/// (`x-oas-forge-extend-defaults-M-N`: module `M`, marker `N`); they apply
+/// after the route's own markers, the innermost module first.
+pub const DEFAULTS_MARKER: &str = "defaults-";
+
 const MAX_INSERT_DEPTH: usize = 8;
 
 /// Values of `{{NAME}}` placeholders.

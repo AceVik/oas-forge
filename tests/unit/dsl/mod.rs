@@ -639,6 +639,10 @@ mod module_defaults {
         let defaults = [
             "@route-defaults",
             "x-rate-limit: 10",
+            "x-team: outer",
+            "@route-defaults",
+            "x-team: inner",
+            "@route-defaults",
             "x-owner: team-a",
             "parameters:",
             "  - { name: trace, in: header, schema: { type: string } }",
@@ -655,6 +659,8 @@ mod module_defaults {
         );
         assert_eq!(op["x-rate-limit"], 10);
         assert_eq!(op["x-owner"], "team-b", "the route wins");
+        // Each module's YAML is its own document: an inner module wins.
+        assert_eq!(op["x-team"], "inner");
         let names: Vec<_> = params(&op).iter().map(|p| p["name"].clone()).collect();
         assert_eq!(names, [json!("page"), json!("trace")]);
         assert_eq!(param(&op, "page")["description"], "Own");
@@ -758,14 +764,22 @@ mod module_defaults {
         let marker = |n: u8| format!("x-oas-forge-extend-{n}: 'Frag{n}'");
         let route_marker = marker(1);
         let default_marker = marker(1);
+        // Each module's block is expanded on its own, so its markers are
+        // numbered from 1 again.
         let (document, _) = compile_with(
             &["@route GET /x", &route_marker],
-            &["@route-defaults", &default_marker],
+            &[
+                "@route-defaults",
+                &default_marker,
+                "@route-defaults",
+                &default_marker,
+            ],
             None,
         );
         let op = &document.unwrap()["paths"]["/x"]["get"];
         assert_eq!(op["x-oas-forge-extend-1"], "Frag1");
-        assert_eq!(op["x-oas-forge-extend-defaults-1"], "Frag1");
+        assert_eq!(op["x-oas-forge-extend-defaults-1-1"], "Frag1");
+        assert_eq!(op["x-oas-forge-extend-defaults-2-1"], "Frag1");
     }
 }
 

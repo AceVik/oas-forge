@@ -173,6 +173,30 @@ fn extra_arguments_are_reported() {
 }
 
 #[test]
+fn markers_apply_in_line_order_then_defaults_innermost_first() {
+    let reg = registry(&[
+        ("A", &[], "v: a"),
+        ("B", &[], "v: b"),
+        ("C", &[], "v: c"),
+        ("D", &[], "v: d"),
+    ]);
+    let defaults = |module: u8, n: u8| format!("{EXTEND_KEY}defaults-{module}-{n}");
+    // Keys in an order a map may end up in; the first applied wins.
+    let cases = [
+        (json!({ defaults(1, 1): "A", defaults(2, 1): "B" }), "b"),
+        (
+            json!({ defaults(2, 1): "B", marker(10): "C", marker(2): "D" }),
+            "d",
+        ),
+        (json!({ marker(10): "C", defaults(1, 1): "A" }), "c"),
+    ];
+    for (value, expected) in cases {
+        let (value, _) = apply(&reg, value);
+        assert_eq!(value, json!({ "v": expected }));
+    }
+}
+
+#[test]
 fn cycles_are_reported_once_and_skipped() {
     let reg = registry(&[
         ("A", &[], "a: 1\n@extend B"),

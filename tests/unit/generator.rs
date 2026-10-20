@@ -1026,6 +1026,43 @@ mod operations {
     }
 
     #[test]
+    fn route_defaults_are_expanded_once_per_module() {
+        let (document, diagnostics) = pipeline(&[(
+            "api.rs",
+            "/// Outer.\n/// @route-defaults\n/// @server https://{{env:OAS_FORGE_UNSET_TEST_VAR}}.example.com\n/// @insert Missing(1)\nmod api {\n  /// @route GET /a\n  fn a() {}\n  /// @route GET /b\n  fn b() {}\n  /// @route-defaults\n  /// @tag Inner\n  mod inner {\n    /// @route GET /c\n    fn c() {}\n  }\n}",
+        )]);
+        let found: Vec<String> = diagnostics
+            .iter()
+            .map(|d| format!("{} {}", d.code(), d.location().unwrap()))
+            .collect();
+        // Once each, at the line in the module's docs, not once per route.
+        assert_eq!(found, ["OF3001 api.rs:4", "OF3009 api.rs:3"]);
+        for path in ["/a", "/b", "/c"] {
+            assert_eq!(
+                document["paths"][path]["get"]["servers"][0]["url"],
+                "https://{{env:OAS_FORGE_UNSET_TEST_VAR}}.example.com",
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn inner_defaults_win_over_outer_ones_and_the_route_over_both() {
+        let (document, diagnostics) = pipeline(&[(
+            "api.rs",
+            "//! @openapi-fragment Limited(n)\n//! x-limit: {{n}}\n//! x-from: '{{n}}'\n\n/// @route-defaults\n/// x-rate: 10\n/// @extend Limited(1)\nmod api {\n  /// @route GET /a\n  fn a() {}\n  /// @route-defaults\n  /// x-rate: 20\n  /// @extend Limited(2)\n  mod inner {\n    /// @route GET /b\n    fn b() {}\n    /// @route GET /c\n    /// x-rate: 30\n    /// @extend Limited(3)\n    fn c() {}\n  }\n}",
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let values = |path: &str| {
+            let op = &document["paths"][path]["get"];
+            (op["x-rate"].clone(), op["x-limit"].clone())
+        };
+        assert_eq!(values("/a"), (json!(10), json!(1)));
+        assert_eq!(values("/b"), (json!(20), json!(2)));
+        assert_eq!(values("/c"), (json!(30), json!(3)));
+    }
+
+    #[test]
     fn route_defaults_apply_operation_fields() {
         let (document, diagnostics) = pipeline(&[(
             "api.rs",

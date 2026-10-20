@@ -297,8 +297,11 @@ several lines add up. Webhooks get no path parameters from the defaults.
 The defaults are a block like a route's: `{{variables}}`, `@insert` and
 `@extend` work, `@no-infer` turns signature inference off for every route
 of the module, and embedded YAML (`x-rate-limit: 10`, `@openapi path`, …)
-fills what the route leaves open. Module doc lines of the form
-`tags: [A, B]` (from 0.1) still tag the operations inside.
+fills what the route leaves open; YAML and `@extend` of an inner module win
+over those of outer ones. Each module's defaults are expanded once, so a
+problem in them (an unset `{{env:…}}`, an unknown fragment) is reported once,
+at its line. Module doc lines of the form `tags: [A, B]` (from 0.1) still
+tag the operations inside.
 
 ## Signature inference
 

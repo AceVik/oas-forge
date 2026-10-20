@@ -226,6 +226,11 @@ fn route_defaults_are_collected_per_module() {
             vec![],
         ]
     );
+    let lines: Vec<_> = routes(&items)
+        .iter()
+        .map(|r| r.default_line_numbers.clone())
+        .collect();
+    assert_eq!(lines, [vec![3, 4, 5, 9, 10], vec![3, 4, 5], vec![]]);
     assert_eq!(
         document_items(&items)[0].text,
         "tags: [{ name: Api }]",

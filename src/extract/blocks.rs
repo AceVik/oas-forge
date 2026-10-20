@@ -170,18 +170,18 @@ fn signature(text: &str) -> (String, Vec<String>) {
     }
 }
 
-/// The `@route-defaults` block of a module's doc comment: the lines after
-/// the header up to the next `@openapi…` block.
-pub(super) fn route_defaults(lines: &[DocLine]) -> Vec<String> {
+/// The `@route-defaults` block of a module's doc comment: the header and the
+/// lines after it up to the next `@openapi…` block (empty without header).
+pub(super) fn route_defaults(lines: &[DocLine]) -> &[DocLine] {
     let Some(start) = lines.iter().position(|l| l.trimmed() == ROUTE_DEFAULTS) else {
-        return Vec::new();
+        return &[];
     };
-    lines
+    let count = lines
         .iter()
         .skip(start + 1)
         .take_while(|l| !is_block_header(l.trimmed()))
-        .map(|l| l.text.clone())
-        .collect()
+        .count();
+    lines.get(start..=start + count).unwrap_or_default()
 }
 
 /// Tags declared in a module's doc comment: lines `tags: [A, B]` whose list
@@ -298,6 +298,7 @@ fn close(path: &Path, block: &mut Vec<DocLine>, items: &mut Vec<Item>, diags: &m
             operation_id: None,
             tags: Vec::new(),
             defaults: Vec::new(),
+            default_line_numbers: Vec::new(),
             signature: None,
             location: Location::new(path, header.line),
         }));
