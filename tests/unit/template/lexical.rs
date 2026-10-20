@@ -270,6 +270,33 @@ mod variables {
             ),
             "d: |2 # comment\n   x: 1.10"
         );
+        // Keep and strip chomping indicators open block scalars too.
+        for indicator in ["|+", "|-", ">+"] {
+            assert_eq!(
+                substitute(
+                    &format!("d: {indicator}\n  x: {{{{VERSION}}}}"),
+                    &vars(),
+                    &here(),
+                    &mut diagnostics
+                ),
+                format!("d: {indicator}\n  x: 1.10")
+            );
+        }
+    }
+
+    #[test]
+    fn a_placeholder_that_is_a_whole_line_is_yaml() {
+        let mut variables = vars();
+        variables.insert("EXTRA".into(), "x-team: core".into());
+        assert_eq!(
+            substitute(
+                "info:\n  {{EXTRA}}",
+                &variables,
+                &here(),
+                &mut Diagnostics::new()
+            ),
+            "info:\n  x-team: core"
+        );
     }
 
     #[test]

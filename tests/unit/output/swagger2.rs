@@ -591,3 +591,65 @@ fn malformed_security_requirements_pass_through() {
     let document = spec.render(OutputKind::Swagger20).unwrap();
     assert_eq!(document["security"], 5);
 }
+
+/// Found by mutation testing: details of the conversion that no other test
+/// pinned down.
+mod conversion_details {
+    use super::*;
+
+    #[test]
+    fn extensions_in_components_are_not_reported_as_lost() {
+        let (_, messages) = swagger(&[(
+            "root.yaml",
+            &root("components:\n  x-internal: true\n  schemas: { A: { type: string } }"),
+        )]);
+        assert!(
+            !messages.iter().any(|m| m.contains("x-internal")),
+            "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn one_oauth2_flow_is_not_a_loss() {
+        let flows = |flows: &str| {
+            root(&format!(
+                "components:\n  securitySchemes:\n    o: {{ type: oauth2, flows: {{ {flows} }} }}"
+            ))
+        };
+        let one = "password: { tokenUrl: 'https://t', scopes: {} }";
+        let two = "password: { tokenUrl: 'https://t', scopes: {} }, implicit: { authorizationUrl: 'https://a', scopes: {} }";
+        let several = |m: &Vec<String>| m.iter().any(|m| m.contains("several OAuth2 flows"));
+        assert!(!several(&swagger(&[("root.yaml", &flows(one))]).1));
+        assert!(several(&swagger(&[("root.yaml", &flows(two))]).1));
+    }
+
+    #[test]
+    fn parameters_with_content_take_the_first_schema() {
+        let (document, _) = swagger(&[(
+            "root.yaml",
+            &root(
+                "paths:\n  /a:\n    get:\n      parameters:\n        - name: q\n          in: query\n          content: { application/json: { schema: { type: integer } } }\n      responses: { '200': { description: OK } }",
+            ),
+        )]);
+        assert_eq!(
+            document["paths"]["/a"]["get"]["parameters"][0]["type"],
+            "integer"
+        );
+    }
+
+    #[test]
+    fn responses_prefer_a_json_media_type() {
+        for json in ["application/json", "application/vnd.api+json"] {
+            let (document, _) = swagger(&[(
+                "root.yaml",
+                &root(&format!(
+                    "paths:\n  /a:\n    get:\n      responses:\n        '200':\n          description: OK\n          content:\n            text/plain: {{ schema: {{ type: string }} }}\n            {json}: {{ schema: {{ type: integer }} }}"
+                )),
+            )]);
+            assert_eq!(
+                document["paths"]["/a"]["get"]["responses"]["200"]["schema"]["type"], "integer",
+                "{json}"
+            );
+        }
+    }
+}

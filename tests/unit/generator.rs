@@ -793,6 +793,43 @@ mod types_and_dialects {
     }
 
     #[test]
+    fn references_that_are_no_names_are_reported() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            "/// @openapi\n/// openapi: 3.1.0\n/// info: { title: T, version: '1' }\n/// components:\n///   schemas:\n///     A: { properties: { b: { $ref: '$Bad Name' }, c: { description: '$Money matters' } } }\nfn root() {}",
+        )]);
+        let properties = &document["components"]["schemas"]["A"]["properties"];
+        assert_eq!(properties["b"], json!({ "$ref": "$Bad Name" }));
+        assert_eq!(
+            properties["c"]["description"], "$Money matters",
+            "text stays text"
+        );
+        assert_eq!(codes(&diagnostics), [Code::UnresolvedReference]);
+    }
+
+    #[test]
+    fn mappings_to_references_apply_to_smart_references_too() {
+        let project = Project::new();
+        project.file(
+            "src/root.rs",
+            "/// @openapi\n/// openapi: 3.1.0\n/// info: { title: T, version: '1' }\n/// components:\n///   schemas:\n///     Cents: { type: integer }\n///     Order:\n///       type: object\n///       properties:\n///         total: { $ref: $Money }\nfn root() {}\n/// @openapi\nstruct Invoice { total: Money }",
+        );
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .map_type("Money", json!({ "$ref": "#/components/schemas/Cents" }))
+            .build()
+            .unwrap();
+        let schemas = &spec.document()["components"]["schemas"];
+        let cents = json!({ "$ref": "#/components/schemas/Cents" });
+        assert_eq!(schemas["Invoice"]["properties"]["total"], cents);
+        assert_eq!(
+            schemas["Order"]["properties"]["total"], cents,
+            "`$Money` in YAML"
+        );
+        assert!(spec.diagnostics().is_empty(), "{:?}", spec.diagnostics());
+    }
+
+    #[test]
     fn mapped_types_are_used_by_structs_aliases_and_routes() {
         let project = Project::new();
         project.file("src/root.rs", ROOT_DOC).file(

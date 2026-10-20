@@ -185,14 +185,23 @@ pub fn resolve(
     resolve_at(value, targets, location, diagnostics, &mut reported);
 }
 
-/// The schema of a built-in type named by `{"$ref": "$Name"}`.
+/// The schema of a built-in or custom-mapped type named by
+/// `{"$ref": "$Name"}`. A type the table does not know maps to the smart
+/// reference `$Name` itself, which is no answer.
 fn builtin(name: &str, targets: Targets<'_>) -> Option<serde_json::Map<String, Value>> {
     if targets.known.contains(name) || targets.registry.alias(name).is_some() {
         return None;
     }
     let schema = targets.types.map(&TypeExpr::parse(name)?).into_schema();
     match schema {
-        Value::Object(map) if !map.contains_key("$ref") => Some(map),
+        Value::Object(map)
+            if !map
+                .get("$ref")
+                .and_then(Value::as_str)
+                .is_some_and(|target| target.starts_with('$')) =>
+        {
+            Some(map)
+        }
         _ => None,
     }
 }
@@ -273,6 +282,21 @@ fn resolve_at(
                 && let Some(name) = reference_name(target)
             {
                 *target = format!("#/components/schemas/{name}");
+            }
+            // A `$` reference that is no name (`$Bad Name`) stays as written,
+            // reported; generic ones (`$Page<…>`) the generics stage reports.
+            if let Some(Value::String(target)) = map.get("$ref")
+                && target.starts_with('$')
+                && !target.contains('<')
+                && reported.insert(target.clone())
+            {
+                diagnostics.push(
+                    Diagnostic::new(
+                        Code::UnresolvedReference,
+                        format!("`{target}` is not a schema name"),
+                    )
+                    .at(location.clone()),
+                );
             }
         }
         _ => {}

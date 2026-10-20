@@ -1248,6 +1248,35 @@ mod builtin_names {
         pub type Delay = Duration;
         "#;
 
+    /// The second of two bare names is the documented one (alternatives are
+    /// built for every subset; the right one must be picked).
+    #[test]
+    fn only_the_documented_one_of_several_names_is_a_reference() {
+        let schemas = schemas(&[(
+            "lib.rs",
+            "/// @openapi rename \"JsonValue\"\npub enum Value { Text(String) }\n/// @openapi\npub struct Pair { pub pair: (Duration, Value) }",
+        )]);
+        let items = &schemas["Pair"]["properties"]["pair"]["prefixItems"];
+        assert_eq!(items[0]["type"], "object", "std::time::Duration");
+        assert_eq!(
+            items[1],
+            json!({ "$ref": "#/components/schemas/JsonValue" })
+        );
+    }
+
+    /// Six names are the limit that still gets alternatives.
+    #[test]
+    fn six_names_in_one_type_still_follow_documented_types() {
+        let schemas = schemas(&[(
+            "lib.rs",
+            "/// @openapi\npub struct Duration { pub minutes: u32 }\n/// @openapi\npub struct Six { pub all: (Uuid, Url, Value, Decimal, Bytes, Duration) }",
+        )]);
+        assert_eq!(
+            schemas["Six"]["properties"]["all"]["prefixItems"][5],
+            json!({ "$ref": "#/components/schemas/Duration" })
+        );
+    }
+
     fn schemas(files: &[(&str, &str)]) -> Value {
         let (document, diagnostics) = pipeline(files);
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
