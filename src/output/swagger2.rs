@@ -10,6 +10,7 @@ use super::refs::rewrite_refs;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics};
 use crate::schema::dialect::{self, Dialect};
 use serde_json::{Map, Value, json};
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 
 /// Methods a Swagger 2.0 path item has.
@@ -43,13 +44,16 @@ pub(super) fn export(canonical: &Value, diagnostics: &mut Diagnostics) -> Value 
     dialect::lower(&mut source, Dialect::Swagger20, diagnostics);
     let mut converter = Converter {
         components: source
-            .get("components")
-            .cloned()
+            .as_object_mut()
+            .and_then(|map| map.remove("components"))
             .unwrap_or_else(|| json!({})),
-        lost: BTreeSet::new(),
+        lost: RefCell::new(BTreeSet::new()),
+        dropped_schemes: BTreeSet::new(),
     };
     let mut out = Map::new();
     out.insert("swagger".into(), json!("2.0"));
+    // First, so that requirements of left-out schemes can be recognized.
+    converter.components(&mut out);
     if let Some(info) = source.get("info") {
         out.insert("info".into(), converter.info(info));
     }
@@ -63,11 +67,12 @@ pub(super) fn export(canonical: &Value, diagnostics: &mut Diagnostics) -> Value 
         }
     }
     out.insert("paths".into(), Value::Object(paths));
-    converter.components(&mut out);
-    for key in ["security", "externalDocs"] {
-        if let Some(value) = source.get(key) {
-            out.insert(key.into(), value.clone());
-        }
+    converter.definitions(&mut out);
+    if let Some(security) = source.get("security") {
+        converter.security(security, &mut out);
+    }
+    if let Some(value) = source.get("externalDocs") {
+        out.insert("externalDocs".into(), value.clone());
     }
     if let Some(Value::Array(tags)) = source.get("tags") {
         let tags: Vec<Value> = tags.iter().map(|tag| converter.tag(tag)).collect();
@@ -81,7 +86,7 @@ pub(super) fn export(canonical: &Value, diagnostics: &mut Diagnostics) -> Value 
     ] {
         rewrite_refs(&mut document, from, to);
     }
-    for what in converter.lost {
+    for what in converter.lost.into_inner() {
         diagnostics.push(Diagnostic::new(
             Code::LossyLowering,
             format!("Swagger 2.0 has no {what}; the export leaves them out or approximates them"),
@@ -91,18 +96,21 @@ pub(super) fn export(canonical: &Value, diagnostics: &mut Diagnostics) -> Value 
 }
 
 struct Converter {
-    /// The lowered components, for resolving referenced request bodies and
-    /// form schemas.
+    /// The lowered components, for resolving referenced request bodies,
+    /// form schemas, parameters and headers.
     components: Value,
-    lost: BTreeSet<String>,
+    /// What the target cannot express, reported once each.
+    lost: RefCell<BTreeSet<String>>,
+    /// Security schemes Swagger 2.0 cannot express (left out).
+    dropped_schemes: BTreeSet<String>,
 }
 
 impl Converter {
-    fn lose(&mut self, what: &str) {
-        self.lost.insert(what.to_string());
+    fn lose(&self, what: &str) {
+        self.lost.borrow_mut().insert(what.to_string());
     }
 
-    fn info(&mut self, info: &Value) -> Value {
+    fn info(&self, info: &Value) -> Value {
         let mut info = info.clone();
         if let Value::Object(map) = &mut info {
             if map.remove("summary").is_some() {
@@ -119,7 +127,7 @@ impl Converter {
         info
     }
 
-    fn tag(&mut self, tag: &Value) -> Value {
+    fn tag(&self, tag: &Value) -> Value {
         let mut tag = tag.clone();
         if let Value::Object(map) = &mut tag {
             for key in ["summary", "parent", "kind"] {
@@ -132,7 +140,7 @@ impl Converter {
     }
 
     /// `https://api.example.com:8443/v1` → `schemes`, `host`, `basePath`.
-    fn servers(&mut self, servers: &[Value], out: &mut Map<String, Value>) {
+    fn servers(&self, servers: &[Value], out: &mut Map<String, Value>) {
         if servers.len() > 1 {
             self.lose("multiple servers (the first one is used)");
         }
@@ -177,7 +185,7 @@ impl Converter {
         }
     }
 
-    fn path_item(&mut self, item: &Value) -> Value {
+    fn path_item(&self, item: &Value) -> Value {
         let Value::Object(item) = item else {
             return item.clone();
         };
@@ -204,7 +212,7 @@ impl Converter {
         Value::Object(out)
     }
 
-    fn operation(&mut self, operation: &Value) -> Value {
+    fn operation(&self, operation: &Value) -> Value {
         let Value::Object(operation) = operation else {
             return operation.clone();
         };
@@ -216,22 +224,23 @@ impl Converter {
         let mut consumes = Vec::new();
         if let Some(body) = operation.get("requestBody") {
             let body = self.resolve(body, "requestBodies");
-            consumes = self.body(&body, &mut parameters);
+            consumes = self.body(body, &mut parameters);
         }
         let mut produces = Vec::new();
         let mut responses = Map::new();
         if let Some(Value::Object(source)) = operation.get("responses") {
-            for (code, response) in source {
-                let code = self.status(code);
-                responses.insert(code, self.response(response, &mut produces));
+            for (code, response) in self.statuses(source) {
+                let response = self.response(response, &mut produces);
+                responses.insert(code, response);
             }
         }
         for (key, value) in operation {
             match key.as_str() {
                 "tags" | "summary" | "description" | "externalDocs" | "operationId"
-                | "deprecated" | "security" => {
+                | "deprecated" => {
                     out.insert(key.clone(), value.clone());
                 }
+                "security" => self.security(value, &mut out),
                 k if k.starts_with("x-") => {
                     out.insert(key.clone(), value.clone());
                 }
@@ -243,7 +252,6 @@ impl Converter {
         if !consumes.is_empty() {
             out.insert("consumes".into(), json!(consumes));
         }
-        produces.dedup();
         if !produces.is_empty() {
             out.insert("produces".into(), json!(produces));
         }
@@ -254,18 +262,68 @@ impl Converter {
         Value::Object(out)
     }
 
-    /// `2XX` → `200`: Swagger 2.0 has no status code ranges.
-    fn status(&mut self, code: &str) -> String {
-        match code.strip_suffix("XX") {
-            Some(class) => {
-                self.lose("status code ranges (`2XX` is written as `200`)");
-                format!("{class}00")
+    /// The responses by Swagger status: `2XX` becomes `200` (Swagger 2.0
+    /// has no status code ranges) unless the operation has an explicit
+    /// `200`, which wins.
+    fn statuses<'a>(&self, responses: &'a Map<String, Value>) -> Vec<(String, &'a Value)> {
+        let explicit: BTreeSet<&str> = responses
+            .keys()
+            .map(String::as_str)
+            .filter(|code| !code.ends_with("XX"))
+            .collect();
+        let mut out = Vec::new();
+        for (code, response) in responses {
+            match code.strip_suffix("XX") {
+                Some(class) => {
+                    self.lose("status code ranges (`2XX` is written as `200`)");
+                    let status = format!("{class}00");
+                    if explicit.contains(status.as_str()) {
+                        self.lose(
+                            "status code ranges that collide with an explicit status (the explicit one is kept)",
+                        );
+                    } else {
+                        out.push((status, response));
+                    }
+                }
+                None => out.push((code.clone(), response)),
             }
-            None => code.to_string(),
+        }
+        out
+    }
+
+    /// Writes `security` without the alternatives that name a scheme the
+    /// export leaves out; when none remains, the requirements are kept as
+    /// `x-security` so the document does not claim the operation is public.
+    fn security(&self, requirements: &Value, out: &mut Map<String, Value>) {
+        let Value::Array(alternatives) = requirements else {
+            out.insert("security".into(), requirements.clone());
+            return;
+        };
+        let names_dropped = |alternative: &Value| {
+            alternative
+                .as_object()
+                .is_some_and(|names| names.keys().any(|n| self.dropped_schemes.contains(n)))
+        };
+        let kept: Vec<Value> = alternatives
+            .iter()
+            .filter(|a| !names_dropped(a))
+            .cloned()
+            .collect();
+        if kept.len() == alternatives.len() {
+            out.insert("security".into(), requirements.clone());
+            return;
+        }
+        self.lose(
+            "security requirements that name schemes it cannot express (kept as `x-security` when no alternative remains)",
+        );
+        if kept.is_empty() {
+            out.insert("x-security".into(), requirements.clone());
+        } else {
+            out.insert("security".into(), Value::Array(kept));
         }
     }
 
-    fn parameters(&mut self, parameters: &Value) -> Vec<Value> {
+    fn parameters(&self, parameters: &Value) -> Vec<Value> {
         let Value::Array(parameters) = parameters else {
             return Vec::new();
         };
@@ -275,11 +333,17 @@ impl Converter {
             .collect()
     }
 
-    fn parameter(&mut self, parameter: &Value) -> Option<Value> {
+    fn parameter(&self, parameter: &Value) -> Option<Value> {
         let Value::Object(source) = parameter else {
             return Some(parameter.clone());
         };
         if source.contains_key("$ref") {
+            // A reference to a left-out (cookie) parameter goes with it.
+            let target = self.resolve(parameter, "parameters");
+            if target.get("in").and_then(Value::as_str) == Some("cookie") {
+                self.lose("cookie parameters");
+                return None;
+            }
             return Some(parameter.clone());
         }
         let location = source.get("in").and_then(Value::as_str).unwrap_or_default();
@@ -329,7 +393,7 @@ impl Converter {
 
     /// Copies the primitive keywords of `schema` into a parameter, header or
     /// item; anything else is documented as a string.
-    fn inline(&mut self, schema: &Value, out: &mut Map<String, Value>) {
+    fn inline(&self, schema: &Value, out: &mut Map<String, Value>) {
         let primitive = schema.get("$ref").is_none()
             && matches!(
                 schema.get("type").and_then(Value::as_str),
@@ -367,7 +431,7 @@ impl Converter {
     }
 
     /// A request body as `body` or `formData` parameters; returns `consumes`.
-    fn body(&mut self, body: &Value, parameters: &mut Vec<Value>) -> Vec<String> {
+    fn body(&self, body: &Value, parameters: &mut Vec<Value>) -> Vec<String> {
         let Some(Value::Object(content)) = body.get("content") else {
             return Vec::new();
         };
@@ -429,7 +493,7 @@ impl Converter {
         consumes
     }
 
-    fn response(&mut self, response: &Value, produces: &mut Vec<String>) -> Value {
+    fn response(&self, response: &Value, produces: &mut Vec<String>) -> Value {
         let Value::Object(source) = response else {
             return response.clone();
         };
@@ -442,7 +506,11 @@ impl Converter {
             source.get("description").cloned().unwrap_or(json!("")),
         );
         if let Some(Value::Object(content)) = source.get("content") {
-            produces.extend(content.keys().cloned());
+            for media in content.keys() {
+                if !produces.contains(media) {
+                    produces.push(media.clone());
+                }
+            }
             if let Some(schema) = preferred_schema(content) {
                 out.insert("schema".into(), schema);
             }
@@ -450,6 +518,7 @@ impl Converter {
         if let Some(Value::Object(headers)) = source.get("headers") {
             let mut converted = Map::new();
             for (name, header) in headers {
+                let header = self.resolve(header, "headers");
                 let mut out = Map::new();
                 if let Some(description) = header.get("description") {
                     out.insert("description".into(), description.clone());
@@ -474,8 +543,10 @@ impl Converter {
         Value::Object(out)
     }
 
-    /// The target of a `$ref` into `components.<section>`, or the value.
-    fn resolve(&self, value: &Value, section: &str) -> Value {
+    /// The target of a `$ref` into `components.<section>` (`Null` when it
+    /// does not exist), or the value itself.
+    fn resolve<'a>(&'a self, value: &'a Value, section: &str) -> &'a Value {
+        const MISSING: &Value = &Value::Null;
         let prefix = format!("#/components/{section}/");
         match value
             .get("$ref")
@@ -485,62 +556,72 @@ impl Converter {
             Some(name) => self
                 .components
                 .get(section)
-                .and_then(|schemas| schemas.get(name))
-                .cloned()
-                .unwrap_or_default(),
-            None => value.clone(),
+                .and_then(|entries| entries.get(name))
+                .unwrap_or(MISSING),
+            None => value,
         }
     }
 
+    /// Converts the reusable parameters, responses and security schemes
+    /// (`schemas` move to `definitions` at the end of the export, after the
+    /// form bodies that use them).
     fn components(&mut self, out: &mut Map<String, Value>) {
-        let Value::Object(components) = self.components.clone() else {
+        let Value::Object(components) = &self.components else {
             return;
         };
+        let mut dropped = Vec::new();
         for (section, value) in components {
             match section.as_str() {
-                "schemas" => {
-                    out.insert("definitions".into(), value);
+                "schemas" | "requestBodies" => {
+                    // Request bodies are inlined into the operations that use them.
                 }
                 "parameters" => {
                     let mut parameters = Map::new();
-                    if let Value::Object(entries) = value {
-                        for (name, parameter) in entries {
-                            if let Some(parameter) = self.parameter(&parameter) {
-                                parameters.insert(name, parameter);
-                            }
+                    for (name, parameter) in value.as_object().into_iter().flatten() {
+                        if let Some(parameter) = self.parameter(parameter) {
+                            parameters.insert(name.clone(), parameter);
                         }
                     }
                     out.insert("parameters".into(), Value::Object(parameters));
                 }
                 "responses" => {
                     let mut responses = Map::new();
-                    if let Value::Object(entries) = value {
-                        for (name, response) in entries {
-                            responses.insert(name, self.response(&response, &mut Vec::new()));
-                        }
+                    for (name, response) in value.as_object().into_iter().flatten() {
+                        responses.insert(name.clone(), self.response(response, &mut Vec::new()));
                     }
                     out.insert("responses".into(), Value::Object(responses));
                 }
                 "securitySchemes" => {
                     let mut definitions = Map::new();
-                    if let Value::Object(entries) = value {
-                        for (name, scheme) in entries {
-                            if let Some(definition) = self.security_scheme(&scheme) {
-                                definitions.insert(name, definition);
+                    for (name, scheme) in value.as_object().into_iter().flatten() {
+                        match self.security_scheme(scheme) {
+                            Some(definition) => {
+                                definitions.insert(name.clone(), definition);
                             }
+                            None => dropped.push(name.clone()),
                         }
                     }
                     out.insert("securityDefinitions".into(), Value::Object(definitions));
                 }
-                // Request bodies are inlined into the operations that use them.
-                "requestBodies" => {}
                 k if k.starts_with("x-") => {}
                 other => self.lose(&format!("`components.{other}`")),
             }
         }
+        self.dropped_schemes.extend(dropped);
     }
 
-    fn security_scheme(&mut self, scheme: &Value) -> Option<Value> {
+    /// Moves the lowered component schemas to `definitions`.
+    fn definitions(&mut self, out: &mut Map<String, Value>) {
+        if let Some(schemas) = self
+            .components
+            .as_object_mut()
+            .and_then(|components| components.remove("schemas"))
+        {
+            out.insert("definitions".into(), schemas);
+        }
+    }
+
+    fn security_scheme(&self, scheme: &Value) -> Option<Value> {
         let description = scheme.get("description").cloned();
         let mut out = match scheme["type"].as_str()? {
             "http"
@@ -562,7 +643,7 @@ impl Converter {
             "oauth2" => {
                 let flows = scheme.get("flows").and_then(Value::as_object)?;
                 if flows.len() > 1 {
-                    self.lose("several OAuth2 flows in one scheme (the first one is used)");
+                    self.lose("several OAuth2 flows in one scheme (the first in Swagger order is used: implicit, password, application, accessCode)");
                 }
                 let (flow, settings) = [
                     "implicit",

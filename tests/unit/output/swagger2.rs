@@ -461,3 +461,126 @@ paths:
         assert_eq!(document["securityDefinitions"], json!({}));
     }
 }
+
+mod review_fixes {
+    use super::*;
+
+    #[test]
+    fn produces_lists_each_media_type_once() {
+        let (document, _) = swagger(&[
+            ("root.yaml", &root("")),
+            (
+                "api.rs",
+                r#"
+/// @openapi
+struct Item { a: u8 }
+/// @route GET /x
+/// @return 200: $Item
+/// @problem 404
+/// @return 409: $Item
+/// @problem 410
+fn x() {}
+"#,
+            ),
+        ]);
+        assert_eq!(
+            document["paths"]["/x"]["get"]["produces"],
+            json!(["application/json", "application/problem+json"])
+        );
+    }
+
+    #[test]
+    fn an_explicit_status_wins_over_a_range() {
+        for lines in [
+            "/// @return 200: String \"Exact\"\n/// @return 2XX: u8 \"Range\"",
+            "/// @return 2XX: u8 \"Range\"\n/// @return 200: String \"Exact\"",
+        ] {
+            let (document, messages) = swagger(&[
+                ("root.yaml", &root("")),
+                (
+                    "api.rs",
+                    &format!("/// @route GET /x\n{lines}\nfn x() {{}}"),
+                ),
+            ]);
+            let responses = &document["paths"]["/x"]["get"]["responses"];
+            assert_eq!(responses["200"]["description"], "Exact", "{lines}");
+            assert!(
+                messages
+                    .iter()
+                    .any(|m| m.contains("status code ranges that collide")),
+                "{messages:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn references_to_left_out_components_are_not_kept() {
+        let (document, messages) = swagger(&[(
+            "root.yaml",
+            &root(
+                r##"security:
+  - oidc: []
+  - key: []
+paths:
+  /a:
+    get:
+      security: [{ oidc: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Rate: { $ref: "#/components/headers/Rate" }
+  /b:
+    get:
+      security: [{ oidc: [], key: [] }, { key: [] }]
+      responses: { "200": { description: OK } }
+components:
+  parameters:
+    Session: { name: sid, in: cookie, schema: { type: string } }
+    Limit: { name: limit, in: query, schema: { type: integer } }
+  headers:
+    Rate: { description: Requests left, schema: { type: integer } }
+  securitySchemes:
+    oidc: { type: openIdConnect, openIdConnectUrl: "https://o" }
+    key: { type: apiKey, in: header, name: X-Key }
+"##,
+            ),
+        )]);
+        assert_eq!(document["security"], json!([{ "key": [] }]));
+        let a = &document["paths"]["/a"]["get"];
+        assert_eq!(
+            a["parameters"],
+            json!([{ "$ref": "#/parameters/Limit" }]),
+            "the cookie parameter reference is left out with its definition"
+        );
+        assert!(a.get("security").is_none(), "{a:#}");
+        assert_eq!(a["x-security"], json!([{ "oidc": [] }]));
+        assert_eq!(
+            a["responses"]["200"]["headers"]["X-Rate"],
+            json!({ "description": "Requests left", "type": "integer" })
+        );
+        assert_eq!(
+            document["paths"]["/b"]["get"]["security"],
+            json!([{ "key": [] }])
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("security requirements that name")),
+            "{messages:?}"
+        );
+    }
+}
+
+#[test]
+fn malformed_security_requirements_pass_through() {
+    let (spec, _project) = spec_of(&[(
+        "root.yaml",
+        "openapi: 3.1.0\ninfo: { title: T, version: '1' }\nsecurity: 5",
+    )]);
+    let document = spec.render(OutputKind::Swagger20).unwrap();
+    assert_eq!(document["security"], 5);
+}

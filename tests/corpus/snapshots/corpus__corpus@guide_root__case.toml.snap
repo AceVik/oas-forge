@@ -184,7 +184,8 @@ input_file: tests/corpus/cases/guide_root/case.toml
   },
   "swagger_2": {
     "diagnostics": [
-      "note[OF6001]: Swagger 2.0 has no OpenID Connect and mutual TLS security schemes; the export leaves them out or approximates them"
+      "note[OF6001]: Swagger 2.0 has no OpenID Connect and mutual TLS security schemes; the export leaves them out or approximates them",
+      "note[OF6001]: Swagger 2.0 has no security requirements that name schemes it cannot express (kept as `x-security` when no alternative remains); the export leaves them out or approximates them"
     ],
     "document": {
       "host": "eu.example.com",
@@ -215,13 +216,13 @@ input_file: tests/corpus/cases/guide_root/case.toml
       "schemes": [
         "https"
       ],
-      "security": [
+      "securityDefinitions": {},
+      "swagger": "2.0",
+      "x-security": [
         {
           "session": []
         }
-      ],
-      "securityDefinitions": {},
-      "swagger": "2.0"
+      ]
     },
     "lints": [],
     "validation": []

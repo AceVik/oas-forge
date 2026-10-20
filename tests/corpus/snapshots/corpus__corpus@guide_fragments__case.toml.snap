@@ -410,7 +410,8 @@ input_file: tests/corpus/cases/guide_fragments/case.toml
   },
   "swagger_2": {
     "diagnostics": [
-      "note[OF6001]: Swagger 2.0 has no OpenID Connect and mutual TLS security schemes; the export leaves them out or approximates them"
+      "note[OF6001]: Swagger 2.0 has no OpenID Connect and mutual TLS security schemes; the export leaves them out or approximates them",
+      "note[OF6001]: Swagger 2.0 has no security requirements that name schemes it cannot express (kept as `x-security` when no alternative remains); the export leaves them out or approximates them"
     ],
     "document": {
       "info": {
@@ -458,14 +459,14 @@ input_file: tests/corpus/cases/guide_fragments/case.toml
                 "description": "Requires the admin role"
               }
             },
-            "security": [
+            "summary": "List audit events",
+            "x-security": [
               {
                 "oidc": [
                   "admin"
                 ]
               }
-            ],
-            "summary": "List audit events"
+            ]
           }
         },
         "/reports": {
@@ -481,14 +482,14 @@ input_file: tests/corpus/cases/guide_fragments/case.toml
                 "description": "Requires the auditor role"
               }
             },
-            "security": [
+            "summary": "List reports",
+            "x-security": [
               {
                 "oidc": [
                   "auditor"
                 ]
               }
-            ],
-            "summary": "List reports"
+            ]
           }
         }
       },
