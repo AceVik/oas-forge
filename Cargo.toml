@@ -56,5 +56,7 @@ path = "tests/cli/main.rs"
 required-features = ["cli"]
 
 [dev-dependencies]
+insta = { version = "1.49", features = ["json", "glob"] }
+jsonschema = { version = "0.59", default-features = false }
 proptest = "1.12"
 tempfile = "3.27"

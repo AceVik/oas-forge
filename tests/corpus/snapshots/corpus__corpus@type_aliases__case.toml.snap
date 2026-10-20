@@ -1,0 +1,143 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/type_aliases/case.toml
+---
+{
+  "description": "Type aliases: exported with and without @openapi, docs and overrides",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Count": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "Event": {
+            "properties": {
+              "at": {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              "count": {
+                "$ref": "#/components/schemas/Count"
+              },
+              "user": {
+                "$ref": "#/components/schemas/UserId"
+              }
+            },
+            "required": [
+              "user",
+              "at",
+              "count"
+            ],
+            "type": "object"
+          },
+          "Timestamp": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "UserId": {
+            "description": "Identifier of a user.",
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Count": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "Event": {
+            "properties": {
+              "at": {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              "count": {
+                "$ref": "#/components/schemas/Count"
+              },
+              "user": {
+                "$ref": "#/components/schemas/UserId"
+              }
+            },
+            "required": [
+              "user",
+              "at",
+              "count"
+            ],
+            "type": "object"
+          },
+          "Timestamp": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "UserId": {
+            "description": "Identifier of a user.",
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Count": {
+        "format": "int32",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "Event": {
+        "properties": {
+          "at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "count": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserId"
+          }
+        },
+        "required": [
+          "user",
+          "at",
+          "count"
+        ],
+        "type": "object"
+      },
+      "Timestamp": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "UserId": {
+        "description": "Identifier of a user.",
+        "format": "uuid",
+        "type": "string"
+      }
+    },
+    "lints": []
+  }
+}

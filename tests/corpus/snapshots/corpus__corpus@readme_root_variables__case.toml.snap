@@ -1,0 +1,56 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/readme_root_variables/case.toml
+---
+{
+  "description": "README: root with an unquoted {{CARGO_PKG_VERSION}} and $$OIDC_URL runtime placeholder",
+  "fragments": {
+    "document": {
+      "components": {
+        "securitySchemes": {
+          "oidcAuth": {
+            "description": "OIDC Authentication via Rauthy.",
+            "openIdConnectUrl": "$$OIDC_URL/.well-known/openid-configuration",
+            "type": "openIdConnect"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "securitySchemes": {
+          "oidcAuth": {
+            "description": "OIDC Authentication via Rauthy.",
+            "openIdConnectUrl": "$$OIDC_URL/.well-known/openid-configuration",
+            "type": "openIdConnect"
+          }
+        }
+      },
+      "info": {
+        "description": "API documentation for the user service.",
+        "title": "User Management API",
+        "version": "<pkg-version>"
+      },
+      "openapi": "3.1.1"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "known_bug": "The unquoted version placeholder does not survive YAML re-serialization",
+  "log": [
+    "WARN: Generating empty schemas file.",
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  }
+}

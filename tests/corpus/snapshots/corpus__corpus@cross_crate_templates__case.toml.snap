@@ -1,0 +1,237 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/cross_crate_templates/case.toml
+---
+{
+  "description": "Cross-crate: consuming x-oas-forge-templates/fragments from an included fragments file",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Invoice": {
+            "properties": {
+              "amount": {
+                "$ref": "#/components/schemas/Money"
+              }
+            },
+            "required": [
+              "amount"
+            ],
+            "type": "object"
+          },
+          "Money": {
+            "properties": {
+              "cents": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "Paginated_Invoice": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/Invoice"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "x-oas-forge-fragments": {
+          "Problem": {
+            "body": "description: Problem {{status}}",
+            "params": [
+              "status"
+            ]
+          }
+        },
+        "x-oas-forge-templates": {
+          "Paginated": {
+            "body": "type: object\nproperties:\n  items:\n    type: array\n    items:\n      $ref: $T\n",
+            "params": [
+              "T"
+            ]
+          }
+        }
+      },
+      "paths": {
+        "/invoices": {
+          "get": {
+            "operationId": "list_invoices",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Paginated_Invoice"
+                    }
+                  }
+                },
+                "description": "Invoices"
+              }
+            },
+            "tags": []
+          }
+        },
+        "/invoices/{id}": {
+          "get": {
+            "responses": {
+              "500": {
+                "description": "Problem internal"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Invoice": {
+            "properties": {
+              "amount": {
+                "$ref": "#/components/schemas/Money"
+              }
+            },
+            "required": [
+              "amount"
+            ],
+            "type": "object"
+          },
+          "Money": {
+            "properties": {
+              "cents": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "Paginated_Invoice": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/Invoice"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/invoices": {
+          "get": {
+            "operationId": "list_invoices",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Paginated_Invoice"
+                    }
+                  }
+                },
+                "description": "Invoices"
+              }
+            },
+            "tags": []
+          }
+        },
+        "/invoices/{id}": {
+          "get": {
+            "responses": {
+              "500": {
+                "description": "Problem internal"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "log": [],
+  "paths": {
+    "document": {
+      "/invoices": {
+        "get": {
+          "operationId": "list_invoices",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Paginated_Invoice"
+                  }
+                }
+              },
+              "description": "Invoices"
+            }
+          },
+          "tags": []
+        }
+      },
+      "/invoices/{id}": {
+        "get": {
+          "responses": {
+            "500": {
+              "description": "Problem internal"
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Invoice": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/Money"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "type": "object"
+      },
+      "Money": {
+        "properties": {
+          "cents": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Paginated_Invoice": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Invoice"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "lints": []
+  }
+}

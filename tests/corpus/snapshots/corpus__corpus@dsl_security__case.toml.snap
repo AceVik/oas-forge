@@ -1,0 +1,118 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/dsl_security/case.toml
+---
+{
+  "description": "Route DSL: @security with and without scopes",
+  "fragments": {
+    "document": {
+      "paths": {
+        "/secure": {
+          "get": {
+            "operationId": "secure",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "ok"
+              }
+            },
+            "security": [
+              {
+                "bearer": []
+              },
+              {
+                "oauth2": [
+                  "read:users",
+                  "write:users"
+                ]
+              },
+              {
+                "apiKey": []
+              }
+            ],
+            "tags": []
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/secure": {
+          "get": {
+            "operationId": "secure",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "ok"
+              }
+            },
+            "security": [
+              {
+                "bearer": []
+              },
+              {
+                "oauth2": [
+                  "read:users",
+                  "write:users"
+                ]
+              },
+              {
+                "apiKey": []
+              }
+            ],
+            "tags": []
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "log": [
+    "WARN: Generating empty schemas file."
+  ],
+  "paths": {
+    "document": {
+      "/secure": {
+        "get": {
+          "operationId": "secure",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "ok"
+            }
+          },
+          "security": [
+            {
+              "bearer": []
+            },
+            {
+              "oauth2": [
+                "read:users",
+                "write:users"
+              ]
+            },
+            {
+              "apiKey": []
+            }
+          ],
+          "tags": []
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  }
+}

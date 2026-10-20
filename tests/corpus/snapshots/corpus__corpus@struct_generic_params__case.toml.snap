@@ -1,0 +1,177 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/struct_generic_params/case.toml
+---
+{
+  "description": "Structs: generic structs used without an @openapi<T> blueprint",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Envelope": {
+            "properties": {
+              "data": {
+                "$ref": "$T"
+              },
+              "items": {
+                "items": {
+                  "$ref": "$T"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "data",
+              "items"
+            ],
+            "type": "object"
+          },
+          "Response": {
+            "properties": {
+              "user": {
+                "$ref": "#/components/schemas/Envelope"
+              }
+            },
+            "required": [
+              "user"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    },
+    "lints": [
+      "/components/schemas/Envelope/properties/data/$ref: unresolved $ref `$T`",
+      "/components/schemas/Envelope/properties/items/items/$ref: unresolved $ref `$T`"
+    ]
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Envelope": {
+            "properties": {
+              "data": {
+                "$ref": "$T"
+              },
+              "items": {
+                "items": {
+                  "$ref": "$T"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "data",
+              "items"
+            ],
+            "type": "object"
+          },
+          "Response": {
+            "properties": {
+              "user": {
+                "$ref": "#/components/schemas/Envelope"
+              }
+            },
+            "required": [
+              "user"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [
+      "/components/schemas/Envelope/properties/data/$ref: unresolved $ref `$T`",
+      "/components/schemas/Envelope/properties/items/items/$ref: unresolved $ref `$T`"
+    ],
+    "validation": []
+  },
+  "known_bug": "Generic structs without @openapi<T> leave $T and $Envelope unresolved",
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Envelope": {
+        "properties": {
+          "data": {
+            "$ref": "$T"
+          },
+          "items": {
+            "items": {
+              "$ref": "$T"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "data",
+          "items"
+        ],
+        "type": "object"
+      },
+      "Response": {
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/Envelope"
+          }
+        },
+        "required": [
+          "user"
+        ],
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": [
+      "/Envelope/properties/data/$ref: unresolved $ref `$T`",
+      "/Envelope/properties/items/items/$ref: unresolved $ref `$T`"
+    ]
+  }
+}

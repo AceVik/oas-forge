@@ -1,0 +1,117 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/struct_renamed_reference/case.toml
+---
+{
+  "description": "Structs: a field referencing a struct renamed via serde",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "User": {
+            "properties": {
+              "profile": {
+                "$ref": "$Profile"
+              }
+            },
+            "required": [
+              "profile"
+            ],
+            "type": "object"
+          },
+          "UserProfile": {
+            "properties": {
+              "bio": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bio"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    },
+    "lints": [
+      "/components/schemas/User/properties/profile/$ref: unresolved $ref `$Profile`"
+    ]
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "User": {
+            "properties": {
+              "profile": {
+                "$ref": "$Profile"
+              }
+            },
+            "required": [
+              "profile"
+            ],
+            "type": "object"
+          },
+          "UserProfile": {
+            "properties": {
+              "bio": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bio"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [
+      "/components/schemas/User/properties/profile/$ref: unresolved $ref `$Profile`"
+    ],
+    "validation": []
+  },
+  "known_bug": "Fields referencing a renamed struct still point to the Rust name ($Profile)",
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "User": {
+        "properties": {
+          "profile": {
+            "$ref": "$Profile"
+          }
+        },
+        "required": [
+          "profile"
+        ],
+        "type": "object"
+      },
+      "UserProfile": {
+        "properties": {
+          "bio": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bio"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": [
+      "/User/properties/profile/$ref: unresolved $ref `$Profile`"
+    ]
+  }
+}

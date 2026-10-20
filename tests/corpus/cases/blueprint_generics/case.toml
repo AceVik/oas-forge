@@ -1,0 +1,2 @@
+description = "Generics: blueprints with nesting, multiple params, missing blueprint and empty args"
+known_bug = "Missing blueprints leave dangling refs; the Page data field keeps an unresolved $T"

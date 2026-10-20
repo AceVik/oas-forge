@@ -184,7 +184,9 @@ pub fn scan_directories(
     let mut all_paths = Vec::new();
 
     for root in roots {
-        for entry in WalkDir::new(root) {
+        // Sorted walk: the snippet order (and therefore the output) must not
+        // depend on the file system.
+        for entry in WalkDir::new(root).sort_by_file_name() {
             let entry = entry.map_err(|e| Error::Io(std::io::Error::other(e)))?;
             let path = entry.path().to_path_buf();
             if path.is_file() {
@@ -386,7 +388,9 @@ pub fn scan_directories(
 
     // Inject Concrete Schemas
     let mut generated_snippets = Vec::new();
-    for (name, content) in &registry.concrete_schemas {
+    let mut concrete: Vec<_> = registry.concrete_schemas.iter().collect();
+    concrete.sort_by(|a, b| a.0.cmp(b.0));
+    for (name, content) in concrete {
         let wrapped = format!(
             "components:\n  schemas:\n    {}:\n{}",
             name,

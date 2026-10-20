@@ -1,0 +1,63 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/enum_externally_tagged/case.toml
+---
+{
+  "description": "Enums: default (externally tagged) representation with data variants",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Shape": {
+            "enum": [
+              "Point"
+            ],
+            "type": "string"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Shape": {
+            "enum": [
+              "Point"
+            ],
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "known_bug": "Data variants of externally tagged enums are dropped (only unit variants remain)",
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Shape": {
+        "enum": [
+          "Point"
+        ],
+        "type": "string"
+      }
+    },
+    "lints": []
+  }
+}

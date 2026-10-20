@@ -1,0 +1,2 @@
+description = "Enums: internally tagged (serde tag) with struct, unit and newtype variants"
+known_bug = "Newtype variants lose the fields of their inner struct"

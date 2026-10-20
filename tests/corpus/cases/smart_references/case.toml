@@ -1,0 +1,2 @@
+description = "Smart references: known/unknown names, quoted, inside text, escaped"
+known_bug = "Smart references are also replaced inside free text"

@@ -1,0 +1,2 @@
+description = "Structs: generic structs used without an @openapi<T> blueprint"
+known_bug = "Generic structs without @openapi<T> leave $T and $Envelope unresolved"

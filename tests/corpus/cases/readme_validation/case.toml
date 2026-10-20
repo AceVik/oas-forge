@@ -1,0 +1,2 @@
+description = "README: validation attributes example (as documented, without @openapi)"
+known_bug = "The documented example has no @openapi tag and is therefore not exported"

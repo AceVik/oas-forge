@@ -1,0 +1,2 @@
+description = "Route DSL: virtual routes in file-level docs"
+known_bug = "The root block swallows the following routes; multiple virtual routes in one block collapse into one"

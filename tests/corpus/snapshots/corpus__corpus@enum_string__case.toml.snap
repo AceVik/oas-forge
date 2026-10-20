@@ -1,0 +1,98 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/enum_string/case.toml
+---
+{
+  "description": "Enums: unit variants as string enum with serde/@openapi renaming",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "OrderState": {
+            "description": "Order state",
+            "enum": [
+              "pending",
+              "in_transit",
+              "done",
+              "cancelled_by_user"
+            ],
+            "type": "string"
+          },
+          "Plain": {
+            "enum": [
+              "A",
+              "B"
+            ],
+            "type": "string",
+            "x-extensible": true
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "OrderState": {
+            "description": "Order state",
+            "enum": [
+              "pending",
+              "in_transit",
+              "done",
+              "cancelled_by_user"
+            ],
+            "type": "string"
+          },
+          "Plain": {
+            "enum": [
+              "A",
+              "B"
+            ],
+            "type": "string",
+            "x-extensible": true
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "OrderState": {
+        "description": "Order state",
+        "enum": [
+          "pending",
+          "in_transit",
+          "done",
+          "cancelled_by_user"
+        ],
+        "type": "string"
+      },
+      "Plain": {
+        "enum": [
+          "A",
+          "B"
+        ],
+        "type": "string",
+        "x-extensible": true
+      }
+    },
+    "lints": []
+  }
+}

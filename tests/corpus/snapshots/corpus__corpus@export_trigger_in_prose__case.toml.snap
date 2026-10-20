@@ -1,0 +1,81 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/export_trigger_in_prose/case.toml
+---
+{
+  "description": "Export: a doc comment that only mentions @openapi in prose",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Internal": {
+            "description": "Internal type; deliberately has no @openapi directive.",
+            "properties": {
+              "secret": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "secret"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Internal": {
+            "description": "Internal type; deliberately has no @openapi directive.",
+            "properties": {
+              "secret": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "secret"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "known_bug": "Any doc line containing the text @openapi exports the item",
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Internal": {
+        "description": "Internal type; deliberately has no @openapi directive.",
+        "properties": {
+          "secret": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "secret"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  }
+}

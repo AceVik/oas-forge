@@ -1,0 +1,2 @@
+description = "Enums: default (externally tagged) representation with data variants"
+known_bug = "Data variants of externally tagged enums are dropped (only unit variants remain)"

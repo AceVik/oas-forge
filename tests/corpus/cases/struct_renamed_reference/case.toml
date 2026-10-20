@@ -1,0 +1,2 @@
+description = "Structs: a field referencing a struct renamed via serde"
+known_bug = "Fields referencing a renamed struct still point to the Rust name ($Profile)"

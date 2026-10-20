@@ -1,0 +1,900 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/type_mapping/case.toml
+---
+{
+  "description": "Type mapping table: primitives, std and ecosystem types",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "AllTypes": {
+            "properties": {
+              "arc": {
+                "type": "string"
+              },
+              "array": {
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "b": {
+                "type": "boolean"
+              },
+              "big_decimal": {
+                "format": "decimal",
+                "type": "string"
+              },
+              "boxed": {
+                "type": "string"
+              },
+              "btree_map": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              "btree_set": {
+                "$ref": "$BTreeSet"
+              },
+              "bytes": {
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "c": {
+                "type": "string"
+              },
+              "cow": {
+                "type": "string"
+              },
+              "date": {
+                "format": "date",
+                "type": "string"
+              },
+              "datetime": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "decimal": {
+                "format": "decimal",
+                "type": "string"
+              },
+              "deque": {
+                "$ref": "$VecDeque"
+              },
+              "duration": {
+                "$ref": "$Duration"
+              },
+              "f32_": {
+                "format": "float",
+                "type": "number"
+              },
+              "f64_": {
+                "format": "double",
+                "type": "number"
+              },
+              "hash_map": {
+                "additionalProperties": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              "hash_set": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "i128_": {
+                "$ref": "$i128"
+              },
+              "i16_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "i32_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "i64_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "i8_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "index_map": {
+                "$ref": "$IndexMap"
+              },
+              "ip": {
+                "$ref": "$IpAddr"
+              },
+              "ipv4": {
+                "$ref": "$Ipv4Addr"
+              },
+              "isize_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "json": {},
+              "linked_list": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "naive_datetime": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "non_zero": {
+                "$ref": "$NonZeroU32"
+              },
+              "object_id": {
+                "format": "objectid",
+                "type": "string"
+              },
+              "offset_datetime": {
+                "$ref": "$OffsetDateTime"
+              },
+              "optional_vec": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "path": {
+                "$ref": "$PathBuf"
+              },
+              "rc": {
+                "type": "string"
+              },
+              "s": {
+                "type": "string"
+              },
+              "slice": {
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "st": {
+                "type": "string"
+              },
+              "time": {
+                "format": "time",
+                "type": "string"
+              },
+              "tuple": {
+                "type": "object"
+              },
+              "u128_": {
+                "$ref": "$u128"
+              },
+              "u16_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "u32_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "u64_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "u8_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "unit": {
+                "type": "object"
+              },
+              "url": {
+                "format": "uri",
+                "type": "string"
+              },
+              "usize_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "uuid": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "vec": {
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "vec_of_optional": {
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "b",
+              "s",
+              "st",
+              "c",
+              "i8_",
+              "i16_",
+              "i32_",
+              "i64_",
+              "i128_",
+              "isize_",
+              "u8_",
+              "u16_",
+              "u32_",
+              "u64_",
+              "u128_",
+              "usize_",
+              "f32_",
+              "f64_",
+              "uuid",
+              "url",
+              "date",
+              "datetime",
+              "naive_datetime",
+              "time",
+              "offset_datetime",
+              "decimal",
+              "big_decimal",
+              "object_id",
+              "json",
+              "boxed",
+              "arc",
+              "rc",
+              "cow",
+              "vec",
+              "hash_set",
+              "btree_set",
+              "deque",
+              "linked_list",
+              "hash_map",
+              "btree_map",
+              "index_map",
+              "array",
+              "slice",
+              "tuple",
+              "vec_of_optional",
+              "non_zero",
+              "ip",
+              "ipv4",
+              "duration",
+              "path",
+              "bytes",
+              "unit"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    },
+    "lints": [
+      "/components/schemas/AllTypes/properties/btree_set/$ref: unresolved $ref `$BTreeSet`",
+      "/components/schemas/AllTypes/properties/deque/$ref: unresolved $ref `$VecDeque`",
+      "/components/schemas/AllTypes/properties/duration/$ref: unresolved $ref `$Duration`",
+      "/components/schemas/AllTypes/properties/i128_/$ref: unresolved $ref `$i128`",
+      "/components/schemas/AllTypes/properties/index_map/$ref: unresolved $ref `$IndexMap`",
+      "/components/schemas/AllTypes/properties/ip/$ref: unresolved $ref `$IpAddr`",
+      "/components/schemas/AllTypes/properties/ipv4/$ref: unresolved $ref `$Ipv4Addr`",
+      "/components/schemas/AllTypes/properties/non_zero/$ref: unresolved $ref `$NonZeroU32`",
+      "/components/schemas/AllTypes/properties/offset_datetime/$ref: unresolved $ref `$OffsetDateTime`",
+      "/components/schemas/AllTypes/properties/path/$ref: unresolved $ref `$PathBuf`",
+      "/components/schemas/AllTypes/properties/u128_/$ref: unresolved $ref `$u128`"
+    ]
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "AllTypes": {
+            "properties": {
+              "arc": {
+                "type": "string"
+              },
+              "array": {
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "b": {
+                "type": "boolean"
+              },
+              "big_decimal": {
+                "format": "decimal",
+                "type": "string"
+              },
+              "boxed": {
+                "type": "string"
+              },
+              "btree_map": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              "btree_set": {
+                "$ref": "$BTreeSet"
+              },
+              "bytes": {
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "c": {
+                "type": "string"
+              },
+              "cow": {
+                "type": "string"
+              },
+              "date": {
+                "format": "date",
+                "type": "string"
+              },
+              "datetime": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "decimal": {
+                "format": "decimal",
+                "type": "string"
+              },
+              "deque": {
+                "$ref": "$VecDeque"
+              },
+              "duration": {
+                "$ref": "$Duration"
+              },
+              "f32_": {
+                "format": "float",
+                "type": "number"
+              },
+              "f64_": {
+                "format": "double",
+                "type": "number"
+              },
+              "hash_map": {
+                "additionalProperties": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              "hash_set": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "i128_": {
+                "$ref": "$i128"
+              },
+              "i16_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "i32_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "i64_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "i8_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "index_map": {
+                "$ref": "$IndexMap"
+              },
+              "ip": {
+                "$ref": "$IpAddr"
+              },
+              "ipv4": {
+                "$ref": "$Ipv4Addr"
+              },
+              "isize_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "json": {},
+              "linked_list": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "naive_datetime": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "non_zero": {
+                "$ref": "$NonZeroU32"
+              },
+              "object_id": {
+                "format": "objectid",
+                "type": "string"
+              },
+              "offset_datetime": {
+                "$ref": "$OffsetDateTime"
+              },
+              "optional_vec": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "path": {
+                "$ref": "$PathBuf"
+              },
+              "rc": {
+                "type": "string"
+              },
+              "s": {
+                "type": "string"
+              },
+              "slice": {
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "st": {
+                "type": "string"
+              },
+              "time": {
+                "format": "time",
+                "type": "string"
+              },
+              "tuple": {
+                "type": "object"
+              },
+              "u128_": {
+                "$ref": "$u128"
+              },
+              "u16_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "u32_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "u64_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "u8_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "unit": {
+                "type": "object"
+              },
+              "url": {
+                "format": "uri",
+                "type": "string"
+              },
+              "usize_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "uuid": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "vec": {
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "vec_of_optional": {
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "b",
+              "s",
+              "st",
+              "c",
+              "i8_",
+              "i16_",
+              "i32_",
+              "i64_",
+              "i128_",
+              "isize_",
+              "u8_",
+              "u16_",
+              "u32_",
+              "u64_",
+              "u128_",
+              "usize_",
+              "f32_",
+              "f64_",
+              "uuid",
+              "url",
+              "date",
+              "datetime",
+              "naive_datetime",
+              "time",
+              "offset_datetime",
+              "decimal",
+              "big_decimal",
+              "object_id",
+              "json",
+              "boxed",
+              "arc",
+              "rc",
+              "cow",
+              "vec",
+              "hash_set",
+              "btree_set",
+              "deque",
+              "linked_list",
+              "hash_map",
+              "btree_map",
+              "index_map",
+              "array",
+              "slice",
+              "tuple",
+              "vec_of_optional",
+              "non_zero",
+              "ip",
+              "ipv4",
+              "duration",
+              "path",
+              "bytes",
+              "unit"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [
+      "/components/schemas/AllTypes/properties/btree_set/$ref: unresolved $ref `$BTreeSet`",
+      "/components/schemas/AllTypes/properties/deque/$ref: unresolved $ref `$VecDeque`",
+      "/components/schemas/AllTypes/properties/duration/$ref: unresolved $ref `$Duration`",
+      "/components/schemas/AllTypes/properties/i128_/$ref: unresolved $ref `$i128`",
+      "/components/schemas/AllTypes/properties/index_map/$ref: unresolved $ref `$IndexMap`",
+      "/components/schemas/AllTypes/properties/ip/$ref: unresolved $ref `$IpAddr`",
+      "/components/schemas/AllTypes/properties/ipv4/$ref: unresolved $ref `$Ipv4Addr`",
+      "/components/schemas/AllTypes/properties/non_zero/$ref: unresolved $ref `$NonZeroU32`",
+      "/components/schemas/AllTypes/properties/offset_datetime/$ref: unresolved $ref `$OffsetDateTime`",
+      "/components/schemas/AllTypes/properties/path/$ref: unresolved $ref `$PathBuf`",
+      "/components/schemas/AllTypes/properties/u128_/$ref: unresolved $ref `$u128`"
+    ],
+    "validation": []
+  },
+  "known_bug": "Many std/ecosystem types become dangling refs; u32 is int32; no minimum on unsigned types; tuples become objects",
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "AllTypes": {
+        "properties": {
+          "arc": {
+            "type": "string"
+          },
+          "array": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "b": {
+            "type": "boolean"
+          },
+          "big_decimal": {
+            "format": "decimal",
+            "type": "string"
+          },
+          "boxed": {
+            "type": "string"
+          },
+          "btree_map": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object"
+          },
+          "btree_set": {
+            "$ref": "$BTreeSet"
+          },
+          "bytes": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "c": {
+            "type": "string"
+          },
+          "cow": {
+            "type": "string"
+          },
+          "date": {
+            "format": "date",
+            "type": "string"
+          },
+          "datetime": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decimal": {
+            "format": "decimal",
+            "type": "string"
+          },
+          "deque": {
+            "$ref": "$VecDeque"
+          },
+          "duration": {
+            "$ref": "$Duration"
+          },
+          "f32_": {
+            "format": "float",
+            "type": "number"
+          },
+          "f64_": {
+            "format": "double",
+            "type": "number"
+          },
+          "hash_map": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "hash_set": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "i128_": {
+            "$ref": "$i128"
+          },
+          "i16_": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "i32_": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "i64_": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "i8_": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "index_map": {
+            "$ref": "$IndexMap"
+          },
+          "ip": {
+            "$ref": "$IpAddr"
+          },
+          "ipv4": {
+            "$ref": "$Ipv4Addr"
+          },
+          "isize_": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "json": {},
+          "linked_list": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "naive_datetime": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "non_zero": {
+            "$ref": "$NonZeroU32"
+          },
+          "object_id": {
+            "format": "objectid",
+            "type": "string"
+          },
+          "offset_datetime": {
+            "$ref": "$OffsetDateTime"
+          },
+          "optional_vec": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "path": {
+            "$ref": "$PathBuf"
+          },
+          "rc": {
+            "type": "string"
+          },
+          "s": {
+            "type": "string"
+          },
+          "slice": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "st": {
+            "type": "string"
+          },
+          "time": {
+            "format": "time",
+            "type": "string"
+          },
+          "tuple": {
+            "type": "object"
+          },
+          "u128_": {
+            "$ref": "$u128"
+          },
+          "u16_": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "u32_": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "u64_": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "u8_": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "unit": {
+            "type": "object"
+          },
+          "url": {
+            "format": "uri",
+            "type": "string"
+          },
+          "usize_": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "uuid": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "vec": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "vec_of_optional": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "b",
+          "s",
+          "st",
+          "c",
+          "i8_",
+          "i16_",
+          "i32_",
+          "i64_",
+          "i128_",
+          "isize_",
+          "u8_",
+          "u16_",
+          "u32_",
+          "u64_",
+          "u128_",
+          "usize_",
+          "f32_",
+          "f64_",
+          "uuid",
+          "url",
+          "date",
+          "datetime",
+          "naive_datetime",
+          "time",
+          "offset_datetime",
+          "decimal",
+          "big_decimal",
+          "object_id",
+          "json",
+          "boxed",
+          "arc",
+          "rc",
+          "cow",
+          "vec",
+          "hash_set",
+          "btree_set",
+          "deque",
+          "linked_list",
+          "hash_map",
+          "btree_map",
+          "index_map",
+          "array",
+          "slice",
+          "tuple",
+          "vec_of_optional",
+          "non_zero",
+          "ip",
+          "ipv4",
+          "duration",
+          "path",
+          "bytes",
+          "unit"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": [
+      "/AllTypes/properties/btree_set/$ref: unresolved $ref `$BTreeSet`",
+      "/AllTypes/properties/deque/$ref: unresolved $ref `$VecDeque`",
+      "/AllTypes/properties/duration/$ref: unresolved $ref `$Duration`",
+      "/AllTypes/properties/i128_/$ref: unresolved $ref `$i128`",
+      "/AllTypes/properties/index_map/$ref: unresolved $ref `$IndexMap`",
+      "/AllTypes/properties/ip/$ref: unresolved $ref `$IpAddr`",
+      "/AllTypes/properties/ipv4/$ref: unresolved $ref `$Ipv4Addr`",
+      "/AllTypes/properties/non_zero/$ref: unresolved $ref `$NonZeroU32`",
+      "/AllTypes/properties/offset_datetime/$ref: unresolved $ref `$OffsetDateTime`",
+      "/AllTypes/properties/path/$ref: unresolved $ref `$PathBuf`",
+      "/AllTypes/properties/u128_/$ref: unresolved $ref `$u128`"
+    ]
+  }
+}

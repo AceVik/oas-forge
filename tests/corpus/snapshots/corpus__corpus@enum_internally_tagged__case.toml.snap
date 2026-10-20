@@ -1,0 +1,375 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/enum_internally_tagged/case.toml
+---
+{
+  "description": "Enums: internally tagged (serde tag) with struct, unit and newtype variants",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "CustomStorage": {
+            "properties": {
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "type": "object"
+          },
+          "Storage": {
+            "description": "Storage configuration.",
+            "discriminator": {
+              "mapping": {
+                "custom": "#/components/schemas/StorageCustom",
+                "disabled": "#/components/schemas/StorageDisabled",
+                "local": "#/components/schemas/StorageLocal",
+                "s3": "#/components/schemas/StorageS3"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StorageLocal"
+              },
+              {
+                "$ref": "#/components/schemas/StorageS3"
+              },
+              {
+                "$ref": "#/components/schemas/StorageDisabled"
+              },
+              {
+                "$ref": "#/components/schemas/StorageCustom"
+              }
+            ],
+            "type": "object"
+          },
+          "StorageCustom": {
+            "properties": {
+              "type": {
+                "description": "Discriminator: custom",
+                "enum": [
+                  "custom"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          "StorageDisabled": {
+            "properties": {
+              "type": {
+                "description": "Discriminator: disabled",
+                "enum": [
+                  "disabled"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          "StorageLocal": {
+            "description": "Local disk",
+            "properties": {
+              "root_path": {
+                "type": "string"
+              },
+              "type": {
+                "description": "Discriminator: local",
+                "enum": [
+                  "local"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "root_path"
+            ],
+            "type": "object"
+          },
+          "StorageS3": {
+            "properties": {
+              "bucket": {
+                "type": "string"
+              },
+              "region": {
+                "type": "string"
+              },
+              "type": {
+                "description": "Discriminator: s3",
+                "enum": [
+                  "s3"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "bucket"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "CustomStorage": {
+            "properties": {
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "type": "object"
+          },
+          "Storage": {
+            "description": "Storage configuration.",
+            "discriminator": {
+              "mapping": {
+                "custom": "#/components/schemas/StorageCustom",
+                "disabled": "#/components/schemas/StorageDisabled",
+                "local": "#/components/schemas/StorageLocal",
+                "s3": "#/components/schemas/StorageS3"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StorageLocal"
+              },
+              {
+                "$ref": "#/components/schemas/StorageS3"
+              },
+              {
+                "$ref": "#/components/schemas/StorageDisabled"
+              },
+              {
+                "$ref": "#/components/schemas/StorageCustom"
+              }
+            ],
+            "type": "object"
+          },
+          "StorageCustom": {
+            "properties": {
+              "type": {
+                "description": "Discriminator: custom",
+                "enum": [
+                  "custom"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          "StorageDisabled": {
+            "properties": {
+              "type": {
+                "description": "Discriminator: disabled",
+                "enum": [
+                  "disabled"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          "StorageLocal": {
+            "description": "Local disk",
+            "properties": {
+              "root_path": {
+                "type": "string"
+              },
+              "type": {
+                "description": "Discriminator: local",
+                "enum": [
+                  "local"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "root_path"
+            ],
+            "type": "object"
+          },
+          "StorageS3": {
+            "properties": {
+              "bucket": {
+                "type": "string"
+              },
+              "region": {
+                "type": "string"
+              },
+              "type": {
+                "description": "Discriminator: s3",
+                "enum": [
+                  "s3"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "bucket"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "known_bug": "Newtype variants lose the fields of their inner struct",
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "CustomStorage": {
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "Storage": {
+        "description": "Storage configuration.",
+        "discriminator": {
+          "mapping": {
+            "custom": "#/components/schemas/StorageCustom",
+            "disabled": "#/components/schemas/StorageDisabled",
+            "local": "#/components/schemas/StorageLocal",
+            "s3": "#/components/schemas/StorageS3"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/StorageLocal"
+          },
+          {
+            "$ref": "#/components/schemas/StorageS3"
+          },
+          {
+            "$ref": "#/components/schemas/StorageDisabled"
+          },
+          {
+            "$ref": "#/components/schemas/StorageCustom"
+          }
+        ],
+        "type": "object"
+      },
+      "StorageCustom": {
+        "properties": {
+          "type": {
+            "description": "Discriminator: custom",
+            "enum": [
+              "custom"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "StorageDisabled": {
+        "properties": {
+          "type": {
+            "description": "Discriminator: disabled",
+            "enum": [
+              "disabled"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "StorageLocal": {
+        "description": "Local disk",
+        "properties": {
+          "root_path": {
+            "type": "string"
+          },
+          "type": {
+            "description": "Discriminator: local",
+            "enum": [
+              "local"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "root_path"
+        ],
+        "type": "object"
+      },
+      "StorageS3": {
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "type": {
+            "description": "Discriminator: s3",
+            "enum": [
+              "s3"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "bucket"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  }
+}

@@ -1,0 +1,2 @@
+description = "Fragments: @insert with/without args, in DSL and manual blocks, unknown fragment fallback"
+known_bug = "Missing fragment arguments leave the {{code}} placeholder in the output"

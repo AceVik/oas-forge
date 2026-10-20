@@ -1,0 +1,383 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/enum_adjacently_tagged/case.toml
+---
+{
+  "description": "Enums: adjacently tagged (serde tag + content)",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Message": {
+            "discriminator": {
+              "mapping": {
+                "Move": "#/components/schemas/MessageMove",
+                "Ping": "#/components/schemas/MessagePing",
+                "Text": "#/components/schemas/MessageText",
+                "img": "#/components/schemas/MessageImage"
+              },
+              "propertyName": "t"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MessageText"
+              },
+              {
+                "$ref": "#/components/schemas/MessageMove"
+              },
+              {
+                "$ref": "#/components/schemas/MessagePing"
+              },
+              {
+                "$ref": "#/components/schemas/MessageImage"
+              }
+            ],
+            "type": "object"
+          },
+          "MessageImage": {
+            "properties": {
+              "c": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "t": {
+                "description": "Discriminator: img",
+                "enum": [
+                  "img"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "t",
+              "c"
+            ],
+            "type": "object"
+          },
+          "MessageMove": {
+            "properties": {
+              "c": {
+                "properties": {
+                  "x": {
+                    "format": "int32",
+                    "type": "integer"
+                  },
+                  "y": {
+                    "format": "int32",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ],
+                "type": "object"
+              },
+              "t": {
+                "description": "Discriminator: Move",
+                "enum": [
+                  "Move"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "t",
+              "c"
+            ],
+            "type": "object"
+          },
+          "MessagePing": {
+            "properties": {
+              "t": {
+                "description": "Discriminator: Ping",
+                "enum": [
+                  "Ping"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "t"
+            ],
+            "type": "object"
+          },
+          "MessageText": {
+            "properties": {
+              "c": {
+                "type": "string"
+              },
+              "t": {
+                "description": "Discriminator: Text",
+                "enum": [
+                  "Text"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "t",
+              "c"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Message": {
+            "discriminator": {
+              "mapping": {
+                "Move": "#/components/schemas/MessageMove",
+                "Ping": "#/components/schemas/MessagePing",
+                "Text": "#/components/schemas/MessageText",
+                "img": "#/components/schemas/MessageImage"
+              },
+              "propertyName": "t"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MessageText"
+              },
+              {
+                "$ref": "#/components/schemas/MessageMove"
+              },
+              {
+                "$ref": "#/components/schemas/MessagePing"
+              },
+              {
+                "$ref": "#/components/schemas/MessageImage"
+              }
+            ],
+            "type": "object"
+          },
+          "MessageImage": {
+            "properties": {
+              "c": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "t": {
+                "description": "Discriminator: img",
+                "enum": [
+                  "img"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "t",
+              "c"
+            ],
+            "type": "object"
+          },
+          "MessageMove": {
+            "properties": {
+              "c": {
+                "properties": {
+                  "x": {
+                    "format": "int32",
+                    "type": "integer"
+                  },
+                  "y": {
+                    "format": "int32",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ],
+                "type": "object"
+              },
+              "t": {
+                "description": "Discriminator: Move",
+                "enum": [
+                  "Move"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "t",
+              "c"
+            ],
+            "type": "object"
+          },
+          "MessagePing": {
+            "properties": {
+              "t": {
+                "description": "Discriminator: Ping",
+                "enum": [
+                  "Ping"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "t"
+            ],
+            "type": "object"
+          },
+          "MessageText": {
+            "properties": {
+              "c": {
+                "type": "string"
+              },
+              "t": {
+                "description": "Discriminator: Text",
+                "enum": [
+                  "Text"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "t",
+              "c"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Message": {
+        "discriminator": {
+          "mapping": {
+            "Move": "#/components/schemas/MessageMove",
+            "Ping": "#/components/schemas/MessagePing",
+            "Text": "#/components/schemas/MessageText",
+            "img": "#/components/schemas/MessageImage"
+          },
+          "propertyName": "t"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MessageText"
+          },
+          {
+            "$ref": "#/components/schemas/MessageMove"
+          },
+          {
+            "$ref": "#/components/schemas/MessagePing"
+          },
+          {
+            "$ref": "#/components/schemas/MessageImage"
+          }
+        ],
+        "type": "object"
+      },
+      "MessageImage": {
+        "properties": {
+          "c": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "t": {
+            "description": "Discriminator: img",
+            "enum": [
+              "img"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "t",
+          "c"
+        ],
+        "type": "object"
+      },
+      "MessageMove": {
+        "properties": {
+          "c": {
+            "properties": {
+              "x": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "y": {
+                "format": "int32",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ],
+            "type": "object"
+          },
+          "t": {
+            "description": "Discriminator: Move",
+            "enum": [
+              "Move"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "t",
+          "c"
+        ],
+        "type": "object"
+      },
+      "MessagePing": {
+        "properties": {
+          "t": {
+            "description": "Discriminator: Ping",
+            "enum": [
+              "Ping"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "t"
+        ],
+        "type": "object"
+      },
+      "MessageText": {
+        "properties": {
+          "c": {
+            "type": "string"
+          },
+          "t": {
+            "description": "Discriminator: Text",
+            "enum": [
+              "Text"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "t",
+          "c"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  }
+}

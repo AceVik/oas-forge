@@ -1,0 +1,2 @@
+description = "Variables: {{CARGO_PKG_VERSION}} quoted and unquoted"
+known_bug = "The unquoted placeholder is parsed as a YAML flow mapping before substitution"

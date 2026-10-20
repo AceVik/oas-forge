@@ -1,0 +1,228 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/struct_serde_attributes/case.toml
+---
+{
+  "description": "Structs: serde skip/flatten/default/alias/transparent/deny_unknown_fields/raw identifiers",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Meta": {
+            "properties": {
+              "created_by": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "created_by"
+            ],
+            "type": "object"
+          },
+          "Settings": {
+            "properties": {
+              "color": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "meta": {
+                "$ref": "#/components/schemas/Meta"
+              },
+              "note": {
+                "type": "string"
+              },
+              "password": {
+                "type": "string"
+              },
+              "r#type": {
+                "type": "string"
+              },
+              "retries": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "secret": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "secret",
+              "password",
+              "created_at",
+              "retries",
+              "meta",
+              "color",
+              "r#type"
+            ],
+            "type": "object"
+          },
+          "Wrapper": {
+            "properties": {
+              "inner": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "inner"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Meta": {
+            "properties": {
+              "created_by": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "created_by"
+            ],
+            "type": "object"
+          },
+          "Settings": {
+            "properties": {
+              "color": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "meta": {
+                "$ref": "#/components/schemas/Meta"
+              },
+              "note": {
+                "type": "string"
+              },
+              "password": {
+                "type": "string"
+              },
+              "r#type": {
+                "type": "string"
+              },
+              "retries": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "secret": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "secret",
+              "password",
+              "created_at",
+              "retries",
+              "meta",
+              "color",
+              "r#type"
+            ],
+            "type": "object"
+          },
+          "Wrapper": {
+            "properties": {
+              "inner": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "inner"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "known_bug": "skip, flatten, default, deny_unknown_fields, transparent and raw identifiers are ignored",
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Meta": {
+        "properties": {
+          "created_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_by"
+        ],
+        "type": "object"
+      },
+      "Settings": {
+        "properties": {
+          "color": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "note": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "r#type": {
+            "type": "string"
+          },
+          "retries": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "secret": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "secret",
+          "password",
+          "created_at",
+          "retries",
+          "meta",
+          "color",
+          "r#type"
+        ],
+        "type": "object"
+      },
+      "Wrapper": {
+        "properties": {
+          "inner": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "inner"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  }
+}

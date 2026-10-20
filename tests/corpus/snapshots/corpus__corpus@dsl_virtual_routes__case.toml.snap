@@ -1,0 +1,87 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/dsl_virtual_routes/case.toml
+---
+{
+  "description": "Route DSL: virtual routes in file-level docs",
+  "fragments": {
+    "document": {
+      "paths": {
+        "/legacy/proxy": {
+          "get": {
+            "operationId": "virtual_route_3",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "Proxy Response"
+              }
+            },
+            "tags": [
+              "Legacy"
+            ]
+          }
+        },
+        "/legacy/two": {
+          "get": {
+            "description": "info:\n  title: Corpus\n  version: 1.0.0",
+            "operationId": "virtual_route_1",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "Two"
+              }
+            },
+            "summary": "openapi: 3.1.0",
+            "tags": []
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "error": "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields."
+  },
+  "known_bug": "The root block swallows the following routes; multiple virtual routes in one block collapse into one",
+  "log": [
+    "WARN: Generating empty schemas file."
+  ],
+  "paths": {
+    "document": {
+      "/legacy/proxy": {
+        "get": {
+          "operationId": "virtual_route_3",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Proxy Response"
+            }
+          },
+          "tags": [
+            "Legacy"
+          ]
+        }
+      },
+      "/legacy/two": {
+        "get": {
+          "description": "info:\n  title: Corpus\n  version: 1.0.0",
+          "operationId": "virtual_route_1",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Two"
+            }
+          },
+          "summary": "openapi: 3.1.0",
+          "tags": []
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  }
+}

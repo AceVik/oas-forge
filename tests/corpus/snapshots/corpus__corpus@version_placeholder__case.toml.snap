@@ -1,0 +1,42 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/version_placeholder/case.toml
+---
+{
+  "description": "Variables: {{CARGO_PKG_VERSION}} quoted and unquoted",
+  "fragments": {
+    "document": {
+      "x-unquoted-version": "<pkg-version>"
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "info": {
+        "description": "Built from version <pkg-version>",
+        "title": "Versioned",
+        "version": "<pkg-version>"
+      },
+      "openapi": "3.1.0",
+      "x-unquoted-version": "<pkg-version>"
+    },
+    "lints": [],
+    "validation": [
+      ": value is not valid under any of the schemas listed in the 'anyOf' keyword"
+    ]
+  },
+  "known_bug": "The unquoted placeholder is parsed as a YAML flow mapping before substitution",
+  "log": [
+    "WARN: Generating empty schemas file.",
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  }
+}

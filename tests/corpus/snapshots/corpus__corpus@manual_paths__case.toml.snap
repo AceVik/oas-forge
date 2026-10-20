@@ -1,0 +1,70 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/manual_paths/case.toml
+---
+{
+  "description": "Manual mode: @openapi YAML blocks on functions (with leading doc text)",
+  "fragments": {
+    "document": {
+      "paths": {
+        "/health": {
+          "get": {
+            "responses": {
+              "200": {
+                "description": "OK"
+              }
+            },
+            "summary": "Health"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/health": {
+          "get": {
+            "responses": {
+              "200": {
+                "description": "OK"
+              }
+            },
+            "summary": "Health"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "log": [
+    "WARN: Generating empty schemas file."
+  ],
+  "paths": {
+    "document": {
+      "/health": {
+        "get": {
+          "responses": {
+            "200": {
+              "description": "OK"
+            }
+          },
+          "summary": "Health"
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  }
+}

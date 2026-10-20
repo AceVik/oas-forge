@@ -1,0 +1,93 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/struct_tuple_and_unit/case.toml
+---
+{
+  "description": "Structs: tuple, newtype and unit structs (incl. virtual types via overrides)",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Marker": {
+            "type": "object"
+          },
+          "Pair": {
+            "type": "object"
+          },
+          "UserId": {
+            "type": "object"
+          },
+          "Virtual": {
+            "enum": [
+              "a",
+              "b"
+            ],
+            "type": "string"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Marker": {
+            "type": "object"
+          },
+          "Pair": {
+            "type": "object"
+          },
+          "UserId": {
+            "type": "object"
+          },
+          "Virtual": {
+            "enum": [
+              "a",
+              "b"
+            ],
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "known_bug": "Tuple and newtype structs become plain objects",
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Marker": {
+        "type": "object"
+      },
+      "Pair": {
+        "type": "object"
+      },
+      "UserId": {
+        "type": "object"
+      },
+      "Virtual": {
+        "enum": [
+          "a",
+          "b"
+        ],
+        "type": "string"
+      }
+    },
+    "lints": []
+  }
+}

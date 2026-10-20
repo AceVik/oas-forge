@@ -1,0 +1,17 @@
+{
+  "retrieved": "2026-10-20",
+  "files": {
+    "https://asyncapi.com/definitions/3.0.0.json": "asyncapi.com_definitions_3.0.0.json",
+    "https://asyncapi.com/definitions/3.1.0.json": "asyncapi.com_definitions_3.1.0.json",
+    "https://spec.openapis.org/oas/2.0/schema/2017-08-27": "spec.openapis.org_oas_2.0_schema_2017-08-27.json",
+    "https://spec.openapis.org/oas/3.0/schema/2024-10-18": "spec.openapis.org_oas_3.0_schema_2024-10-18.json",
+    "https://spec.openapis.org/oas/3.1/dialect/2024-11-10": "spec.openapis.org_oas_3.1_dialect_2024-11-10.json",
+    "https://spec.openapis.org/oas/3.1/meta/2024-11-10": "spec.openapis.org_oas_3.1_meta_2024-11-10.json",
+    "https://spec.openapis.org/oas/3.1/schema-base/2026-08-03": "spec.openapis.org_oas_3.1_schema-base_2026-08-03.json",
+    "https://spec.openapis.org/oas/3.1/schema/2026-08-03": "spec.openapis.org_oas_3.1_schema_2026-08-03.json",
+    "https://spec.openapis.org/oas/3.2/dialect/2026-02-26": "spec.openapis.org_oas_3.2_dialect_2026-02-26.json",
+    "https://spec.openapis.org/oas/3.2/meta/2026-02-26": "spec.openapis.org_oas_3.2_meta_2026-02-26.json",
+    "https://spec.openapis.org/oas/3.2/schema-base/2026-08-30": "spec.openapis.org_oas_3.2_schema-base_2026-08-30.json",
+    "https://spec.openapis.org/oas/3.2/schema/2026-08-30": "spec.openapis.org_oas_3.2_schema_2026-08-30.json"
+  }
+}

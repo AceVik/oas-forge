@@ -1,0 +1,2 @@
+description = "Fragments: @extend structural merge in manual blocks, with conflict"
+known_bug = "On conflict the fragment value wins over the local value"

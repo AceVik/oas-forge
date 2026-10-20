@@ -1,0 +1,235 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/fragment_insert/case.toml
+---
+{
+  "description": "Fragments: @insert with/without args, in DSL and manual blocks, unknown fragment fallback",
+  "fragments": {
+    "document": {
+      "components": {
+        "x-oas-forge-fragments": {
+          "Error": {
+            "body": "description: Error {{code}}",
+            "params": [
+              "code"
+            ]
+          },
+          "Paging": {
+            "body": "- name: page\n  in: query\n  schema: { type: integer }\n- name: limit\n  in: query\n  schema: { type: integer }",
+            "params": []
+          }
+        }
+      },
+      "paths": {
+        "/list": {
+          "get": {
+            "operationId": "list",
+            "parameters": [
+              {
+                "in": "query",
+                "name": "page",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              {
+                "in": "query",
+                "name": "limit",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "ok"
+              }
+            },
+            "tags": []
+          }
+        },
+        "/manual": {
+          "get": {
+            "parameters": [
+              {
+                "in": "query",
+                "name": "page",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              {
+                "in": "query",
+                "name": "limit",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              {
+                "$ref": "#/components/parameters/ExternalParam"
+              }
+            ],
+            "responses": {
+              "400": {
+                "description": "Error Bad Request"
+              },
+              "401": {
+                "description": "Error {{code}}"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [
+      "/paths/~1manual/get/responses/401/description: leftover `{{` in `Error {{code}}`"
+    ]
+  },
+  "full": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/list": {
+          "get": {
+            "operationId": "list",
+            "parameters": [
+              {
+                "in": "query",
+                "name": "page",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              {
+                "in": "query",
+                "name": "limit",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "ok"
+              }
+            },
+            "tags": []
+          }
+        },
+        "/manual": {
+          "get": {
+            "parameters": [
+              {
+                "in": "query",
+                "name": "page",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              {
+                "in": "query",
+                "name": "limit",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              {
+                "$ref": "#/components/parameters/ExternalParam"
+              }
+            ],
+            "responses": {
+              "400": {
+                "description": "Error Bad Request"
+              },
+              "401": {
+                "description": "Error {{code}}"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [
+      "/paths/~1manual/get/responses/401/description: leftover `{{` in `Error {{code}}`"
+    ],
+    "validation": []
+  },
+  "known_bug": "Missing fragment arguments leave the {{code}} placeholder in the output",
+  "log": [
+    "WARN: Generating empty schemas file."
+  ],
+  "paths": {
+    "document": {
+      "/list": {
+        "get": {
+          "operationId": "list",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "ok"
+            }
+          },
+          "tags": []
+        }
+      },
+      "/manual": {
+        "get": {
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer"
+              }
+            },
+            {
+              "$ref": "#/components/parameters/ExternalParam"
+            }
+          ],
+          "responses": {
+            "400": {
+              "description": "Error Bad Request"
+            },
+            "401": {
+              "description": "Error {{code}}"
+            }
+          }
+        }
+      }
+    },
+    "lints": [
+      "/~1manual/get/responses/401/description: leftover `{{` in `Error {{code}}`"
+    ]
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  }
+}

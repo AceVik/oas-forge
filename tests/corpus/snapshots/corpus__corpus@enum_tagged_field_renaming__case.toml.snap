@@ -1,0 +1,215 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/enum_tagged_field_renaming/case.toml
+---
+{
+  "description": "Enums: rename_all vs rename_all_fields vs variant rename_all",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Event": {
+            "discriminator": {
+              "mapping": {
+                "userCreated": "#/components/schemas/EventUserCreated",
+                "userDeleted": "#/components/schemas/EventUserDeleted"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EventUserCreated"
+              },
+              {
+                "$ref": "#/components/schemas/EventUserDeleted"
+              }
+            ],
+            "type": "object"
+          },
+          "EventUserCreated": {
+            "properties": {
+              "kind": {
+                "description": "Discriminator: userCreated",
+                "enum": [
+                  "userCreated"
+                ],
+                "type": "string"
+              },
+              "userId": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "userId"
+            ],
+            "type": "object"
+          },
+          "EventUserDeleted": {
+            "properties": {
+              "DELETED_AT": {
+                "type": "string"
+              },
+              "kind": {
+                "description": "Discriminator: userDeleted",
+                "enum": [
+                  "userDeleted"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "DELETED_AT"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Event": {
+            "discriminator": {
+              "mapping": {
+                "userCreated": "#/components/schemas/EventUserCreated",
+                "userDeleted": "#/components/schemas/EventUserDeleted"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EventUserCreated"
+              },
+              {
+                "$ref": "#/components/schemas/EventUserDeleted"
+              }
+            ],
+            "type": "object"
+          },
+          "EventUserCreated": {
+            "properties": {
+              "kind": {
+                "description": "Discriminator: userCreated",
+                "enum": [
+                  "userCreated"
+                ],
+                "type": "string"
+              },
+              "userId": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "userId"
+            ],
+            "type": "object"
+          },
+          "EventUserDeleted": {
+            "properties": {
+              "DELETED_AT": {
+                "type": "string"
+              },
+              "kind": {
+                "description": "Discriminator: userDeleted",
+                "enum": [
+                  "userDeleted"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "DELETED_AT"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Event": {
+        "discriminator": {
+          "mapping": {
+            "userCreated": "#/components/schemas/EventUserCreated",
+            "userDeleted": "#/components/schemas/EventUserDeleted"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/EventUserCreated"
+          },
+          {
+            "$ref": "#/components/schemas/EventUserDeleted"
+          }
+        ],
+        "type": "object"
+      },
+      "EventUserCreated": {
+        "properties": {
+          "kind": {
+            "description": "Discriminator: userCreated",
+            "enum": [
+              "userCreated"
+            ],
+            "type": "string"
+          },
+          "userId": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "userId"
+        ],
+        "type": "object"
+      },
+      "EventUserDeleted": {
+        "properties": {
+          "DELETED_AT": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "Discriminator: userDeleted",
+            "enum": [
+              "userDeleted"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "DELETED_AT"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  }
+}

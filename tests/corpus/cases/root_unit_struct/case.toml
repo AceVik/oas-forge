@@ -1,0 +1,2 @@
+description = "Root: root definition on a unit struct"
+known_bug = "Root keys on a struct are wrapped into components.schemas instead of becoming the root"

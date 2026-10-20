@@ -1,0 +1,2 @@
+description = "Route DSL: module tags applied to DSL routes"
+known_bug = "Module tags are not applied to @route handlers; the module block leaks a string tag list"

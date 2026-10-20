@@ -1,0 +1,256 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/readme_blueprints/case.toml
+---
+{
+  "description": "README: template schemas with generics (PaginatedResponse<T>)",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "PaginatedResponse_User": {
+            "description": "Paginated response wrapper.",
+            "properties": {
+              "data": {
+                "items": {
+                  "$ref": "#/components/schemas/User"
+                },
+                "type": "array"
+              },
+              "limit": {
+                "example": 10,
+                "format": "int32",
+                "maximum": 1000,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "page": {
+                "example": 1,
+                "format": "int32",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "total_count": {
+                "example": 100,
+                "format": "int32",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total_count",
+              "page",
+              "limit",
+              "data"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "properties": {
+              "id": {
+                "format": "int32",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        },
+        "x-oas-forge-templates": {
+          "PaginatedResponse": {
+            "body": "description: Paginated response wrapper.\nproperties:\n  data:\n    items:\n      $ref: $T\n    type: array\n  limit:\n    example: 10\n    format: int32\n    maximum: 1000\n    minimum: 1\n    type: integer\n  page:\n    example: 1\n    format: int32\n    minimum: 1\n    type: integer\n  total_count:\n    example: 100\n    format: int32\n    type: integer\nrequired:\n- total_count\n- page\n- limit\n- data\ntype: object\n",
+            "params": [
+              "T"
+            ]
+          }
+        }
+      },
+      "paths": {
+        "/users": {
+          "get": {
+            "operationId": "users",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/PaginatedResponse_User"
+                    }
+                  }
+                },
+                "description": "Success"
+              }
+            },
+            "tags": []
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "PaginatedResponse_User": {
+            "description": "Paginated response wrapper.",
+            "properties": {
+              "data": {
+                "items": {
+                  "$ref": "#/components/schemas/User"
+                },
+                "type": "array"
+              },
+              "limit": {
+                "example": 10,
+                "format": "int32",
+                "maximum": 1000,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "page": {
+                "example": 1,
+                "format": "int32",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "total_count": {
+                "example": 100,
+                "format": "int32",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total_count",
+              "page",
+              "limit",
+              "data"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "properties": {
+              "id": {
+                "format": "int32",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/users": {
+          "get": {
+            "operationId": "users",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/PaginatedResponse_User"
+                    }
+                  }
+                },
+                "description": "Success"
+              }
+            },
+            "tags": []
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "log": [],
+  "paths": {
+    "document": {
+      "/users": {
+        "get": {
+          "operationId": "users",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/PaginatedResponse_User"
+                  }
+                }
+              },
+              "description": "Success"
+            }
+          },
+          "tags": []
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "PaginatedResponse_User": {
+        "description": "Paginated response wrapper.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/User"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "example": 10,
+            "format": "int32",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "page": {
+            "example": 1,
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "total_count": {
+            "example": 100,
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_count",
+          "page",
+          "limit",
+          "data"
+        ],
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "id": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  }
+}

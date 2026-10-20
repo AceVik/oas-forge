@@ -1,0 +1,22 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/readme_fragments/case.toml
+---
+{
+  "description": "README: 'Fragments & Mixins' definition example with separator comments",
+  "fragments": {
+    "error": "YAML error in <case>/src/api.rs:7: could not find expected ':' at line 14 column 9, while scanning a simple key at line 13 column 9\nContext:\n    07 | paths:\n    08 |   /users:\n    09 |     get:\n    10 |       parameters:\n    11 |         # Inserts the list items directly here"
+  },
+  "full": {
+    "error": "YAML error in <case>/src/api.rs:7: could not find expected ':' at line 14 column 9, while scanning a simple key at line 13 column 9\nContext:\n    07 | paths:\n    08 |   /users:\n    09 |     get:\n    10 |       parameters:\n    11 |         # Inserts the list items directly here"
+  },
+  "known_bug": "Separator lines are appended to the previous fragment body, which breaks generation",
+  "log": [],
+  "paths": {
+    "error": "YAML error in <case>/src/api.rs:7: could not find expected ':' at line 14 column 9, while scanning a simple key at line 13 column 9\nContext:\n    07 | paths:\n    08 |   /users:\n    09 |     get:\n    10 |       parameters:\n    11 |         # Inserts the list items directly here"
+  },
+  "schemas": {
+    "error": "YAML error in <case>/src/api.rs:7: could not find expected ':' at line 14 column 9, while scanning a simple key at line 13 column 9\nContext:\n    07 | paths:\n    08 |   /users:\n    09 |     get:\n    10 |       parameters:\n    11 |         # Inserts the list items directly here"
+  }
+}

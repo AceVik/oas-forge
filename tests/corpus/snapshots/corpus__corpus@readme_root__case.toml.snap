@@ -1,0 +1,22 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/readme_root/case.toml
+---
+{
+  "description": "README: root documentation examples (basic, variables, security schemes, attached to app logic)",
+  "fragments": {
+    "error": "YAML error in <case>/src/lib.rs:1: did not find expected key at line 15 column 84, while parsing a block mapping at line 14 column 7\nContext:\n    01 | openapi: 3.1.0\n    02 | info:\n    03 |   title: Secure API\n    04 |   version: 1.0.0\n    05 | components:"
+  },
+  "full": {
+    "error": "YAML error in <case>/src/lib.rs:1: did not find expected key at line 15 column 84, while parsing a block mapping at line 14 column 7\nContext:\n    01 | openapi: 3.1.0\n    02 | info:\n    03 |   title: Secure API\n    04 |   version: 1.0.0\n    05 | components:"
+  },
+  "known_bug": "The documented openIdConnectUrl contains a pasted Markdown link and is not a valid URL",
+  "log": [],
+  "paths": {
+    "error": "YAML error in <case>/src/lib.rs:1: did not find expected key at line 15 column 84, while parsing a block mapping at line 14 column 7\nContext:\n    01 | openapi: 3.1.0\n    02 | info:\n    03 |   title: Secure API\n    04 |   version: 1.0.0\n    05 | components:"
+  },
+  "schemas": {
+    "error": "YAML error in <case>/src/lib.rs:1: did not find expected key at line 15 column 84, while parsing a block mapping at line 14 column 7\nContext:\n    01 | openapi: 3.1.0\n    02 | info:\n    03 |   title: Secure API\n    04 |   version: 1.0.0\n    05 | components:"
+  }
+}

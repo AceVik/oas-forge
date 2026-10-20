@@ -1,0 +1,236 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/struct_basic/case.toml
+---
+{
+  "description": "Structs: scalars, Option, collections, maps, nested references, doc comments",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Address": {
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "street": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "street",
+              "city"
+            ],
+            "type": "object"
+          },
+          "Role": {
+            "enum": [
+              "Admin",
+              "Member"
+            ],
+            "type": "string"
+          },
+          "User": {
+            "description": "A registered user. Spans two lines.",
+            "properties": {
+              "address": {
+                "$ref": "#/components/schemas/Address"
+              },
+              "email": {
+                "type": "string"
+              },
+              "id": {
+                "description": "Unique identifier",
+                "format": "int64",
+                "type": "integer"
+              },
+              "manager": {
+                "$ref": "#/components/schemas/User"
+              },
+              "name": {
+                "type": "string"
+              },
+              "roles": {
+                "items": {
+                  "$ref": "#/components/schemas/Role"
+                },
+                "type": "array"
+              },
+              "settings": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "roles",
+              "settings",
+              "address"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Address": {
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "street": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "street",
+              "city"
+            ],
+            "type": "object"
+          },
+          "Role": {
+            "enum": [
+              "Admin",
+              "Member"
+            ],
+            "type": "string"
+          },
+          "User": {
+            "description": "A registered user. Spans two lines.",
+            "properties": {
+              "address": {
+                "$ref": "#/components/schemas/Address"
+              },
+              "email": {
+                "type": "string"
+              },
+              "id": {
+                "description": "Unique identifier",
+                "format": "int64",
+                "type": "integer"
+              },
+              "manager": {
+                "$ref": "#/components/schemas/User"
+              },
+              "name": {
+                "type": "string"
+              },
+              "roles": {
+                "items": {
+                  "$ref": "#/components/schemas/Role"
+                },
+                "type": "array"
+              },
+              "settings": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "roles",
+              "settings",
+              "address"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Address": {
+        "properties": {
+          "city": {
+            "type": "string"
+          },
+          "street": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "street",
+          "city"
+        ],
+        "type": "object"
+      },
+      "Role": {
+        "enum": [
+          "Admin",
+          "Member"
+        ],
+        "type": "string"
+      },
+      "User": {
+        "description": "A registered user. Spans two lines.",
+        "properties": {
+          "address": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier",
+            "format": "int64",
+            "type": "integer"
+          },
+          "manager": {
+            "$ref": "#/components/schemas/User"
+          },
+          "name": {
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "type": "array"
+          },
+          "settings": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "roles",
+          "settings",
+          "address"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  }
+}

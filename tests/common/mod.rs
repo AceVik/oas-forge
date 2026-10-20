@@ -4,6 +4,8 @@
 //! so not every helper is used by every suite.
 #![allow(dead_code)]
 
+pub mod spec;
+
 use oas_forge::scanner::Snippet;
 use oas_forge::visitor::{ExtractedItem, OpenApiVisitor};
 use serde_json::Value;

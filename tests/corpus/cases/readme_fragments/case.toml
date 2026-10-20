@@ -1,0 +1,2 @@
+description = "README: 'Fragments & Mixins' definition example with separator comments"
+known_bug = "Separator lines are appended to the previous fragment body, which breaks generation"

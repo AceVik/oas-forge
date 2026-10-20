@@ -1,0 +1,90 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
+---
+{
+  "description": "Route DSL: @extend inside a route block",
+  "fragments": {
+    "document": {
+      "components": {
+        "x-oas-forge-fragments": {
+          "Secured": {
+            "body": "security:\n  - oidc: [{{role}}]\nresponses:\n  '401':\n    description: Unauthorized",
+            "params": [
+              "role"
+            ]
+          }
+        }
+      },
+      "paths": {
+        "/admin": {
+          "get": {
+            "operationId": "admin",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "ok"
+              }
+            },
+            "summary": "x-openapi-extend: 'Secured(\"admin\")'",
+            "tags": []
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/admin": {
+          "get": {
+            "operationId": "admin",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "ok"
+              }
+            },
+            "summary": "x-openapi-extend: 'Secured(\"admin\")'",
+            "tags": []
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "known_bug": "@extend is never merged inside a route",
+  "log": [
+    "WARN: Generating empty schemas file."
+  ],
+  "paths": {
+    "document": {
+      "/admin": {
+        "get": {
+          "operationId": "admin",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "ok"
+            }
+          },
+          "summary": "x-openapi-extend: 'Secured(\"admin\")'",
+          "tags": []
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  }
+}

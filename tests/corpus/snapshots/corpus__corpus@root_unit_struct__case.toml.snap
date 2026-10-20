@@ -1,0 +1,49 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/root_unit_struct/case.toml
+---
+{
+  "description": "Root: root definition on a unit struct",
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "ApiDoc": {
+            "info": {
+              "title": "Root on struct",
+              "version": "1.0.0"
+            },
+            "openapi": "3.1.0",
+            "type": "object"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "error": "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields."
+  },
+  "known_bug": "Root keys on a struct are wrapped into components.schemas instead of becoming the root",
+  "log": [
+    "WARN: Generating empty paths file."
+  ],
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "ApiDoc": {
+        "info": {
+          "title": "Root on struct",
+          "version": "1.0.0"
+        },
+        "openapi": "3.1.0",
+        "type": "object"
+      }
+    },
+    "lints": []
+  }
+}
