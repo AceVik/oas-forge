@@ -11,23 +11,72 @@ use serde_json::Value;
 use std::collections::{BTreeSet, HashSet};
 
 /// The schema names smart references may resolve to.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::template::refs::KnownSchemas;
+/// use serde_json::json;
+///
+/// let mut known = KnownSchemas::default();
+/// known.collect_from(&json!({ "components": { "schemas": { "User": {} } } }));
+/// known.insert("Page_User");
+/// assert!(known.contains("User") && known.contains("Page_User"));
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct KnownSchemas {
+    /// The names, sorted.
     names: BTreeSet<String>,
 }
 
 impl KnownSchemas {
     /// Adds a schema name.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::refs::KnownSchemas;
+    ///
+    /// let mut known = KnownSchemas::default();
+    /// known.insert("User");
+    /// assert!(known.contains("User"));
+    /// ```
     pub fn insert(&mut self, name: impl Into<String>) {
         self.names.insert(name.into());
     }
 
     /// Whether `name` is known.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::refs::KnownSchemas;
+    ///
+    /// let mut known = KnownSchemas::default();
+    /// known.insert("User");
+    /// assert!(known.contains("User"));
+    /// assert!(!known.contains("user"));
+    /// ```
     pub fn contains(&self, name: &str) -> bool {
         self.names.contains(name)
     }
 
     /// Every `components.schemas` name defined in `document`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::refs::KnownSchemas;
+    /// use serde_json::json;
+    ///
+    /// let mut known = KnownSchemas::default();
+    /// known.collect_from(&json!({
+    ///     "paths": {},
+    ///     "components": { "schemas": { "User": {}, "Team": {} } }
+    /// }));
+    /// assert!(known.contains("Team"));
+    /// assert!(!known.contains("paths"));
+    /// ```
     pub fn collect_from(&mut self, document: &Value) {
         if let Some(schemas) = document
             .pointer("/components/schemas")
@@ -38,6 +87,9 @@ impl KnownSchemas {
     }
 }
 
+/// The name of a smart reference: `text` is `$` followed by an identifier
+/// (a letter or `_`, then letters, digits or `_`). `None` for other text,
+/// e.g. a generic reference (`$Page<User>`) or prose.
 fn reference_name(text: &str) -> Option<&str> {
     let name = text.strip_prefix('$')?;
     let mut chars = name.chars();
@@ -47,6 +99,28 @@ fn reference_name(text: &str) -> Option<&str> {
 }
 
 /// What smart references may resolve to.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::{Diagnostics, Location};
+/// use oas_forge::schema::TypeMapper;
+/// use oas_forge::template::Registry;
+/// use oas_forge::template::refs::{self, KnownSchemas, Targets};
+/// use serde_json::json;
+///
+/// let mut known = KnownSchemas::default();
+/// known.insert("User");
+/// let mut registry = Registry::new();
+/// // `#[serde(rename = "User")] struct UserDto`
+/// registry.add_alias("UserDto", "User");
+/// let targets = Targets { known: &known, registry: &registry, types: TypeMapper::builtin() };
+///
+/// let mut value = json!({ "$ref": "$UserDto" });
+/// let mut diagnostics = Diagnostics::new();
+/// refs::resolve(&mut value, targets, &Location::new("src/lib.rs", 1), &mut diagnostics);
+/// assert_eq!(value, json!({ "$ref": "#/components/schemas/User" }));
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct Targets<'a> {
     /// The documented schema names.
@@ -58,6 +132,49 @@ pub struct Targets<'a> {
 }
 
 /// Resolves smart references in `value`; unknown names are reported once.
+///
+/// Every whole string `$Name` that names a known schema, directly or by the
+/// Rust name of a renamed type, becomes a pointer to that schema. A `{"$ref": "$Name"}` of a
+/// built-in type is replaced by its schema; one of an unknown name is
+/// reported and still becomes a pointer, so the lints see it.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::{Code, Diagnostics, Location};
+/// use oas_forge::schema::TypeMapper;
+/// use oas_forge::template::Registry;
+/// use oas_forge::template::refs::{self, KnownSchemas, Targets};
+/// use serde_json::json;
+///
+/// let mut known = KnownSchemas::default();
+/// known.insert("User");
+/// let registry = Registry::new();
+/// let targets = Targets { known: &known, registry: &registry, types: TypeMapper::builtin() };
+///
+/// let mut value = json!({
+///     "properties": {
+///         "owner": { "$ref": "$User" },
+///         "id": { "$ref": "$Uuid" },
+///         "group": { "$ref": "$Group" }
+///     }
+/// });
+/// let mut diagnostics = Diagnostics::new();
+/// refs::resolve(&mut value, targets, &Location::new("src/lib.rs", 4), &mut diagnostics);
+///
+/// assert_eq!(
+///     value,
+///     json!({
+///         "properties": {
+///             "owner": { "$ref": "#/components/schemas/User" },
+///             "id": { "type": "string", "format": "uuid" },
+///             "group": { "$ref": "#/components/schemas/Group" }
+///         }
+///     })
+/// );
+/// let codes: Vec<Code> = diagnostics.iter().map(|d| d.code()).collect();
+/// assert_eq!(codes, [Code::UnresolvedReference]);
+/// ```
 pub fn resolve(
     value: &mut Value,
     targets: Targets<'_>,
@@ -80,6 +197,10 @@ fn builtin(name: &str, targets: Targets<'_>) -> Option<serde_json::Map<String, V
     }
 }
 
+/// [`resolve`] at `value` and below. `reported` holds the unknown names
+/// reported so far. In a mapping, the built-in alternatives are chosen
+/// first ([`shadow::choose`]), then a `$ref` of a built-in type is
+/// replaced, then the children are resolved.
 fn resolve_at(
     value: &mut Value,
     targets: Targets<'_>,
@@ -161,6 +282,22 @@ fn resolve_at(
 /// Turns protected `\$` escapes back into `$` (the very last text step).
 /// Regular expressions keep `\$`, their escape of a literal dollar sign:
 /// `pattern` values and the keys of `patternProperties`.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::template::lexical::ESCAPED_DOLLAR;
+/// use oas_forge::template::refs;
+/// use serde_json::json;
+///
+/// // `\$5` and `^\$[0-9]+$` after the text stage:
+/// let mut value = json!({
+///     "description": format!("Costs {ESCAPED_DOLLAR}5"),
+///     "pattern": format!("^{ESCAPED_DOLLAR}[0-9]+$")
+/// });
+/// refs::unescape(&mut value);
+/// assert_eq!(value, json!({ "description": "Costs $5", "pattern": "^\\$[0-9]+$" }));
+/// ```
 pub fn unescape(value: &mut Value) {
     unescape_at(value, false);
 }
@@ -197,6 +334,8 @@ fn unescape_child(key: &str, child: &mut Value) {
     }
 }
 
+/// `text` with each [`ESCAPED_DOLLAR`] turned back into `$`, or into `\$`
+/// in a regular expression.
 fn restore(text: &str, regex: bool) -> String {
     text.replace(ESCAPED_DOLLAR, if regex { "\\$" } else { "$" })
 }

@@ -9,6 +9,18 @@ use std::sync::OnceLock;
 ///
 /// Smart references written with a `$` prefix (`$User`, `$Page<User>`) are
 /// [`TypeExpr::Named`] with `smart: true`.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::schema::TypeExpr;
+///
+/// let ty = TypeExpr::parse("HashMap<String, $User>").ok_or("not a type")?;
+/// assert_eq!(ty.name(), Some("HashMap"));
+/// assert!(ty.args()[1].is_smart());
+/// assert_eq!(ty.to_string(), "HashMap<String, $User>");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum TypeExpr {
@@ -38,12 +50,26 @@ pub enum TypeExpr {
     Other(String),
 }
 
+/// Stands in for `$` while `syn` parses a type (`$User` is no Rust);
+/// [`TypeExpr::from_syn`] strips it from path segments again and sets
+/// `smart`.
 const SMART_MARKER: &str = "__oas_forge_smart__";
 
 impl TypeExpr {
     /// Parses a type written in Rust syntax, optionally with `$` smart markers.
     ///
     /// Returns `None` when the text is not a type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::schema::TypeExpr;
+    ///
+    /// let ty = TypeExpr::parse("[u8; 4]").ok_or("not a type")?;
+    /// assert!(matches!(ty, TypeExpr::Array { len: Some(4), .. }));
+    /// assert_eq!(TypeExpr::parse("not a type!"), None);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn parse(text: &str) -> Option<Self> {
         let marked = text.trim().replace('$', SMART_MARKER);
         let ty: syn::Type = syn::parse_str(&marked).ok()?;
@@ -51,6 +77,16 @@ impl TypeExpr {
     }
 
     /// A smart reference `$name`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::schema::TypeExpr;
+    ///
+    /// let user = TypeExpr::smart("User");
+    /// assert_eq!(Some(user.clone()), TypeExpr::parse("$User"));
+    /// assert_eq!(user.to_string(), "$User");
+    /// ```
     pub fn smart(name: impl Into<String>) -> Self {
         Self::Named {
             path: vec![name.into()],
@@ -59,6 +95,10 @@ impl TypeExpr {
         }
     }
 
+    /// Converts a type parsed by `syn`. Segments with the [`SMART_MARKER`]
+    /// prefix make a smart reference; generic arguments come from the last
+    /// segment (lifetimes and constants dropped), parentheses are removed,
+    /// and types without an equivalent become [`TypeExpr::Other`].
     pub(crate) fn from_syn(ty: &syn::Type) -> Self {
         match ty {
             syn::Type::Path(p) => {
@@ -113,6 +153,17 @@ impl TypeExpr {
     }
 
     /// The last path segment of a named type (`DateTime` for `chrono::DateTime<Utc>`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::schema::TypeExpr;
+    ///
+    /// let ty = TypeExpr::parse("chrono::DateTime<Utc>").ok_or("not a type")?;
+    /// assert_eq!(ty.name(), Some("DateTime"));
+    /// assert_eq!(TypeExpr::parse("(u8, u16)").ok_or("not a type")?.name(), None);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn name(&self) -> Option<&str> {
         match self {
             Self::Named { path, .. } => path.last().map(String::as_str),
@@ -121,6 +172,17 @@ impl TypeExpr {
     }
 
     /// The generic arguments of a named type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::schema::TypeExpr;
+    ///
+    /// let ty = TypeExpr::parse("Result<User, ApiError>").ok_or("not a type")?;
+    /// let names: Vec<Option<&str>> = ty.args().iter().map(TypeExpr::name).collect();
+    /// assert_eq!(names, [Some("User"), Some("ApiError")]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn args(&self) -> &[TypeExpr] {
         match self {
             Self::Named { args, .. } => args,
@@ -129,6 +191,16 @@ impl TypeExpr {
     }
 
     /// Whether the type was written as a `$` smart reference.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::schema::TypeExpr;
+    ///
+    /// assert!(TypeExpr::parse("$Page<User>").ok_or("not a type")?.is_smart());
+    /// assert!(!TypeExpr::parse("Page<User>").ok_or("not a type")?.is_smart());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn is_smart(&self) -> bool {
         matches!(self, Self::Named { smart: true, .. })
     }
@@ -175,6 +247,7 @@ impl fmt::Display for TypeExpr {
     }
 }
 
+/// The token text of `ty` (`fn (u8) -> u8`), kept in [`TypeExpr::Other`].
 fn quote_type(ty: &syn::Type) -> String {
     quote::ToTokens::to_token_stream(ty).to_string()
 }
@@ -216,6 +289,23 @@ pub(crate) fn is_container(name: &str) -> bool {
 }
 
 /// The schema of a type and how a field of that type behaves.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::schema::{TypeExpr, TypeMapper};
+/// use serde_json::json;
+///
+/// let ty = TypeExpr::parse("Option<u32>").ok_or("not a type")?;
+/// let mapped = TypeMapper::new().map(&ty);
+/// assert_eq!(
+///     mapped.schema,
+///     json!({ "type": "integer", "format": "int64", "minimum": 0, "maximum": 4_294_967_295_u32 })
+/// );
+/// assert!(!mapped.required);
+/// assert!(mapped.nullable);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct MappedType {
@@ -229,6 +319,7 @@ pub struct MappedType {
 }
 
 impl MappedType {
+    /// A required, non-nullable type with `schema`.
     fn required(schema: Value) -> Self {
         Self {
             schema,
@@ -238,6 +329,19 @@ impl MappedType {
     }
 
     /// The schema with nullability applied (2020-12 form).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::schema::{TypeExpr, TypeMapper};
+    /// use serde_json::json;
+    ///
+    /// let ty = TypeExpr::parse("Option<String>").ok_or("not a type")?;
+    /// let mapped = TypeMapper::new().map(&ty);
+    /// assert_eq!(mapped.schema, json!({ "type": "string" }));
+    /// assert_eq!(mapped.into_schema(), json!({ "type": ["string", "null"] }));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn into_schema(self) -> Value {
         if self.nullable {
             super::nullable(self.schema)
@@ -252,8 +356,26 @@ impl MappedType {
 /// Types the table does not know become smart references
 /// (`{"$ref": "$Name"}`) that are resolved against the documented schemas.
 /// [`TypeMapper::with_type`] adds or replaces mappings.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::schema::{TypeExpr, TypeMapper};
+/// use serde_json::json;
+///
+/// let types = TypeMapper::new();
+/// let schema = |text: &str| TypeExpr::parse(text).map(|ty| types.map(&ty).into_schema());
+///
+/// assert_eq!(
+///     schema("Vec<Uuid>"),
+///     Some(json!({ "type": "array", "items": { "type": "string", "format": "uuid" } }))
+/// );
+/// // Unknown types stay smart references until the references stage.
+/// assert_eq!(schema("User"), Some(json!({ "$ref": "$User" })));
+/// ```
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypeMapper {
+    /// The schemas of [`TypeMapper::with_type`], by type name or `::` path.
     custom: BTreeMap<String, Value>,
     /// Built-in names written bare that stand for documented schemas.
     shadowed: BTreeSet<String>,
@@ -298,11 +420,31 @@ const SHADOWABLE: &[&str] = &[
 
 impl TypeMapper {
     /// A mapper with the built-in type table.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::schema::{TypeExpr, TypeMapper};
+    /// use serde_json::json;
+    ///
+    /// let ty = TypeExpr::parse("bool").ok_or("not a type")?;
+    /// assert_eq!(TypeMapper::new().map(&ty).schema, json!({ "type": "boolean" }));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new() -> Self {
         Self::default()
     }
 
     /// The shared mapper with only the built-in table.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::schema::TypeMapper;
+    ///
+    /// assert_eq!(TypeMapper::builtin(), &TypeMapper::new());
+    /// assert_eq!(TypeMapper::builtin().custom_types().count(), 0);
+    /// ```
     pub fn builtin() -> &'static Self {
         static BUILTIN: OnceLock<TypeMapper> = OnceLock::new();
         BUILTIN.get_or_init(Self::new)
@@ -311,12 +453,43 @@ impl TypeMapper {
     /// Maps the type `name` to `schema`. `name` is a type name (`UserId`) or a
     /// path (`my_crate::UserId`); a path only matches types written with the
     /// same path. Custom mappings take precedence over the built-in table.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::schema::{TypeExpr, TypeMapper};
+    /// use serde_json::json;
+    ///
+    /// let types = TypeMapper::new()
+    ///     .with_type("UserId", json!({ "type": "string", "format": "uuid" }))
+    ///     .with_type("money::Amount", json!({ "type": "string", "format": "decimal" }));
+    /// let schema = |text: &str| TypeExpr::parse(text).map(|ty| types.map(&ty).schema);
+    ///
+    /// // A name matches any path that ends with it.
+    /// assert_eq!(schema("models::UserId"), Some(json!({ "type": "string", "format": "uuid" })));
+    /// // A path matches only the same path.
+    /// assert_eq!(schema("money::Amount"), Some(json!({ "type": "string", "format": "decimal" })));
+    /// assert_eq!(schema("Amount"), Some(json!({ "$ref": "$Amount" })));
+    /// ```
     pub fn with_type(mut self, name: impl Into<String>, schema: Value) -> Self {
         self.custom.insert(name.into(), schema);
         self
     }
 
     /// The custom mappings, by name.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::schema::TypeMapper;
+    /// use serde_json::json;
+    ///
+    /// let types = TypeMapper::new()
+    ///     .with_type("UserId", json!({ "type": "string" }))
+    ///     .with_type("Amount", json!({ "type": "string" }));
+    /// let names: Vec<&String> = types.custom_types().map(|(name, _)| name).collect();
+    /// assert_eq!(names, ["Amount", "UserId"]);
+    /// ```
     pub fn custom_types(&self) -> impl Iterator<Item = (&String, &Value)> {
         self.custom.iter()
     }
@@ -330,6 +503,8 @@ impl TypeMapper {
         names
     }
 
+    /// Adds the shadowable names of `ty`, its generic arguments, element
+    /// types and tuple members to `names`.
     fn collect_shadowable(&self, ty: &TypeExpr, names: &mut BTreeSet<String>) {
         match ty {
             TypeExpr::Named { path, args, .. } => {
@@ -365,6 +540,28 @@ impl TypeMapper {
     }
 
     /// The schema of `ty`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::schema::{TypeExpr, TypeMapper};
+    /// use serde_json::json;
+    ///
+    /// let types = TypeMapper::new();
+    /// let schema = |text: &str| TypeExpr::parse(text).map(|ty| types.map(&ty).schema);
+    ///
+    /// assert_eq!(
+    ///     schema("HashMap<u32, String>"),
+    ///     Some(json!({
+    ///         "type": "object",
+    ///         "additionalProperties": { "type": "string" },
+    ///         "propertyNames": { "pattern": "^[0-9]+$" }
+    ///     }))
+    /// );
+    /// // Generic types stay raw references for the generics stage.
+    /// assert_eq!(schema("Page<User>"), Some(json!({ "$ref": "$Page<$User>" })));
+    /// assert_eq!(schema("$Page<User>"), Some(json!({ "$ref": "$Page<User>" })));
+    /// ```
     pub fn map(&self, ty: &TypeExpr) -> MappedType {
         match ty {
             TypeExpr::Named { path, args, smart } => {
@@ -426,6 +623,8 @@ impl TypeMapper {
         })
     }
 
+    /// The custom schema of the type at `path`: a mapping of the whole path
+    /// (`money::Amount`) first, then one of its last segment (`Amount`).
     fn custom_schema(&self, path: &[String]) -> Option<Value> {
         if self.custom.is_empty() {
             return None;
@@ -437,6 +636,10 @@ impl TypeMapper {
             .cloned()
     }
 
+    /// The schema of a named type without custom or shadowed mapping:
+    /// integers, std containers and wrappers, the library types of the
+    /// built-in table, and else a smart reference (`$Name`, or `$Name<$Arg>`
+    /// for a generic type).
     fn map_named(&self, path: &[String], args: &[TypeExpr]) -> MappedType {
         let name = path.last().map(String::as_str).unwrap_or_default();
         let qualified = |prefix: &str| matches!(path, [first, _, ..] if first == prefix);

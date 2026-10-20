@@ -1068,14 +1068,20 @@ fn mentions_param(schema: &Value, param: &str) -> bool {
 
 /// What the docs of an item, field or variant add to its schema.
 struct Annotations {
+    /// The prose of the doc comment; `None` without any.
     description: Option<String>,
+    /// The `@example` values, parsed as YAML (text that is no YAML or reads
+    /// as nothing stays text); `None` without `@example`.
     examples: Option<Vec<Value>>,
+    /// Whether the item has a `#[deprecated]` attribute.
     deprecated: bool,
     /// The `@openapi` override YAML.
     overrides: Option<Map<String, Value>>,
 }
 
 impl Annotations {
+    /// Sets `description`, `examples` and `deprecated` on an object
+    /// `schema`, then merges the override ([`apply_override`]).
     fn apply(&self, schema: &mut Value) {
         if let Value::Object(map) = schema {
             if let Some(description) = &self.description {

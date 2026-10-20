@@ -26,9 +26,13 @@ struct Marker {
     variants: Vec<Alternative>,
 }
 
+/// One alternative of a [`Marker`]: the schema for when exactly `names`
+/// stand for documented schemas.
 #[derive(Serialize, Deserialize)]
 struct Alternative {
+    /// The built-in names that refer to documented schemas here.
     names: BTreeSet<String>,
+    /// The schema with those names as references (`{"$ref": "$Duration"}`).
     schema: Value,
 }
 
