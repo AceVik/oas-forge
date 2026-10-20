@@ -53,3 +53,47 @@ fn accepts_null(map: &serde_json::Map<String, Value>) -> bool {
             }),
     }
 }
+
+/// The inverse of [`nullable`]: `schema` without accepting `null`
+/// (parameters cannot be `null`).
+pub fn strip_null(schema: Value) -> Value {
+    let Value::Object(mut map) = schema else {
+        return schema;
+    };
+    if let Some(Value::Array(types)) = map.get_mut("type") {
+        types.retain(|t| t != "null");
+        if let [single] = types.as_slice() {
+            let single = single.clone();
+            map.insert("type".into(), single);
+        }
+        if let Some(Value::Array(values)) = map.get_mut("enum") {
+            values.retain(|v| !v.is_null());
+        }
+        return Value::Object(map);
+    }
+    if let Some(Value::Array(alternatives)) = map.get("anyOf") {
+        let others: Vec<&Value> = alternatives
+            .iter()
+            .filter(|a| **a != json!({ "type": "null" }))
+            .collect();
+        if others.len() < alternatives.len() {
+            if let [single] = others.as_slice() {
+                let single = (*single).clone();
+                map.remove("anyOf");
+                return match single {
+                    Value::Object(inner) => {
+                        let mut out = inner;
+                        for (key, value) in map {
+                            out.entry(key).or_insert(value);
+                        }
+                        Value::Object(out)
+                    }
+                    other => other,
+                };
+            }
+            let others: Vec<Value> = others.into_iter().cloned().collect();
+            map.insert("anyOf".into(), Value::Array(others));
+        }
+    }
+    Value::Object(map)
+}

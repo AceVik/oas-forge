@@ -12,8 +12,6 @@ paths:
   /me:
     get:
       operationId: me
-      tags: []
-      parameters: []
       responses:
         "200":
           description: ok

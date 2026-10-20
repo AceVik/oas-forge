@@ -12,13 +12,11 @@ input_file: tests/corpus/cases/root_include_yaml/case.toml
         "/ping": {
           "get": {
             "operationId": "ping",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "pong"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -36,13 +34,11 @@ input_file: tests/corpus/cases/root_include_yaml/case.toml
         "/ping": {
           "get": {
             "operationId": "ping",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "pong"
               }
-            },
-            "tags": []
+            }
           }
         }
       },
@@ -60,13 +56,11 @@ input_file: tests/corpus/cases/root_include_yaml/case.toml
       "/ping": {
         "get": {
           "operationId": "ping",
-          "parameters": [],
           "responses": {
             "200": {
               "description": "pong"
             }
-          },
-          "tags": []
+          }
         }
       }
     },

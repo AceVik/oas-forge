@@ -16,7 +16,7 @@ use oas_forge::generator::generate_from_sources;
 use oas_forge::merge::{Policy, merge};
 use oas_forge::output::Format;
 use oas_forge::schema::types::{TypeExpr, TypeMapper};
-use oas_forge::schema::{dialect, nullable};
+use oas_forge::schema::{dialect, nullable, strip_null};
 use oas_forge::source::{SourceFile, SourceKind};
 use oas_forge::template::generics::{GenericRef, Instantiator};
 use oas_forge::template::lexical::{self, Variables};
@@ -95,6 +95,29 @@ fn dsl_line() -> impl Strategy<Value = String> {
         "responses:",
         "x-extra:",
         "",
+        "@param query",
+        "@param",
+        "@querystring-param",
+        "@query-params",
+        "@path-params",
+        "@return-header 200",
+        "@return 2XX:",
+        "@problem",
+        "@summary",
+        "@description",
+        "@deprecated",
+        "@operation-id",
+        "@external-docs",
+        "@server",
+        "@security none",
+        "@security a + b",
+        "@webhook",
+        "@no-infer",
+        "@route QUERY /q",
+        "@route PURGE /p/{id}",
+        "@body optional",
+        "tags:",
+        "deprecated:",
     ]);
     (directive, tricky_text()).prop_map(|(d, rest)| format!("{d} {rest}"))
 }
@@ -236,7 +259,12 @@ proptest! {
             &mut Diagnostics::new(),
         );
         if let Some(compiled) = compiled {
-            prop_assert!(compiled.document["paths"][&compiled.path][&compiled.method].is_object());
+            let section = if compiled.webhook { "webhooks" } else { "paths" };
+            let item = &compiled.document[section][&compiled.path];
+            prop_assert!(
+                item[&compiled.method].is_object() || item["additionalOperations"][&compiled.method].is_object(),
+                "{:#}", compiled.document
+            );
         }
     }
 
@@ -328,6 +356,15 @@ proptest! {
             let text = once.to_string();
             prop_assert!(text.contains("null"), "{}", text);
         }
+    }
+
+    #[test]
+    fn strip_null_undoes_nullable(
+        value in prop::collection::btree_map("[a-z$]{1,6}", json_value(), 1..4)
+            .prop_map(|m| Value::Object(m.into_iter().collect()))
+    ) {
+        prop_assume!(nullable(value.clone()) != value);
+        prop_assert_eq!(strip_null(nullable(value.clone())), value);
     }
 
     #[test]

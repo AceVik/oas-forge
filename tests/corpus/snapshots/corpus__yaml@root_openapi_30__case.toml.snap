@@ -12,7 +12,6 @@ paths:
   "/orders/{id}":
     get:
       operationId: get_order
-      tags: []
       parameters:
       - name: id
         in: path

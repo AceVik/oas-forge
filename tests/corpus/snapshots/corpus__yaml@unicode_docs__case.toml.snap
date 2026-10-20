@@ -13,7 +13,6 @@ paths:
     get:
       summary: Größe abfragen – liefert $Kunde
       operationId: kunde
-      tags: []
       parameters:
       - name: id
         in: path

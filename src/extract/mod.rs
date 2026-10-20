@@ -7,9 +7,11 @@
 mod blocks;
 mod constants;
 mod reflect;
+mod signature;
 
 use super::diagnostics::{Diagnostics, Location};
 use super::docs::{DocLine, doc_lines, line_of};
+use super::dsl::{self, Signature};
 use super::error::{Error, Result};
 use super::schema::TypeMapper;
 use super::source::SourceFile;
@@ -134,6 +136,10 @@ pub struct RouteItem {
     pub operation_id: Option<String>,
     /// Tags of the enclosing modules, applied when the route has no `@tag`.
     pub tags: Vec<String>,
+    /// `@route-defaults` lines of the enclosing modules, outermost first.
+    pub defaults: Vec<String>,
+    /// What the handler's signature says (signature inference).
+    pub signature: Option<Signature>,
     /// Where the route block starts.
     pub location: Location,
 }
@@ -181,6 +187,7 @@ pub fn extract_str(
         types,
         items: Vec::new(),
         tags: Vec::new(),
+        defaults: Vec::new(),
         diagnostics,
     };
     visitor.visit_file(&file);
@@ -192,6 +199,7 @@ struct Extractor<'a> {
     types: &'a TypeMapper,
     items: Vec<Item>,
     tags: Vec<String>,
+    defaults: Vec<String>,
     diagnostics: &'a mut Diagnostics,
 }
 
@@ -201,14 +209,17 @@ impl Extractor<'_> {
     }
 
     /// Handles the doc comment of a function or method: a route or free blocks.
-    fn function(&mut self, attrs: &[syn::Attribute], ident: &syn::Ident, line: usize) {
+    fn function(&mut self, attrs: &[syn::Attribute], sig: &syn::Signature, line: usize) {
         let lines = doc_lines(attrs);
-        if lines.iter().any(|l| l.trimmed().starts_with("@route")) {
+        let texts: Vec<String> = lines.iter().map(|l| l.text.clone()).collect();
+        if dsl::is_route(&texts) {
             self.items.push(Item::Route(RouteItem {
-                lines: lines.iter().map(|l| l.text.clone()).collect(),
+                lines: texts,
                 line_numbers: lines.iter().map(|l| l.line).collect(),
-                operation_id: Some(ident.to_string()),
+                operation_id: Some(sig.ident.to_string()),
                 tags: self.tags.clone(),
+                defaults: self.defaults.clone(),
+                signature: signature::infer(sig),
                 location: self.location(lines.first().map_or(line, |l| l.line)),
             }));
         } else {
@@ -234,22 +245,24 @@ impl<'ast> Visit<'ast> for Extractor<'_> {
     }
 
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        self.function(&item.attrs, &item.sig.ident, line_of(item.span()));
+        self.function(&item.attrs, &item.sig, line_of(item.span()));
         visit::visit_item_fn(self, item);
     }
 
     fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
-        self.function(&item.attrs, &item.sig.ident, line_of(item.span()));
+        self.function(&item.attrs, &item.sig, line_of(item.span()));
         visit::visit_impl_item_fn(self, item);
     }
 
     fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
         let lines = doc_lines(&item.attrs);
-        let saved = self.tags.len();
+        let saved = (self.tags.len(), self.defaults.len());
         self.tags.extend(blocks::module_tags(&lines));
+        self.defaults.extend(blocks::route_defaults(&lines));
         self.blocks(&lines);
         visit::visit_item_mod(self, item);
-        self.tags.truncate(saved);
+        self.tags.truncate(saved.0);
+        self.defaults.truncate(saved.1);
     }
 
     fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {

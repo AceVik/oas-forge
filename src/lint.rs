@@ -1,6 +1,7 @@
 //! Checks of the merged document that the official schemas cannot express.
 
 use super::diagnostics::{Code, Diagnostic, Diagnostics};
+use super::document::for_each_operation;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -20,16 +21,13 @@ pub(crate) fn check(document: &Value, diagnostics: &mut Diagnostics) {
         }
     }
 
-    let mut ids = BTreeMap::<&str, usize>::new();
-    if let Some(paths) = document.get("paths").and_then(Value::as_object) {
-        for item in paths.values().filter_map(Value::as_object) {
-            for operation in item.values().filter_map(Value::as_object) {
-                if let Some(id) = operation.get("operationId").and_then(Value::as_str) {
-                    *ids.entry(id).or_default() += 1;
-                }
-            }
+    let mut ids = BTreeMap::<String, usize>::new();
+    let mut copy = document.clone();
+    for_each_operation(&mut copy, |_, operation| {
+        if let Some(id) = operation.get("operationId").and_then(Value::as_str) {
+            *ids.entry(id.to_string()).or_default() += 1;
         }
-    }
+    });
     for (id, count) in ids.into_iter().filter(|(_, n)| *n > 1) {
         diagnostics.push(Diagnostic::new(
             Code::DuplicateOperationId,

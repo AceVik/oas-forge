@@ -20,12 +20,12 @@ paths:
       - name: page
         in: query
         required: false
+        description: Page number
         schema:
           type: integer
           format: int64
           minimum: 0
           maximum: 4294967295
-        description: Page number
       responses:
         "200":
           description: List of users
@@ -37,8 +37,6 @@ paths:
                   $ref: "#/components/schemas/User"
     post:
       operationId: create_user
-      tags: []
-      parameters: []
       responses:
         "201":
           description: Created
@@ -59,7 +57,6 @@ paths:
   "/users/{id}":
     get:
       operationId: get_user
-      tags: []
       parameters:
       - name: id
         in: path
@@ -70,58 +67,63 @@ paths:
           minimum: 0
           maximum: 4294967295
         description: The unique ID
-      responses: {}
+      responses:
+        default:
+          description: Default response
   /search:
     get:
       operationId: search
-      tags: []
       parameters:
       - name: filter
         in: query
         required: false
+        description: Filter by name
         schema:
           type: string
         deprecated: true
         example: Alice
-        description: Filter by name
       - name: X-Trace-ID
         in: header
         required: true
+        description: Tracing ID
         schema:
           type: string
           format: uuid
-        description: Tracing ID
-      responses: {}
+      responses:
+        default:
+          description: Default response
   /users/create:
     post:
       operationId: create
-      tags: []
-      parameters: []
       requestBody:
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/CreateRequest"
-      responses: {}
+        required: true
+      responses:
+        default:
+          description: Default response
   /protected:
     get:
       operationId: protected
-      tags: []
-      parameters: []
       security:
       - oidc:
         - read
         - write
       - basic: []
-      responses: {}
+      responses:
+        default:
+          description: Default response
   /complex:
     get:
       summary: "# You can inject raw parameters alongside DSL"
       operationId: complex_handler
       tags:
       - Items
-      parameters: []
-      responses: {}
+      responses:
+        default:
+          description: Default response
 components:
   schemas:
     CreateRequest:

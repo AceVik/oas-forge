@@ -1,0 +1,379 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/root_openapi_32/case.toml
+---
+{
+  "description": "OpenAPI 3.2: QUERY, additional methods, querystring parameters, streamed responses and webhooks",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Event": {
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          "Filter": {
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "paths": {
+        "/cache": {
+          "additionalOperations": {
+            "PURGE": {
+              "operationId": "purge",
+              "responses": {
+                "204": {
+                  "description": "Purged"
+                }
+              }
+            }
+          }
+        },
+        "/events": {
+          "get": {
+            "operationId": "events",
+            "responses": {
+              "200": {
+                "content": {
+                  "text/event-stream": {
+                    "itemSchema": {
+                      "$ref": "#/components/schemas/Event"
+                    }
+                  }
+                },
+                "description": "Server-sent events"
+              },
+              "206": {
+                "content": {
+                  "application/jsonl": {
+                    "itemSchema": {
+                      "$ref": "#/components/schemas/Event"
+                    }
+                  }
+                },
+                "description": "JSON Lines"
+              }
+            }
+          }
+        },
+        "/search": {
+          "query": {
+            "operationId": "search",
+            "parameters": [
+              {
+                "content": {
+                  "application/x-www-form-urlencoded": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Filter"
+                    }
+                  }
+                },
+                "description": "Search filter",
+                "in": "querystring",
+                "name": "filter",
+                "required": true
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            }
+          }
+        }
+      },
+      "webhooks": {
+        "orderCreated": {
+          "post": {
+            "operationId": "order_created",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Received"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Event": {
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          "Filter": {
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Modern API",
+        "version": "1.0.0"
+      },
+      "openapi": "3.2.0",
+      "paths": {
+        "/cache": {
+          "additionalOperations": {
+            "PURGE": {
+              "operationId": "purge",
+              "responses": {
+                "204": {
+                  "description": "Purged"
+                }
+              }
+            }
+          }
+        },
+        "/events": {
+          "get": {
+            "operationId": "events",
+            "responses": {
+              "200": {
+                "content": {
+                  "text/event-stream": {
+                    "itemSchema": {
+                      "$ref": "#/components/schemas/Event"
+                    }
+                  }
+                },
+                "description": "Server-sent events"
+              },
+              "206": {
+                "content": {
+                  "application/jsonl": {
+                    "itemSchema": {
+                      "$ref": "#/components/schemas/Event"
+                    }
+                  }
+                },
+                "description": "JSON Lines"
+              }
+            }
+          }
+        },
+        "/search": {
+          "query": {
+            "operationId": "search",
+            "parameters": [
+              {
+                "content": {
+                  "application/x-www-form-urlencoded": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Filter"
+                    }
+                  }
+                },
+                "description": "Search filter",
+                "in": "querystring",
+                "name": "filter",
+                "required": true
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            }
+          }
+        }
+      },
+      "webhooks": {
+        "orderCreated": {
+          "post": {
+            "operationId": "order_created",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Received"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/cache": {
+        "additionalOperations": {
+          "PURGE": {
+            "operationId": "purge",
+            "responses": {
+              "204": {
+                "description": "Purged"
+              }
+            }
+          }
+        }
+      },
+      "/events": {
+        "get": {
+          "operationId": "events",
+          "responses": {
+            "200": {
+              "content": {
+                "text/event-stream": {
+                  "itemSchema": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              },
+              "description": "Server-sent events"
+            },
+            "206": {
+              "content": {
+                "application/jsonl": {
+                  "itemSchema": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              },
+              "description": "JSON Lines"
+            }
+          }
+        }
+      },
+      "/search": {
+        "query": {
+          "operationId": "search",
+          "parameters": [
+            {
+              "content": {
+                "application/x-www-form-urlencoded": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Filter"
+                  }
+                }
+              },
+              "description": "Search filter",
+              "in": "querystring",
+              "name": "filter",
+              "required": true
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Event": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "Filter": {
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      }
+    },
+    "lints": []
+  }
+}

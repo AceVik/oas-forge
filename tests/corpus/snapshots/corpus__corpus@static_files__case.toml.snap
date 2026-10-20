@@ -20,7 +20,6 @@ input_file: tests/corpus/cases/static_files/case.toml
         "/price": {
           "get": {
             "operationId": "price",
-            "parameters": [],
             "responses": {
               "200": {
                 "content": {
@@ -32,8 +31,7 @@ input_file: tests/corpus/cases/static_files/case.toml
                 },
                 "description": "Price"
               }
-            },
-            "tags": []
+            }
           }
         }
       },
@@ -65,7 +63,6 @@ input_file: tests/corpus/cases/static_files/case.toml
         "/price": {
           "get": {
             "operationId": "price",
-            "parameters": [],
             "responses": {
               "200": {
                 "content": {
@@ -77,8 +74,7 @@ input_file: tests/corpus/cases/static_files/case.toml
                 },
                 "description": "Price"
               }
-            },
-            "tags": []
+            }
           }
         }
       },
@@ -102,7 +98,6 @@ input_file: tests/corpus/cases/static_files/case.toml
       "/price": {
         "get": {
           "operationId": "price",
-          "parameters": [],
           "responses": {
             "200": {
               "content": {
@@ -114,8 +109,7 @@ input_file: tests/corpus/cases/static_files/case.toml
               },
               "description": "Price"
             }
-          },
-          "tags": []
+          }
         }
       }
     },

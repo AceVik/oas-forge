@@ -1,0 +1,54 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/root_openapi_31_drops_32/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Modern API
+  version: "1.0.0"
+paths:
+  /search: {}
+  /cache: {}
+  /events:
+    get:
+      operationId: events
+      responses:
+        "200":
+          description: Server-sent events
+          content:
+            text/event-stream: {}
+        "206":
+          description: JSON Lines
+          content:
+            application/jsonl: {}
+webhooks:
+  orderCreated:
+    post:
+      operationId: order_created
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Event"
+        required: true
+      responses:
+        "200":
+          description: Received
+components:
+  schemas:
+    Event:
+      type: object
+      properties:
+        kind:
+          type: string
+      required:
+      - kind
+    Filter:
+      type: object
+      properties:
+        name:
+          type:
+          - string
+          - "null"

@@ -6,7 +6,7 @@ input_file: tests/corpus/cases/dsl_rejected_routes/case.toml
 {
   "description": "Route DSL: routes that are rejected (missing/unused path params, no path)",
   "diagnostics": [
-    "error[OF2002]: path parameter `id` of `/items/{id}` has no definition (use `{id: Type}` or `@path-param`) (<case>/src/lib.rs:7)",
+    "error[OF2002]: path parameter `id` of `/items/{id}` has no definition (use `{id: Type}` or `@param path`) (<case>/src/lib.rs:7)",
     "error[OF2003]: path parameter `id` is not used in `/items` (<case>/src/lib.rs:10)",
     "error[OF2001]: `@route` needs a method and a path (<case>/src/lib.rs:14)"
   ],

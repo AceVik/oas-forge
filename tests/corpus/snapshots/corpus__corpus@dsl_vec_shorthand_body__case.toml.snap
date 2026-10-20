@@ -28,7 +28,6 @@ input_file: tests/corpus/cases/dsl_vec_shorthand_body/case.toml
         "/users": {
           "post": {
             "operationId": "create_many",
-            "parameters": [],
             "requestBody": {
               "content": {
                 "application/json": {
@@ -39,7 +38,8 @@ input_file: tests/corpus/cases/dsl_vec_shorthand_body/case.toml
                     "type": "array"
                   }
                 }
-              }
+              },
+              "required": true
             },
             "responses": {
               "200": {
@@ -55,8 +55,7 @@ input_file: tests/corpus/cases/dsl_vec_shorthand_body/case.toml
                 },
                 "description": "Users"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -90,7 +89,6 @@ input_file: tests/corpus/cases/dsl_vec_shorthand_body/case.toml
         "/users": {
           "post": {
             "operationId": "create_many",
-            "parameters": [],
             "requestBody": {
               "content": {
                 "application/json": {
@@ -101,7 +99,8 @@ input_file: tests/corpus/cases/dsl_vec_shorthand_body/case.toml
                     "type": "array"
                   }
                 }
-              }
+              },
+              "required": true
             },
             "responses": {
               "200": {
@@ -117,8 +116,7 @@ input_file: tests/corpus/cases/dsl_vec_shorthand_body/case.toml
                 },
                 "description": "Users"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -131,7 +129,6 @@ input_file: tests/corpus/cases/dsl_vec_shorthand_body/case.toml
       "/users": {
         "post": {
           "operationId": "create_many",
-          "parameters": [],
           "requestBody": {
             "content": {
               "application/json": {
@@ -142,7 +139,8 @@ input_file: tests/corpus/cases/dsl_vec_shorthand_body/case.toml
                   "type": "array"
                 }
               }
-            }
+            },
+            "required": true
           },
           "responses": {
             "200": {
@@ -158,8 +156,7 @@ input_file: tests/corpus/cases/dsl_vec_shorthand_body/case.toml
               },
               "description": "Users"
             }
-          },
-          "tags": []
+          }
         }
       }
     },

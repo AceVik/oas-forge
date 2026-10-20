@@ -78,7 +78,6 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
         "/users": {
           "get": {
             "operationId": "users",
-            "parameters": [],
             "responses": {
               "200": {
                 "content": {
@@ -90,8 +89,7 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
                 },
                 "description": "Success"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -166,7 +164,6 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
         "/users": {
           "get": {
             "operationId": "users",
-            "parameters": [],
             "responses": {
               "200": {
                 "content": {
@@ -178,8 +175,7 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
                 },
                 "description": "Success"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -192,7 +188,6 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
       "/users": {
         "get": {
           "operationId": "users",
-          "parameters": [],
           "responses": {
             "200": {
               "content": {
@@ -204,8 +199,7 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
               },
               "description": "Success"
             }
-          },
-          "tags": []
+          }
         }
       }
     },

@@ -66,8 +66,7 @@ input_file: tests/corpus/cases/unicode_docs/case.toml
                 "description": "Gefunden ✓"
               }
             },
-            "summary": "Größe abfragen – liefert $Kunde",
-            "tags": []
+            "summary": "Größe abfragen – liefert $Kunde"
           }
         }
       }
@@ -139,8 +138,7 @@ input_file: tests/corpus/cases/unicode_docs/case.toml
                 "description": "Gefunden ✓"
               }
             },
-            "summary": "Größe abfragen – liefert $Kunde",
-            "tags": []
+            "summary": "Größe abfragen – liefert $Kunde"
           }
         }
       }
@@ -179,8 +177,7 @@ input_file: tests/corpus/cases/unicode_docs/case.toml
               "description": "Gefunden ✓"
             }
           },
-          "summary": "Größe abfragen – liefert $Kunde",
-          "tags": []
+          "summary": "Größe abfragen – liefert $Kunde"
         }
       }
     },

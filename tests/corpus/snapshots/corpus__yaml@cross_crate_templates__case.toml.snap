@@ -12,8 +12,6 @@ paths:
   /invoices:
     get:
       operationId: list_invoices
-      tags: []
-      parameters: []
       responses:
         "200":
           description: Invoices

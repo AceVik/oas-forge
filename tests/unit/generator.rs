@@ -841,3 +841,180 @@ mod types_and_dialects {
         );
     }
 }
+
+mod operations {
+    use super::*;
+
+    const MODELS: &str = "/// @openapi\nstruct Paging {\n  /// Page.\n  page: Option<u32>,\n  size: u8,\n}\n/// @openapi\nstruct Ids { org: String, id: u64 }\n/// @openapi\nstruct UserId(u64);";
+
+    #[test]
+    fn struct_expansions_become_parameters() {
+        let (document, diagnostics) = pipeline(&[
+            ("models.rs", MODELS),
+            (
+                "api.rs",
+                "/// @route GET /orgs/{org}/users/{id}\n/// @path-params $Ids\n/// @query-params $Paging\n/// @param query size: u8 \"Explicit\"\nfn get() {}",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let parameters = &document["paths"]["/orgs/{org}/users/{id}"]["get"]["parameters"];
+        let names: Vec<_> = parameters
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| {
+                format!(
+                    "{}:{}:{}",
+                    p["in"].as_str().unwrap(),
+                    p["name"].as_str().unwrap(),
+                    p["required"]
+                )
+            })
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "path:org:true",
+                "path:id:true",
+                "query:page:false",
+                "query:size:true"
+            ]
+        );
+        assert_eq!(
+            parameters[3]["description"], "Explicit",
+            "explicit parameters win"
+        );
+        assert_eq!(
+            parameters[2],
+            json!({
+                "name": "page", "in": "query", "required": false, "description": "Page.",
+                "schema": { "type": "integer", "format": "int64", "minimum": 0, "maximum": 4294967295u32 },
+            }),
+            "parameters are not nullable"
+        );
+    }
+
+    #[test]
+    fn unknown_structs_and_missing_placeholders_are_reported() {
+        let (document, diagnostics) = pipeline(&[
+            ("models.rs", MODELS),
+            (
+                "api.rs",
+                "/// @route GET /a/{x}\n/// @path-params $Ids\n/// @query-params $Nope\nfn a() {}",
+            ),
+        ]);
+        assert_eq!(
+            codes(&diagnostics),
+            [
+                Code::UnresolvedReference,
+                Code::UnresolvedExpansion,
+                Code::UndeclaredPathParam
+            ]
+        );
+        let operation = &document["paths"]["/a/{x}"]["get"];
+        assert!(
+            !serde_json::to_string(operation)
+                .unwrap()
+                .contains("x-oas-forge-expand")
+        );
+    }
+
+    #[test]
+    fn inferred_path_newtypes_fall_back_to_a_single_parameter() {
+        let (document, diagnostics) = pipeline(&[
+            ("models.rs", MODELS),
+            (
+                "api.rs",
+                "/// @route GET /users/{user}\nasync fn get(Path(id): Path<UserId>) {}",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            document["paths"]["/users/{user}"]["get"]["parameters"],
+            json!([{ "name": "user", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/UserId" } }])
+        );
+    }
+
+    #[test]
+    fn signature_mismatches_are_reported() {
+        let (_, diagnostics) = pipeline(&[(
+            "api.rs",
+            "/// @route GET /a/{x}/{y}\nasync fn a(Path(x): Path<(u8, u8, u8)>) {}",
+        )]);
+        assert_eq!(
+            codes(&diagnostics),
+            [
+                Code::SignatureMismatch,
+                Code::UndeclaredPathParam,
+                Code::UndeclaredPathParam
+            ]
+        );
+    }
+
+    #[test]
+    fn inference_can_be_switched_off() {
+        let project = Project::new();
+        project
+            .file("src/root.rs", ROOT_DOC)
+            .file("src/api.rs", "/// @openapi\nstruct User { id: u8 }\n/// @route GET /me\nasync fn me() -> Json<User> { todo!() }");
+        let build = |infer: bool| {
+            Generator::new()
+                .input(project.path("src"))
+                .infer_signatures(infer)
+                .build()
+                .unwrap()
+                .document()["paths"]["/me"]["get"]["responses"]
+                .clone()
+        };
+        assert!(build(true).get("200").is_some());
+        assert_eq!(
+            build(false),
+            json!({ "default": { "description": "Default response" } })
+        );
+    }
+
+    #[test]
+    fn module_tags_reach_every_kind_of_operation() {
+        let (document, _) = pipeline(&[(
+            "api.rs",
+            "/// tags: [M]\nmod m {\n  /// @openapi\n  /// paths:\n  ///   /a:\n  ///     query: { responses: {} }\n  ///     additionalOperations: { PURGE: { responses: {} } }\n  /// webhooks:\n  ///   hook: { post: { responses: {} } }\n  fn a() {}\n}",
+        )]);
+        assert_eq!(document["paths"]["/a"]["query"]["tags"], json!(["M"]));
+        assert_eq!(
+            document["paths"]["/a"]["additionalOperations"]["PURGE"]["tags"],
+            json!(["M"])
+        );
+        assert_eq!(document["webhooks"]["hook"]["post"]["tags"], json!(["M"]));
+    }
+
+    #[test]
+    fn duplicate_operation_ids_are_found_everywhere() {
+        let (_, diagnostics) = pipeline(&[(
+            "api.rs",
+            "/// @route PURGE /a\n/// @operation-id same\nfn a() {}\n/// @webhook hook\n/// @operation-id same\nfn b() {}",
+        )]);
+        assert_eq!(codes(&diagnostics), [Code::DuplicateOperationId]);
+    }
+
+    #[test]
+    fn openapi_30_roots_drop_webhooks_and_32_features() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "root.yaml",
+                "openapi: 3.0.3\ninfo: { title: T, version: '1' }",
+            ),
+            (
+                "api.rs",
+                "/// @webhook hook\nfn a() {}\n/// @route GET /s\n/// @param querystring q: String\n/// @return 200: stream<String>\nfn b() {}",
+            ),
+        ]);
+        assert!(document.get("webhooks").is_none());
+        let operation = &document["paths"]["/s"]["get"];
+        assert!(operation.get("parameters").is_none() || operation["parameters"] == json!([]));
+        assert_eq!(
+            operation["responses"]["200"]["content"]["text/event-stream"],
+            json!({})
+        );
+        assert_eq!(codes(&diagnostics), [Code::UnsupportedFeature; 3]);
+    }
+}

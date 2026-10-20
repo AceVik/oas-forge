@@ -202,6 +202,8 @@ pub(crate) fn is_container(name: &str) -> bool {
             | "Wrapping"
             | "Saturating"
             | "Reverse"
+            | "Json"
+            | "Form"
             | "HashMap"
             | "BTreeMap"
             | "IndexMap"
@@ -372,8 +374,10 @@ impl TypeMapper {
                     nullable: true,
                 };
             }
+            // `Json`/`Form` are the web framework body wrappers (`Json<T>` in a
+            // `@return` or handler signature is `T`).
             "Box" | "Arc" | "Rc" | "Cow" | "RefCell" | "Cell" | "Mutex" | "RwLock" | "Wrapping"
-            | "Saturating" | "Reverse" => match first {
+            | "Saturating" | "Reverse" | "Json" | "Form" => match first {
                 Some(inner) => return self.map(inner),
                 None => json!({}),
             },

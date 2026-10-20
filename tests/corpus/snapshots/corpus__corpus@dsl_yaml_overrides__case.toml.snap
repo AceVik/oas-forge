@@ -33,8 +33,7 @@ input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
               "200": {
                 "description": "ok"
               }
-            },
-            "tags": []
+            }
           }
         },
         "/upload": {
@@ -43,7 +42,6 @@ input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
               "url": "https://example.com/docs"
             },
             "operationId": "upload",
-            "parameters": [],
             "requestBody": {
               "content": {
                 "multipart/form-data": {
@@ -69,8 +67,7 @@ input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
                 "url": "https://upload.example.com"
               }
             ],
-            "summary": "Upload a file",
-            "tags": []
+            "summary": "Upload a file"
           }
         }
       }
@@ -109,8 +106,7 @@ input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
               "200": {
                 "description": "ok"
               }
-            },
-            "tags": []
+            }
           }
         },
         "/upload": {
@@ -119,7 +115,6 @@ input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
               "url": "https://example.com/docs"
             },
             "operationId": "upload",
-            "parameters": [],
             "requestBody": {
               "content": {
                 "multipart/form-data": {
@@ -145,8 +140,7 @@ input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
                 "url": "https://upload.example.com"
               }
             ],
-            "summary": "Upload a file",
-            "tags": []
+            "summary": "Upload a file"
           }
         }
       }
@@ -180,8 +174,7 @@ input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
             "200": {
               "description": "ok"
             }
-          },
-          "tags": []
+          }
         }
       },
       "/upload": {
@@ -190,7 +183,6 @@ input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
             "url": "https://example.com/docs"
           },
           "operationId": "upload",
-          "parameters": [],
           "requestBody": {
             "content": {
               "multipart/form-data": {
@@ -216,8 +208,7 @@ input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
               "url": "https://upload.example.com"
             }
           ],
-          "summary": "Upload a file",
-          "tags": []
+          "summary": "Upload a file"
         }
       }
     },

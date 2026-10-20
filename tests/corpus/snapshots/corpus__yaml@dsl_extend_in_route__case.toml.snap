@@ -12,8 +12,6 @@ paths:
   /admin:
     get:
       operationId: admin
-      tags: []
-      parameters: []
       responses:
         "200":
           description: ok

@@ -21,13 +21,11 @@ input_file: tests/corpus/cases/root_file_level/case.toml
         "/me": {
           "get": {
             "operationId": "me",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "ok"
               }
-            },
-            "tags": []
+            }
           }
         }
       },
@@ -59,13 +57,11 @@ input_file: tests/corpus/cases/root_file_level/case.toml
         "/me": {
           "get": {
             "operationId": "me",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "ok"
               }
-            },
-            "tags": []
+            }
           }
         }
       },
@@ -83,13 +79,11 @@ input_file: tests/corpus/cases/root_file_level/case.toml
       "/me": {
         "get": {
           "operationId": "me",
-          "parameters": [],
           "responses": {
             "200": {
               "description": "ok"
             }
-          },
-          "tags": []
+          }
         }
       }
     },

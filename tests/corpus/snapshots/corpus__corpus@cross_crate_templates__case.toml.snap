@@ -63,7 +63,6 @@ input_file: tests/corpus/cases/cross_crate_templates/case.toml
         "/invoices": {
           "get": {
             "operationId": "list_invoices",
-            "parameters": [],
             "responses": {
               "200": {
                 "content": {
@@ -75,8 +74,7 @@ input_file: tests/corpus/cases/cross_crate_templates/case.toml
                 },
                 "description": "Invoices"
               }
-            },
-            "tags": []
+            }
           }
         },
         "/invoices/{id}": {
@@ -137,7 +135,6 @@ input_file: tests/corpus/cases/cross_crate_templates/case.toml
         "/invoices": {
           "get": {
             "operationId": "list_invoices",
-            "parameters": [],
             "responses": {
               "200": {
                 "content": {
@@ -149,8 +146,7 @@ input_file: tests/corpus/cases/cross_crate_templates/case.toml
                 },
                 "description": "Invoices"
               }
-            },
-            "tags": []
+            }
           }
         },
         "/invoices/{id}": {
@@ -172,7 +168,6 @@ input_file: tests/corpus/cases/cross_crate_templates/case.toml
       "/invoices": {
         "get": {
           "operationId": "list_invoices",
-          "parameters": [],
           "responses": {
             "200": {
               "content": {
@@ -184,8 +179,7 @@ input_file: tests/corpus/cases/cross_crate_templates/case.toml
               },
               "description": "Invoices"
             }
-          },
-          "tags": []
+          }
         }
       },
       "/invoices/{id}": {

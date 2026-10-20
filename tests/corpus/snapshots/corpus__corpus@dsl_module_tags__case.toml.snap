@@ -12,7 +12,6 @@ input_file: tests/corpus/cases/dsl_module_tags/case.toml
         "/admin/stats": {
           "get": {
             "operationId": "stats",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "ok"
@@ -43,7 +42,6 @@ input_file: tests/corpus/cases/dsl_module_tags/case.toml
         "/admin/stats": {
           "get": {
             "operationId": "stats",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "ok"
@@ -69,7 +67,6 @@ input_file: tests/corpus/cases/dsl_module_tags/case.toml
       "/admin/stats": {
         "get": {
           "operationId": "stats",
-          "parameters": [],
           "responses": {
             "200": {
               "description": "ok"

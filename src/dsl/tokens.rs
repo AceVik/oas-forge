@@ -1,18 +1,28 @@
-//! Whitespace tokenizer that keeps quoted text together.
+//! Whitespace tokenizer that keeps quoted text and brackets together.
 
-/// Splits at whitespace outside double quotes. Quotes are kept, so callers can
-/// tell `"description"` tokens apart; `example="a b"` stays one token.
+/// Splits at whitespace outside double quotes and brackets. Quotes are kept,
+/// so callers can tell `"description"` tokens apart; `example="a b"` and
+/// `enum=[a, b]` stay one token each.
 pub(super) fn tokenize(text: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut quoted = false;
+    let mut depth = 0usize;
     for c in text.chars() {
         match c {
             '"' => {
                 quoted = !quoted;
                 current.push(c);
             }
-            c if c.is_whitespace() && !quoted => {
+            '[' | '{' | '(' | '<' if !quoted => {
+                depth += 1;
+                current.push(c);
+            }
+            ']' | '}' | ')' | '>' if !quoted => {
+                depth = depth.saturating_sub(1);
+                current.push(c);
+            }
+            c if c.is_whitespace() && !quoted && depth == 0 => {
                 if !current.is_empty() {
                     tokens.push(std::mem::take(&mut current));
                 }
@@ -24,4 +34,36 @@ pub(super) fn tokenize(text: &str) -> Vec<String> {
         tokens.push(current);
     }
     tokens
+}
+
+/// `"text"` without its quotes.
+pub(super) fn unquote(token: &str) -> Option<&str> {
+    token.strip_prefix('"')?.strip_suffix('"')
+}
+
+/// Splits `Type "Description"` into the text before the trailing quoted
+/// description and the description.
+pub(super) fn trailing_description(text: &str) -> (&str, Option<String>) {
+    let text = text.trim();
+    match text.strip_suffix('"') {
+        Some(body) => match body.rfind('"') {
+            Some(open) => (body[..open].trim(), Some(body[open + 1..].to_string())),
+            None => (body.trim(), None),
+        },
+        None => (text, None),
+    }
+}
+
+/// Whether a token is a media type such as `application/json` or `text/*`.
+pub(super) fn is_media_type(token: &str) -> bool {
+    let Some((kind, sub)) = token.split_once('/') else {
+        return false;
+    };
+    let valid = |part: &str| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "!#$&^_.+-*;=".contains(c))
+    };
+    valid(kind) && valid(sub)
 }

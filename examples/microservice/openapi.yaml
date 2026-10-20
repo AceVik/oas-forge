@@ -10,7 +10,6 @@ paths:
       operationId: list_users
       tags:
       - Users
-      parameters: []
       responses:
         "200":
           description: Paginated list of users

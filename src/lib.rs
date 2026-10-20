@@ -6,6 +6,7 @@ pub mod attrs;
 pub mod config;
 pub mod diagnostics;
 pub(crate) mod docs;
+pub(crate) mod document;
 pub mod dsl;
 pub mod error;
 pub mod extract;

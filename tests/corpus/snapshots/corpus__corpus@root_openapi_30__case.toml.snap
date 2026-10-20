@@ -130,8 +130,7 @@ input_file: tests/corpus/cases/root_openapi_30/case.toml
                 },
                 "description": "The order, if any"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -265,8 +264,7 @@ input_file: tests/corpus/cases/root_openapi_30/case.toml
                 },
                 "description": "The order, if any"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -307,8 +305,7 @@ input_file: tests/corpus/cases/root_openapi_30/case.toml
               },
               "description": "The order, if any"
             }
-          },
-          "tags": []
+          }
         }
       }
     },

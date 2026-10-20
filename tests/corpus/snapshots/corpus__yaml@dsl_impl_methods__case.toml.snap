@@ -12,8 +12,6 @@ paths:
   /method:
     get:
       operationId: method
-      tags: []
-      parameters: []
       responses:
         "200":
           description: ok

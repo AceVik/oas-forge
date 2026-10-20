@@ -95,7 +95,7 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
                     }
                   }
                 },
-                "description": ""
+                "description": "Conflict"
               },
               "422": {
                 "content": {
@@ -112,27 +112,24 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
                     }
                   }
                 },
-                "description": ""
+                "description": "Unprocessable Content"
               },
               "500": {
                 "content": {
                   "application/json": {
                     "schema": {
-                      "$ref": "Json<Problem>"
+                      "$ref": "#/components/schemas/Problem"
                     }
                   }
                 },
                 "description": "Server error"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
     },
-    "lints": [
-      "/paths/~1items~1{id}/get/responses/500/content/application~1json/schema/$ref: unresolved $ref `Json<Problem>`"
-    ]
+    "lints": []
   },
   "full": {
     "document": {
@@ -228,7 +225,7 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
                     }
                   }
                 },
-                "description": ""
+                "description": "Conflict"
               },
               "422": {
                 "content": {
@@ -245,32 +242,26 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
                     }
                   }
                 },
-                "description": ""
+                "description": "Unprocessable Content"
               },
               "500": {
                 "content": {
                   "application/json": {
                     "schema": {
-                      "$ref": "Json<Problem>"
+                      "$ref": "#/components/schemas/Problem"
                     }
                   }
                 },
                 "description": "Server error"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
     },
-    "lints": [
-      "/paths/~1items~1{id}/get/responses/500/content/application~1json/schema/$ref: unresolved $ref `Json<Problem>`"
-    ],
-    "validation": [
-      "/paths/~1items~1{id}/get/responses/500/content/application~1json/schema/$ref: value is not a \"uri-reference\""
-    ]
+    "lints": [],
+    "validation": []
   },
-  "known_bug": "Json<T> wrappers become a raw unresolved $ref",
   "paths": {
     "document": {
       "/items/{id}": {
@@ -331,7 +322,7 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
                   }
                 }
               },
-              "description": ""
+              "description": "Conflict"
             },
             "422": {
               "content": {
@@ -348,26 +339,23 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
                   }
                 }
               },
-              "description": ""
+              "description": "Unprocessable Content"
             },
             "500": {
               "content": {
                 "application/json": {
                   "schema": {
-                    "$ref": "Json<Problem>"
+                    "$ref": "#/components/schemas/Problem"
                   }
                 }
               },
               "description": "Server error"
             }
-          },
-          "tags": []
+          }
         }
       }
     },
-    "lints": [
-      "/~1items~1{id}/get/responses/500/content/application~1json/schema/$ref: unresolved $ref `Json<Problem>`"
-    ]
+    "lints": []
   },
   "schemas": {
     "document": {

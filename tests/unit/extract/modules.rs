@@ -186,3 +186,55 @@ fn module_openapi_blocks_are_documents() {
         "components:\n  schemas:\n    FromModule: { type: string }"
     );
 }
+
+#[test]
+fn route_defaults_are_collected_per_module() {
+    let items = extract(
+        r#"
+        /// Intro text.
+        /// @route-defaults
+        /// @prefix /api
+        /// @tag Api
+        /// @openapi
+        /// tags: [{ name: Api }]
+        mod api {
+            /// @route-defaults
+            /// @prefix /v1
+            mod v1 {
+                /// @route GET /x
+                fn x() {}
+            }
+            /// @route GET /y
+            fn y() {}
+        }
+        /// @route GET /z
+        fn z() {}
+        "#,
+    );
+    let defaults: Vec<_> = routes(&items).iter().map(|r| r.defaults.clone()).collect();
+    assert_eq!(
+        defaults,
+        [
+            vec![" @prefix /api", " @tag Api", " @prefix /v1"],
+            vec![" @prefix /api", " @tag Api"],
+            vec![],
+        ]
+    );
+    assert_eq!(
+        document_items(&items)[0].text,
+        "tags: [{ name: Api }]",
+        "the module's @openapi block is still a document"
+    );
+}
+
+#[test]
+fn route_defaults_end_an_openapi_block() {
+    let items = extract(
+        "/// @openapi
+/// x-a: 1
+/// @route-defaults
+/// @tag T
+mod m {}",
+    );
+    assert_eq!(document_items(&items)[0].text, "x-a: 1");
+}

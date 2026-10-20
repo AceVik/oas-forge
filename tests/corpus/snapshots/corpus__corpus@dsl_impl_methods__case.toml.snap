@@ -12,13 +12,11 @@ input_file: tests/corpus/cases/dsl_impl_methods/case.toml
         "/method": {
           "get": {
             "operationId": "method",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "ok"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -36,13 +34,11 @@ input_file: tests/corpus/cases/dsl_impl_methods/case.toml
         "/method": {
           "get": {
             "operationId": "method",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "ok"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -55,13 +51,11 @@ input_file: tests/corpus/cases/dsl_impl_methods/case.toml
       "/method": {
         "get": {
           "operationId": "method",
-          "parameters": [],
           "responses": {
             "200": {
               "description": "ok"
             }
-          },
-          "tags": []
+          }
         }
       }
     },

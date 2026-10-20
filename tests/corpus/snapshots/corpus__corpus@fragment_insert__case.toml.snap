@@ -50,8 +50,7 @@ input_file: tests/corpus/cases/fragment_insert/case.toml
               "200": {
                 "description": "ok"
               }
-            },
-            "tags": []
+            }
           }
         },
         "/manual": {
@@ -122,8 +121,7 @@ input_file: tests/corpus/cases/fragment_insert/case.toml
               "200": {
                 "description": "ok"
               }
-            },
-            "tags": []
+            }
           }
         },
         "/manual": {
@@ -189,8 +187,7 @@ input_file: tests/corpus/cases/fragment_insert/case.toml
             "200": {
               "description": "ok"
             }
-          },
-          "tags": []
+          }
         }
       },
       "/manual": {

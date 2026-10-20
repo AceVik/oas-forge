@@ -50,3 +50,47 @@ fn nullable_leaves_schemas_that_accept_null() {
         assert_eq!(nullable(schema.clone()), schema);
     }
 }
+
+mod strip_null {
+    use oas_forge::schema::{nullable, strip_null};
+    use serde_json::json;
+
+    #[test]
+    fn removes_what_nullable_adds() {
+        for schema in [
+            json!({ "type": "string" }),
+            json!({ "type": "string", "enum": ["a"] }),
+            json!({ "$ref": "$User" }),
+            json!({ "oneOf": [{ "type": "string" }] }),
+            json!({ "type": ["string", "integer"] }),
+        ] {
+            assert_eq!(strip_null(nullable(schema.clone())), schema);
+        }
+    }
+
+    #[test]
+    fn keeps_composed_and_unrelated_schemas() {
+        assert_eq!(
+            strip_null(json!({ "anyOf": [{ "type": "a" }, { "type": "b" }, { "type": "null" }] })),
+            json!({ "anyOf": [{ "type": "a" }, { "type": "b" }] })
+        );
+        assert_eq!(
+            strip_null(json!({ "anyOf": [true, { "type": "null" }] })),
+            json!(true)
+        );
+        assert_eq!(
+            strip_null(
+                json!({ "anyOf": [{ "$ref": "$A" }, { "type": "null" }], "description": "d" })
+            ),
+            json!({ "$ref": "$A", "description": "d" })
+        );
+        for schema in [
+            json!({ "anyOf": [{ "type": "a" }] }),
+            json!({}),
+            json!(true),
+            json!({ "type": "null" }),
+        ] {
+            assert_eq!(strip_null(schema.clone()), schema);
+        }
+    }
+}

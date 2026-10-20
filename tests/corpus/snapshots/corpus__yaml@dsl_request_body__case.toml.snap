@@ -12,13 +12,12 @@ paths:
   /users:
     post:
       operationId: create
-      tags: []
-      parameters: []
       requestBody:
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/CreateUser"
+        required: true
       responses:
         "201":
           description: Created
@@ -29,7 +28,6 @@ paths:
   "/users/{id}":
     put:
       operationId: replace
-      tags: []
       parameters:
       - name: id
         in: path
@@ -43,9 +41,10 @@ paths:
           application/xml:
             schema:
               $ref: "#/components/schemas/CreateUser"
+        required: true
       responses:
         "200":
-          description: ""
+          description: OK
           content:
             application/json:
               schema:
@@ -53,8 +52,6 @@ paths:
   /bulk:
     post:
       operationId: bulk
-      tags: []
-      parameters: []
       requestBody:
         content:
           application/json:
@@ -62,32 +59,31 @@ paths:
               type: array
               items:
                 $ref: "#/components/schemas/CreateUser"
+        required: true
       responses:
         "204":
           description: ok
   /raw:
     post:
       operationId: raw
-      tags: []
-      parameters: []
       requestBody:
         content:
           text/plain:
             schema:
               type: string
+        required: true
       responses:
         "204":
           description: ok
   /paged:
     post:
       operationId: paged
-      tags: []
-      parameters: []
       requestBody:
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/Page_CreateUser"
+        required: true
       responses:
         "204":
           description: ok

@@ -3,6 +3,7 @@
 use super::attrs::validate::resolve_patterns;
 use super::config::Config;
 use super::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
+use super::document::for_each_operation;
 use super::dsl::{self, RouteSource};
 use super::error::{Error, Result};
 use super::extract::{self, Item};
@@ -40,6 +41,7 @@ pub struct Generator {
     max_file_size: u64,
     cargo_directives: bool,
     types: TypeMapper,
+    infer: bool,
 }
 
 impl Default for Generator {
@@ -58,6 +60,7 @@ impl Default for Generator {
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             cargo_directives: false,
             types: TypeMapper::new(),
+            infer: true,
         }
     }
 }
@@ -153,6 +156,14 @@ impl Generator {
         self
     }
 
+    /// Fills gaps of `@route` blocks from the handler signature (axum and
+    /// actix-web extractors such as `Path<T>`, `Query<T>`, `Json<T>`); on by
+    /// default. A single route opts out with `@no-infer`.
+    pub fn infer_signatures(mut self, infer: bool) -> Self {
+        self.infer = infer;
+        self
+    }
+
     /// Treats warnings as errors.
     pub fn deny_warnings(mut self, deny: bool) -> Self {
         self.deny_warnings = deny;
@@ -184,7 +195,12 @@ impl Generator {
             .with_max_file_size(self.max_file_size);
         let sources =
             SourceSet::discover(&self.inputs, &self.includes, &options, &mut diagnostics)?;
-        let (document, registry) = run(&sources, &self.variables, &self.types, &mut diagnostics)?;
+        let settings = Settings {
+            variables: &self.variables,
+            types: &self.types,
+            infer: self.infer,
+        };
+        let (document, registry) = run(&sources, settings, &mut diagnostics)?;
         if self.deny_warnings {
             diagnostics.deny_warnings();
         }
@@ -307,7 +323,7 @@ enum Pending {
         text: String,
         location: Location,
     },
-    Route(extract::RouteItem),
+    Route(Box<extract::RouteItem>),
     File {
         text: String,
         location: Location,
@@ -315,12 +331,20 @@ enum Pending {
 }
 
 /// Runs every stage on `sources`; returns the merged document and registry.
+/// The settings of a pipeline run.
+#[derive(Clone, Copy)]
+pub(crate) struct Settings<'a> {
+    pub(crate) variables: &'a Variables,
+    pub(crate) types: &'a TypeMapper,
+    pub(crate) infer: bool,
+}
+
 pub(crate) fn run(
     sources: &SourceSet,
-    variables: &Variables,
-    types: &TypeMapper,
+    settings: Settings<'_>,
     diagnostics: &mut Diagnostics,
 ) -> Result<(Value, Registry)> {
+    let Settings { types, .. } = settings;
     let mut registry = Registry::new();
     let mut patterns = BTreeMap::new();
     let mut known = KnownSchemas::default();
@@ -370,7 +394,7 @@ pub(crate) fn run(
         .map(|(i, s)| (i * 2, s))
         .collect();
     for (position, item) in pending {
-        if let Some(snippet) = materialize(item, &registry, variables, types, diagnostics)? {
+        if let Some(snippet) = materialize(item, &registry, settings, diagnostics)? {
             known.collect_from(&snippet.value);
             ordered.push((position * 2 + 1, snippet));
         }
@@ -423,6 +447,7 @@ pub(crate) fn run(
     refs::unescape(&mut document);
     output::strip_transport(&mut document);
     normalize(&mut document);
+    dsl::expand::expand_parameters(&mut document, diagnostics);
     if let Some(dialect) = Dialect::of_document(&document) {
         dialect::lower(&mut document, dialect, diagnostics);
     }
@@ -495,7 +520,7 @@ fn register(
                 },
             ));
         }
-        Item::Route(route) => pending.push((snippets.len(), Pending::Route(route))),
+        Item::Route(route) => pending.push((snippets.len(), Pending::Route(Box::new(route)))),
         // Collected by the caller before registration.
         Item::Pattern(_) => {}
     }
@@ -505,10 +530,14 @@ fn register(
 fn materialize(
     pending: Pending,
     registry: &Registry,
-    variables: &Variables,
-    types: &TypeMapper,
+    settings: Settings<'_>,
     diagnostics: &mut Diagnostics,
 ) -> Result<Option<Snippet>> {
+    let Settings {
+        variables,
+        types,
+        infer,
+    } = settings;
     match pending {
         Pending::Document {
             text,
@@ -553,7 +582,9 @@ fn materialize(
                     .line_numbers(&route.line_numbers)
                     .operation_id(route.operation_id.as_deref())
                     .default_tags(&route.tags)
-                    .types(types),
+                    .types(types)
+                    .defaults(&route.defaults)
+                    .signature(route.signature.as_ref().filter(|_| infer)),
                 diagnostics,
             );
             let Some(compiled) = compiled else {
@@ -631,31 +662,19 @@ fn context(text: &str, location: &Location, focus: usize) -> String {
         .join("\n")
 }
 
-const METHODS: &[&str] = &[
-    "get", "put", "post", "delete", "options", "head", "patch", "trace", "query",
-];
-
 /// Module tags for operations of a document that have no tags.
 fn apply_tags(document: &mut Value, tags: &[String]) {
     if tags.is_empty() {
         return;
     }
-    let Some(paths) = document.get_mut("paths").and_then(Value::as_object_mut) else {
-        return;
-    };
-    for item in paths.values_mut().filter_map(Value::as_object_mut) {
-        for (method, operation) in item.iter_mut() {
-            let Some(operation) = operation.as_object_mut() else {
-                continue;
-            };
-            if METHODS.contains(&method.as_str()) && !operation.contains_key("tags") {
-                let mut with_tags = Map::with_capacity(operation.len() + 1);
-                with_tags.insert("tags".into(), json!(tags));
-                with_tags.extend(std::mem::take(operation));
-                *operation = with_tags;
-            }
+    for_each_operation(document, |_, operation| {
+        if !operation.contains_key("tags") {
+            let mut with_tags = Map::with_capacity(operation.len() + 1);
+            with_tags.insert("tags".into(), json!(tags));
+            with_tags.extend(std::mem::take(operation));
+            *operation = with_tags;
         }
-    }
+    });
 }
 
 /// Merges all snippets onto the root document (exactly one root allowed).
@@ -725,11 +744,11 @@ pub fn generate_from_sources(
     variables: &Variables,
 ) -> Result<(Value, Diagnostics)> {
     let mut diagnostics = Diagnostics::new();
-    let (document, _) = run(
-        &SourceSet::from_files(files),
+    let settings = Settings {
         variables,
-        TypeMapper::builtin(),
-        &mut diagnostics,
-    )?;
+        types: TypeMapper::builtin(),
+        infer: true,
+    };
+    let (document, _) = run(&SourceSet::from_files(files), settings, &mut diagnostics)?;
     Ok((document, diagnostics))
 }

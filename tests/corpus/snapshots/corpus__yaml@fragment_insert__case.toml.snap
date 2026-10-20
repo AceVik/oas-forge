@@ -12,7 +12,6 @@ paths:
   /list:
     get:
       operationId: list
-      tags: []
       parameters:
       - name: page
         in: query

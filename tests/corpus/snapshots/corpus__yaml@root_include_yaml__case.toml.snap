@@ -14,8 +14,6 @@ paths:
   /ping:
     get:
       operationId: ping
-      tags: []
-      parameters: []
       responses:
         "200":
           description: pong

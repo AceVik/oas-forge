@@ -62,11 +62,18 @@ const SCHEMA_MAPS: &[&str] = &[
 /// Keys whose values are data, never schemas or document structure.
 const DATA_KEYS: &[&str] = &["example", "examples", "default", "enum", "const", "value"];
 
-/// Rewrites every schema of an OpenAPI `document` for `dialect`.
+/// Rewrites an OpenAPI `document` for `dialect`.
 ///
-/// Constructs without an equivalent are approximated and reported once per
-/// kind as [`Code::LossyLowering`].
+/// Operations and fields that need a newer version (OpenAPI 3.2: `query`,
+/// `additionalOperations`, `querystring` parameters, `itemSchema`; 3.1:
+/// `webhooks`) are removed and reported as [`Code::UnsupportedFeature`].
+/// For OpenAPI 3.0 every schema is rewritten; constructs without an
+/// equivalent are approximated and reported once per kind as
+/// [`Code::LossyLowering`].
 pub fn lower(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnostics) {
+    if dialect < Dialect::OpenApi32 {
+        restrict(document, dialect, diagnostics);
+    }
     if dialect != Dialect::OpenApi30 {
         return;
     }
@@ -77,6 +84,89 @@ pub fn lower(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnosti
             Code::LossyLowering,
             format!("OpenAPI 3.0 has no equivalent for {what}; the schema was approximated"),
         ));
+    }
+}
+
+/// Removes what `dialect` cannot express, reporting each kind once.
+fn restrict(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnostics) {
+    let mut removed = BTreeSet::new();
+    let version = if dialect == Dialect::OpenApi30 {
+        "3.0"
+    } else {
+        "3.1"
+    };
+    if dialect == Dialect::OpenApi30
+        && let Some(map) = document.as_object_mut()
+        && map.remove("webhooks").is_some()
+    {
+        removed.insert(("webhooks", "3.1"));
+    }
+    for section in ["paths", "webhooks"] {
+        let Some(items) = document.get_mut(section).and_then(Value::as_object_mut) else {
+            continue;
+        };
+        for item in items.values_mut().filter_map(Value::as_object_mut) {
+            if item.remove("query").is_some() {
+                removed.insert(("`QUERY` operations", "3.2"));
+            }
+            if item.remove("additionalOperations").is_some() {
+                removed.insert(("`additionalOperations`", "3.2"));
+            }
+            for (key, value) in item.iter_mut() {
+                if key == "parameters" {
+                    remove_querystring(value, &mut removed);
+                }
+                if let Some(operation) = value.as_object_mut() {
+                    if let Some(parameters) = operation.get_mut("parameters") {
+                        remove_querystring(parameters, &mut removed);
+                    }
+                    remove_item_schemas(operation, &mut removed);
+                }
+            }
+        }
+    }
+    for (what, needed) in removed {
+        diagnostics.push(Diagnostic::new(
+            Code::UnsupportedFeature,
+            format!("{what} need OpenAPI {needed} or newer; the root declares {version}, so they were removed"),
+        ));
+    }
+}
+
+fn remove_querystring(
+    parameters: &mut Value,
+    removed: &mut BTreeSet<(&'static str, &'static str)>,
+) {
+    if let Value::Array(list) = parameters {
+        let before = list.len();
+        list.retain(|p| p.get("in").and_then(Value::as_str) != Some("querystring"));
+        if list.len() != before {
+            removed.insert(("`querystring` parameters", "3.2"));
+        }
+    }
+}
+
+/// Removes `itemSchema` from the media types of the request body and the
+/// responses of an operation.
+fn remove_item_schemas(
+    operation: &mut Map<String, Value>,
+    removed: &mut BTreeSet<(&'static str, &'static str)>,
+) {
+    let mut strip = |container: &mut Value| {
+        let Some(Value::Object(content)) = container.get_mut("content") else {
+            return;
+        };
+        for media in content.values_mut().filter_map(Value::as_object_mut) {
+            if media.remove("itemSchema").is_some() {
+                removed.insert(("streamed responses (`itemSchema`)", "3.2"));
+            }
+        }
+    };
+    if let Some(body) = operation.get_mut("requestBody") {
+        strip(body);
+    }
+    if let Some(Value::Object(responses)) = operation.get_mut("responses") {
+        responses.values_mut().for_each(&mut strip);
     }
 }
 

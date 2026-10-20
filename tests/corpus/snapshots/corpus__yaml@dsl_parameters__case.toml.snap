@@ -12,7 +12,6 @@ paths:
   "/orgs/{org}/users/{id}":
     get:
       operationId: get_user
-      tags: []
       parameters:
       - name: org
         in: path
@@ -23,28 +22,28 @@ paths:
       - name: id
         in: path
         required: true
+        description: User id
         schema:
           type: integer
           format: int64
           minimum: 0
-        description: User id
       - name: limit
         in: query
         required: false
+        description: Page size
         schema:
           type: integer
           format: int64
           minimum: 0
           maximum: 4294967295
-        description: Page size
       - name: sort
         in: query
         required: true
+        description: Sort key
         schema:
           type: string
         deprecated: true
         example: name
-        description: Sort key
       - name: tags
         in: query
         required: true
@@ -55,16 +54,16 @@ paths:
       - name: filter
         in: query
         required: true
+        description: Free text filter
         schema:
           type: string
-        description: Free text filter
       - name: X-Request-Id
         in: header
         required: true
+        description: Tracing id
         schema:
           type: string
           format: uuid
-        description: Tracing id
       - name: session
         in: cookie
         required: true

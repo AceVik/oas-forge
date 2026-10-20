@@ -180,7 +180,6 @@ input_file: tests/corpus/cases/blueprint_generics/case.toml
         "/users": {
           "get": {
             "operationId": "users",
-            "parameters": [],
             "responses": {
               "200": {
                 "content": {
@@ -192,8 +191,7 @@ input_file: tests/corpus/cases/blueprint_generics/case.toml
                 },
                 "description": "Users"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -362,7 +360,6 @@ input_file: tests/corpus/cases/blueprint_generics/case.toml
         "/users": {
           "get": {
             "operationId": "users",
-            "parameters": [],
             "responses": {
               "200": {
                 "content": {
@@ -374,8 +371,7 @@ input_file: tests/corpus/cases/blueprint_generics/case.toml
                 },
                 "description": "Users"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -426,7 +422,6 @@ input_file: tests/corpus/cases/blueprint_generics/case.toml
       "/users": {
         "get": {
           "operationId": "users",
-          "parameters": [],
           "responses": {
             "200": {
               "content": {
@@ -438,8 +433,7 @@ input_file: tests/corpus/cases/blueprint_generics/case.toml
               },
               "description": "Users"
             }
-          },
-          "tags": []
+          }
         }
       }
     },

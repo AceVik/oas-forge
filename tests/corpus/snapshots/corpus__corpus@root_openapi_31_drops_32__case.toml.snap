@@ -1,0 +1,224 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/root_openapi_31_drops_32/case.toml
+---
+{
+  "description": "OpenAPI 3.1 root: 3.2-only operations, querystring parameters and streams are removed with a warning",
+  "diagnostics": [
+    "warning[OF6002]: `QUERY` operations need OpenAPI 3.2 or newer; the root declares 3.1, so they were removed",
+    "warning[OF6002]: `additionalOperations` need OpenAPI 3.2 or newer; the root declares 3.1, so they were removed",
+    "warning[OF6002]: streamed responses (`itemSchema`) need OpenAPI 3.2 or newer; the root declares 3.1, so they were removed"
+  ],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Event": {
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          "Filter": {
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "paths": {
+        "/cache": {},
+        "/events": {
+          "get": {
+            "operationId": "events",
+            "responses": {
+              "200": {
+                "content": {
+                  "text/event-stream": {}
+                },
+                "description": "Server-sent events"
+              },
+              "206": {
+                "content": {
+                  "application/jsonl": {}
+                },
+                "description": "JSON Lines"
+              }
+            }
+          }
+        },
+        "/search": {}
+      },
+      "webhooks": {
+        "orderCreated": {
+          "post": {
+            "operationId": "order_created",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Received"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Event": {
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          "Filter": {
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Modern API",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/cache": {},
+        "/events": {
+          "get": {
+            "operationId": "events",
+            "responses": {
+              "200": {
+                "content": {
+                  "text/event-stream": {}
+                },
+                "description": "Server-sent events"
+              },
+              "206": {
+                "content": {
+                  "application/jsonl": {}
+                },
+                "description": "JSON Lines"
+              }
+            }
+          }
+        },
+        "/search": {}
+      },
+      "webhooks": {
+        "orderCreated": {
+          "post": {
+            "operationId": "order_created",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Received"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/cache": {},
+      "/events": {
+        "get": {
+          "operationId": "events",
+          "responses": {
+            "200": {
+              "content": {
+                "text/event-stream": {}
+              },
+              "description": "Server-sent events"
+            },
+            "206": {
+              "content": {
+                "application/jsonl": {}
+              },
+              "description": "JSON Lines"
+            }
+          }
+        }
+      },
+      "/search": {}
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Event": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "Filter": {
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      }
+    },
+    "lints": []
+  }
+}

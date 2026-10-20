@@ -64,7 +64,6 @@ input_file: tests/corpus/cases/output_strategies/case.toml
         "/users": {
           "get": {
             "operationId": "users",
-            "parameters": [],
             "responses": {
               "200": {
                 "content": {
@@ -137,7 +136,6 @@ input_file: tests/corpus/cases/output_strategies/case.toml
         "/users": {
           "get": {
             "operationId": "users",
-            "parameters": [],
             "responses": {
               "200": {
                 "content": {
@@ -175,7 +173,6 @@ input_file: tests/corpus/cases/output_strategies/case.toml
       "/users": {
         "get": {
           "operationId": "users",
-          "parameters": [],
           "responses": {
             "200": {
               "content": {

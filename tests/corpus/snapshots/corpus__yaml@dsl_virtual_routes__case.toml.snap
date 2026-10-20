@@ -12,16 +12,12 @@ paths:
   /legacy/one:
     get:
       operationId: get_legacy_one
-      tags: []
-      parameters: []
       responses:
         "200":
           description: One
   /legacy/two:
     get:
       operationId: get_legacy_two
-      tags: []
-      parameters: []
       responses:
         "200":
           description: Two
@@ -30,7 +26,6 @@ paths:
       operationId: get_legacy_proxy
       tags:
       - Legacy
-      parameters: []
       responses:
         "200":
           description: Proxy Response

@@ -99,8 +99,7 @@ input_file: tests/corpus/cases/dsl_parameters/case.toml
               "204": {
                 "description": "No content"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -205,8 +204,7 @@ input_file: tests/corpus/cases/dsl_parameters/case.toml
               "204": {
                 "description": "No content"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -306,8 +304,7 @@ input_file: tests/corpus/cases/dsl_parameters/case.toml
             "204": {
               "description": "No content"
             }
-          },
-          "tags": []
+          }
         }
       }
     },

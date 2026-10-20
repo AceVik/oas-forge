@@ -23,7 +23,6 @@ input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
         "/admin": {
           "get": {
             "operationId": "admin",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "ok"
@@ -38,8 +37,7 @@ input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
                   "admin"
                 ]
               }
-            ],
-            "tags": []
+            ]
           }
         }
       }
@@ -57,7 +55,6 @@ input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
         "/admin": {
           "get": {
             "operationId": "admin",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "ok"
@@ -72,8 +69,7 @@ input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
                   "admin"
                 ]
               }
-            ],
-            "tags": []
+            ]
           }
         }
       }
@@ -86,7 +82,6 @@ input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
       "/admin": {
         "get": {
           "operationId": "admin",
-          "parameters": [],
           "responses": {
             "200": {
               "description": "ok"
@@ -101,8 +96,7 @@ input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
                 "admin"
               ]
             }
-          ],
-          "tags": []
+          ]
         }
       }
     },

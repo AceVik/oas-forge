@@ -155,6 +155,10 @@ codes! {
     InvalidRouteYaml = "OF2005", Warning;
     /// An unknown DSL directive.
     UnknownDirective = "OF2006", Warning;
+    /// A handler's signature does not fit its route (signature inference).
+    SignatureMismatch = "OF2007", Warning;
+    /// `@query-params $Struct` (or an inferred extractor) names no documented struct.
+    UnresolvedExpansion = "OF2008", Warning;
 
     /// `@insert` or `@extend` names an unknown fragment.
     UnknownFragment = "OF3001", Warning;
@@ -183,6 +187,8 @@ codes! {
 
     /// A construct has no equivalent in the target version and was approximated.
     LossyLowering = "OF6001", Note;
+    /// A construct needs a newer OpenAPI version than the root declares and was removed.
+    UnsupportedFeature = "OF6002", Warning;
 }
 
 impl fmt::Display for Code {

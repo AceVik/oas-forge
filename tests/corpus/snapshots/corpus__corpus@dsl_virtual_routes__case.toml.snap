@@ -12,19 +12,16 @@ input_file: tests/corpus/cases/dsl_virtual_routes/case.toml
         "/legacy/one": {
           "get": {
             "operationId": "get_legacy_one",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "One"
               }
-            },
-            "tags": []
+            }
           }
         },
         "/legacy/proxy": {
           "get": {
             "operationId": "get_legacy_proxy",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "Proxy Response"
@@ -38,13 +35,11 @@ input_file: tests/corpus/cases/dsl_virtual_routes/case.toml
         "/legacy/two": {
           "get": {
             "operationId": "get_legacy_two",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "Two"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -62,19 +57,16 @@ input_file: tests/corpus/cases/dsl_virtual_routes/case.toml
         "/legacy/one": {
           "get": {
             "operationId": "get_legacy_one",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "One"
               }
-            },
-            "tags": []
+            }
           }
         },
         "/legacy/proxy": {
           "get": {
             "operationId": "get_legacy_proxy",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "Proxy Response"
@@ -88,13 +80,11 @@ input_file: tests/corpus/cases/dsl_virtual_routes/case.toml
         "/legacy/two": {
           "get": {
             "operationId": "get_legacy_two",
-            "parameters": [],
             "responses": {
               "200": {
                 "description": "Two"
               }
-            },
-            "tags": []
+            }
           }
         }
       }
@@ -107,19 +97,16 @@ input_file: tests/corpus/cases/dsl_virtual_routes/case.toml
       "/legacy/one": {
         "get": {
           "operationId": "get_legacy_one",
-          "parameters": [],
           "responses": {
             "200": {
               "description": "One"
             }
-          },
-          "tags": []
+          }
         }
       },
       "/legacy/proxy": {
         "get": {
           "operationId": "get_legacy_proxy",
-          "parameters": [],
           "responses": {
             "200": {
               "description": "Proxy Response"
@@ -133,13 +120,11 @@ input_file: tests/corpus/cases/dsl_virtual_routes/case.toml
       "/legacy/two": {
         "get": {
           "operationId": "get_legacy_two",
-          "parameters": [],
           "responses": {
             "200": {
               "description": "Two"
             }
-          },
-          "tags": []
+          }
         }
       }
     },

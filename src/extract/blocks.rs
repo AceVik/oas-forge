@@ -8,8 +8,12 @@
 use super::{DocumentItem, FragmentItem, Item, NamedSchemaItem, RouteItem};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::docs::{DocLine, doc_text, join, line_of, unindent};
+use crate::dsl;
 use std::path::Path;
 use syn::spanned::Spanned;
+
+/// The header of module-wide route defaults.
+const ROUTE_DEFAULTS: &str = "@route-defaults";
 
 /// The `@openapi…` sections of an item's doc comment (functions, methods, modules).
 ///
@@ -30,6 +34,13 @@ pub(super) fn item_blocks(
 
     for line in lines {
         let trimmed = line.trimmed();
+        if trimmed == ROUTE_DEFAULTS {
+            if let Some(h) = header.take() {
+                section(path, &h, &body, tags, diagnostics, &mut items);
+            }
+            body.clear();
+            continue;
+        }
         if trimmed.starts_with("@openapi") {
             if let Some(h) = header.take() {
                 section(path, &h, &body, tags, diagnostics, &mut items);
@@ -117,6 +128,19 @@ fn signature(text: &str) -> (String, Vec<String>) {
     }
 }
 
+/// The `@route-defaults` block of a module's doc comment: the lines after
+/// the header up to the next `@openapi…` block.
+pub(super) fn route_defaults(lines: &[DocLine]) -> Vec<String> {
+    let Some(start) = lines.iter().position(|l| l.trimmed() == ROUTE_DEFAULTS) else {
+        return Vec::new();
+    };
+    lines[start + 1..]
+        .iter()
+        .take_while(|l| !l.trimmed().starts_with("@openapi"))
+        .map(|l| l.text.clone())
+        .collect()
+}
+
 /// Tags declared in a module's doc comment (`tags: [A, B]`).
 pub(super) fn module_tags(lines: &[DocLine]) -> Vec<String> {
     let mut tags = Vec::new();
@@ -191,7 +215,7 @@ pub(super) fn file_blocks(
 }
 
 fn is_header(trimmed: &str) -> bool {
-    trimmed.starts_with("@openapi") || trimmed == "@route" || trimmed.starts_with("@route ")
+    trimmed.starts_with("@openapi") || dsl::is_route(&[trimmed.to_string()])
 }
 
 fn is_separator(trimmed: &str) -> bool {
@@ -209,12 +233,14 @@ fn close(path: &Path, block: &mut Vec<DocLine>, items: &mut Vec<Item>, diags: &m
         return;
     };
     let trimmed = header.trimmed();
-    if trimmed.starts_with("@route") {
+    if trimmed.starts_with("@route") || trimmed.starts_with("@webhook") {
         items.push(Item::Route(RouteItem {
             lines: block.iter().map(|l| l.text.clone()).collect(),
             line_numbers: block.iter().map(|l| l.line).collect(),
             operation_id: None,
             tags: Vec::new(),
+            defaults: Vec::new(),
+            signature: None,
             location: Location::new(path, header.line),
         }));
     } else if let Some(name) = trimmed.strip_prefix("@openapi-type") {

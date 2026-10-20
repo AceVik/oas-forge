@@ -12,8 +12,6 @@ paths:
   /secure:
     get:
       operationId: secure
-      tags: []
-      parameters: []
       security:
       - bearer: []
       - oauth2:

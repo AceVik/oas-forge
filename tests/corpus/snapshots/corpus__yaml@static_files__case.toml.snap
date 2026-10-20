@@ -14,8 +14,6 @@ paths:
   /price:
     get:
       operationId: price
-      tags: []
-      parameters: []
       responses:
         "200":
           description: Price

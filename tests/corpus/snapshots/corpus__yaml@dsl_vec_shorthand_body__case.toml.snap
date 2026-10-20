@@ -12,8 +12,6 @@ paths:
   /users:
     post:
       operationId: create_many
-      tags: []
-      parameters: []
       requestBody:
         content:
           application/json:
@@ -21,6 +19,7 @@ paths:
               type: array
               items:
                 $ref: "#/components/schemas/User"
+        required: true
       responses:
         "200":
           description: Users

@@ -127,6 +127,43 @@ changes in every corpus snapshot come from the first three entries.
   `garde` is supported, including its length modes. Constraints whose value
   is a constant are reported (`OF1006`) instead of silently dropped.
 
+### Route DSL 2.0
+Every 0.1 route block still compiles; these outputs changed:
+
+- **Smaller operations.** Empty `tags: []` and `parameters: []` are no longer
+  written (all DSL snapshots).
+- **Valid responses.** A response without description gets the status code's
+  reason phrase (`404` → `Not Found`) instead of an empty string, and an
+  operation without any `@return` gets a `default` response, because OpenAPI
+  requires at least one (`readme_dsl`).
+- **Bodies are required** unless written `@body optional T` or typed
+  `Option<T>`.
+- **Framework wrappers.** `Json<T>` and `Form<T>` are documented as `T`
+  (`dsl_responses`).
+- **Signature inference** (`signature_inference`). Handlers using axum or
+  actix-web extractors (`Path`, `Query`, `Json`, `Form`, `Multipart`) and
+  returning `Json<T>` get the missing path parameters, query parameters, body
+  and success response. Explicit DSL and YAML always win.
+  *Action:* `@no-infer` on a route or `Generator::infer_signatures(false)`
+  switches it off.
+- **More YAML keys.** Besides `parameters`, `requestBody`, `responses`,
+  `security`, `externalDocs`, `callbacks`, `servers` and `x-…`, lines
+  starting with `tags:`, `deprecated:` or `operationId:` now begin embedded
+  YAML. *Action:* move such prose into `@description`.
+- **Methods.** Methods other than the nine standard ones (including `QUERY`)
+  go to `additionalOperations` (OpenAPI 3.2) instead of an invalid path item
+  key; method names must be HTTP tokens. Derived operationIds use the
+  lowercase method.
+- **`@security none`** alone means `security: []`; next to other `@security`
+  lines it adds the anonymous alternative `{}` (optional authentication).
+- **Version limits.** With an `openapi: 3.0.x` or `3.1.x` root, 3.2-only
+  constructs (`QUERY`, `additionalOperations`, `querystring` parameters,
+  streamed `itemSchema` responses) are removed with a warning; with 3.0, also
+  `webhooks` (`root_openapi_31_drops_32`).
+- Struct expansion (`@query-params $Pagination`) only works for structs
+  documented in the same run; a struct from another crate's fragments file
+  is not expanded (warning `OF2008`).
+
 ### Templates and references
 - **`@extend`: local values win** (`fragment_extend`). Values written next to
   `@extend` override the fragment, like inheritance. 0.1 let the fragment win.

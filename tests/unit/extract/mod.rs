@@ -8,6 +8,7 @@ mod file_blocks;
 mod functions;
 mod item_blocks;
 mod modules;
+mod signatures;
 mod structs;
 
 use crate::common::Project;
