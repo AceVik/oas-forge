@@ -153,6 +153,7 @@ fn other_type_forms_are_plain_objects() {
 #[test]
 fn path_without_segments_is_a_plain_object() {
     let empty = syn::Type::Path(syn::TypePath {
+        attrs: Vec::new(),
         qself: None,
         path: syn::Path {
             leading_colon: None,
