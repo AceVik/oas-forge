@@ -12,6 +12,9 @@ documentation = "https://docs.rs/oas-forge-cli"
 readme = "README.md"
 keywords = ["openapi", "cli", "generator", "documentation", "rust"]
 categories = ["command-line-utilities", "development-tools", "web-programming"]
+# An allowlist, so local files never end up in the published crate. LICENSE
+# is a copy of the workspace license (a crate ships its own).
+include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/LICENSE"]
 
 [[bin]]
 name = "oas-forge"
@@ -20,12 +23,12 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
+# Lower bounds are the tested versions (see the root manifest).
 oas-forge = { path = "../..", version = "0.2.0" }
-clap = { version = "4.6", features = ["derive"] }
-colored = "3.1"
-serde_json = "1.0"
+clap = { version = "4.6.7", features = ["derive"] }
+colored = "3.1.1"
+serde_json = "1.0.154"
 
 [dev-dependencies]
-serde_json = "1.0"
-serde-saphyr = { version = "2.0", default-features = false, features = ["deserialize"] }
-tempfile = "3.27"
+serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }
+tempfile = "3.27.0"

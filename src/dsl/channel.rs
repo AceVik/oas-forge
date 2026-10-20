@@ -155,14 +155,15 @@ pub fn compile_channel(
                     continue;
                 }
                 let (type_text, text) = trailing_description(spec);
-                let mut object = json!({ "name": message });
+                let mut object = Map::new();
+                object.insert("name".into(), json!(message));
                 if !type_text.is_empty() {
-                    object["payload"] = type_schema(type_text, source.types);
+                    object.insert("payload".into(), type_schema(type_text, source.types));
                 }
                 if let Some(text) = text {
-                    object["description"] = json!(text);
+                    object.insert("description".into(), json!(text));
                 }
-                messages.push((action, message.to_string(), object));
+                messages.push((action, message.to_string(), Value::Object(object)));
             }
             "tag" => tags.extend(
                 rest.split(',')
@@ -229,21 +230,26 @@ pub fn compile_channel(
             .filter(|(a, _, _)| a == action)
             .map(|(_, name, _)| json!({ "$ref": format!("#/channels/{id}/messages/{name}") }))
             .collect();
-        let mut operation = json!({
-            "action": action,
-            "channel": { "$ref": format!("#/channels/{id}") },
-            "messages": refs,
-        });
+        let mut operation = Map::new();
+        operation.insert("action".into(), json!(action));
+        operation.insert(
+            "channel".into(),
+            json!({ "$ref": format!("#/channels/{id}") }),
+        );
+        operation.insert("messages".into(), Value::Array(refs));
         if let Some(summary) = &summary {
-            operation["summary"] = json!(summary);
+            operation.insert("summary".into(), json!(summary));
         }
         if !description.is_empty() {
-            operation["description"] = json!(description.join("\n").trim());
+            operation.insert("description".into(), json!(description.join("\n").trim()));
         }
         if !tags.is_empty() {
-            operation["tags"] = Value::Array(tags.iter().map(|t| json!({ "name": t })).collect());
+            operation.insert(
+                "tags".into(),
+                Value::Array(tags.iter().map(|t| json!({ "name": t })).collect()),
+            );
         }
-        operations.insert(operation_id, operation);
+        operations.insert(operation_id, Value::Object(operation));
     }
 
     let mut document = Map::new();
@@ -295,11 +301,12 @@ fn derived_id(address: &str) -> String {
 fn placeholders(address: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = address;
-    while let Some(open) = rest.find('{') {
-        let after = &rest[open + 1..];
-        let Some(close) = after.find('}') else { break };
-        out.push(after[..close].to_string());
-        rest = &after[close + 1..];
+    while let Some((_, after)) = rest.split_once('{') {
+        let Some((name, tail)) = after.split_once('}') else {
+            break;
+        };
+        out.push(name.to_string());
+        rest = tail;
     }
     out
 }

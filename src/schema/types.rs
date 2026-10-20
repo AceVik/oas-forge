@@ -1,6 +1,6 @@
 //! Rust type expressions and their JSON Schema.
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::OnceLock;
@@ -297,12 +297,16 @@ impl TypeMapper {
                 self.map_named(path, args)
             }
             TypeExpr::Array { elem, len } => {
-                let mut schema = json!({ "type": "array", "items": self.schema(elem) });
-                if let Some(len) = len {
-                    schema["minItems"] = json!(len);
-                    schema["maxItems"] = json!(len);
-                }
-                MappedType::required(schema)
+                let items = self.schema(elem);
+                MappedType::required(match len {
+                    Some(len) => json!({
+                        "type": "array",
+                        "items": items,
+                        "minItems": len,
+                        "maxItems": len,
+                    }),
+                    None => json!({ "type": "array", "items": items }),
+                })
             }
             TypeExpr::Slice(elem) => {
                 MappedType::required(json!({ "type": "array", "items": self.schema(elem) }))
@@ -347,18 +351,19 @@ impl TypeMapper {
 
     fn map_named(&self, path: &[String], args: &[TypeExpr]) -> MappedType {
         let name = path.last().map(String::as_str).unwrap_or_default();
-        let qualified = |prefix: &str| path.len() > 1 && path[0] == prefix;
+        let qualified = |prefix: &str| matches!(path, [first, _, ..] if first == prefix);
         let first = args.first();
         let element = || first.map_or_else(|| json!({}), |inner| self.schema(inner));
         let array = |extra: Value| {
-            let mut schema = json!({ "type": "array" });
+            let mut schema = Map::new();
+            schema.insert("type".into(), json!("array"));
             if let Some(inner) = first {
-                schema["items"] = self.schema(inner);
+                schema.insert("items".into(), self.schema(inner));
             }
-            if let (Value::Object(schema), Value::Object(extra)) = (&mut schema, extra) {
+            if let Value::Object(extra) = extra {
                 schema.extend(extra);
             }
-            schema
+            Value::Object(schema)
         };
         if let Some(schema) = integer(name) {
             return MappedType::required(schema);
@@ -389,7 +394,12 @@ impl TypeMapper {
                 Some(inner) => non_zero(inner),
                 None => json!({ "type": "integer" }),
             },
-            _ if name.starts_with("NonZero") => non_zero(&name["NonZero".len()..].to_lowercase()),
+            _ if name.starts_with("NonZero") => non_zero(
+                &name
+                    .strip_prefix("NonZero")
+                    .unwrap_or_default()
+                    .to_lowercase(),
+            ),
             "Vec" | "VecDeque" | "LinkedList" | "BinaryHeap" => array(json!({})),
             "SmallVec" => match first {
                 Some(TypeExpr::Array { elem, .. }) => {
@@ -399,14 +409,15 @@ impl TypeMapper {
             },
             "HashSet" | "BTreeSet" | "IndexSet" => array(json!({ "uniqueItems": true })),
             "HashMap" | "BTreeMap" | "IndexMap" => {
-                let mut schema = json!({ "type": "object" });
+                let mut schema = Map::new();
+                schema.insert("type".into(), json!("object"));
                 if let Some(value) = args.get(1) {
-                    schema["additionalProperties"] = self.schema(value);
+                    schema.insert("additionalProperties".into(), self.schema(value));
                 }
                 if let Some(names) = first.and_then(property_names) {
-                    schema["propertyNames"] = names;
+                    schema.insert("propertyNames".into(), names);
                 }
-                schema
+                Value::Object(schema)
             }
             "Map" if qualified("serde_json") => json!({ "type": "object" }),
             "Value" => json!({}),
@@ -510,15 +521,15 @@ fn integer(name: &str) -> Option<Value> {
 
 /// `NonZeroU32` / `NonZero<u32>`: the integer without zero.
 fn non_zero(inner: &str) -> Value {
-    let Some(mut schema) = integer(inner) else {
+    let Some(Value::Object(mut schema)) = integer(inner) else {
         return json!({ "type": "integer" });
     };
     if inner.starts_with('u') {
-        schema["minimum"] = json!(1);
+        schema.insert("minimum".into(), json!(1));
     } else {
-        schema["not"] = json!({ "enum": [0] });
+        schema.insert("not".into(), json!({ "enum": [0] }));
     }
-    schema
+    Value::Object(schema)
 }
 
 /// Map keys are always strings in JSON; integer and boolean keys are

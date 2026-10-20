@@ -5,7 +5,7 @@ use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use regex::Regex;
 use std::collections::BTreeMap;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 /// Stands for an escaped `$` (`\$`) until the very end of the pipeline, so
 /// escaped text is never taken for a smart reference.
@@ -19,20 +19,15 @@ const MAX_INSERT_DEPTH: usize = 8;
 /// Values of `{{NAME}}` placeholders.
 pub type Variables = BTreeMap<String, String>;
 
-fn insert_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^(\s*)(?:-\s+)?@insert\s+([\w]+)\s*(?:\((.*)\))?\s*$").unwrap())
-}
+static INSERT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(\s*)(?:-\s+)?@insert\s+([\w]+)\s*(?:\((.*)\))?\s*$").expect("constant pattern")
+});
 
-fn extend_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^(\s*)@extend\s+(.+?)\s*$").unwrap())
-}
+static EXTEND_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(\s*)@extend\s+(.+?)\s*$").expect("constant pattern"));
 
-fn variable_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\{\{\s*([A-Za-z_][\w:.-]*)\s*\}\}").unwrap())
-}
+static VARIABLE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\{\{\s*([A-Za-z_][\w:.-]*)\s*\}\}").expect("constant pattern"));
 
 /// Expands `@insert`, converts `@extend` lines into marker keys, substitutes
 /// variables and protects `\$` escapes. `location` is the position of the
@@ -70,7 +65,7 @@ pub fn expand(
 
 /// The names of the `{{env:NAME}}` placeholders in `text`, in order.
 pub fn environment_variables(text: &str) -> impl Iterator<Item = &str> {
-    variable_re()
+    VARIABLE_RE
         .captures_iter(text)
         .filter_map(|caps| caps.get(1)?.as_str().strip_prefix("env:"))
 }
@@ -137,7 +132,7 @@ struct Expansion<'a> {
 impl Expansion<'_> {
     /// Expands one line; `offset` is its source line within the text.
     fn line(&mut self, line: &str, location: &Location, offset: usize, depth: usize) {
-        if let Some(caps) = insert_re().captures(line) {
+        if let Some(caps) = INSERT_RE.captures(line) {
             let indent = &caps[1];
             let name = &caps[2];
             let args = caps.get(3).map(|m| split_args(m.as_str()));
@@ -183,7 +178,7 @@ impl Expansion<'_> {
             }
             return;
         }
-        if let Some(caps) = extend_re().captures(line) {
+        if let Some(caps) = EXTEND_RE.captures(line) {
             self.counter += 1;
             let marker = caps[2].replace('\'', "''");
             self.lines.push((
@@ -239,7 +234,7 @@ fn substitute_line(
         return line.to_string();
     }
     let value_start = value_position(line);
-    variable_re()
+    VARIABLE_RE
         .replace_all(line, |caps: &regex::Captures| {
             let name = &caps[1];
             let value = match name.strip_prefix("env:") {
@@ -255,9 +250,11 @@ fn substitute_line(
             let Some(value) = value else {
                 return caps[0].to_string();
             };
-            let whole = caps.get(0).unwrap();
-            let is_whole_value =
-                value_start == Some(whole.start()) && line[whole.end()..].trim().is_empty();
+            let whole = caps.get_match();
+            let is_whole_value = value_start == Some(whole.start())
+                && line
+                    .get(whole.end()..)
+                    .is_some_and(|after| after.trim().is_empty());
             if is_whole_value {
                 format!("'{}'", value.replace('\'', "''"))
             } else {
@@ -269,13 +266,11 @@ fn substitute_line(
 
 /// Byte offset where the unquoted value of `key: value` or `- value` starts.
 fn value_position(line: &str) -> Option<usize> {
-    let trimmed_start = line.len() - line.trim_start().len();
-    let rest = &line[trimmed_start..];
-    if let Some(item) = rest.strip_prefix("- ") {
-        let item_start = trimmed_start + 2 + (item.len() - item.trim_start().len());
-        return Some(item_start);
-    }
-    let colon = rest.find(": ")?;
-    let after = &rest[colon + 2..];
-    Some(trimmed_start + colon + 2 + (after.len() - after.trim_start().len()))
+    let rest = line.trim_start();
+    let value = match rest.strip_prefix("- ") {
+        Some(item) => item,
+        None => rest.split_once(": ")?.1,
+    };
+    // `value` is a suffix of `line`.
+    Some(line.len() - value.trim_start().len())
 }

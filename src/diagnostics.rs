@@ -275,19 +275,24 @@ impl Diagnostic {
     /// The finding as a JSON object (`severity`, `code`, `message` and, when
     /// known, `file`, `line`, `column`), e.g. for `--message-format json`.
     pub fn to_json(&self) -> serde_json::Value {
-        let mut value = serde_json::json!({
-            "severity": self.severity.to_string(),
-            "code": self.code.as_str(),
-            "message": self.message,
-        });
+        let mut value = serde_json::Map::new();
+        value.insert(
+            "severity".into(),
+            serde_json::json!(self.severity.to_string()),
+        );
+        value.insert("code".into(), serde_json::json!(self.code.as_str()));
+        value.insert("message".into(), serde_json::json!(self.message));
         if let Some(location) = &self.location {
-            value["file"] = serde_json::json!(location.file().display().to_string());
-            value["line"] = serde_json::json!(location.line());
+            value.insert(
+                "file".into(),
+                serde_json::json!(location.file().display().to_string()),
+            );
+            value.insert("line".into(), serde_json::json!(location.line()));
             if let Some(column) = location.column() {
-                value["column"] = serde_json::json!(column);
+                value.insert("column".into(), serde_json::json!(column));
             }
         }
-        value
+        serde_json::Value::Object(value)
     }
 }
 

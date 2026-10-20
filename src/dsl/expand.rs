@@ -57,7 +57,10 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
                 }
             };
             for parameter in new {
-                let identity = (parameter["name"].clone(), parameter["in"].clone());
+                let identity = (
+                    parameter.get("name").cloned().unwrap_or_default(),
+                    parameter.get("in").cloned().unwrap_or_default(),
+                );
                 let duplicate = explicit.contains(&identity)
                     || expanded
                         .iter()

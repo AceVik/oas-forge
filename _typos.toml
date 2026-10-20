@@ -1,0 +1,13 @@
+# typos: https://github.com/crate-ci/typos
+
+[files]
+extend-exclude = [
+    # Official schemas, kept byte for byte as published.
+    "tests/schemas/",
+    # Generated from the corpus sources.
+    "*.snap",
+]
+
+[default.extend-words]
+# German test data (Unicode doc comments).
+adresse = "adresse"

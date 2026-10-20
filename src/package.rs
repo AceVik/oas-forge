@@ -130,11 +130,13 @@ impl Package {
                 json!({ "name": license, "identifier": license }),
             );
         }
-        let mut root = json!({ "openapi": ROOT_VERSION, "info": info });
+        let mut root = Map::new();
+        root.insert("openapi".into(), json!(ROOT_VERSION));
+        root.insert("info".into(), Value::Object(info));
         if let Some(url) = self.homepage.as_ref().or(self.repository.as_ref()) {
-            root["externalDocs"] = json!({ "url": url });
+            root.insert("externalDocs".into(), json!({ "url": url }));
         }
-        root
+        Value::Object(root)
     }
 }
 

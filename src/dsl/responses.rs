@@ -63,7 +63,8 @@ pub(super) fn response(rest: &str, types: &TypeMapper) -> Option<Response> {
     let description = description
         .filter(|d| !d.is_empty())
         .unwrap_or_else(|| reason_phrase(&code).to_string());
-    let mut value = json!({ "description": description });
+    let mut value = Map::new();
+    value.insert("description".into(), json!(description));
     let (type_text, media) = split_media(residue);
     let type_text = type_text.as_str();
     let unit = type_text.is_empty() || type_text == "()" || type_text == "unit";
@@ -88,9 +89,12 @@ pub(super) fn response(rest: &str, types: &TypeMapper) -> Option<Response> {
                 content.insert(media, entry.clone());
             }
         }
-        value["content"] = Value::Object(content);
+        value.insert("content".into(), Value::Object(content));
     }
-    Some(Response { code, value })
+    Some(Response {
+        code,
+        value: Value::Object(value),
+    })
 }
 
 /// A response header: `@return-header CODE Name: Type ["description"]`.
@@ -108,11 +112,13 @@ pub(super) fn header(rest: &str, types: &TypeMapper) -> Option<(String, String, 
         type_text
     };
     let mapped = TypeExpr::parse(type_text).map(|t| types.map(&t))?;
-    let mut header = json!({ "schema": mapped.schema, "required": mapped.required });
+    let mut header = Map::new();
+    header.insert("schema".into(), mapped.schema);
+    header.insert("required".into(), json!(mapped.required));
     if let Some(description) = description {
-        header["description"] = json!(description);
+        header.insert("description".into(), json!(description));
     }
-    Some((code.to_string(), name.to_string(), header))
+    Some((code.to_string(), name.to_string(), Value::Object(header)))
 }
 
 /// A problem details response: `@problem CODE ["description"]`.

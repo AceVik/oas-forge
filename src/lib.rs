@@ -74,6 +74,18 @@
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, rustdoc::broken_intra_doc_links)]
+// No panics on user input (AGENTS.md, rule 1): no unchecked indexing or
+// slicing, no `unwrap`. `expect` is reserved for invariants, with the reason.
+#![deny(
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::unwrap_used,
+    clippy::dbg_macro,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 
 pub mod attrs;
 pub mod config;

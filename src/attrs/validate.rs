@@ -269,33 +269,37 @@ impl Parser {
     }
 
     fn range(&mut self, args: &[Meta]) -> Option<Rule> {
-        let mut bounds: [Option<Number>; 4] = Default::default();
+        let mut min = None;
+        let mut max = None;
+        let mut exclusive_min = None;
+        let mut exclusive_max = None;
         for arg in args {
             let Meta::NameValue(nv) = arg else { continue };
             let Some(key) = nv.path.get_ident().map(ToString::to_string) else {
                 continue;
             };
-            let slot = match key.as_str() {
-                "min" => 0,
-                "max" => 1,
-                "exclusive_min" => 2,
-                "exclusive_max" => 3,
-                "equal" => 4,
-                _ => continue,
-            };
+            if !matches!(
+                key.as_str(),
+                "min" | "max" | "exclusive_min" | "exclusive_max" | "equal"
+            ) {
+                continue;
+            }
             let Some(value) = number(&nv.value) else {
                 self.problems
                     .push(format!("`range({key} = {})`", quote_expr(&nv.value)));
                 continue;
             };
-            if slot == 4 {
-                bounds[0] = Some(value.clone());
-                bounds[1] = Some(value);
-            } else {
-                bounds[slot] = Some(value);
+            match key.as_str() {
+                "min" => min = Some(value),
+                "max" => max = Some(value),
+                "exclusive_min" => exclusive_min = Some(value),
+                "exclusive_max" => exclusive_max = Some(value),
+                _ => {
+                    min = Some(value.clone());
+                    max = Some(value);
+                }
             }
         }
-        let [min, max, exclusive_min, exclusive_max] = bounds;
         if min.is_none() && max.is_none() && exclusive_min.is_none() && exclusive_max.is_none() {
             return None;
         }

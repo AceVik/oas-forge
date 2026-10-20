@@ -1,6 +1,6 @@
 //! The specification converted to Swagger 2.0.
 //!
-//! Schemas are lowered by [`dialect`](crate::schema::dialect); this module
+//! Schemas are lowered by [`dialect`]; this module
 //! converts the document structure: servers become `host`/`basePath`/
 //! `schemes`, request bodies `body` or `formData` parameters, media types
 //! `consumes`/`produces`, components `definitions`, `parameters`,
@@ -152,8 +152,12 @@ impl Converter {
         };
         let (host, path) = if scheme.is_some() || url.starts_with("//") {
             let rest = rest.trim_start_matches('/');
-            match rest.find('/') {
-                Some(slash) => (Some(rest[..slash].to_string()), rest[slash..].to_string()),
+            // The path keeps its leading `/`.
+            match rest
+                .find('/')
+                .and_then(|slash| rest.split_at_checked(slash))
+            {
+                Some((host, path)) => (Some(host.to_string()), path.to_string()),
                 None => (Some(rest.to_string()), String::new()),
             }
         } else {
@@ -377,12 +381,15 @@ impl Converter {
                     self.lose("bodies that are both forms and documents (the document is used)");
                 }
                 let schema = content[media].get("schema").cloned().unwrap_or(json!({}));
-                let mut parameter =
-                    json!({ "name": "body", "in": "body", "required": required, "schema": schema });
+                let mut parameter = Map::new();
+                parameter.insert("name".into(), json!("body"));
+                parameter.insert("in".into(), json!("body"));
+                parameter.insert("required".into(), required);
+                parameter.insert("schema".into(), schema);
                 if let Some(description) = body.get("description") {
-                    parameter["description"] = description.clone();
+                    parameter.insert("description".into(), description.clone());
                 }
-                parameters.push(parameter);
+                parameters.push(Value::Object(parameter));
             }
             (None, _) => {
                 let multipart = consumes.iter().any(|m| m == "multipart/form-data");
@@ -475,7 +482,12 @@ impl Converter {
             .and_then(Value::as_str)
             .and_then(|r| r.strip_prefix(&prefix))
         {
-            Some(name) => self.components[section][name].clone(),
+            Some(name) => self
+                .components
+                .get(section)
+                .and_then(|schemas| schemas.get(name))
+                .cloned()
+                .unwrap_or_default(),
             None => value.clone(),
         }
     }
@@ -560,29 +572,36 @@ impl Converter {
                 ]
                 .iter()
                 .find_map(|name| flows.get(*name).map(|settings| (*name, settings)))?;
-                let mut out = json!({
-                    "type": "oauth2",
-                    "flow": match flow {
+                let mut out = Map::new();
+                out.insert("type".into(), json!("oauth2"));
+                out.insert(
+                    "flow".into(),
+                    json!(match flow {
                         "clientCredentials" => "application",
                         "authorizationCode" => "accessCode",
                         other => other,
-                    },
-                    "scopes": settings.get("scopes").cloned().unwrap_or(json!({})),
-                });
+                    }),
+                );
+                out.insert(
+                    "scopes".into(),
+                    settings.get("scopes").cloned().unwrap_or(json!({})),
+                );
                 for key in ["authorizationUrl", "tokenUrl"] {
                     if let Some(url) = settings.get(key) {
-                        out[key] = url.clone();
+                        out.insert(key.into(), url.clone());
                     }
                 }
-                out
+                Value::Object(out)
             }
             _ => {
                 self.lose("OpenID Connect and mutual TLS security schemes");
                 return None;
             }
         };
-        if let Some(description) = description {
-            out["description"] = description;
+        if let Some(description) = description
+            && let Value::Object(map) = &mut out
+        {
+            map.insert("description".into(), description);
         }
         Some(out)
     }

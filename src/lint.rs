@@ -170,11 +170,12 @@ fn path_parameter_names(
 fn placeholders(path: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let mut rest = path;
-    while let Some(open) = rest.find('{') {
-        let after = &rest[open + 1..];
-        let Some(close) = after.find('}') else { break };
-        out.insert(after[..close].to_string());
-        rest = &after[close + 1..];
+    while let Some((_, after)) = rest.split_once('{') {
+        let Some((name, tail)) = after.split_once('}') else {
+            break;
+        };
+        out.insert(name.to_string());
+        rest = tail;
     }
     out
 }

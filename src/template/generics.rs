@@ -10,7 +10,7 @@ use crate::schema::types::{TypeExpr, TypeMapper, is_container};
 use regex::{Captures, Regex};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 /// Maximum nesting of instantiations (`$A<$B<$C<…>>>`).
 pub const MAX_DEPTH: usize = 16;
@@ -81,14 +81,19 @@ fn is_name_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == ':'
 }
 
+/// Splits `text` after its leading name characters.
+fn split_name(text: &str) -> (&str, &str) {
+    let end = text.find(|c: char| !is_name_char(c)).unwrap_or(text.len());
+    text.split_at_checked(end).unwrap_or((text, ""))
+}
+
 /// Parses `Name<args>` at the start of `text`; returns the rest.
 fn parse_ref(text: &str) -> Option<(GenericRef, &str)> {
-    let end = text.find(|c: char| !is_name_char(c)).unwrap_or(text.len());
-    let name = &text[..end];
+    let (name, rest) = split_name(text);
     if name.is_empty() {
         return None;
     }
-    let rest = text[end..].trim_start().strip_prefix('<')?;
+    let rest = rest.trim_start().strip_prefix('<')?;
     let mut args = Vec::new();
     let mut rest = rest;
     loop {
@@ -115,15 +120,15 @@ fn parse_ref(text: &str) -> Option<(GenericRef, &str)> {
 
 fn parse_arg(text: &str) -> Option<(GenericArg, &str)> {
     let text = text.strip_prefix('$').unwrap_or(text);
-    let end = text.find(|c: char| !is_name_char(c)).unwrap_or(text.len());
-    if end == 0 {
+    let (name, rest) = split_name(text);
+    if name.is_empty() {
         return None;
     }
-    if text[end..].trim_start().starts_with('<') {
+    if rest.trim_start().starts_with('<') {
         let (generic, rest) = parse_ref(text)?;
         Some((GenericArg::Generic(generic), rest))
     } else {
-        Some((GenericArg::Name(text[..end].to_string()), &text[end..]))
+        Some((GenericArg::Name(name.to_string()), rest))
     }
 }
 
@@ -318,16 +323,14 @@ impl<'a> Instantiator<'a> {
     }
 }
 
-fn placeholder_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\$(\w+)").unwrap())
-}
+static PLACEHOLDER_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\$(\w+)").expect("constant pattern"));
 
 /// Replaces whole `$Param` identifiers in every string (and key) of `schema`
 /// in a single pass, so substituted names are never substituted again.
 fn substitute(schema: &Value, bindings: &BTreeMap<&str, &str>) -> Value {
     let replace = |text: &str| -> String {
-        placeholder_re()
+        PLACEHOLDER_RE
             .replace_all(text, |caps: &Captures| match bindings.get(&caps[1]) {
                 Some(arg) => format!("${arg}"),
                 None => caps[0].to_string(),

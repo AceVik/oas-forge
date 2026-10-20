@@ -34,16 +34,17 @@ pub(super) fn from_macro(path: &Path, mac: &syn::Macro) -> Vec<Item> {
     }
     let tokens: Vec<TokenTree> = mac.tokens.clone().into_iter().collect();
     let mut items = Vec::new();
-    let mut i = 0;
-    while i + 1 < tokens.len() {
-        if is_ident(&tokens[i], "ref")
-            && let TokenTree::Ident(name) = &tokens[i + 1]
+    let mut rest = tokens.as_slice();
+    while let [first, second, ..] = rest {
+        if is_ident(first, "ref")
+            && let TokenTree::Ident(name) = second
         {
-            let end = tokens[i..]
+            let end = rest
                 .iter()
                 .position(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == ';'))
-                .map_or(tokens.len(), |offset| i + offset);
-            let definition: TokenStream = tokens[i..end].iter().cloned().collect();
+                .unwrap_or(rest.len());
+            let (definition, after) = rest.split_at(end);
+            let definition: TokenStream = definition.iter().cloned().collect();
             if let Some(pattern) = first_regex_literal(definition) {
                 items.push(Item::Pattern(PatternItem {
                     name: name.to_string(),
@@ -51,9 +52,10 @@ pub(super) fn from_macro(path: &Path, mac: &syn::Macro) -> Vec<Item> {
                     location: Location::new(path, line_of(name.span())),
                 }));
             }
-            i = end;
+            rest = after;
         }
-        i += 1;
+        // Past this token, or past the `;` that ends the definition.
+        rest = rest.get(1..).unwrap_or_default();
     }
     items
 }

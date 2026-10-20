@@ -1,0 +1,3 @@
+# Sources, fixtures and snapshots are compared byte for byte; check them out
+# with LF line endings on every platform.
+* text=auto eol=lf

@@ -99,3 +99,12 @@ fn documentation_cases_belong_to_an_example() {
         }
     }
 }
+
+/// Each published crate ships the license; the CLI's is a copy.
+#[test]
+fn every_crate_ships_the_workspace_license() {
+    let license = std::fs::read_to_string(root().join("LICENSE")).expect("LICENSE");
+    let copy = std::fs::read_to_string(root().join("crates/oas-forge-cli/LICENSE"))
+        .expect("crates/oas-forge-cli/LICENSE");
+    assert_eq!(copy, license, "copy LICENSE to crates/oas-forge-cli/");
+}

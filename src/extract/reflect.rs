@@ -755,8 +755,10 @@ impl<'a> Reflector<'a> {
 
             let mut schema =
                 json!({ "type": "object", "properties": properties, "required": required });
-            if !all_of.is_empty() {
-                schema["allOf"] = Value::Array(all_of);
+            if !all_of.is_empty()
+                && let Value::Object(map) = &mut schema
+            {
+                map.insert("allOf".into(), Value::Array(all_of));
             }
             self.finish(&mut schema, naming, &format!("variant `{}`", variant.ident));
             items.push(Item::Schema(SchemaItem {

@@ -32,17 +32,21 @@ Include the diagnostic codes you see (`OF…`). Security problems go to
    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
    cargo deny check
    cargo build --manifest-path examples/Cargo.toml
+   typos
    ```
 
 Tools: [`cargo-insta`](https://insta.rs/docs/cli/),
-[`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny) and, for
-coverage, [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov).
+[`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny),
+[`typos`](https://github.com/crate-ci/typos) and, for coverage,
+[`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov).
 
 ## Pull requests
 
 Keep a pull request to one topic, with commits that each build and pass the
 tests. Describe what changes for users. CI runs the checks above on Linux,
-macOS and Windows and the minimum supported Rust version.
+macOS and Windows, builds with the minimum supported Rust version (1.89) and
+the minimal dependency versions, and audits the workflows. Once a week it also
+tests the newest dependency releases on stable and beta Rust.
 
 By contributing you agree that your work is licensed under the
 [MIT license](LICENSE).

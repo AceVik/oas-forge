@@ -69,16 +69,18 @@ impl ItemDocs {
             } else if rest.starts_with('-') {
                 // `@openapi-type Name` and friends mark the item; their
                 // argument is not schema YAML.
-            } else if kind == ItemKind::Container && rest.starts_with('<') {
-                if let Some(end) = rest.rfind('>') {
+            } else if kind == ItemKind::Container
+                && let Some(generics) = rest.strip_prefix('<')
+            {
+                if let Some((params, after)) = generics.rsplit_once('>') {
                     docs.blueprint = Some(
-                        rest[1..end]
+                        params
                             .split(',')
                             .map(|p| p.trim().to_string())
                             .filter(|p| !p.is_empty())
                             .collect(),
                     );
-                    let after = rest[end + 1..].trim();
+                    let after = after.trim();
                     if !after.is_empty() {
                         docs.overrides.push(DocLine::new(after, line.line));
                     }

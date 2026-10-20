@@ -7,7 +7,7 @@ use super::tokens::{tokenize, unquote};
 use crate::attrs::validate::{Constraints, LengthUnit, Rule};
 use crate::schema::{TypeExpr, TypeMapper};
 use crate::yaml;
-use serde_json::{Number, Value, json};
+use serde_json::{Map, Number, Value, json};
 
 /// The marker a struct expansion leaves in `parameters` until the struct's
 /// schema is known (see `generator`).
@@ -34,11 +34,9 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
         return None;
     }
     let tokens = tokenize(spec);
-    let first = tokens.first().map(String::as_str).unwrap_or_default();
-    let (type_text, flags) = if first.is_empty() || is_flag(first) {
-        ("String", &tokens[..])
-    } else {
-        (first, &tokens[1..])
+    let (type_text, flags) = match tokens.split_first() {
+        Some((first, flags)) if !first.is_empty() && !is_flag(first) => (first.as_str(), flags),
+        _ => ("String", tokens.as_slice()),
     };
     let (mut schema, mut required) = match TypeExpr::parse(type_text) {
         Some(t) => {
@@ -48,7 +46,7 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
         None => (json!({ "type": "string" }), true),
     };
 
-    let mut parameter = serde_json::Map::new();
+    let mut parameter = Map::new();
     let mut description: Vec<&str> = Vec::new();
     let mut constraints = Vec::new();
     let mut ignored = Vec::new();
@@ -88,14 +86,14 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
                 parameter.insert("example".into(), parsed().unwrap_or_default());
             }
             ("default", Some(_)) => {
-                schema["default"] = parsed().unwrap_or_default();
+                set(&mut schema, "default", parsed().unwrap_or_default());
                 has_default = true;
             }
             ("enum", Some(_)) => match parsed() {
-                Some(Value::Array(values)) => schema["enum"] = Value::Array(values),
+                Some(Value::Array(values)) => set(&mut schema, "enum", Value::Array(values)),
                 _ => ignored.push(token.clone()),
             },
-            ("format", Some(format)) => schema["format"] = json!(text(format)),
+            ("format", Some(format)) => set(&mut schema, "format", json!(text(format))),
             ("pattern", Some(pattern)) => {
                 constraints.push(Rule::Pattern(text(pattern).to_string()));
             }
@@ -112,22 +110,26 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
 
     // A parameter with a default may be left out, unless marked `required`.
     required = (required && !has_default) || explicitly_required || location == "path";
-    let mut value = json!({ "name": name, "in": location, "required": required });
+    let mut value = Map::new();
+    value.insert("name".into(), json!(name));
+    value.insert("in".into(), json!(location));
+    value.insert("required".into(), json!(required));
     if !description.is_empty() {
         let text = description.join(" ");
-        value["description"] = json!(unquote(&text).unwrap_or(&text));
+        value.insert("description".into(), json!(unquote(&text).unwrap_or(&text)));
     }
     if location == "querystring" {
-        value["content"] = json!({ "application/x-www-form-urlencoded": { "schema": schema } });
+        value.insert(
+            "content".into(),
+            json!({ "application/x-www-form-urlencoded": { "schema": schema } }),
+        );
     } else {
-        value["schema"] = schema;
+        value.insert("schema".into(), schema);
     }
-    if let Value::Object(map) = &mut value {
-        map.extend(parameter);
-    }
+    value.extend(parameter);
     Some(Parameter {
         name: name.to_string(),
-        value,
+        value: Value::Object(value),
         ignored,
     })
 }
@@ -141,12 +143,15 @@ pub(super) fn inline_path(
 ) -> Value {
     let schema = TypeExpr::parse(type_text.unwrap_or("String"))
         .map_or_else(|| json!({ "type": "string" }), |t| types.map(&t).schema);
-    let mut param = json!({ "name": name, "in": "path", "required": true });
+    let mut param = Map::new();
+    param.insert("name".into(), json!(name));
+    param.insert("in".into(), json!("path"));
+    param.insert("required".into(), json!(true));
     if let Some(d) = description {
-        param["description"] = json!(d);
+        param.insert("description".into(), json!(d));
     }
-    param["schema"] = schema;
-    param
+    param.insert("schema".into(), schema);
+    Value::Object(param)
 }
 
 /// `@query-params $Pagination`: one parameter per property of the struct,
@@ -154,6 +159,14 @@ pub(super) fn inline_path(
 pub(super) fn expansion(location: &str, type_text: &str) -> Value {
     let name = type_text.trim().trim_start_matches('$');
     json!({ EXPAND_KEY: { "in": location, "schema": format!("${name}") } })
+}
+
+/// Sets `key` of an object schema; other schemas (a custom mapping such as
+/// `true`) are left as they are.
+fn set(schema: &mut Value, key: &str, value: Value) {
+    if let Value::Object(map) = schema {
+        map.insert(key.into(), value);
+    }
 }
 
 fn is_flag(token: &str) -> bool {

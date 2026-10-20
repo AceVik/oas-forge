@@ -29,9 +29,13 @@ cargo deny check
 PROPTEST_CASES=20000 cargo test --release --test property
 cargo llvm-cov --workspace --summary-only
 cargo build --manifest-path examples/Cargo.toml
+typos                                   # spelling (config: _typos.toml)
 ```
 
-All of them must pass before a change is done.
+All of them must pass before a change is done. CI also checks the minimal
+dependency versions (`cargo +nightly update -Z direct-minimal-versions`), the
+MSRV build, `cargo publish --dry-run` on release, and audits the workflows with
+`zizmor`. Actions in `.github/workflows/` are pinned to commit hashes.
 
 ## Where things are
 
@@ -58,7 +62,10 @@ The pipeline is described in `docs/architecture.md`.
 
 1. **No panics on user input.** Report a `Diagnostic` (with a new, unique
    code if needed) or return an `Error` with a location. Never log; never
-   drop input silently.
+   drop input silently. The crates deny `clippy::indexing_slicing`,
+   `string_slice` and `unwrap_used`: use `get`, `split_once`, `strip_prefix`
+   and friends; `expect("reason")` only for real invariants such as constant
+   regular expressions.
 2. **Generic references stay raw until the generics stage.** Before it, write
    `{"$ref": "$Page<User>"}`, never `#/components/schemas/$Page<User>`;
    otherwise no concrete schema is generated. DSL types such as `$User` stay
@@ -128,5 +135,5 @@ The full syntax is in `docs/schemas.md`, `docs/route-dsl.md`,
 ## Commits
 
 One logical change per commit, message in the imperative
-(`feat: …`, `fix: …`, `test: …`, `docs: …`). Do not commit `Archiv.zip` or
-other local files.
+(`feat: …`, `fix: …`, `test: …`, `docs: …`). Never commit local files
+(archives, editor settings, build output).

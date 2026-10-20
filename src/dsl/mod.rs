@@ -31,7 +31,7 @@ use operation::Security;
 use regex::Regex;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 /// Operation fields that start an embedded YAML section in a route block.
 /// `summary` and `description` are left out: such lines are usually prose.
@@ -205,15 +205,12 @@ struct Builder {
     route_lines: usize,
 }
 
-fn inline_param_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r#"\{(\w+)(?::\s*([^"}]+))?(?:\s*"([^"]+)")?\}"#).unwrap())
-}
+static INLINE_PARAM_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\{(\w+)(?::\s*([^"}]+))?(?:\s*"([^"]+)")?\}"#).expect("constant pattern")
+});
 
-fn placeholder_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\{(\w+)\}").unwrap())
-}
+static PLACEHOLDER_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\{(\w+)\}").expect("constant pattern"));
 
 fn is_header(line: &str) -> bool {
     let line = line.trim();
@@ -415,7 +412,12 @@ impl Compiler<'_, '_> {
                     let response = b.responses.entry(code.clone()).or_insert_with(
                         || json!({ "description": responses::reason_phrase(&code) }),
                     );
-                    response["headers"][name] = header;
+                    if let Some(response) = response.as_object_mut()
+                        && let Value::Object(headers) =
+                            response.entry("headers").or_insert_with(|| json!({}))
+                    {
+                        headers.insert(name, header);
+                    }
                 }
                 None => self.invalid(
                     index,
@@ -518,10 +520,10 @@ impl Compiler<'_, '_> {
         let raw_path = raw_path.trim();
         let mut path = String::new();
         let mut last = 0;
-        for caps in inline_param_re().captures_iter(raw_path) {
-            let whole = caps.get(0).unwrap();
+        for caps in INLINE_PARAM_RE.captures_iter(raw_path) {
+            let whole = caps.get_match();
             let name = &caps[1];
-            path.push_str(&raw_path[last..whole.start()]);
+            path.push_str(raw_path.get(last..whole.start()).unwrap_or_default());
             path.push('{');
             path.push_str(name);
             path.push('}');
@@ -536,7 +538,7 @@ impl Compiler<'_, '_> {
             let param = params::inline_path(name, type_text, description, self.source.types);
             add_parameter(&mut b.parameters, param);
         }
-        path.push_str(&raw_path[last..]);
+        path.push_str(raw_path.get(last..).unwrap_or_default());
         b.path = path;
     }
 
@@ -729,7 +731,7 @@ impl Compiler<'_, '_> {
         let Some(signature) = signature else {
             return pending;
         };
-        let placeholders: Vec<String> = placeholder_re()
+        let placeholders: Vec<String> = PLACEHOLDER_RE
             .captures_iter(&b.path)
             .map(|c| c[1].to_string())
             .collect();
@@ -746,8 +748,10 @@ impl Compiler<'_, '_> {
             // `Path<Params>` with a struct: expanded once its schema is known.
             [single] if is_custom(single, types) => {
                 let mut marker = params::expansion("path", &single.to_string());
-                if let [only] = undeclared.as_slice() {
-                    marker[EXPAND_KEY]["name"] = json!(only);
+                if let [only] = undeclared.as_slice()
+                    && let Some(Value::Object(expand)) = marker.get_mut(EXPAND_KEY)
+                {
+                    expand.insert("name".into(), json!(only));
                 }
                 b.parameters.push(marker);
                 true
@@ -782,7 +786,7 @@ impl Compiler<'_, '_> {
     /// after the expansion.
     fn check_path(&mut self, b: &Builder, deferred: bool) -> bool {
         let mut valid = true;
-        for caps in placeholder_re().captures_iter(&b.path) {
+        for caps in PLACEHOLDER_RE.captures_iter(&b.path) {
             if !b.declared.contains(&caps[1]) && !deferred {
                 self.report(
                     Code::UndeclaredPathParam,
@@ -994,13 +998,13 @@ fn has_parameter(parameters: &[Value], parameter: &Value) -> bool {
 /// Adds a parameter; a later declaration of the same name and location
 /// replaces the earlier one.
 fn add_parameter(parameters: &mut Vec<Value>, parameter: Value) {
-    let position = parameter.get("name").and_then(|_| {
-        parameters.iter().position(|p| {
-            p.get("name") == parameter.get("name") && p.get("in") == parameter.get("in")
-        })
+    let existing = parameter.get("name").and_then(|_| {
+        parameters
+            .iter_mut()
+            .find(|p| p.get("name") == parameter.get("name") && p.get("in") == parameter.get("in"))
     });
-    match position {
-        Some(position) => parameters[position] = parameter,
+    match existing {
+        Some(existing) => *existing = parameter,
         None => parameters.push(parameter),
     }
 }
@@ -1022,7 +1026,7 @@ fn add_response(responses: &mut Map<String, Value>, code: String, response: Valu
 fn description_text(lines: &[String]) -> Option<String> {
     let start = lines.iter().position(|l| !l.trim().is_empty())?;
     let end = lines.iter().rposition(|l| !l.trim().is_empty())?;
-    let lines = &lines[start..=end];
+    let lines = lines.get(start..=end)?;
     let indent = lines
         .iter()
         .filter(|l| !l.trim().is_empty())

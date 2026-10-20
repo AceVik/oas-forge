@@ -120,22 +120,17 @@ fn merge_parameters(
         _ => None,
     };
     for item in source {
-        let position = identity(&item).and_then(|id| {
+        let existing = identity(&item).and_then(|id| {
             target
-                .iter()
-                .position(|t| identity(t).as_ref() == Some(&id))
+                .iter_mut()
+                .enumerate()
+                .find(|(_, t)| identity(t).as_ref() == Some(&id))
         });
-        match position {
-            Some(index) => {
+        match existing {
+            Some((index, existing)) => {
                 let len = pointer.len();
                 pointer.push_str(&format!("/{index}"));
-                merge_at(
-                    &mut target[index],
-                    item,
-                    Policy::Operation,
-                    pointer,
-                    conflicts,
-                );
+                merge_at(existing, item, Policy::Operation, pointer, conflicts);
                 pointer.truncate(len);
             }
             None => {

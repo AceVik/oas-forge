@@ -129,15 +129,15 @@ fn section(
 
 /// `Name(a, b)` → (`Name`, [`a`, `b`]); `Name` → (`Name`, []).
 fn signature(text: &str) -> (String, Vec<String>) {
-    match text.find('(') {
-        Some(open) => {
-            let params = text[open + 1..]
+    match text.split_once('(') {
+        Some((name, params)) => {
+            let params = params
                 .trim_end_matches(')')
                 .split(',')
                 .map(|p| p.trim().to_string())
                 .filter(|p| !p.is_empty())
                 .collect();
-            (text[..open].trim().to_string(), params)
+            (name.trim().to_string(), params)
         }
         None => (text.to_string(), Vec::new()),
     }
@@ -149,8 +149,9 @@ pub(super) fn route_defaults(lines: &[DocLine]) -> Vec<String> {
     let Some(start) = lines.iter().position(|l| l.trimmed() == ROUTE_DEFAULTS) else {
         return Vec::new();
     };
-    lines[start + 1..]
+    lines
         .iter()
+        .skip(start + 1)
         .take_while(|l| !is_block_header(l.trimmed()))
         .map(|l| l.text.clone())
         .collect()
@@ -163,14 +164,12 @@ pub(super) fn module_tags(lines: &[DocLine]) -> Vec<String> {
         if !line.text.contains("tags:") {
             continue;
         }
-        let Some(open) = line.text.find('[') else {
+        let Some((_, list)) = line.text.split_once('[') else {
             continue;
         };
-        let list = &line.text[open + 1..];
-        if let Some(close) = list.find(']') {
+        if let Some((list, _)) = list.split_once(']') {
             tags.extend(
-                list[..close]
-                    .split(',')
+                list.split(',')
                     .map(|t| t.trim().to_string())
                     .filter(|t| !t.is_empty()),
             );
@@ -245,7 +244,7 @@ fn is_separator(trimmed: &str) -> bool {
 }
 
 fn close(path: &Path, block: &mut Vec<DocLine>, items: &mut Vec<Item>, diags: &mut Diagnostics) {
-    let Some(header) = block.first() else {
+    let Some((header, rest)) = block.split_first() else {
         return;
     };
     let trimmed = header.trimmed();
@@ -267,7 +266,7 @@ fn close(path: &Path, block: &mut Vec<DocLine>, items: &mut Vec<Item>, diags: &m
             location: Location::new(path, header.line),
         }));
     } else if let Some(name) = trimmed.strip_prefix("@openapi-type") {
-        let body = unindent(&block[1..]);
+        let body = unindent(rest);
         let text = join(&body).trim().to_string();
         if !text.is_empty() {
             let line = body

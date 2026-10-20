@@ -6,6 +6,14 @@
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
+#![deny(
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::unwrap_used,
+    clippy::dbg_macro,
+    clippy::todo,
+    clippy::unimplemented
+)]
 
 use clap::{Parser, ValueEnum};
 use oas_forge::{Config, Diagnostic, Error, Generator, Package, Severity};

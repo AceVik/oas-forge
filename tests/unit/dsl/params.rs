@@ -46,7 +46,7 @@ mod path_params {
     }
 
     #[test]
-    fn inline_param_with_unparseable_type_falls_back_to_string() {
+    fn inline_param_with_unparsable_type_falls_back_to_string() {
         let op = operation(&["@route GET /items/{id: Vec<}"], "/items/{id}", "get");
         assert_eq!(param(&op, "id")["schema"], json!({ "type": "string" }));
     }
@@ -229,7 +229,7 @@ mod declarations {
     }
 
     #[test]
-    fn unparseable_type_falls_back_to_required_string() {
+    fn unparsable_type_falls_back_to_required_string() {
         let op = operation(&["@route GET /x", "@query-param q: Vec<"], "/x", "get");
         let q = param(&op, "q");
         assert_eq!(q["schema"], json!({ "type": "string" }));

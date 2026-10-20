@@ -21,16 +21,15 @@ pub(super) fn security(rest: &str) -> Option<Security> {
     let mut requirement = Map::new();
     for part in rest.split('+') {
         let part = part.trim();
-        let (scheme, scopes) = match part.find('(') {
-            Some(open) => {
-                let args = &part[open + 1..];
+        let (scheme, scopes) = match part.split_once('(') {
+            Some((scheme, args)) => {
                 let inner = args.strip_suffix(')').unwrap_or(args);
                 let scopes: Vec<String> = inner
                     .split(',')
                     .map(|s| s.trim().trim_matches('"').to_string())
                     .filter(|s| !s.is_empty())
                     .collect();
-                (part[..open].trim(), scopes)
+                (scheme.trim(), scopes)
             }
             None => (part, Vec::new()),
         };
@@ -58,9 +57,10 @@ fn url_with_description(rest: &str) -> Option<Value> {
     let [url] = tokens.as_slice() else {
         return None;
     };
-    let mut value = json!({ "url": url });
+    let mut value = Map::new();
+    value.insert("url".into(), json!(url));
     if let Some(description) = description {
-        value["description"] = json!(description);
+        value.insert("description".into(), json!(description));
     }
-    Some(value)
+    Some(Value::Object(value))
 }

@@ -46,8 +46,8 @@ pub(super) fn unquote(token: &str) -> Option<&str> {
 pub(super) fn trailing_description(text: &str) -> (&str, Option<String>) {
     let text = text.trim();
     match text.strip_suffix('"') {
-        Some(body) => match body.rfind('"') {
-            Some(open) => (body[..open].trim(), Some(body[open + 1..].to_string())),
+        Some(body) => match body.rsplit_once('"') {
+            Some((before, description)) => (before.trim(), Some(description.to_string())),
             None => (body.trim(), None),
         },
         None => (text, None),

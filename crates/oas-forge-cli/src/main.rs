@@ -1,6 +1,14 @@
 //! The `oas-forge` binary.
 
 #![forbid(unsafe_code)]
+#![deny(
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::unwrap_used,
+    clippy::dbg_macro,
+    clippy::todo,
+    clippy::unimplemented
+)]
 
 use clap::Parser;
 use colored::Colorize;

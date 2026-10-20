@@ -83,12 +83,17 @@ pub(crate) fn to_string(value: &Value) -> String {
         .map(|(i, line)| {
             if line.trim().is_empty() && line.len() > 1 {
                 // Spaces up to the block's indentation are layout, more are content.
-                let before = lines[..i]
+                let before = lines
                     .iter()
+                    .take(i)
                     .rev()
                     .find(content)
                     .map_or(0, |l| indent(l));
-                let after = lines[i + 1..].iter().find(content).map_or(0, |l| indent(l));
+                let after = lines
+                    .iter()
+                    .skip(i + 1)
+                    .find(content)
+                    .map_or(0, |l| indent(l));
                 if line.trim_end_matches(['\r', '\n']).len() <= before.min(after) {
                     return line.trim_start_matches(' ');
                 }

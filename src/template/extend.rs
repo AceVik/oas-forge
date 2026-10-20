@@ -71,10 +71,10 @@ fn resolve(
     location: &Location,
     diagnostics: &mut Diagnostics,
 ) -> Option<Value> {
-    let (name, args) = match spec.find('(') {
-        Some(open) => (
-            spec[..open].trim(),
-            split_args(spec[open + 1..].trim_end().trim_end_matches(')')),
+    let (name, args) = match spec.split_once('(') {
+        Some((name, args)) => (
+            name.trim(),
+            split_args(args.trim_end().trim_end_matches(')')),
         ),
         None => (spec.trim(), Vec::new()),
     };
