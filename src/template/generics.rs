@@ -162,7 +162,9 @@ impl<'a> Instantiator<'a> {
     pub fn apply(&mut self, value: &mut Value, location: &Location, diagnostics: &mut Diagnostics) {
         match value {
             Value::String(s) if s.starts_with('$') && s.contains('<') => {
-                if let Some(replacement) = self.replace(s, location, diagnostics) {
+                if let Some(generic) = GenericRef::parse(s)
+                    && let Some(replacement) = self.replace(s, &generic, location, diagnostics)
+                {
                     *value = replacement;
                 }
             }
@@ -174,10 +176,10 @@ impl<'a> Instantiator<'a> {
             Value::Object(map) => {
                 // `{$ref: $Vec<User>}`: the shorthand replaces the whole schema;
                 // sibling keywords such as `description` are kept.
-                let inline = map
-                    .get("$ref")
-                    .and_then(Value::as_str)
-                    .and_then(|r| self.std_container(r, location, diagnostics));
+                let inline = map.get("$ref").and_then(Value::as_str).and_then(|r| {
+                    let generic = GenericRef::parse(r)?;
+                    self.std_container(r, &generic, location, diagnostics)
+                });
                 if let Some(Value::Object(mut schema)) = inline {
                     map.remove("$ref");
                     for (key, mut child) in std::mem::take(map) {
@@ -201,10 +203,10 @@ impl<'a> Instantiator<'a> {
     fn std_container(
         &mut self,
         text: &str,
+        generic: &GenericRef,
         location: &Location,
         diagnostics: &mut Diagnostics,
     ) -> Option<Value> {
-        let generic = GenericRef::parse(text)?;
         if self
             .registry
             .blueprint(last_segment(&generic.name))
@@ -230,15 +232,15 @@ impl<'a> Instantiator<'a> {
     fn replace(
         &mut self,
         text: &str,
+        generic: &GenericRef,
         location: &Location,
         diagnostics: &mut Diagnostics,
     ) -> Option<Value> {
         // `$Vec<T>` and other std containers are inline arrays, not templates.
-        if let Some(schema) = self.std_container(text, location, diagnostics) {
+        if let Some(schema) = self.std_container(text, generic, location, diagnostics) {
             return Some(schema);
         }
-        let generic = GenericRef::parse(text)?;
-        self.instantiate(&generic, location, diagnostics)
+        self.instantiate(generic, location, diagnostics)
             .map(|name| Value::String(format!("${name}")))
     }
 

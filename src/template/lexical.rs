@@ -4,12 +4,15 @@
 use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use regex::Regex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 /// Stands for an escaped `$` (`\$`) until the very end of the pipeline, so
 /// escaped text is never taken for a smart reference.
 pub const ESCAPED_DOLLAR: char = '\u{E024}';
+
+/// [`ESCAPED_DOLLAR`] as text.
+const ESCAPED_DOLLAR_TEXT: &str = "\u{E024}";
 
 /// Prefix of the keys that carry `@extend` markers through YAML parsing.
 pub const EXTEND_KEY: &str = "x-oas-forge-extend-";
@@ -43,24 +46,27 @@ pub fn expand(
         registry,
         lines: Vec::new(),
         counter: 0,
+        stack: Vec::new(),
+        cycles: BTreeSet::new(),
         diagnostics,
     };
     for (offset, line) in text.lines().enumerate() {
-        expansion.line(line, &location.offset(offset), offset, 0);
+        expansion.line(line, &location.offset(offset), offset);
     }
     let Expansion { lines, .. } = expansion;
     let mut missing = Vec::new();
-    let mut joined = lines
-        .iter()
-        .map(|(line, offset)| substitute_line(line, variables, *offset, &mut missing))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut joined = substitute_lines(
+        lines.iter().map(|(line, offset)| (line.as_str(), *offset)),
+        variables,
+        &mut missing,
+    )
+    .join("\n");
     if text.ends_with('\n') {
         // A final line break is content for block scalars (`|`) at the end.
         joined.push('\n');
     }
     report_missing(missing, location, diagnostics);
-    joined.replace("\\$", &ESCAPED_DOLLAR.to_string())
+    joined.replace("\\$", ESCAPED_DOLLAR_TEXT)
 }
 
 /// The names of the `{{env:NAME}}` placeholders in `text`, in order.
@@ -73,8 +79,9 @@ pub fn environment_variables(text: &str) -> impl Iterator<Item = &str> {
 /// Substitutes `{{NAME}}` from `variables` and `{{env:NAME}}` from the
 /// environment. A placeholder that is the whole, unquoted value of a mapping
 /// entry or list item is inserted as a quoted string so that values like
-/// `1.10` stay strings. Unset environment variables are kept and reported at
-/// their line (`location` is the position of the first line of `text`).
+/// `1.10` stay strings; inside block scalars (`|`, `>`) text is inserted as
+/// it is. Unset environment variables are kept and reported at their line
+/// (`location` is the position of the first line of `text`).
 pub fn substitute(
     text: &str,
     variables: &Variables,
@@ -85,12 +92,14 @@ pub fn substitute(
         return text.to_string();
     }
     let mut missing = Vec::new();
-    let mut substituted = text
-        .lines()
-        .enumerate()
-        .map(|(offset, line)| substitute_line(line, variables, offset, &mut missing))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut substituted = substitute_lines(
+        text.lines()
+            .enumerate()
+            .map(|(offset, line)| (line, offset)),
+        variables,
+        &mut missing,
+    )
+    .join("\n");
     if text.ends_with('\n') {
         substituted.push('\n');
     }
@@ -105,7 +114,7 @@ fn report_missing(
     diagnostics: &mut Diagnostics,
 ) {
     missing.sort();
-    let mut reported = std::collections::BTreeSet::new();
+    let mut reported = BTreeSet::new();
     for (offset, variable) in missing {
         if reported.insert(variable.clone()) {
             diagnostics.push(
@@ -126,18 +135,36 @@ struct Expansion<'a> {
     lines: Vec<(String, usize)>,
     /// Numbers the `@extend` markers.
     counter: usize,
+    /// The fragments being inserted, outermost first.
+    stack: Vec<String>,
+    /// Fragments whose cycle has been reported.
+    cycles: BTreeSet<String>,
     diagnostics: &'a mut Diagnostics,
 }
 
 impl Expansion<'_> {
     /// Expands one line; `offset` is its source line within the text.
-    fn line(&mut self, line: &str, location: &Location, offset: usize, depth: usize) {
+    fn line(&mut self, line: &str, location: &Location, offset: usize) {
         if let Some(caps) = INSERT_RE.captures(line) {
             let indent = &caps[1];
             let name = &caps[2];
             let args = caps.get(3).map(|m| split_args(m.as_str()));
             match self.registry.fragment(name) {
-                Some(fragment) if depth < MAX_INSERT_DEPTH => {
+                Some(_) if self.stack.iter().any(|n| n == name) => {
+                    if self.cycles.insert(name.to_string()) {
+                        self.diagnostics.push(
+                            Diagnostic::new(
+                                Code::FragmentCycle,
+                                format!(
+                                    "fragment `{name}` inserts itself ({} → {name}); the insert is skipped",
+                                    self.stack.join(" → ")
+                                ),
+                            )
+                            .at(location.clone()),
+                        );
+                    }
+                }
+                Some(fragment) if self.stack.len() < MAX_INSERT_DEPTH => {
                     let provided = args.unwrap_or_default();
                     if provided.len() < fragment.params.len() {
                         self.diagnostics.push(
@@ -153,9 +180,11 @@ impl Expansion<'_> {
                         );
                     }
                     let body = substitute_params(&fragment.body, &fragment.params, &provided);
+                    self.stack.push(name.to_string());
                     for inserted in body.lines() {
-                        self.line(&format!("{indent}{inserted}"), location, offset, depth + 1);
+                        self.line(&format!("{indent}{inserted}"), location, offset);
                     }
+                    self.stack.pop();
                 }
                 Some(_) => self.diagnostics.push(
                     Diagnostic::new(
@@ -213,27 +242,71 @@ pub fn split_args(text: &str) -> Vec<String> {
     args
 }
 
-/// Replaces `{{param}}` by the corresponding argument.
+/// Replaces `{{param}}` by the corresponding argument, in one pass: an
+/// argument that contains `{{other}}` is inserted as it is.
 pub fn substitute_params(body: &str, params: &[String], args: &[String]) -> String {
-    let mut result = body.to_string();
-    for (param, arg) in params.iter().zip(args) {
-        result = result.replace(&format!("{{{{{param}}}}}"), arg);
+    if params.is_empty() || !body.contains("{{") {
+        return body.to_string();
     }
-    result
+    VARIABLE_RE
+        .replace_all(body, |caps: &regex::Captures| {
+            let name = &caps[1];
+            params
+                .iter()
+                .position(|param| param == name)
+                .and_then(|i| args.get(i))
+                .map_or_else(|| caps[0].to_string(), Clone::clone)
+        })
+        .into_owned()
+}
+
+/// Substitutes the placeholders of `lines` (with the offset of their source
+/// line); whole values are quoted except inside block scalars.
+fn substitute_lines<'l>(
+    lines: impl Iterator<Item = (&'l str, usize)>,
+    variables: &Variables,
+    missing: &mut Vec<(usize, String)>,
+) -> Vec<String> {
+    // The indentation of the line that opened the current block scalar.
+    let mut block: Option<usize> = None;
+    lines
+        .map(|(line, offset)| {
+            let indent = line.len() - line.trim_start().len();
+            if block.is_some_and(|parent| line.trim().is_empty() || indent > parent) {
+                return substitute_line(line, variables, offset, missing, false);
+            }
+            block = opens_block_scalar(line).then_some(indent);
+            substitute_line(line, variables, offset, missing, true)
+        })
+        .collect()
+}
+
+/// Whether the value of a line is a block scalar indicator (`|`, `>-`, `|2`).
+fn opens_block_scalar(line: &str) -> bool {
+    let Some(value) = value_position(line).and_then(|start| line.get(start..)) else {
+        return false;
+    };
+    let value = value.split(" #").next().unwrap_or(value).trim_end();
+    value.strip_prefix(['|', '>']).is_some_and(|rest| {
+        rest.chars()
+            .all(|c| c.is_ascii_digit() || c == '+' || c == '-')
+    })
 }
 
 /// Substitutes the placeholders of one line; unset environment variables are
-/// added to `missing` with `offset`.
+/// added to `missing` with `offset`. With `quote`, a placeholder that is the
+/// whole value is inserted as a quoted string.
 fn substitute_line(
     line: &str,
     variables: &Variables,
     offset: usize,
     missing: &mut Vec<(usize, String)>,
+    quote: bool,
 ) -> String {
     if !line.contains("{{") {
         return line.to_string();
     }
-    let value_start = value_position(line);
+    let value_start = value_position(line).filter(|_| quote);
     VARIABLE_RE
         .replace_all(line, |caps: &regex::Captures| {
             let name = &caps[1];
@@ -264,12 +337,19 @@ fn substitute_line(
         .into_owned()
 }
 
-/// Byte offset where the unquoted value of `key: value` or `- value` starts.
+/// Byte offset where the unquoted value of `key: value`, `- value` or
+/// `- key: value` starts.
 fn value_position(line: &str) -> Option<usize> {
-    let rest = line.trim_start();
-    let value = match rest.strip_prefix("- ") {
-        Some(item) => item,
-        None => rest.split_once(": ")?.1,
+    let mut rest = line.trim_start();
+    let mut item = false;
+    while let Some(after) = rest.strip_prefix("- ") {
+        rest = after.trim_start();
+        item = true;
+    }
+    let value = match rest.split_once(": ") {
+        Some((_, value)) => value,
+        None if item => rest,
+        None => return None,
     };
     // `value` is a suffix of `line`.
     Some(line.len() - value.trim_start().len())

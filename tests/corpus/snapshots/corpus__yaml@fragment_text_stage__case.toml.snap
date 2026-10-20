@@ -1,0 +1,58 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/fragment_text_stage/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+  description: |
+    Release notes
+
+    Version: 1.10
+paths:
+  /prices:
+    get:
+      summary: List prices
+      description: Prices are strings such as `$5.00`.
+      operationId: list_prices
+      parameters:
+      - name: below
+        in: query
+        required: true
+        description: Upper bound
+        schema:
+          type: string
+          pattern: ^\$\d+$
+      - name: page
+        in: query
+        schema:
+          type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Price"
+      x-api-version: "1.10"
+      x-price-hint: $5 per call
+  /loop:
+    get:
+      summary: Loops
+      operationId: looping
+      responses:
+        "204":
+          description: No Content
+      x-loop: true
+components:
+  schemas:
+    Price:
+      type: string
+      pattern: ^\$\d+\.\d{2}$
+x-releases:
+- version: "1.10"

@@ -151,23 +151,44 @@ fn resolve_at(
 }
 
 /// Turns protected `\$` escapes back into `$` (the very last text step).
+/// Regular expressions keep `\$`, their escape of a literal dollar sign:
+/// `pattern` values and the keys of `patternProperties`.
 pub fn unescape(value: &mut Value) {
+    unescape_at(value, false);
+}
+
+/// `regex`: a string `value` is a regular expression (the value of
+/// `pattern`), or the keys of an object `value` are (`patternProperties`).
+fn unescape_at(value: &mut Value, regex: bool) {
     match value {
-        Value::String(s) if s.contains(ESCAPED_DOLLAR) => {
-            *s = s.replace(ESCAPED_DOLLAR, "$");
-        }
-        Value::Array(items) => items.iter_mut().for_each(unescape),
+        Value::String(s) if s.contains(ESCAPED_DOLLAR) => *s = restore(s, regex),
+        Value::Array(items) => items.iter_mut().for_each(|item| unescape_at(item, false)),
         Value::Object(map) => {
             if map.keys().any(|k| k.contains(ESCAPED_DOLLAR)) {
                 let entries: Vec<_> = std::mem::take(map).into_iter().collect();
                 for (key, mut child) in entries {
-                    unescape(&mut child);
-                    map.insert(key.replace(ESCAPED_DOLLAR, "$"), child);
+                    unescape_child(&key, &mut child);
+                    map.insert(restore(&key, regex), child);
                 }
             } else {
-                map.values_mut().for_each(unescape);
+                for (key, child) in map.iter_mut() {
+                    unescape_child(key, child);
+                }
             }
         }
         _ => {}
     }
+}
+
+/// Unescapes the value of `key`; the keys of `patternProperties` and the
+/// value of `pattern` are regular expressions.
+fn unescape_child(key: &str, child: &mut Value) {
+    match child {
+        Value::Object(_) => unescape_at(child, key == "patternProperties"),
+        _ => unescape_at(child, key == "pattern"),
+    }
+}
+
+fn restore(text: &str, regex: bool) -> String {
+    text.replace(ESCAPED_DOLLAR, if regex { "\\$" } else { "$" })
 }

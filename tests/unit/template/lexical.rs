@@ -102,9 +102,50 @@ mod insert {
     }
 
     #[test]
-    fn recursion_is_bounded() {
+    fn a_cycle_is_reported_once_and_skipped() {
         let reg = registry(&[("Loop", &[], "x: 1\n@insert Loop")]);
         let (out, diagnostics) = run("@insert Loop", &reg);
+        assert_eq!(out, "x: 1");
+        assert_eq!(codes(&diagnostics), [Code::FragmentCycle]);
+
+        // Regression: a fragment inserting itself several times grew
+        // exponentially up to the depth limit (6^8 lines and findings).
+        let reg = registry(&[("Fan", &[], &"@insert Fan\n".repeat(6))]);
+        let (out, diagnostics) = run("a: 1\n@insert Fan", &reg);
+        assert_eq!(out, "a: 1");
+        assert_eq!(codes(&diagnostics), [Code::FragmentCycle]);
+    }
+
+    #[test]
+    fn indirect_cycles_are_found() {
+        let reg = registry(&[("A", &[], "a: 1\n@insert B"), ("B", &[], "b: 2\n@insert A")]);
+        let (out, diagnostics) = run("@insert A", &reg);
+        assert_eq!(out, "a: 1\nb: 2");
+        assert_eq!(codes(&diagnostics), [Code::FragmentCycle]);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message().contains("A → B → A")),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn nesting_is_bounded() {
+        // Nine distinct fragments, each inserting the next.
+        let names: Vec<String> = (0..10).map(|i| format!("F{i}")).collect();
+        let bodies: Vec<String> = (0..10)
+            .map(|i| match names.get(i + 1) {
+                Some(next) => format!("f{i}: 1\n@insert {next}"),
+                None => format!("f{i}: 1"),
+            })
+            .collect();
+        let fragments: Vec<(&str, &[&str], &str)> = names
+            .iter()
+            .zip(&bodies)
+            .map(|(name, body)| (name.as_str(), &[][..], body.as_str()))
+            .collect();
+        let (out, diagnostics) = run("@insert F0", &registry(&fragments));
         assert_eq!(out.lines().count(), 8);
         assert_eq!(codes(&diagnostics), [Code::UnknownFragment]);
     }
@@ -177,6 +218,39 @@ mod variables {
         assert_eq!(
             run_with("  v: {{ VERSION }}  ", &reg, &vars()).0,
             "  v: '1.10'  "
+        );
+    }
+
+    #[test]
+    fn whole_values_of_mappings_in_list_items_become_quoted_strings() {
+        let reg = Registry::new();
+        assert_eq!(
+            run_with("- v: {{VERSION}}\n- - w: {{VERSION}}", &reg, &vars()).0,
+            "- v: '1.10'\n- - w: '1.10'"
+        );
+        assert_eq!(
+            run_with("- note: v{{VERSION}}", &reg, &vars()).0,
+            "- note: v1.10"
+        );
+    }
+
+    #[test]
+    fn block_scalars_are_text() {
+        let reg = Registry::new();
+        let text = "description: |\n  Version: {{VERSION}}\n\n  - {{VERSION}}\nversion: {{VERSION}}\nlist:\n  - >-\n    Since: {{VERSION}}\n  - {{VERSION}}";
+        assert_eq!(
+            run_with(text, &reg, &vars()).0,
+            "description: |\n  Version: 1.10\n\n  - 1.10\nversion: '1.10'\nlist:\n  - >-\n    Since: 1.10\n  - '1.10'"
+        );
+        let mut diagnostics = Diagnostics::new();
+        assert_eq!(
+            substitute(
+                "d: |2 # comment\n   x: {{VERSION}}",
+                &vars(),
+                &here(),
+                &mut diagnostics
+            ),
+            "d: |2 # comment\n   x: 1.10"
         );
     }
 
@@ -310,6 +384,18 @@ fn escaped_dollars_are_protected() {
     assert_eq!(
         out,
         format!("price: {ESCAPED_DOLLAR}100\nref: {ESCAPED_DOLLAR}User")
+    );
+}
+
+#[test]
+fn arguments_are_substituted_in_one_pass() {
+    assert_eq!(
+        substitute_params(
+            "{{a}} {{ b }} {{c}}",
+            &["a".into(), "b".into()],
+            &["{{b}}".into(), "2".into()]
+        ),
+        "{{b}} 2 {{c}}"
     );
 }
 

@@ -56,7 +56,7 @@ The codes are stable: a code keeps its meaning across releases
 
 | Code | Severity | Cause | Fix |
 | :--- | :--- | :--- | :--- |
-| `OF3001` | warning | `@insert`/`@extend` names an unknown fragment, or inserts are nested more than 8 deep | Define the fragment, or check its name |
+| `OF3001` | warning | `@insert`/`@extend` names an unknown fragment, or fragments are nested more than 8 deep | Define the fragment, or check its name |
 | `OF3002` | warning | A fragment's body is not valid YAML when it is extended | Fix the fragment |
 | `OF3003` | warning | A fragment got fewer arguments than it has parameters | Pass every argument |
 | `OF3004` | warning | A generic reference names an unknown template | Document the generic type, or include the crate's fragments |
@@ -65,6 +65,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF3007` | warning | `$Name` does not name a known schema | Document the type, define it with `@openapi-type`, map it with `map_type`, or escape a literal `\$` |
 | `OF3008` | warning | Included templates use an unknown format version | Regenerate the fragments with this version |
 | `OF3009` | warning | `{{env:NAME}}` names an unset environment variable; the placeholder is kept | Set the variable for the build |
+| `OF3010` | warning | A fragment inserts or extends itself, directly or through other fragments; the repeated `@insert`/`@extend` is skipped | Remove the cycle |
 
 ## Merging (OF4xxx)
 

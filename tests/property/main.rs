@@ -246,7 +246,7 @@ proptest! {
     #[test]
     fn extend_never_panics(value in json_value()) {
         let mut value = json!({ "x-oas-forge-extend-1": "Frag(1)", "nested": value });
-        extend::apply(&mut value, &registry(), &here(), &mut Diagnostics::new());
+        extend::apply(&mut value, &registry(), &Variables::new(), &here(), &mut Diagnostics::new());
         prop_assert!(value.get("x-oas-forge-extend-1").is_none());
     }
 

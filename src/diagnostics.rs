@@ -180,6 +180,8 @@ codes! {
     UnknownTemplateFormat = "OF3008", Warning;
     /// A `{{env:NAME}}` placeholder names an unset environment variable.
     UnknownVariable = "OF3009", Warning;
+    /// A fragment inserts or extends itself, directly or through others.
+    FragmentCycle = "OF3010", Warning;
 
     /// Two documents set the same value differently.
     MergeConflict = "OF4001", Warning;

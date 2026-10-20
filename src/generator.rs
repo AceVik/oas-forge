@@ -879,7 +879,13 @@ fn materialize(
                 return Ok(None);
             };
             let mut value = compiled.document;
-            extend::apply(&mut value, registry, &channel.location, diagnostics);
+            extend::apply(
+                &mut value,
+                registry,
+                variables,
+                &channel.location,
+                diagnostics,
+            );
             Ok(Some(Snippet {
                 value,
                 location: channel.location,
@@ -913,7 +919,13 @@ fn materialize(
                 return Ok(None);
             };
             let mut value = compiled.document;
-            extend::apply(&mut value, registry, &route.location, diagnostics);
+            extend::apply(
+                &mut value,
+                registry,
+                variables,
+                &route.location,
+                diagnostics,
+            );
             Ok(Some(Snippet::openapi(value, route.location)))
         }
     }
@@ -961,7 +973,7 @@ fn parse_any(
     if value.is_null() {
         return Ok(None);
     }
-    extend::apply(&mut value, registry, location, diagnostics);
+    extend::apply(&mut value, registry, variables, location, diagnostics);
     Ok(Some(value))
 }
 

@@ -125,6 +125,29 @@ fn unescape_restores_protected_dollars_in_values_and_keys() {
 }
 
 #[test]
+fn regular_expressions_keep_their_escaped_dollars() {
+    let escaped = format!("^{ESCAPED_DOLLAR}\\d+$");
+    let mut value = json!({
+        "pattern": escaped.clone(),
+        "description": escaped.clone(),
+        "properties": { "pattern": { "pattern": escaped.clone() } },
+        "patternProperties": { escaped.clone(): { "type": "string" } },
+        "examples": [{ "pattern": [escaped.clone()] }],
+    });
+    unescape(&mut value);
+    assert_eq!(
+        value,
+        json!({
+            "pattern": "^\\$\\d+$",
+            "description": "^$\\d+$",
+            "properties": { "pattern": { "pattern": "^\\$\\d+$" } },
+            "patternProperties": { "^\\$\\d+$": { "type": "string" } },
+            "examples": [{ "pattern": ["^$\\d+$"] }],
+        })
+    );
+}
+
+#[test]
 fn references_to_built_in_types_become_their_schema() {
     // `$Page<String>` instantiates `{"$ref": "$T"}` as `{"$ref": "$String"}`.
     let (value, diagnostics) = run(

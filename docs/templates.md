@@ -150,7 +150,11 @@ pub async fn reports() {}
   `- $ref: '#/components/parameters/Name'`.
 - `@extend Name(args)` parses the fragment and merges it into the mapping
   that contains the line. Values written next to it win, like inheritance.
-  It also works in routes.
+  It also works in routes. The fragment's text is expanded like any other
+  YAML first: `{{variables}}`, `@insert` and `@extend` inside it work, up
+  to a depth of 8.
+- A fragment that inserts or extends itself, directly or through others,
+  is reported (`OF3010`); the repeated `@insert` or `@extend` is skipped.
 - Arguments are separated by commas; quote an argument that contains one
   (`Secured("a, b")`).
 
@@ -182,10 +186,11 @@ override and `@example`:
 | `{{NAME}}` | `Generator::var("NAME", value)`, `[variables]` in the configuration or `--var NAME=VALUE` |
 | `{{env:NAME}}` | the environment variable `NAME` at build time; unset variables are reported (`OF3009`) |
 
-A placeholder that is the whole value of a mapping entry or list item is
-inserted as a quoted string, so `version: {{CARGO_PKG_VERSION}}` stays the
-string `"1.10"` instead of the number `1.1`. Unknown placeholders are left
-as they are.
+A placeholder that is the whole value of a mapping entry or list item
+(also `- version: {{CARGO_PKG_VERSION}}`) is inserted as a quoted string, so
+`version: {{CARGO_PKG_VERSION}}` stays the string `"1.10"` instead of the
+number `1.1`. Inside block scalars (`description: |`) the value is inserted
+as it is. Unknown placeholders are left as they are.
 
 With `emit_cargo_directives(true)`, every `{{env:NAME}}` in the inputs is
 also printed as `cargo:rerun-if-env-changed=NAME`, so Cargo reruns the
@@ -195,7 +200,9 @@ build script when the variable changes.
 
 `\$` at the start of a value writes a literal `$` (so `\$User` is the text
 `$User`, not a reference). A value such as `$$ISSUER_URL/…` is not a
-reference and needs no escape.
+reference and needs no escape. Regular expressions keep `\$` as written:
+in `pattern` values (and `pattern=` flags) and `patternProperties` keys it is
+the regex escape of a literal dollar sign (`pattern: '^\$\d+$'`).
 
 ## Cross-crate templates
 
