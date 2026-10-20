@@ -265,6 +265,47 @@ Every 0.1 route block still compiles; these outputs changed:
   configuration or `--var NAME=VALUE` define more. Placeholders also work in
   type overrides and `@example` lines.
 
+### Correctness review
+A review of the finished 0.2 code fixed these cases; most of them also change
+what 0.1 wrote:
+- **serde names** (`serde_semantics`). An explicit `rename` is kept as
+  written even when it equals the field name and `rename_all` is set;
+  `rename(deserialize = "…")` alone no longer changes the documented name.
+- **Required fields**. A field with `with` or `deserialize_with` is required
+  even when it is an `Option`, unless it has `default`: serde rejects a
+  missing field there (`serde_with_and_conversions`).
+- **Shapes**. A tuple struct with a skipped member stays an array;
+  `#[serde(tag = "…")]` on a struct adds the tag property; `serde_repr`
+  enums are integers; a flattened map next to flattened structs becomes
+  `unevaluatedProperties`, so the values of the other fields are no longer
+  constrained by the map's value schema.
+- **Date and time without offset**. chrono's `NaiveDateTime` and jiff's
+  civil `DateTime` are `format: date-time-local`, `NaiveTime` and the civil
+  and `time` times `format: time-local` (`type_mapping`); RFC 3339 formats
+  rejected these values.
+- **Generics**. Type parameters inside nested generic fields
+  (`first: Envelope<T>`, `children: Vec<Tree<T>>`) are bound; 0.1 emitted
+  `Envelope_T` with a dangling `T`. Generic type aliases are templates;
+  unused ones, such as `type Result<T> = …`, are no longer emitted.
+- **Doc comments**. `/** … */` comments are read like rustdoc reads them;
+  descriptions keep the line breaks of code blocks, lists and headings;
+  free text after `@openapi` (`/// @openapi The id`) is reported (`OF1001`)
+  instead of becoming the schema; module tags only come from `tags: [..]`
+  lists of names.
+- **Fragments**. `@openapi-fragment` blocks in the doc comment of a type are
+  registered; `@extend` fragments get variables, escapes and nested
+  `@insert`/`@extend` like `@insert` fragments; cycles are reported once
+  (`OF3010`) and too many arguments too (`OF3011`). `\$` stays `\$` inside
+  `pattern` values, where it is a regular expression escape.
+- **Inputs**. A file reached through two inputs (an `include` inside an
+  input directory, overlapping inputs) is read once instead of causing a
+  false "multiple roots" error; symbolic links in input directories are
+  followed, broken ones are reported (`OF0005`).
+
+New warnings can fail builds with `deny_warnings`: `OF0005`, `OF1001` and
+`OF1008` for directive mistakes, `OF1009`, `OF3010`, `OF3011`, and `OF3002`/
+`OF3008` for broken templates in included files, which were dropped silently.
+
 ### Command line
 - `--check` writes nothing and exits with status 1 when an output is missing or
   out of date; `--deny-warnings` turns warnings into errors; `--strict` enables

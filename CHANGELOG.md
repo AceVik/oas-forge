@@ -64,7 +64,11 @@ worked in 0.1 keeps working unless the
 - **CLI:** `--check`, `--deny-warnings`, `--strict`,
   `--message-format json`, `--var`, the export flags; the package metadata
   of `Cargo.toml` is used.
-- Files are written atomically and only when they change.
+- Files are written atomically and only when they change; line endings are
+  ignored when comparing, so CRLF checkouts are not outdated.
+- **Release artifacts:** prebuilt CLI binaries for Linux, macOS and Windows
+  with `SHA256SUMS`, build provenance attestations and the licenses of all
+  compiled-in crates; `cargo binstall oas-forge-cli`.
 
 ### Changed
 - The CLI is a separate crate: `cargo install oas-forge-cli` (the binary is
@@ -97,6 +101,33 @@ worked in 0.1 keeps working unless the
   generics with several arguments (`$Result<A, B>`) and nested generic
   arguments are documented correctly.
 - A final line break of block scalars survives variable substitution.
+- Found in a review of the 0.2 code, each with a test or corpus case (the
+  [migration guide](docs/migration-0.2.md#correctness-review) lists the
+  output changes):
+  - serde: explicit renames, deserialize-only renames, required `with`
+    fields, tuple structs with skipped members, struct tags, `serde_repr`,
+    flattened maps next to flattened structs, closed struct variants,
+    generic tagged enums and generic type aliases;
+  - nested generic parameters; offset-free date and time formats;
+  - Javadoc comments, Markdown line breaks, fragments in item doc comments,
+    module tag lists, free text after `@openapi`;
+  - route DSL: `default` responses and single query parameters no longer
+    stop inference, nested module security and tags replace the outer ones
+    (security was widened to "outer or inner"), defaults support variables,
+    fragments, YAML and inline prefix parameters, paths are joined with one
+    `/`, invalid inline types are reported, findings after `@insert` point at
+    their line;
+  - fragments: `@extend` runs the full text stage, cycles and extra arguments
+    are reported, `\$` in regular expressions is kept;
+  - outputs: unique Swagger `produces`, no dangling Swagger references,
+    `paths: {}` where a version requires it, fragments without the generated
+    root, sorted schema outputs, tags with the same name merged;
+  - generator: overlapping inputs, symbolic links, findings of included
+    templates, watched configuration files, workspace-inherited package
+    fields in the CLI, warnings of failed CLI runs;
+  - lints: properties named `mapping` and example data are no longer taken
+    for references; lints and exports run in linear time (23–31 % fewer
+    instructions on large projects).
 
 ### Security
 - `serde_yaml_ng` (and the unmaintained `unsafe-libyaml`, RUSTSEC-2024-0449)
@@ -106,6 +137,10 @@ worked in 0.1 keeps working unless the
   advisories, licenses, bans and sources in CI.
 - Input files are size-limited (16 MiB by default), nesting of fragments and
   generics is bounded, and `#![forbid(unsafe_code)]` holds for both crates.
+- Panicking constructs are denied crate-wide (`clippy::indexing_slicing`,
+  `string_slice`, `unwrap_used`).
+- CI: actions pinned to commit hashes, workflow audit with `zizmor`, minimal
+  dependency versions, weekly runs against the newest dependencies.
 
 ## [0.1.4] — 2026-03-13
 
