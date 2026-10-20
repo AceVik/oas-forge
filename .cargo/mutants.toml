@@ -23,6 +23,9 @@ exclude_re = [
     # escaped dollar, the full pass returns the same text.
     "src/template/lexical.rs:.*replace \\|\\| with && in substitute_params",
     "src/template/refs.rs:.*replace match guard s.contains\\(ESCAPED_DOLLAR\\) with true in unescape_at",
+    # A smart reference handed back as a "built-in" is resolved again right
+    # after, as a name; the result is the same pointer.
+    "src/template/refs.rs:.*replace match guard !map\\s*\\.get\\(\"\\$ref\"\\).* with true in builtin",
     # A nullable reference merged into its parent is turned into `allOf` by
     # the reference-sibling rule right after; the result is the same.
     "src/schema/dialect.rs:.*replace match guard inner.contains_key\\(\"\\$ref\"\\) with false in lower_30",

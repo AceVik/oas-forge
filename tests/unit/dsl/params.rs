@@ -496,3 +496,18 @@ fn brackets_inside_quotes_do_not_nest() {
     assert_eq!(q["description"], "Use [brackets");
     assert_eq!(q["schema"]["default"], 1);
 }
+
+#[test]
+fn closing_brackets_inside_quotes_do_not_close() {
+    let op = operation(
+        &[
+            "@route GET /x",
+            "@query-param q: String enum=[\"a)\", b] \"Description\"",
+        ],
+        "/x",
+        "get",
+    );
+    let q = param(&op, "q");
+    assert_eq!(q["schema"]["enum"], serde_json::json!(["a)", "b"]));
+    assert_eq!(q["description"], "Description");
+}
