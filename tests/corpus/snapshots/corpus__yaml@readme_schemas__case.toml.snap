@@ -33,9 +33,13 @@ components:
       properties:
         id:
           type: integer
-          format: int32
+          format: int64
+          minimum: 0
+          maximum: 4294967295
         username:
-          type: string
+          type:
+          - string
+          - "null"
           description: The username of the user.
           example: johndoe
         email:

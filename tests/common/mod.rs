@@ -10,6 +10,7 @@ use oas_forge::diagnostics::{Code, Diagnostics, Location};
 use oas_forge::dsl::{self, RouteSource};
 use oas_forge::extract::{self, Item};
 use oas_forge::generator::generate_from_sources;
+use oas_forge::schema::TypeMapper;
 use oas_forge::source::{SourceFile, SourceKind};
 use oas_forge::template::Variables;
 use serde_json::Value;
@@ -39,8 +40,13 @@ pub fn extract(code: &str) -> Vec<Item> {
 /// Extracts the annotations of a Rust source text and returns the findings.
 pub fn extract_with_diagnostics(code: &str) -> (Vec<Item>, Diagnostics) {
     let mut diagnostics = Diagnostics::new();
-    let items = extract::extract_str(Path::new("test.rs"), code, &mut diagnostics)
-        .unwrap_or_else(|e| panic!("test source must be valid Rust: {e}"));
+    let items = extract::extract_str(
+        Path::new("test.rs"),
+        code,
+        TypeMapper::builtin(),
+        &mut diagnostics,
+    )
+    .unwrap_or_else(|e| panic!("test source must be valid Rust: {e}"));
     (items, diagnostics)
 }
 
@@ -91,13 +97,7 @@ pub fn try_route(src: &[&str]) -> (Option<Value>, Diagnostics) {
     let lines = lines(src);
     let location = here();
     let compiled = dsl::compile(
-        RouteSource {
-            lines: &lines,
-            line_numbers: &[],
-            operation_id: Some("op"),
-            default_tags: &[],
-            location: &location,
-        },
+        RouteSource::new(&lines, &location).operation_id(Some("op")),
         &mut diagnostics,
     );
     (compiled.map(|c| c.document), diagnostics)

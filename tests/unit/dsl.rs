@@ -51,13 +51,7 @@ mod detection {
         let lines = lines(&["Docs", "@route GET"]);
         let location = Location::new("api.rs", 10);
         let compiled = dsl::compile(
-            RouteSource {
-                lines: &lines,
-                line_numbers: &[10, 11],
-                operation_id: None,
-                default_tags: &[],
-                location: &location,
-            },
+            RouteSource::new(&lines, &location).line_numbers(&[10, 11]),
             &mut diagnostics,
         );
         assert!(compiled.is_none());
@@ -92,13 +86,7 @@ mod detection {
     fn compiled_routes_name_their_path_and_method() {
         let lines = lines(&["@route PATCH /items/{id: u32}"]);
         let compiled = dsl::compile(
-            RouteSource {
-                lines: &lines,
-                line_numbers: &[],
-                operation_id: Some("op"),
-                default_tags: &[],
-                location: &here(),
-            },
+            RouteSource::new(&lines, &here()).operation_id(Some("op")),
             &mut Diagnostics::new(),
         )
         .unwrap();
@@ -114,17 +102,7 @@ mod detection {
         // Regression: virtual routes were named after their line number.
         let mut diagnostics = Diagnostics::new();
         let lines = lines(&["@route GET /legacy/{id}/proxy-v2", "@path-param id: u32"]);
-        let compiled = dsl::compile(
-            RouteSource {
-                lines: &lines,
-                line_numbers: &[],
-                operation_id: None,
-                default_tags: &[],
-                location: &here(),
-            },
-            &mut diagnostics,
-        )
-        .unwrap();
+        let compiled = dsl::compile(RouteSource::new(&lines, &here()), &mut diagnostics).unwrap();
         assert_eq!(
             compiled.document["paths"]["/legacy/{id}/proxy-v2"]["get"]["operationId"],
             "get_legacy_id_proxy_v2"
@@ -140,13 +118,9 @@ mod detection {
         ] {
             let lines = lines(src);
             let compiled = dsl::compile(
-                RouteSource {
-                    lines: &lines,
-                    line_numbers: &[],
-                    operation_id: Some("op"),
-                    default_tags: &defaults,
-                    location: &here(),
-                },
+                RouteSource::new(&lines, &here())
+                    .operation_id(Some("op"))
+                    .default_tags(&defaults),
                 &mut Diagnostics::new(),
             )
             .unwrap();
@@ -244,7 +218,7 @@ mod path_params {
                 "in": "path",
                 "required": true,
                 "description": "Item ID",
-                "schema": { "type": "integer", "format": "int32" }
+                "schema": { "type": "integer", "format": "int64", "minimum": 0, "maximum": 4294967295u32 }
             })]
         );
     }
@@ -522,7 +496,11 @@ mod request_body {
             body_schema("Vec<User>"),
             json!({ "type": "array", "items": { "$ref": "$User" } })
         );
-        assert_eq!(body_schema("Option<User>"), json!({ "$ref": "$User" }));
+        // `Option<T>` accepts `null`, like serde.
+        assert_eq!(
+            body_schema("Option<User>"),
+            json!({ "anyOf": [{ "$ref": "$User" }, { "type": "null" }] })
+        );
     }
 
     #[test]
@@ -606,9 +584,12 @@ mod responses {
     fn primitive_and_std_types_are_mapped() {
         assert_eq!(
             schema_of("u64 \"Created ID\""),
-            json!({ "type": "integer", "format": "int64" })
+            json!({ "type": "integer", "format": "int64", "minimum": 0 })
         );
-        assert_eq!(schema_of("Option<User>"), json!({ "$ref": "$User" }));
+        assert_eq!(
+            schema_of("Option<User>"),
+            json!({ "anyOf": [{ "$ref": "$User" }, { "type": "null" }] })
+        );
         assert_eq!(
             schema_of("Vec<User>"),
             json!({ "type": "array", "items": { "$ref": "$User" } })
@@ -841,7 +822,11 @@ mod yaml_overrides {
         let names: Vec<_> = params(&op).iter().map(|p| p["name"].clone()).collect();
         assert_eq!(names, [json!("dsl"), json!("both"), json!("yaml")]);
         assert_eq!(param(&op, "both")["description"], "from YAML");
-        assert_eq!(param(&op, "both")["schema"]["format"], "int32");
+        assert_eq!(
+            param(&op, "both")["schema"]["format"],
+            "int64",
+            "kept from the DSL"
+        );
     }
 
     #[test]

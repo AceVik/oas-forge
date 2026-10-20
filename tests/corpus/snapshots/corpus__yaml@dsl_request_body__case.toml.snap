@@ -37,6 +37,7 @@ paths:
         schema:
           type: integer
           format: int64
+          minimum: 0
       requestBody:
         content:
           application/xml:
@@ -105,6 +106,7 @@ components:
         total:
           type: integer
           format: int64
+          minimum: 0
         items:
           type: array
           items:

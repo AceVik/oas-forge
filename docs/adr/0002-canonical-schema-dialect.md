@@ -19,8 +19,19 @@ dialect). A final *lowering* pass converts them for the selected target:
 
 Anything that cannot be expressed in the target produces a diagnostic instead
 of being dropped silently. The nullability style follows the `openapi` version
-of the root document; without a root it follows the generator option
-(default 3.1).
+of the root document; without a root (fragments output) schemas stay in the
+canonical dialect.
+
+The pass lives in `schema::dialect`. It visits only schema positions (component
+schemas, every `schema` key, and the subschema keywords below them), so
+examples, defaults and other data that happen to look like schemas are never
+rewritten. In 3.0 a `$ref` with siblings is wrapped in `allOf`, because 3.0
+ignores the siblings of `$ref`.
+
+Reflection decides what a Rust type accepts; nullability is carried next to
+the schema (`MappedType::nullable`) so that parameters can turn `Option<T>`
+into `required: false` without a nullable schema, while properties and bodies
+render it.
 
 ## Consequences
 One schema generator, many targets. Target differences live in one module and

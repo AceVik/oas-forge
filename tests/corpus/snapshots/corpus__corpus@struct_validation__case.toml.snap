@@ -19,6 +19,7 @@ input_file: tests/corpus/cases/struct_validation/case.toml
                 "type": "integer"
               },
               "code": {
+                "pattern": "^[A-Z]{3}$",
                 "type": "string"
               },
               "email": {
@@ -26,6 +27,7 @@ input_file: tests/corpus/cases/struct_validation/case.toml
                 "type": "string"
               },
               "handle": {
+                "pattern": "@",
                 "type": "string"
               },
               "homepage": {
@@ -38,17 +40,24 @@ input_file: tests/corpus/cases/struct_validation/case.toml
               "offset": {
                 "format": "int32",
                 "maximum": 5,
+                "minimum": -5,
                 "type": "integer"
               },
               "percent": {
+                "exclusiveMaximum": 100,
+                "exclusiveMinimum": 0,
                 "format": "float",
                 "type": "number"
               },
               "pin": {
+                "maxLength": 4,
+                "minLength": 4,
                 "type": "string"
               },
               "ratio": {
                 "format": "double",
+                "maximum": 1.5,
+                "minimum": 0.5,
                 "type": "number"
               },
               "slug": {
@@ -59,8 +68,8 @@ input_file: tests/corpus/cases/struct_validation/case.toml
                 "items": {
                   "type": "string"
                 },
-                "maxLength": 10,
-                "minLength": 1,
+                "maxItems": 10,
+                "minItems": 1,
                 "type": "array"
               },
               "username": {
@@ -81,7 +90,8 @@ input_file: tests/corpus/cases/struct_validation/case.toml
               "code",
               "handle",
               "pin",
-              "percent"
+              "percent",
+              "nickname"
             ],
             "type": "object"
           }
@@ -103,6 +113,7 @@ input_file: tests/corpus/cases/struct_validation/case.toml
                 "type": "integer"
               },
               "code": {
+                "pattern": "^[A-Z]{3}$",
                 "type": "string"
               },
               "email": {
@@ -110,6 +121,7 @@ input_file: tests/corpus/cases/struct_validation/case.toml
                 "type": "string"
               },
               "handle": {
+                "pattern": "@",
                 "type": "string"
               },
               "homepage": {
@@ -122,17 +134,24 @@ input_file: tests/corpus/cases/struct_validation/case.toml
               "offset": {
                 "format": "int32",
                 "maximum": 5,
+                "minimum": -5,
                 "type": "integer"
               },
               "percent": {
+                "exclusiveMaximum": 100,
+                "exclusiveMinimum": 0,
                 "format": "float",
                 "type": "number"
               },
               "pin": {
+                "maxLength": 4,
+                "minLength": 4,
                 "type": "string"
               },
               "ratio": {
                 "format": "double",
+                "maximum": 1.5,
+                "minimum": 0.5,
                 "type": "number"
               },
               "slug": {
@@ -143,8 +162,8 @@ input_file: tests/corpus/cases/struct_validation/case.toml
                 "items": {
                   "type": "string"
                 },
-                "maxLength": 10,
-                "minLength": 1,
+                "maxItems": 10,
+                "minItems": 1,
                 "type": "array"
               },
               "username": {
@@ -165,7 +184,8 @@ input_file: tests/corpus/cases/struct_validation/case.toml
               "code",
               "handle",
               "pin",
-              "percent"
+              "percent",
+              "nickname"
             ],
             "type": "object"
           }
@@ -180,7 +200,6 @@ input_file: tests/corpus/cases/struct_validation/case.toml
     "lints": [],
     "validation": []
   },
-  "known_bug": "Negative/float ranges, exclusive bounds, equal, contains, required and regex(path) are ignored; length on Vec emits minLength",
   "paths": {
     "document": {},
     "lints": []
@@ -196,6 +215,7 @@ input_file: tests/corpus/cases/struct_validation/case.toml
             "type": "integer"
           },
           "code": {
+            "pattern": "^[A-Z]{3}$",
             "type": "string"
           },
           "email": {
@@ -203,6 +223,7 @@ input_file: tests/corpus/cases/struct_validation/case.toml
             "type": "string"
           },
           "handle": {
+            "pattern": "@",
             "type": "string"
           },
           "homepage": {
@@ -215,17 +236,24 @@ input_file: tests/corpus/cases/struct_validation/case.toml
           "offset": {
             "format": "int32",
             "maximum": 5,
+            "minimum": -5,
             "type": "integer"
           },
           "percent": {
+            "exclusiveMaximum": 100,
+            "exclusiveMinimum": 0,
             "format": "float",
             "type": "number"
           },
           "pin": {
+            "maxLength": 4,
+            "minLength": 4,
             "type": "string"
           },
           "ratio": {
             "format": "double",
+            "maximum": 1.5,
+            "minimum": 0.5,
             "type": "number"
           },
           "slug": {
@@ -236,8 +264,8 @@ input_file: tests/corpus/cases/struct_validation/case.toml
             "items": {
               "type": "string"
             },
-            "maxLength": 10,
-            "minLength": 1,
+            "maxItems": 10,
+            "minItems": 1,
             "type": "array"
           },
           "username": {
@@ -258,7 +286,8 @@ input_file: tests/corpus/cases/struct_validation/case.toml
           "code",
           "handle",
           "pin",
-          "percent"
+          "percent",
+          "nickname"
         ],
         "type": "object"
       }

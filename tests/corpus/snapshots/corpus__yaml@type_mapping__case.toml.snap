@@ -21,12 +21,18 @@ components:
           type: string
         c:
           type: string
+          minLength: 1
+          maxLength: 1
         i8_:
           type: integer
           format: int32
+          minimum: -128
+          maximum: 127
         i16_:
           type: integer
           format: int32
+          minimum: -32768
+          maximum: 32767
         i32_:
           type: integer
           format: int32
@@ -34,27 +40,36 @@ components:
           type: integer
           format: int64
         i128_:
-          $ref: $i128
+          type: integer
         isize_:
           type: integer
           format: int64
         u8_:
           type: integer
           format: int32
+          minimum: 0
+          maximum: 255
         u16_:
           type: integer
           format: int32
+          minimum: 0
+          maximum: 65535
         u32_:
           type: integer
-          format: int32
+          format: int64
+          minimum: 0
+          maximum: 4294967295
         u64_:
           type: integer
           format: int64
+          minimum: 0
         u128_:
-          $ref: $u128
+          type: integer
+          minimum: 0
         usize_:
           type: integer
           format: int64
+          minimum: 0
         f32_:
           type: number
           format: float
@@ -80,7 +95,8 @@ components:
           type: string
           format: time
         offset_datetime:
-          $ref: $OffsetDateTime
+          type: string
+          format: date-time
         decimal:
           type: string
           format: decimal
@@ -108,10 +124,16 @@ components:
           type: array
           items:
             type: string
+          uniqueItems: true
         btree_set:
-          $ref: $BTreeSet
+          type: array
+          items:
+            type: string
+          uniqueItems: true
         deque:
-          $ref: $VecDeque
+          type: array
+          items:
+            type: string
         linked_list:
           type: array
           items:
@@ -126,45 +148,86 @@ components:
           additionalProperties:
             type: boolean
         index_map:
-          $ref: $IndexMap
+          type: object
+          additionalProperties:
+            type: string
         array:
           type: array
           items:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 255
+          minItems: 4
+          maxItems: 4
         slice:
           type: array
           items:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 65535
         tuple:
-          type: object
-        optional_vec:
           type: array
+          prefixItems:
+          - type: integer
+            format: int32
+          - type: string
+          items: false
+          minItems: 2
+          maxItems: 2
+        optional_vec:
+          type:
+          - array
+          - "null"
           items:
             type: string
         vec_of_optional:
           type: array
           items:
-            type: integer
+            type:
+            - integer
+            - "null"
             format: int32
         non_zero:
-          $ref: $NonZeroU32
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
         ip:
-          $ref: $IpAddr
+          type: string
+          anyOf:
+          - format: ipv4
+          - format: ipv6
         ipv4:
-          $ref: $Ipv4Addr
+          type: string
+          format: ipv4
         duration:
-          $ref: $Duration
+          type: object
+          properties:
+            secs:
+              type: integer
+              format: int64
+              minimum: 0
+            nanos:
+              type: integer
+              format: int64
+              minimum: 0
+              maximum: 999999999
+          required:
+          - secs
+          - nanos
         path:
-          $ref: $PathBuf
+          type: string
         bytes:
           type: array
           items:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 255
         unit:
-          type: object
+          type: "null"
       required:
       - b
       - s

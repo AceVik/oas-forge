@@ -1,2 +1,1 @@
 description = "Structs: serde skip/flatten/default/alias/transparent/deny_unknown_fields/raw identifiers"
-known_bug = "skip, flatten, default, deny_unknown_fields, transparent and raw identifiers are ignored"

@@ -22,7 +22,9 @@ paths:
         required: false
         schema:
           type: integer
-          format: int32
+          format: int64
+          minimum: 0
+          maximum: 4294967295
         description: Page number
       responses:
         "200":
@@ -64,7 +66,9 @@ paths:
         required: true
         schema:
           type: integer
-          format: int32
+          format: int64
+          minimum: 0
+          maximum: 4294967295
         description: The unique ID
       responses: {}
   /search:
@@ -141,6 +145,8 @@ components:
       properties:
         id:
           type: integer
-          format: int32
+          format: int64
+          minimum: 0
+          maximum: 4294967295
       required:
       - id

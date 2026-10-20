@@ -21,20 +21,23 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
               },
               "limit": {
                 "example": 10,
-                "format": "int32",
+                "format": "int64",
                 "maximum": 1000,
                 "minimum": 1,
                 "type": "integer"
               },
               "page": {
                 "example": 1,
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
                 "minimum": 1,
                 "type": "integer"
               },
               "total_count": {
                 "example": 100,
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               }
             },
@@ -49,7 +52,9 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
           "User": {
             "properties": {
               "id": {
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               }
             },
@@ -62,7 +67,7 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
         "x-oas-forge-format": 1,
         "x-oas-forge-templates": {
           "PaginatedResponse": {
-            "body": "type: object\nproperties:\n  total_count:\n    type: integer\n    format: int32\n    example: 100\n  page:\n    type: integer\n    format: int32\n    example: 1\n    minimum: 1\n  limit:\n    type: integer\n    format: int32\n    example: 10\n    minimum: 1\n    maximum: 1000\n  data:\n    type: array\n    items:\n      $ref: $T\nrequired:\n- total_count\n- page\n- limit\n- data\ndescription: Paginated response wrapper.\n",
+            "body": "type: object\nproperties:\n  total_count:\n    type: integer\n    format: int64\n    minimum: 0\n    maximum: 4294967295\n    example: 100\n  page:\n    type: integer\n    format: int64\n    minimum: 1\n    maximum: 4294967295\n    example: 1\n  limit:\n    type: integer\n    format: int64\n    minimum: 1\n    maximum: 1000\n    example: 10\n  data:\n    type: array\n    items:\n      $ref: $T\nrequired:\n- total_count\n- page\n- limit\n- data\ndescription: Paginated response wrapper.\n",
             "params": [
               "T"
             ]
@@ -108,20 +113,23 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
               },
               "limit": {
                 "example": 10,
-                "format": "int32",
+                "format": "int64",
                 "maximum": 1000,
                 "minimum": 1,
                 "type": "integer"
               },
               "page": {
                 "example": 1,
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
                 "minimum": 1,
                 "type": "integer"
               },
               "total_count": {
                 "example": 100,
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               }
             },
@@ -136,7 +144,9 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
           "User": {
             "properties": {
               "id": {
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               }
             },
@@ -214,20 +224,23 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
           },
           "limit": {
             "example": 10,
-            "format": "int32",
+            "format": "int64",
             "maximum": 1000,
             "minimum": 1,
             "type": "integer"
           },
           "page": {
             "example": 1,
-            "format": "int32",
+            "format": "int64",
+            "maximum": 4294967295,
             "minimum": 1,
             "type": "integer"
           },
           "total_count": {
             "example": 100,
-            "format": "int32",
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
             "type": "integer"
           }
         },
@@ -242,7 +255,9 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
       "User": {
         "properties": {
           "id": {
-            "format": "int32",
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
             "type": "integer"
           }
         },

@@ -40,7 +40,9 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
           "User": {
             "properties": {
               "id": {
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               }
             },
@@ -132,7 +134,9 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
                 "name": "page",
                 "required": false,
                 "schema": {
-                  "format": "int32",
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
                   "type": "integer"
                 }
               }
@@ -218,7 +222,9 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
                 "name": "id",
                 "required": true,
                 "schema": {
-                  "format": "int32",
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
                   "type": "integer"
                 }
               }
@@ -263,7 +269,9 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
           "User": {
             "properties": {
               "id": {
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               }
             },
@@ -351,7 +359,9 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
                 "name": "page",
                 "required": false,
                 "schema": {
-                  "format": "int32",
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
                   "type": "integer"
                 }
               }
@@ -437,7 +447,9 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
                 "name": "id",
                 "required": true,
                 "schema": {
-                  "format": "int32",
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
                   "type": "integer"
                 }
               }
@@ -536,7 +548,9 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
               "name": "page",
               "required": false,
               "schema": {
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               }
             }
@@ -622,7 +636,9 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
               "name": "id",
               "required": true,
               "schema": {
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               }
             }
@@ -664,7 +680,9 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
       "User": {
         "properties": {
           "id": {
-            "format": "int32",
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
             "type": "integer"
           }
         },

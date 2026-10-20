@@ -11,13 +11,27 @@ input_file: tests/corpus/cases/struct_tuple_and_unit/case.toml
       "components": {
         "schemas": {
           "Marker": {
-            "type": "object"
+            "type": "null"
           },
           "Pair": {
-            "type": "object"
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "int32",
+                "type": "integer"
+              }
+            ],
+            "type": "array"
           },
           "UserId": {
-            "type": "object"
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
           },
           "Virtual": {
             "enum": [
@@ -36,13 +50,27 @@ input_file: tests/corpus/cases/struct_tuple_and_unit/case.toml
       "components": {
         "schemas": {
           "Marker": {
-            "type": "object"
+            "type": "null"
           },
           "Pair": {
-            "type": "object"
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "int32",
+                "type": "integer"
+              }
+            ],
+            "type": "array"
           },
           "UserId": {
-            "type": "object"
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
           },
           "Virtual": {
             "enum": [
@@ -62,7 +90,6 @@ input_file: tests/corpus/cases/struct_tuple_and_unit/case.toml
     "lints": [],
     "validation": []
   },
-  "known_bug": "Tuple and newtype structs become plain objects",
   "paths": {
     "document": {},
     "lints": []
@@ -70,13 +97,27 @@ input_file: tests/corpus/cases/struct_tuple_and_unit/case.toml
   "schemas": {
     "document": {
       "Marker": {
-        "type": "object"
+        "type": "null"
       },
       "Pair": {
-        "type": "object"
+        "items": false,
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "format": "int32",
+            "type": "integer"
+          }
+        ],
+        "type": "array"
       },
       "UserId": {
-        "type": "object"
+        "format": "int64",
+        "minimum": 0,
+        "type": "integer"
       },
       "Virtual": {
         "enum": [

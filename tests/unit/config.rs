@@ -171,3 +171,56 @@ output = ["from-cargo.yaml"]
         assert_eq!(Config::load().unwrap(), Config::default());
     }
 }
+
+mod type_mappings {
+    use super::*;
+    use crate::common::ROOT_DOC;
+    use oas_forge::Generator;
+    use serde_json::json;
+
+    #[test]
+    fn types_are_read_as_schemas() {
+        let config = Config::from_toml_str(
+            "[types]\nUserId = { type = \"string\", format = \"uuid\" }\n\"geo::Point\" = { type = \"array\", maxItems = 2 }",
+        )
+        .unwrap();
+        let types = config.types.unwrap();
+        assert_eq!(
+            types["UserId"],
+            json!({ "type": "string", "format": "uuid" })
+        );
+        assert_eq!(
+            types["geo::Point"],
+            json!({ "type": "array", "maxItems": 2 })
+        );
+    }
+
+    #[test]
+    fn layers_merge_types_by_name() {
+        let mut config =
+            Config::from_toml_str("[types]\nA = { type = \"string\" }\nB = { type = \"string\" }")
+                .unwrap();
+        config.merge(Config::from_toml_str("[types]\nB = { type = \"integer\" }").unwrap());
+        config.merge(Config::from_toml_str("input = [\"src\"]").unwrap());
+        let types = config.types.unwrap();
+        assert_eq!(types["A"], json!({ "type": "string" }));
+        assert_eq!(types["B"], json!({ "type": "integer" }));
+    }
+
+    #[test]
+    fn the_generator_uses_configured_types() {
+        let project = Project::new();
+        project
+            .file("src/root.rs", ROOT_DOC)
+            .file("src/a.rs", "/// @openapi\nstruct S { id: UserId }");
+        let mut config =
+            Config::from_toml_str("[types]\nUserId = { type = \"string\", format = \"uuid\" }")
+                .unwrap();
+        config.input = Some(vec![project.path("src")]);
+        let spec = Generator::new().with_config(config).build().unwrap();
+        assert_eq!(
+            spec.document()["components"]["schemas"]["S"]["properties"]["id"],
+            json!({ "type": "string", "format": "uuid" })
+        );
+    }
+}

@@ -11,6 +11,28 @@ info:
 components:
   schemas:
     Shape:
-      type: string
-      enum:
-      - Point
+      oneOf:
+      - type: string
+        enum:
+        - Point
+      - type: object
+        properties:
+          Circle:
+            type: object
+            properties:
+              radius:
+                type: number
+                format: double
+            required:
+            - radius
+        required:
+        - Circle
+        additionalProperties: false
+      - type: object
+        properties:
+          Square:
+            type: number
+            format: double
+        required:
+        - Square
+        additionalProperties: false

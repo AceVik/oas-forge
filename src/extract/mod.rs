@@ -5,11 +5,13 @@
 //! documents, named YAML schemas, fragments, blueprints and DSL routes.
 
 mod blocks;
+mod constants;
 mod reflect;
 
 use super::diagnostics::{Diagnostics, Location};
 use super::docs::{DocLine, doc_lines, line_of};
 use super::error::{Error, Result};
+use super::schema::TypeMapper;
 use super::source::SourceFile;
 use serde_json::Value;
 use std::path::Path;
@@ -32,6 +34,9 @@ pub enum Item {
     Blueprint(BlueprintItem),
     /// An operation written in the route DSL (`@route`).
     Route(RouteItem),
+    /// A regular expression constant (`static RE: LazyLock<Regex> = ...`),
+    /// referenced by validation attributes.
+    Pattern(PatternItem),
 }
 
 impl Item {
@@ -44,6 +49,7 @@ impl Item {
             Self::Fragment(i) => &i.location,
             Self::Blueprint(i) => &i.location,
             Self::Route(i) => &i.location,
+            Self::Pattern(i) => &i.location,
         }
     }
 }
@@ -132,25 +138,47 @@ pub struct RouteItem {
     pub location: Location,
 }
 
+/// A regular expression constant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PatternItem {
+    /// The name of the constant.
+    pub name: String,
+    /// The regular expression.
+    pub pattern: String,
+    /// Where the constant is defined.
+    pub location: Location,
+}
+
 /// Parses Rust `source` and returns its annotations in source order.
 ///
 /// # Errors
 /// [`Error::Parse`] when the file is not valid Rust.
-pub fn extract(source: &SourceFile, diagnostics: &mut Diagnostics) -> Result<Vec<Item>> {
-    extract_str(source.path(), source.text(), diagnostics)
+pub fn extract(
+    source: &SourceFile,
+    types: &TypeMapper,
+    diagnostics: &mut Diagnostics,
+) -> Result<Vec<Item>> {
+    extract_str(source.path(), source.text(), types, diagnostics)
 }
 
 /// Parses Rust source text and returns its annotations in source order.
 ///
 /// # Errors
 /// [`Error::Parse`] when the text is not valid Rust.
-pub fn extract_str(path: &Path, text: &str, diagnostics: &mut Diagnostics) -> Result<Vec<Item>> {
+pub fn extract_str(
+    path: &Path,
+    text: &str,
+    types: &TypeMapper,
+    diagnostics: &mut Diagnostics,
+) -> Result<Vec<Item>> {
     let file = syn::parse_file(text).map_err(|e| Error::Parse {
         location: Location::new(path, line_of(e.span())).with_column(e.span().start().column + 1),
         message: e.to_string(),
     })?;
     let mut visitor = Extractor {
         path,
+        types,
         items: Vec::new(),
         tags: Vec::new(),
         diagnostics,
@@ -161,6 +189,7 @@ pub fn extract_str(path: &Path, text: &str, diagnostics: &mut Diagnostics) -> Re
 
 struct Extractor<'a> {
     path: &'a Path,
+    types: &'a TypeMapper,
     items: Vec<Item>,
     tags: Vec<String>,
     diagnostics: &'a mut Diagnostics,
@@ -185,6 +214,10 @@ impl Extractor<'_> {
         } else {
             self.blocks(&lines);
         }
+    }
+
+    fn reflector(&mut self) -> reflect::Reflector<'_> {
+        reflect::Reflector::new(self.path, self.types, self.diagnostics)
     }
 
     fn blocks(&mut self, lines: &[DocLine]) {
@@ -220,20 +253,38 @@ impl<'ast> Visit<'ast> for Extractor<'_> {
     }
 
     fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {
-        let items = reflect::structure(self.path, item, self.diagnostics);
+        let items = self.reflector().structure(item);
         self.items.extend(items);
         visit::visit_item_struct(self, item);
     }
 
     fn visit_item_enum(&mut self, item: &'ast syn::ItemEnum) {
-        let items = reflect::enumeration(self.path, item, self.diagnostics);
+        let items = self.reflector().enumeration(item);
         self.items.extend(items);
         visit::visit_item_enum(self, item);
     }
 
     fn visit_item_type(&mut self, item: &'ast syn::ItemType) {
-        let schema = reflect::alias(self.path, item, self.diagnostics);
+        let schema = self.reflector().alias(item);
         self.items.push(schema);
         visit::visit_item_type(self, item);
+    }
+
+    fn visit_item_static(&mut self, item: &'ast syn::ItemStatic) {
+        self.items
+            .extend(constants::from_item(self.path, &item.ident, &item.expr));
+        visit::visit_item_static(self, item);
+    }
+
+    fn visit_item_const(&mut self, item: &'ast syn::ItemConst) {
+        self.items
+            .extend(constants::from_item(self.path, &item.ident, &item.expr));
+        visit::visit_item_const(self, item);
+    }
+
+    fn visit_item_macro(&mut self, item: &'ast syn::ItemMacro) {
+        self.items
+            .extend(constants::from_macro(self.path, &item.mac));
+        visit::visit_item_macro(self, item);
     }
 }

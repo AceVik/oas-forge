@@ -34,7 +34,7 @@ fn named_fields_become_properties_and_required_list() {
                 "count": { "type": "integer", "format": "int32" },
                 "active": { "type": "boolean" },
                 "tags": { "type": "array", "items": { "type": "string" } },
-                "meta": { "type": "string" }
+                "meta": { "type": ["string", "null"] }
             },
             "required": ["id", "count", "active", "tags"]
         })
@@ -48,9 +48,10 @@ fn all_optional_fields_omit_required_list() {
 }
 
 #[test]
-fn unit_struct_is_a_plain_object() {
-    let items = extract("/// @openapi\nstruct Marker;");
-    assert_eq!(schema(&items, "Marker"), json!({ "type": "object" }));
+fn unit_struct_is_null_like_serde_writes_it() {
+    let items = extract("/// @openapi\nstruct Marker;\n/// @openapi\nstruct Empty {}");
+    assert_eq!(schema(&items, "Marker"), json!({ "type": "null" }));
+    assert_eq!(schema(&items, "Empty"), json!({ "type": "object" }));
 }
 
 #[test]
@@ -94,13 +95,17 @@ fn well_known_types_are_resolved_not_referenced() {
     );
     let props = &schema(&items, "TimeLog")["properties"];
     assert_eq!(props["id"], json!({ "type": "string", "format": "uuid" }));
-    for field in ["created_at", "modified_at", "raw"] {
+    for field in ["created_at", "raw"] {
         assert_eq!(
             props[field],
             json!({ "type": "string", "format": "date-time" }),
             "{field}"
         );
     }
+    assert_eq!(
+        props["modified_at"],
+        json!({ "type": ["string", "null"], "format": "date-time" })
+    );
     assert_eq!(props["scores"]["items"]["format"], "double");
     assert_eq!(
         props["metadata"]["additionalProperties"],
@@ -504,4 +509,300 @@ mod root_documents {
         let items = extract("/// @openapi\n/// info: { x: 1 }\nstruct WithFields { a: String }");
         assert_eq!(kinds(&items), ["schema:WithFields"]);
     }
+}
+
+mod serde_fields {
+    use super::*;
+    use serde_json::Value;
+
+    fn properties(code: &str) -> Value {
+        schema(&extract(code), "S")["properties"].clone()
+    }
+
+    #[test]
+    fn skipped_fields_are_left_out() {
+        let properties = properties(
+            r#"
+            /// @openapi
+            struct S {
+                #[serde(skip)]
+                a: String,
+                #[serde(skip_serializing, skip_deserializing)]
+                b: String,
+                c: String,
+            }
+            "#,
+        );
+        assert_eq!(properties, json!({ "c": { "type": "string" } }));
+    }
+
+    #[test]
+    fn one_way_fields_are_read_or_write_only() {
+        let items = extract(
+            r#"
+            /// @openapi
+            struct S {
+                #[serde(skip_serializing)]
+                password: String,
+                #[serde(skip_deserializing)]
+                created_at: String,
+            }
+            "#,
+        );
+        let s = schema(&items, "S");
+        assert_eq!(
+            s["properties"]["password"],
+            json!({ "type": "string", "writeOnly": true })
+        );
+        assert_eq!(
+            s["properties"]["created_at"],
+            json!({ "type": "string", "readOnly": true })
+        );
+        assert_eq!(
+            s["required"],
+            json!(["password", "created_at"]),
+            "required per direction"
+        );
+    }
+
+    #[test]
+    fn defaults_and_conditional_fields_are_optional() {
+        let items = extract(
+            r#"
+            /// @openapi
+            struct S {
+                #[serde(default)]
+                a: u8,
+                #[serde(default = "five")]
+                b: u8,
+                #[serde(skip_serializing_if = "Vec::is_empty")]
+                c: Vec<u8>,
+                d: u8,
+            }
+            /// @openapi
+            #[serde(default)]
+            struct All { a: u8, b: String }
+            "#,
+        );
+        assert_eq!(schema(&items, "S")["required"], json!(["d"]));
+        assert!(schema(&items, "All").get("required").is_none());
+    }
+
+    #[test]
+    fn flattened_structs_become_all_of() {
+        let items = extract(
+            r#"
+            /// @openapi
+            struct S {
+                id: u64,
+                #[serde(flatten)]
+                meta: Meta,
+                #[serde(flatten)]
+                extra: Option<Extra>,
+            }
+            "#,
+        );
+        assert_eq!(
+            schema(&items, "S"),
+            json!({
+                "type": "object",
+                "properties": { "id": { "type": "integer", "format": "int64", "minimum": 0 } },
+                "required": ["id"],
+                "allOf": [{ "$ref": "$Meta" }, { "anyOf": [{ "$ref": "$Extra" }, {}] }],
+            })
+        );
+    }
+
+    #[test]
+    fn flattened_maps_are_additional_properties() {
+        let items = extract(
+            "/// @openapi\nstruct S {\n  id: u64,\n  #[serde(flatten)]\n  rest: HashMap<String, Value>,\n}",
+        );
+        let s = schema(&items, "S");
+        assert_eq!(s["additionalProperties"], json!({}));
+        assert!(s.get("allOf").is_none());
+    }
+
+    #[test]
+    fn deny_unknown_fields_closes_the_object() {
+        let items = extract(
+            r#"
+            /// @openapi
+            #[serde(deny_unknown_fields)]
+            struct Closed { a: u8 }
+            /// @openapi
+            #[serde(deny_unknown_fields)]
+            struct WithBase { a: u8, #[serde(flatten)] base: Base }
+            "#,
+        );
+        assert_eq!(schema(&items, "Closed")["additionalProperties"], false);
+        let with_base = schema(&items, "WithBase");
+        assert_eq!(with_base["unevaluatedProperties"], false);
+        assert!(with_base.get("additionalProperties").is_none());
+    }
+
+    #[test]
+    fn raw_identifiers_lose_their_prefix() {
+        let items = extract(
+            "/// @openapi\n#[serde(rename_all = \"UPPERCASE\")]\nstruct r#S { r#type: String }",
+        );
+        assert!(schema(&items, "S")["properties"].get("TYPE").is_some());
+    }
+
+    #[test]
+    fn known_with_modules_change_the_type() {
+        let properties = properties(
+            r#"
+            /// @openapi
+            struct S {
+                #[serde(with = "chrono::serde::ts_seconds")]
+                a: DateTime<Utc>,
+                #[serde(with = "chrono::serde::ts_milliseconds_option")]
+                b: Option<DateTime<Utc>>,
+                #[serde(with = "time::serde::rfc3339")]
+                c: OffsetDateTime,
+                #[serde(serialize_with = "time::serde::timestamp::serialize")]
+                d: OffsetDateTime,
+                #[serde(with = "humantime_serde")]
+                e: Duration,
+                #[serde(with = "hex")]
+                f: Vec<u8>,
+                #[serde(with = "base64_serde")]
+                g: Vec<u8>,
+                #[serde(with = "my::custom")]
+                h: u8,
+            }
+            "#,
+        );
+        assert_eq!(
+            properties["a"],
+            json!({ "type": "integer", "format": "int64" })
+        );
+        assert_eq!(
+            properties["b"],
+            json!({ "type": ["integer", "null"], "format": "int64" })
+        );
+        assert_eq!(
+            properties["c"],
+            json!({ "type": "string", "format": "date-time" })
+        );
+        assert_eq!(
+            properties["d"],
+            json!({ "type": "integer", "format": "int64" })
+        );
+        assert_eq!(properties["e"], json!({ "type": "string" }));
+        assert_eq!(properties["f"], json!({ "type": "string" }));
+        assert_eq!(
+            properties["g"],
+            json!({ "type": "string", "format": "byte" })
+        );
+        assert_eq!(
+            properties["h"]["format"], "int32",
+            "unknown modules keep the type"
+        );
+    }
+
+    #[test]
+    fn deprecated_items_and_fields_are_marked() {
+        let items = extract(
+            "/// @openapi\n#[deprecated]\nstruct S {\n  #[deprecated(note = \"x\")]\n  a: u8,\n  b: u8,\n}",
+        );
+        let s = schema(&items, "S");
+        assert_eq!(s["deprecated"], true);
+        assert_eq!(s["properties"]["a"]["deprecated"], true);
+        assert!(s["properties"]["b"].get("deprecated").is_none());
+    }
+}
+
+mod struct_shapes {
+    use super::*;
+
+    #[test]
+    fn newtype_structs_are_their_field() {
+        let items = extract(
+            "/// A user id.\n/// @openapi\nstruct UserId(pub u64);\n/// @openapi\nstruct MaybeName(#[validate(length(min = 1))] Option<String>);",
+        );
+        assert_eq!(
+            schema(&items, "UserId"),
+            json!({ "type": "integer", "format": "int64", "minimum": 0, "description": "A user id." })
+        );
+        assert_eq!(
+            schema(&items, "MaybeName"),
+            json!({ "type": ["string", "null"], "minLength": 1 })
+        );
+    }
+
+    #[test]
+    fn tuple_structs_are_fixed_arrays() {
+        let items = extract("/// @openapi\nstruct Pair(pub String, #[serde(skip)] u8, pub i32);");
+        assert_eq!(
+            schema(&items, "Pair"),
+            json!({
+                "type": "array",
+                "prefixItems": [{ "type": "string" }, { "type": "integer", "format": "int32" }],
+                "items": false, "minItems": 2, "maxItems": 2,
+            })
+        );
+    }
+
+    #[test]
+    fn transparent_structs_are_their_field() {
+        let items = extract(
+            r#"
+            /// @openapi
+            #[serde(transparent)]
+            struct Email {
+                #[validate(email)]
+                inner: String,
+            }
+            /// @openapi
+            #[serde(transparent)]
+            struct Tagged { #[serde(skip)] marker: u8, value: Vec<u8> }
+            /// @openapi
+            #[serde(transparent)]
+            struct Nothing { #[serde(skip)] a: u8 }
+            "#,
+        );
+        assert_eq!(
+            schema(&items, "Email"),
+            json!({ "type": "string", "format": "email" })
+        );
+        assert_eq!(schema(&items, "Tagged")["type"], "array");
+        assert_eq!(schema(&items, "Nothing"), json!({}));
+    }
+
+    #[test]
+    fn into_and_from_use_the_other_type() {
+        let items = extract(
+            r#"
+            /// @openapi
+            #[serde(into = "String", from = "u8")]
+            struct Code { raw: u8 }
+            /// @openapi
+            #[serde(try_from = "Vec<u8>")]
+            struct Bytes2 { a: u8 }
+            /// @openapi
+            #[serde(into = "not a type")]
+            struct Weird { a: u8 }
+            "#,
+        );
+        assert_eq!(schema(&items, "Code"), json!({ "type": "string" }));
+        assert_eq!(schema(&items, "Bytes2")["type"], "array");
+        assert_eq!(schema(&items, "Weird")["type"], "object");
+    }
+}
+
+#[test]
+fn structural_overrides_replace_a_reflected_reference() {
+    let items = extract(
+        "/// @openapi<T>\n/// type: object\n/// properties:\n///   data: { $ref: $T }\nstruct Wrapper<T>(T);\n/// @openapi\n/// description: An id\nstruct Id(Uuid);",
+    );
+    assert_eq!(
+        crate::extract::blueprint(&items, "Wrapper").schema,
+        json!({ "type": "object", "properties": { "data": { "$ref": "$T" } } })
+    );
+    assert_eq!(
+        schema(&items, "Id"),
+        json!({ "type": "string", "format": "uuid", "description": "An id" })
+    );
 }

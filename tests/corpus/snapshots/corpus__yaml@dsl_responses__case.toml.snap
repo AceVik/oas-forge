@@ -20,6 +20,7 @@ paths:
         schema:
           type: integer
           format: int64
+          minimum: 0
       responses:
         "200":
           description: Found
@@ -53,7 +54,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Item"
+                anyOf:
+                - $ref: "#/components/schemas/Item"
+                - type: "null"
         "500":
           description: Server error
           content:
@@ -68,6 +71,7 @@ components:
         id:
           type: integer
           format: int64
+          minimum: 0
       required:
       - id
     Problem:

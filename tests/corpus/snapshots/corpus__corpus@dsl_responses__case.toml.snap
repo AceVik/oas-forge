@@ -14,6 +14,7 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
             "properties": {
               "id": {
                 "format": "int64",
+                "minimum": 0,
                 "type": "integer"
               }
             },
@@ -46,6 +47,7 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
                 "required": true,
                 "schema": {
                   "format": "int64",
+                  "minimum": 0,
                   "type": "integer"
                 }
               }
@@ -99,7 +101,14 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
                 "content": {
                   "application/json": {
                     "schema": {
-                      "$ref": "#/components/schemas/Item"
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/Item"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   }
                 },
@@ -133,6 +142,7 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
             "properties": {
               "id": {
                 "format": "int64",
+                "minimum": 0,
                 "type": "integer"
               }
             },
@@ -170,6 +180,7 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
                 "required": true,
                 "schema": {
                   "format": "int64",
+                  "minimum": 0,
                   "type": "integer"
                 }
               }
@@ -223,7 +234,14 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
                 "content": {
                   "application/json": {
                     "schema": {
-                      "$ref": "#/components/schemas/Item"
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/Item"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   }
                 },
@@ -265,6 +283,7 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
               "required": true,
               "schema": {
                 "format": "int64",
+                "minimum": 0,
                 "type": "integer"
               }
             }
@@ -318,7 +337,14 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
               "content": {
                 "application/json": {
                   "schema": {
-                    "$ref": "#/components/schemas/Item"
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/Item"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               },
@@ -349,6 +375,7 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
         "properties": {
           "id": {
             "format": "int64",
+            "minimum": 0,
             "type": "integer"
           }
         },

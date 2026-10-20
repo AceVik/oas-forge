@@ -1,7 +1,9 @@
 //! Rust type expressions and their JSON Schema.
 
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::OnceLock;
 
 /// A parsed Rust type, independent of the parser library.
 ///
@@ -184,25 +186,45 @@ pub(crate) fn is_container(name: &str) -> bool {
     matches!(
         name,
         "Vec"
+            | "VecDeque"
+            | "LinkedList"
+            | "BinaryHeap"
+            | "SmallVec"
             | "Option"
             | "Box"
             | "Arc"
             | "Rc"
             | "Cow"
+            | "RefCell"
+            | "Cell"
+            | "Mutex"
+            | "RwLock"
+            | "Wrapping"
+            | "Saturating"
+            | "Reverse"
             | "HashMap"
             | "BTreeMap"
+            | "IndexMap"
             | "HashSet"
-            | "LinkedList"
+            | "BTreeSet"
+            | "IndexSet"
+            | "NonZero"
+            | "Range"
+            | "RangeInclusive"
     )
 }
 
-/// The schema of a type and whether a field of that type is required.
+/// The schema of a type and how a field of that type behaves.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct MappedType {
-    /// The JSON Schema of the type.
+    /// The JSON Schema of the type (for `Option<T>` the schema of `T`).
     pub schema: Value,
     /// `false` for `Option<T>`: the field may be missing.
     pub required: bool,
+    /// `true` for `Option<T>`: the value may be `null`. Parameters ignore it;
+    /// properties and bodies render it with [`nullable`](super::nullable).
+    pub nullable: bool,
 }
 
 impl MappedType {
@@ -210,14 +232,29 @@ impl MappedType {
         Self {
             schema,
             required: true,
+            nullable: false,
+        }
+    }
+
+    /// The schema with nullability applied (2020-12 form).
+    pub fn into_schema(self) -> Value {
+        if self.nullable {
+            super::nullable(self.schema)
+        } else {
+            self.schema
         }
     }
 }
 
-/// Maps Rust types to JSON Schema.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct TypeMapper {}
+/// Maps Rust types to JSON Schema, following the serde data model.
+///
+/// Types the table does not know become smart references
+/// (`{"$ref": "$Name"}`) that are resolved against the documented schemas.
+/// [`TypeMapper::with_type`] adds or replaces mappings.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TypeMapper {
+    custom: BTreeMap<String, Value>,
+}
 
 impl TypeMapper {
     /// A mapper with the built-in type table.
@@ -225,72 +262,268 @@ impl TypeMapper {
         Self::default()
     }
 
-    /// The schema of `ty`. Unknown named types become smart references
-    /// (`{"$ref": "$Name"}`) that are resolved later.
+    /// The shared mapper with only the built-in table.
+    pub fn builtin() -> &'static Self {
+        static BUILTIN: OnceLock<TypeMapper> = OnceLock::new();
+        BUILTIN.get_or_init(Self::new)
+    }
+
+    /// Maps the type `name` to `schema`. `name` is a type name (`UserId`) or a
+    /// path (`my_crate::UserId`); a path only matches types written with the
+    /// same path. Custom mappings take precedence over the built-in table.
+    pub fn with_type(mut self, name: impl Into<String>, schema: Value) -> Self {
+        self.custom.insert(name.into(), schema);
+        self
+    }
+
+    /// The custom mappings, by name.
+    pub fn custom_types(&self) -> impl Iterator<Item = (&String, &Value)> {
+        self.custom.iter()
+    }
+
+    /// The schema of `ty`.
     pub fn map(&self, ty: &TypeExpr) -> MappedType {
         match ty {
-            TypeExpr::Named { args, smart, .. } => {
+            TypeExpr::Named { path, args, smart } => {
+                if let Some(schema) = self.custom_schema(path) {
+                    return MappedType::required(schema);
+                }
                 let name = ty.name().unwrap_or_default();
                 if *smart && !args.is_empty() && !is_container(name) {
                     // `$Page<User>`: kept for generic instantiation.
                     return MappedType::required(json!({ "$ref": ty.to_string() }));
                 }
-                self.map_named(name, args)
+                self.map_named(path, args)
             }
-            TypeExpr::Array { elem, .. } | TypeExpr::Slice(elem) => {
-                MappedType::required(json!({ "type": "array", "items": self.map(elem).schema }))
+            TypeExpr::Array { elem, len } => {
+                let mut schema = json!({ "type": "array", "items": self.schema(elem) });
+                if let Some(len) = len {
+                    schema["minItems"] = json!(len);
+                    schema["maxItems"] = json!(len);
+                }
+                MappedType::required(schema)
+            }
+            TypeExpr::Slice(elem) => {
+                MappedType::required(json!({ "type": "array", "items": self.schema(elem) }))
             }
             TypeExpr::Reference(inner) => self.map(inner),
-            TypeExpr::Tuple(_) | TypeExpr::Other(_) => {
-                MappedType::required(json!({ "type": "object" }))
+            TypeExpr::Tuple(elems) if elems.is_empty() => {
+                MappedType::required(json!({ "type": "null" }))
             }
+            TypeExpr::Tuple(elems) => MappedType::required(self.tuple(elems)),
+            TypeExpr::Other(_) => MappedType::required(json!({})),
         }
     }
 
-    fn map_named(&self, name: &str, args: &[TypeExpr]) -> MappedType {
-        let first = args.first();
-        if matches!(name, "Box" | "Arc" | "Rc" | "Cow")
-            && let Some(inner) = first
-        {
-            return self.map(inner);
+    /// The schema of a type in a nested position (`Vec<Option<T>>` items are
+    /// nullable).
+    fn schema(&self, ty: &TypeExpr) -> Value {
+        self.map(ty).into_schema()
+    }
+
+    /// `(A, B)`: a fixed-length array.
+    fn tuple(&self, elems: &[TypeExpr]) -> Value {
+        let items: Vec<Value> = elems.iter().map(|e| self.schema(e)).collect();
+        json!({
+            "type": "array",
+            "prefixItems": items,
+            "items": false,
+            "minItems": elems.len(),
+            "maxItems": elems.len(),
+        })
+    }
+
+    fn custom_schema(&self, path: &[String]) -> Option<Value> {
+        if self.custom.is_empty() {
+            return None;
         }
+        let full = path.join("::");
+        self.custom
+            .get(&full)
+            .or_else(|| path.last().and_then(|name| self.custom.get(name)))
+            .cloned()
+    }
+
+    fn map_named(&self, path: &[String], args: &[TypeExpr]) -> MappedType {
+        let name = path.last().map(String::as_str).unwrap_or_default();
+        let qualified = |prefix: &str| path.len() > 1 && path[0] == prefix;
+        let first = args.first();
+        let element = || first.map_or_else(|| json!({}), |inner| self.schema(inner));
+        let array = |extra: Value| {
+            let mut schema = json!({ "type": "array" });
+            if let Some(inner) = first {
+                schema["items"] = self.schema(inner);
+            }
+            if let (Value::Object(schema), Value::Object(extra)) = (&mut schema, extra) {
+                schema.extend(extra);
+            }
+            schema
+        };
+        if let Some(schema) = integer(name) {
+            return MappedType::required(schema);
+        }
+
         let schema = match name {
-            "bool" => json!({ "type": "boolean" }),
-            "String" | "str" | "char" => json!({ "type": "string" }),
-            "i8" | "i16" | "i32" | "u8" | "u16" | "u32" => {
-                json!({ "type": "integer", "format": "int32" })
-            }
-            "i64" | "u64" | "isize" | "usize" => json!({ "type": "integer", "format": "int64" }),
-            "f32" => json!({ "type": "number", "format": "float" }),
-            "f64" => json!({ "type": "number", "format": "double" }),
-            "Uuid" => json!({ "type": "string", "format": "uuid" }),
-            "NaiveDate" => json!({ "type": "string", "format": "date" }),
-            "DateTime" | "NaiveDateTime" | "DateTimeUtc" => {
-                json!({ "type": "string", "format": "date-time" })
-            }
-            "NaiveTime" => json!({ "type": "string", "format": "time" }),
-            "Url" | "Uri" => json!({ "type": "string", "format": "uri" }),
-            "Decimal" | "BigDecimal" => json!({ "type": "string", "format": "decimal" }),
-            "ObjectId" => json!({ "type": "string", "format": "objectid" }),
-            "Value" => json!({}),
             "Option" => {
+                let inner = first.map(|inner| self.map(inner));
                 return MappedType {
-                    schema: first.map_or_else(|| json!({}), |inner| self.map(inner).schema),
+                    schema: inner.map_or_else(|| json!({}), MappedType::into_schema),
                     required: false,
+                    nullable: true,
                 };
             }
-            "Vec" | "LinkedList" | "HashSet" => match first {
-                Some(inner) => json!({ "type": "array", "items": self.map(inner).schema }),
-                None => json!({ "type": "array" }),
+            "Box" | "Arc" | "Rc" | "Cow" | "RefCell" | "Cell" | "Mutex" | "RwLock" | "Wrapping"
+            | "Saturating" | "Reverse" => match first {
+                Some(inner) => return self.map(inner),
+                None => json!({}),
             },
-            "HashMap" | "BTreeMap" => match args.get(1) {
-                Some(value) => {
-                    json!({ "type": "object", "additionalProperties": self.map(value).schema })
+            "bool" => json!({ "type": "boolean" }),
+            "String" | "str" => json!({ "type": "string" }),
+            "char" => json!({ "type": "string", "minLength": 1, "maxLength": 1 }),
+            "f32" => json!({ "type": "number", "format": "float" }),
+            "f64" => json!({ "type": "number", "format": "double" }),
+            "NonZero" => match first.and_then(TypeExpr::name) {
+                Some(inner) => non_zero(inner),
+                None => json!({ "type": "integer" }),
+            },
+            _ if name.starts_with("NonZero") => non_zero(&name["NonZero".len()..].to_lowercase()),
+            "Vec" | "VecDeque" | "LinkedList" | "BinaryHeap" => array(json!({})),
+            "SmallVec" => match first {
+                Some(TypeExpr::Array { elem, .. }) => {
+                    json!({ "type": "array", "items": self.schema(elem) })
                 }
-                None => json!({ "type": "object" }),
+                _ => array(json!({})),
             },
+            "HashSet" | "BTreeSet" | "IndexSet" => array(json!({ "uniqueItems": true })),
+            "HashMap" | "BTreeMap" | "IndexMap" => {
+                let mut schema = json!({ "type": "object" });
+                if let Some(value) = args.get(1) {
+                    schema["additionalProperties"] = self.schema(value);
+                }
+                if let Some(names) = first.and_then(property_names) {
+                    schema["propertyNames"] = names;
+                }
+                schema
+            }
+            "Map" if qualified("serde_json") => json!({ "type": "object" }),
+            "Value" => json!({}),
+            "Range" | "RangeInclusive" => json!({
+                "type": "object",
+                "properties": { "start": element(), "end": element() },
+                "required": ["start", "end"],
+            }),
+            "PhantomData" => json!({ "type": "null" }),
+            "Uuid" => json!({ "type": "string", "format": "uuid" }),
+            "Ulid" => json!({ "type": "string", "format": "ulid" }),
+            "Url" | "Uri" => json!({ "type": "string", "format": "uri" }),
+            "DateTime" | "NaiveDateTime" | "DateTimeUtc" | "OffsetDateTime"
+            | "PrimitiveDateTime" | "UtcDateTime" => {
+                json!({ "type": "string", "format": "date-time" })
+            }
+            "NaiveDate" => json!({ "type": "string", "format": "date" }),
+            "NaiveTime" => json!({ "type": "string", "format": "time" }),
+            "Date" if qualified("time") || qualified("jiff") => {
+                json!({ "type": "string", "format": "date" })
+            }
+            "Time" if qualified("time") || qualified("jiff") => {
+                json!({ "type": "string", "format": "time" })
+            }
+            "Timestamp" if qualified("jiff") => json!({ "type": "string", "format": "date-time" }),
+            "SignedDuration" | "Span" if qualified("jiff") => {
+                json!({ "type": "string", "format": "duration" })
+            }
+            "Duration" if qualified("time") => json!({
+                "type": "array",
+                "prefixItems": [
+                    { "type": "integer", "format": "int64" },
+                    { "type": "integer", "format": "int32" },
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2,
+            }),
+            "Duration" => json!({
+                "type": "object",
+                "properties": {
+                    "secs": { "type": "integer", "format": "int64", "minimum": 0 },
+                    "nanos": { "type": "integer", "format": "int64", "minimum": 0, "maximum": 999_999_999 },
+                },
+                "required": ["secs", "nanos"],
+            }),
+            "SystemTime" => json!({
+                "type": "object",
+                "properties": {
+                    "secs_since_epoch": { "type": "integer", "format": "int64", "minimum": 0 },
+                    "nanos_since_epoch": { "type": "integer", "format": "int64", "minimum": 0, "maximum": 999_999_999 },
+                },
+                "required": ["secs_since_epoch", "nanos_since_epoch"],
+            }),
+            "Decimal" | "BigDecimal" => json!({ "type": "string", "format": "decimal" }),
+            "ObjectId" => json!({ "type": "string", "format": "objectid" }),
+            "Bytes" | "BytesMut" => json!({
+                "type": "array",
+                "items": { "type": "integer", "format": "int32", "minimum": 0, "maximum": 255 },
+            }),
+            "IpAddr" => json!({
+                "type": "string",
+                "anyOf": [{ "format": "ipv4" }, { "format": "ipv6" }],
+            }),
+            "Ipv4Addr" => json!({ "type": "string", "format": "ipv4" }),
+            "Ipv6Addr" => json!({ "type": "string", "format": "ipv6" }),
+            "SocketAddr" | "SocketAddrV4" | "SocketAddrV6" | "PathBuf" | "Path" => {
+                json!({ "type": "string" })
+            }
             _ => json!({ "$ref": format!("${name}") }),
         };
         MappedType::required(schema)
     }
+}
+
+/// The schema of a primitive integer type.
+fn integer(name: &str) -> Option<Value> {
+    Some(match name {
+        "i8" => {
+            json!({ "type": "integer", "format": "int32", "minimum": i8::MIN, "maximum": i8::MAX })
+        }
+        "i16" => {
+            json!({ "type": "integer", "format": "int32", "minimum": i16::MIN, "maximum": i16::MAX })
+        }
+        "i32" => json!({ "type": "integer", "format": "int32" }),
+        "i64" | "isize" => json!({ "type": "integer", "format": "int64" }),
+        "i128" => json!({ "type": "integer" }),
+        "u8" => json!({ "type": "integer", "format": "int32", "minimum": 0, "maximum": u8::MAX }),
+        "u16" => json!({ "type": "integer", "format": "int32", "minimum": 0, "maximum": u16::MAX }),
+        "u32" => json!({ "type": "integer", "format": "int64", "minimum": 0, "maximum": u32::MAX }),
+        "u64" | "usize" => json!({ "type": "integer", "format": "int64", "minimum": 0 }),
+        "u128" => json!({ "type": "integer", "minimum": 0 }),
+        _ => return None,
+    })
+}
+
+/// `NonZeroU32` / `NonZero<u32>`: the integer without zero.
+fn non_zero(inner: &str) -> Value {
+    let Some(mut schema) = integer(inner) else {
+        return json!({ "type": "integer" });
+    };
+    if inner.starts_with('u') {
+        schema["minimum"] = json!(1);
+    } else {
+        schema["not"] = json!({ "enum": [0] });
+    }
+    schema
+}
+
+/// Map keys are always strings in JSON; integer and boolean keys are
+/// restricted to their textual form.
+fn property_names(key: &TypeExpr) -> Option<Value> {
+    let name = key.name()?;
+    if name == "bool" {
+        return Some(json!({ "enum": ["true", "false"] }));
+    }
+    integer(name)?;
+    Some(if name.starts_with('u') {
+        json!({ "pattern": "^[0-9]+$" })
+    } else {
+        json!({ "pattern": "^-?[0-9]+$" })
+    })
 }

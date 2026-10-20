@@ -22,54 +22,44 @@ input_file: tests/corpus/cases/struct_serde_attributes/case.toml
             "type": "object"
           },
           "Settings": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              }
+            ],
             "properties": {
               "color": {
                 "type": "string"
               },
               "created_at": {
+                "readOnly": true,
                 "type": "string"
-              },
-              "meta": {
-                "$ref": "#/components/schemas/Meta"
               },
               "note": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "password": {
-                "type": "string"
-              },
-              "r#type": {
-                "type": "string"
+                "type": "string",
+                "writeOnly": true
               },
               "retries": {
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               },
-              "secret": {
+              "type": {
                 "type": "string"
               }
             },
-            "required": [
-              "secret",
-              "password",
-              "created_at",
-              "retries",
-              "meta",
-              "color",
-              "r#type"
-            ],
-            "type": "object"
+            "type": "object",
+            "unevaluatedProperties": false
           },
           "Wrapper": {
-            "properties": {
-              "inner": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "inner"
-            ],
-            "type": "object"
+            "type": "string"
           }
         }
       }
@@ -92,54 +82,44 @@ input_file: tests/corpus/cases/struct_serde_attributes/case.toml
             "type": "object"
           },
           "Settings": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              }
+            ],
             "properties": {
               "color": {
                 "type": "string"
               },
               "created_at": {
+                "readOnly": true,
                 "type": "string"
-              },
-              "meta": {
-                "$ref": "#/components/schemas/Meta"
               },
               "note": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "password": {
-                "type": "string"
-              },
-              "r#type": {
-                "type": "string"
+                "type": "string",
+                "writeOnly": true
               },
               "retries": {
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               },
-              "secret": {
+              "type": {
                 "type": "string"
               }
             },
-            "required": [
-              "secret",
-              "password",
-              "created_at",
-              "retries",
-              "meta",
-              "color",
-              "r#type"
-            ],
-            "type": "object"
+            "type": "object",
+            "unevaluatedProperties": false
           },
           "Wrapper": {
-            "properties": {
-              "inner": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "inner"
-            ],
-            "type": "object"
+            "type": "string"
           }
         }
       },
@@ -152,7 +132,6 @@ input_file: tests/corpus/cases/struct_serde_attributes/case.toml
     "lints": [],
     "validation": []
   },
-  "known_bug": "skip, flatten, default, deny_unknown_fields, transparent and raw identifiers are ignored",
   "paths": {
     "document": {},
     "lints": []
@@ -171,54 +150,44 @@ input_file: tests/corpus/cases/struct_serde_attributes/case.toml
         "type": "object"
       },
       "Settings": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Meta"
+          }
+        ],
         "properties": {
           "color": {
             "type": "string"
           },
           "created_at": {
+            "readOnly": true,
             "type": "string"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
           },
           "note": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "password": {
-            "type": "string"
-          },
-          "r#type": {
-            "type": "string"
+            "type": "string",
+            "writeOnly": true
           },
           "retries": {
-            "format": "int32",
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
             "type": "integer"
           },
-          "secret": {
+          "type": {
             "type": "string"
           }
         },
-        "required": [
-          "secret",
-          "password",
-          "created_at",
-          "retries",
-          "meta",
-          "color",
-          "r#type"
-        ],
-        "type": "object"
+        "type": "object",
+        "unevaluatedProperties": false
       },
       "Wrapper": {
-        "properties": {
-          "inner": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "inner"
-        ],
-        "type": "object"
+        "type": "string"
       }
     },
     "lints": []

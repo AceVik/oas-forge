@@ -16,6 +16,7 @@ use oas_forge::generator::generate_from_sources;
 use oas_forge::merge::{Policy, merge};
 use oas_forge::output::Format;
 use oas_forge::schema::types::{TypeExpr, TypeMapper};
+use oas_forge::schema::{dialect, nullable};
 use oas_forge::source::{SourceFile, SourceKind};
 use oas_forge::template::generics::{GenericRef, Instantiator};
 use oas_forge::template::lexical::{self, Variables};
@@ -197,8 +198,12 @@ proptest! {
 
     #[test]
     fn references_without_known_schemas_are_kept(value in json_value()) {
+        // Only `{"$ref": "$<built-in type>"}` objects are rewritten.
+        prop_assume!(!value.to_string().contains("\"$ref\""));
         let mut copy = value.clone();
-        refs::resolve(&mut copy, &KnownSchemas::default(), &Registry::new(), &here(), &mut Diagnostics::new());
+        let (known, registry) = (KnownSchemas::default(), Registry::new());
+        let targets = refs::Targets { known: &known, registry: &registry, types: TypeMapper::builtin() };
+        refs::resolve(&mut copy, targets, &here(), &mut Diagnostics::new());
         prop_assert_eq!(copy, value);
     }
 
@@ -227,13 +232,7 @@ proptest! {
         let mut all = vec!["@route GET /x".to_string()];
         all.extend(lines);
         let compiled = dsl::compile(
-            RouteSource {
-                lines: &all,
-                line_numbers: &[],
-                operation_id: None,
-                default_tags: &[],
-                location: &here(),
-            },
+            RouteSource::new(&all, &here()),
             &mut Diagnostics::new(),
         );
         if let Some(compiled) = compiled {
@@ -263,7 +262,7 @@ proptest! {
         };
         let text = quote::ToTokens::to_token_stream(&file).to_string();
         let mut diagnostics = Diagnostics::new();
-        extract_str(Path::new("prop.rs"), &text, &mut diagnostics).expect("generated Rust is valid");
+        extract_str(Path::new("prop.rs"), &text, TypeMapper::builtin(), &mut diagnostics).expect("generated Rust is valid");
     }
 
     #[test]
@@ -322,26 +321,58 @@ proptest! {
     }
 
     #[test]
+    fn nullable_is_idempotent_and_accepts_null(value in json_value()) {
+        let once = nullable(value.clone());
+        prop_assert_eq!(nullable(once.clone()), once.clone());
+        if value.is_object() && value != json!({}) {
+            let text = once.to_string();
+            prop_assert!(text.contains("null"), "{}", text);
+        }
+    }
+
+    #[test]
+    fn lowering_to_openapi_30_never_panics(value in json_value()) {
+        let mut document = json!({
+            "openapi": "3.0.3",
+            "components": { "schemas": { "A": nullable(value.clone()), "B": value } },
+            "paths": { "/x": { "get": { "responses": { "200": { "content": { "a/b": { "schema": { "type": ["string", "null"] } } } } } } } },
+        });
+        dialect::lower(&mut document, dialect::Dialect::OpenApi30, &mut Diagnostics::new());
+        let lowered = &document["paths"]["/x"]["get"]["responses"]["200"]["content"]["a/b"]["schema"];
+        prop_assert_eq!(lowered, &json!({ "type": "string", "nullable": true }));
+    }
+
+    #[test]
     fn lowering_casing_rules_are_idempotent(ident in "[A-Za-z][A-Za-z0-9_]{0,12}") {
-        // SCREAMING_* rules are not: like serde, they split every capital again.
         for rule in [RenameRule::Lower, RenameRule::Upper, RenameRule::Snake, RenameRule::Kebab] {
-            let once = rule.apply(&ident);
-            prop_assert_eq!(rule.apply(&once), once.clone(), "{}", rule);
+            let once = rule.apply_to_field(&ident);
+            prop_assert_eq!(rule.apply_to_field(&once), once.clone(), "{}", rule);
+            let once = rule.apply_to_variant(&ident);
+            prop_assert_eq!(rule.apply_to_variant(&once), once.clone(), "{}", rule);
         }
     }
 
     #[test]
     fn screaming_rules_contain_no_lowercase(ident in "[A-Za-z][A-Za-z0-9_]{0,12}") {
-        for rule in [RenameRule::ScreamingSnake, RenameRule::ScreamingKebab] {
-            let out = rule.apply(&ident);
-            prop_assert!(!out.chars().any(char::is_lowercase), "{} -> {}", rule, out);
+        for rule in [RenameRule::ScreamingSnake, RenameRule::ScreamingKebab, RenameRule::Upper] {
+            for out in [rule.apply_to_field(&ident), rule.apply_to_variant(&ident)] {
+                prop_assert!(!out.chars().any(char::is_lowercase), "{} -> {}", rule, out);
+            }
         }
     }
 
     #[test]
-    fn camel_and_pascal_case_drop_underscores(ident in "[a-z][a-z0-9_]{0,12}") {
+    fn camel_and_pascal_case_drop_underscores_of_fields(ident in "[a-z][a-z0-9_]{0,12}") {
         for rule in [RenameRule::Camel, RenameRule::Pascal] {
-            prop_assert!(!rule.apply(&ident).contains('_'), "{}", rule);
+            prop_assert!(!rule.apply_to_field(&ident).contains('_'), "{}", rule);
+        }
+    }
+
+    #[test]
+    fn renaming_never_panics(ident in any::<String>()) {
+        for (_, rule) in RenameRule::ALL {
+            let _ = rule.apply_to_field(&ident);
+            let _ = rule.apply_to_variant(&ident);
         }
     }
 }

@@ -56,7 +56,9 @@ components:
       properties:
         total:
           type: integer
-          format: int32
+          format: int64
+          minimum: 0
+          maximum: 4294967295
           example: 100
         data:
           type: array
@@ -71,7 +73,9 @@ components:
       properties:
         total:
           type: integer
-          format: int32
+          format: int64
+          minimum: 0
+          maximum: 4294967295
           example: 100
         data:
           type: array
@@ -86,7 +90,9 @@ components:
       properties:
         total:
           type: integer
-          format: int32
+          format: int64
+          minimum: 0
+          maximum: 4294967295
           example: 100
         data:
           type: array

@@ -37,7 +37,8 @@ input_file: tests/corpus/cases/struct_overrides/case.toml
               "count": {
                 "description": "Amount of items.",
                 "example": 42,
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
                 "minimum": 1,
                 "type": "integer"
               }
@@ -84,7 +85,8 @@ input_file: tests/corpus/cases/struct_overrides/case.toml
               "count": {
                 "description": "Amount of items.",
                 "example": 42,
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
                 "minimum": 1,
                 "type": "integer"
               }
@@ -139,7 +141,8 @@ input_file: tests/corpus/cases/struct_overrides/case.toml
           "count": {
             "description": "Amount of items.",
             "example": 42,
-            "format": "int32",
+            "format": "int64",
+            "maximum": 4294967295,
             "minimum": 1,
             "type": "integer"
           }

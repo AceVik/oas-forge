@@ -7,6 +7,8 @@
 
 use crate::error::{Error, Result};
 use serde::Deserialize;
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Settings of a generator run.
@@ -30,6 +32,14 @@ pub struct Config {
     pub output_paths: Option<Vec<PathBuf>>,
     /// Files receiving the headless specification (no root) for other crates.
     pub output_fragments: Option<Vec<PathBuf>>,
+    /// Schemas for Rust types, by type name or path, as with
+    /// [`Generator::map_type`](crate::Generator::map_type):
+    ///
+    /// ```toml
+    /// [types]
+    /// UserId = { type = "string", format = "uuid" }
+    /// ```
+    pub types: Option<BTreeMap<String, Value>>,
 }
 
 /// The `Cargo.toml` subset that carries `[package.metadata.oas-forge]`.
@@ -102,7 +112,7 @@ impl Config {
     }
 
     /// Overlays `other` on `self`: every field that is set in `other`
-    /// replaces the value in `self`.
+    /// replaces the value in `self`; `types` are merged by name.
     pub fn merge(&mut self, other: Config) {
         let Config {
             input,
@@ -111,7 +121,11 @@ impl Config {
             output_schemas,
             output_paths,
             output_fragments,
+            types,
         } = other;
+        if let Some(types) = types {
+            self.types.get_or_insert_with(BTreeMap::new).extend(types);
+        }
         overlay(&mut self.input, input);
         overlay(&mut self.include, include);
         overlay(&mut self.output, output);

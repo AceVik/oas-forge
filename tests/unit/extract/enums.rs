@@ -35,35 +35,12 @@ mod string_enums {
     }
 
     #[test]
-    fn non_unit_variants_are_skipped() {
+    fn empty_enums_are_only_emitted_with_overrides() {
+        assert!(extract("/// @openapi\nenum Never {}").is_empty());
+        assert!(extract("/// @openapi\nenum Hidden { #[serde(skip)] A }").is_empty());
+        let items = extract("/// @openapi\n/// format: custom\nenum Never {}");
         assert_eq!(
-            variants("/// @openapi\nenum E { A, B(u32), C { x: i32 } }", "E"),
-            json!(["A"])
-        );
-    }
-
-    #[test]
-    fn enum_without_unit_variants_or_overrides_is_not_emitted() {
-        let items = extract(
-            r#"
-            /// @openapi-type Event
-            enum Event { Join(u32), Message { text: String } }
-            "#,
-        );
-        assert!(items.is_empty());
-    }
-
-    #[test]
-    fn overrides_alone_emit_the_enum() {
-        let items = extract(
-            r#"
-            /// @openapi
-            /// format: custom
-            enum Event { Join(u32) }
-            "#,
-        );
-        assert_eq!(
-            schema(&items, "Event"),
+            schema(&items, "Never"),
             json!({ "type": "string", "format": "custom" })
         );
     }
@@ -223,7 +200,7 @@ mod internally_tagged {
                         "description": "Discriminator: starr_remote"
                     },
                     "url": { "type": "string" },
-                    "secret": { "type": "string" }
+                    "secret": { "type": ["string", "null"] }
                 },
                 "required": ["type", "url"]
             })
@@ -482,5 +459,257 @@ mod tagged_field_renaming {
             schema(&extract(code), "EventUserCreated")["properties"]["t"]["enum"],
             json!(["user_created"])
         );
+    }
+}
+
+mod external_data_variants {
+    use super::*;
+
+    #[test]
+    fn data_variants_are_single_key_objects() {
+        // Regression: data variants of externally tagged enums were dropped.
+        let items = extract(
+            r#"
+            /// @openapi
+            #[serde(rename_all = "snake_case")]
+            enum Shape {
+                /// A circle.
+                Circle { radius: f64 },
+                Square(f64),
+                Pair(u8, u8),
+                Point,
+                Origin,
+            }
+            "#,
+        );
+        assert_eq!(
+            schema(&items, "Shape"),
+            json!({ "oneOf": [
+                { "type": "string", "enum": ["point", "origin"] },
+                {
+                    "type": "object",
+                    "properties": { "circle": {
+                        "type": "object",
+                        "properties": { "radius": { "type": "number", "format": "double" } },
+                        "required": ["radius"],
+                    } },
+                    "required": ["circle"],
+                    "additionalProperties": false,
+                    "description": "A circle.",
+                },
+                {
+                    "type": "object",
+                    "properties": { "square": { "type": "number", "format": "double" } },
+                    "required": ["square"],
+                    "additionalProperties": false,
+                },
+                {
+                    "type": "object",
+                    "properties": { "pair": {
+                        "type": "array",
+                        "prefixItems": [
+                            { "type": "integer", "format": "int32", "minimum": 0, "maximum": 255 },
+                            { "type": "integer", "format": "int32", "minimum": 0, "maximum": 255 },
+                        ],
+                        "items": false, "minItems": 2, "maxItems": 2,
+                    } },
+                    "required": ["pair"],
+                    "additionalProperties": false,
+                },
+            ] })
+        );
+    }
+
+    #[test]
+    fn data_only_enums_have_no_string_alternative() {
+        let items = extract("/// @openapi\nenum Event { Join(u32), Leave { id: u8 } }");
+        assert_eq!(
+            schema(&items, "Event")["oneOf"].as_array().unwrap().len(),
+            2
+        );
+    }
+
+    #[test]
+    fn variant_attributes() {
+        let items = extract(
+            r#"
+            /// @openapi
+            enum E {
+                #[serde(skip)]
+                Hidden,
+                #[serde(skip_serializing)]
+                InputOnly,
+                #[serde(other)]
+                Unknown,
+                #[serde(rename = "renamed")]
+                Original(u8),
+                #[deprecated]
+                Old { a: u8 },
+            }
+            "#,
+        );
+        let alternatives = schema(&items, "E")["oneOf"].clone();
+        assert_eq!(
+            alternatives[0],
+            json!({ "type": "string", "enum": ["InputOnly", "Unknown"] })
+        );
+        assert!(alternatives[1]["properties"].get("renamed").is_some());
+        assert_eq!(alternatives[2]["deprecated"], true);
+    }
+
+    #[test]
+    fn untagged_variants_join_as_alternatives() {
+        let items = extract(
+            r#"
+            /// @openapi
+            enum Value {
+                Named { name: String },
+                #[serde(untagged)]
+                Raw(String),
+            }
+            "#,
+        );
+        assert_eq!(
+            schema(&items, "Value")["anyOf"][1],
+            json!({ "type": "string" })
+        );
+    }
+}
+
+mod untagged {
+    use super::*;
+
+    #[test]
+    fn variants_are_alternatives_of_their_content() {
+        // Regression: untagged enums produced an empty string enum.
+        let items = extract(
+            r#"
+            /// Either form.
+            /// @openapi
+            #[serde(untagged)]
+            enum IdOrName {
+                /// Numeric id.
+                Id(u64),
+                Name(String),
+                Pair(u8, String),
+                Full { first: String, last: Option<String> },
+                Nothing,
+            }
+            "#,
+        );
+        let s = schema(&items, "IdOrName");
+        assert_eq!(s["description"], "Either form.");
+        let alternatives = s["anyOf"].as_array().unwrap();
+        assert_eq!(
+            alternatives[0],
+            json!({ "type": "integer", "format": "int64", "minimum": 0, "description": "Numeric id." })
+        );
+        assert_eq!(alternatives[1], json!({ "type": "string" }));
+        assert_eq!(alternatives[2]["prefixItems"].as_array().unwrap().len(), 2);
+        assert_eq!(alternatives[3]["required"], json!(["first"]));
+        assert_eq!(alternatives[4], json!({ "type": "null" }));
+    }
+}
+
+mod tagged_newtypes {
+    use super::*;
+    use crate::common::{codes, extract_with_diagnostics};
+    use oas_forge::diagnostics::Code;
+
+    #[test]
+    fn internally_tagged_newtypes_of_structs_extend_the_tag_object() {
+        // Regression: newtype variants lost the fields of their inner struct.
+        let items = extract(
+            r#"
+            /// @openapi
+            #[serde(tag = "type")]
+            enum Storage { Custom(CustomStorage), Map(HashMap<String, String>) }
+            "#,
+        );
+        assert_eq!(
+            schema(&items, "StorageCustom")["allOf"],
+            json!([{ "$ref": "$CustomStorage" }])
+        );
+        assert_eq!(schema(&items, "StorageMap")["allOf"][0]["type"], "object");
+    }
+
+    #[test]
+    fn internally_tagged_primitives_and_tuples_are_reported() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            "/// @openapi\n#[serde(tag = \"t\")]\nenum E {\n    A(u8),\n    B(u8, u8),\n}",
+        );
+        assert_eq!(schema(&items, "EA")["required"], json!(["t"]));
+        assert_eq!(
+            codes(&diagnostics),
+            [Code::UnsupportedVariant, Code::UnsupportedVariant]
+        );
+        assert_eq!(
+            diagnostics
+                .iter()
+                .next()
+                .unwrap()
+                .location()
+                .unwrap()
+                .line(),
+            4
+        );
+    }
+
+    #[test]
+    fn adjacently_tagged_tuples_are_arrays() {
+        let items = extract(
+            "/// @openapi\n#[serde(tag = \"t\", content = \"c\")]\nenum E { Pair(u8, String), Wrapped(Option<u8>) }",
+        );
+        assert_eq!(schema(&items, "EPair")["properties"]["c"]["minItems"], 2);
+        assert_eq!(
+            schema(&items, "EWrapped")["properties"]["c"],
+            json!({ "type": ["integer", "null"], "format": "int32", "minimum": 0, "maximum": 255 })
+        );
+    }
+
+    #[test]
+    fn untagged_variants_drop_the_discriminator() {
+        let items = extract(
+            r#"
+            /// @openapi
+            #[serde(tag = "kind")]
+            enum E {
+                A { x: u8 },
+                #[serde(untagged)]
+                Other(String),
+            }
+            "#,
+        );
+        let s = schema(&items, "E");
+        assert!(s.get("discriminator").is_none() && s.get("type").is_none());
+        assert_eq!(
+            s["anyOf"],
+            json!([{ "$ref": "#/components/schemas/EA" }, { "type": "string" }])
+        );
+    }
+
+    #[test]
+    fn struct_variants_keep_flatten_and_closed_objects() {
+        let items = extract(
+            r#"
+            /// @openapi
+            #[serde(tag = "kind")]
+            enum E {
+                #[serde(deny_unknown_fields)]
+                A { x: u8, #[serde(flatten)] base: Base },
+            }
+            "#,
+        );
+        assert_eq!(
+            schema(&items, "EA")["allOf"],
+            json!([{ "allOf": [{ "$ref": "$Base" }] }, { "unevaluatedProperties": false }])
+        );
+    }
+
+    #[test]
+    fn conversions_replace_the_enum() {
+        let items =
+            extract("/// @openapi\n#[serde(into = \"String\")]\nenum Level { Low, High(u8) }");
+        assert_eq!(schema(&items, "Level"), json!({ "type": "string" }));
     }
 }

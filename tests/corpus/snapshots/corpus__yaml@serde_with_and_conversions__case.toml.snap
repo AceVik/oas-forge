@@ -1,0 +1,48 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/serde_with_and_conversions/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Point:
+      type: array
+      prefixItems:
+      - type: number
+        format: double
+      - type: number
+        format: double
+      items: false
+      minItems: 2
+      maxItems: 2
+    Session:
+      type: object
+      properties:
+        startedAt:
+          type: integer
+          format: int64
+        endedAt:
+          type:
+          - string
+          - "null"
+          format: date-time
+        timeout:
+          type: string
+        ref:
+          type: string
+      required:
+      - startedAt
+      - timeout
+      - ref
+      additionalProperties: {}
+    Token:
+      type: string
+      minLength: 32
+      maxLength: 32
+    Version:
+      type: string

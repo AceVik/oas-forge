@@ -136,8 +136,12 @@ codes! {
     BlockSeparator = "OF1003", Note;
     /// Two items produce the same schema name.
     DuplicateSchema = "OF1004", Warning;
-    /// A tuple variant with more than one field in a tagged enum.
+    /// A variant whose shape serde cannot represent in the enum's tagging mode.
     UnsupportedVariant = "OF1005", Warning;
+    /// A validation attribute whose value is not a literal (e.g. a constant).
+    NonLiteralConstraint = "OF1006", Warning;
+    /// A `regex(path = ..)` / `pattern(..)` constant that is not defined in the scanned code.
+    UnresolvedPattern = "OF1007", Warning;
 
     /// A route is missing its method or path.
     InvalidRoute = "OF2001", Error;
@@ -177,6 +181,8 @@ codes! {
     /// Two operations share an operationId.
     DuplicateOperationId = "OF5002", Warning;
 
+    /// A construct has no equivalent in the target version and was approximated.
+    LossyLowering = "OF6001", Note;
 }
 
 impl fmt::Display for Code {

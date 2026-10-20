@@ -49,6 +49,11 @@ input_file: tests/corpus/cases/enum_internally_tagged/case.toml
             "type": "object"
           },
           "StorageCustom": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CustomStorage"
+              }
+            ],
             "properties": {
               "type": {
                 "description": "Discriminator: custom",
@@ -104,7 +109,10 @@ input_file: tests/corpus/cases/enum_internally_tagged/case.toml
                 "type": "string"
               },
               "region": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "type": {
                 "description": "Discriminator: s3",
@@ -168,6 +176,11 @@ input_file: tests/corpus/cases/enum_internally_tagged/case.toml
             "type": "object"
           },
           "StorageCustom": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CustomStorage"
+              }
+            ],
             "properties": {
               "type": {
                 "description": "Discriminator: custom",
@@ -223,7 +236,10 @@ input_file: tests/corpus/cases/enum_internally_tagged/case.toml
                 "type": "string"
               },
               "region": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "type": {
                 "description": "Discriminator: s3",
@@ -250,7 +266,6 @@ input_file: tests/corpus/cases/enum_internally_tagged/case.toml
     "lints": [],
     "validation": []
   },
-  "known_bug": "Newtype variants lose the fields of their inner struct",
   "paths": {
     "document": {},
     "lints": []
@@ -296,6 +311,11 @@ input_file: tests/corpus/cases/enum_internally_tagged/case.toml
         "type": "object"
       },
       "StorageCustom": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CustomStorage"
+          }
+        ],
         "properties": {
           "type": {
             "description": "Discriminator: custom",
@@ -351,7 +371,10 @@ input_file: tests/corpus/cases/enum_internally_tagged/case.toml
             "type": "string"
           },
           "region": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "type": {
             "description": "Discriminator: s3",

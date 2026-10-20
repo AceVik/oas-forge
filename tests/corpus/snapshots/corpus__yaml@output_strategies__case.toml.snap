@@ -32,6 +32,7 @@ components:
         total:
           type: integer
           format: int64
+          minimum: 0
         items:
           type: array
           items:

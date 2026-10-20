@@ -54,61 +54,71 @@ impl RenameRule {
             .unwrap_or_default()
     }
 
-    /// Applies the rule to a name.
-    ///
-    /// The conversion accepts both field-style (`snake_case`) and
-    /// variant-style (`PascalCase`) input.
-    pub fn apply(self, name: &str) -> String {
+    /// Applies the rule to an enum variant name (`PascalCase` in Rust), exactly
+    /// like serde does.
+    pub fn apply_to_variant(self, variant: &str) -> String {
         match self {
-            Self::Lower => name.to_lowercase(),
-            Self::Upper => name.to_uppercase(),
-            Self::Pascal => {
-                if name.contains('_') {
-                    name.split('_').map(capitalize).collect()
-                } else {
-                    capitalize(name)
-                }
-            }
-            Self::Camel => {
-                if name.contains('_') {
-                    let mut parts = name.split('_');
-                    let first = parts.next().unwrap_or_default().to_lowercase();
-                    first + &parts.map(capitalize).collect::<String>()
-                } else {
-                    let mut chars = name.chars();
-                    match chars.next() {
-                        Some(f) => f.to_lowercase().chain(chars).collect(),
-                        None => String::new(),
-                    }
-                }
-            }
+            Self::Pascal => variant.to_owned(),
+            Self::Lower => variant.to_ascii_lowercase(),
+            Self::Upper => variant.to_ascii_uppercase(),
+            Self::Camel => lower_first(variant),
             Self::Snake => {
-                let mut out = String::with_capacity(name.len() + 4);
-                for (i, c) in name.chars().enumerate() {
-                    if c.is_uppercase() && i > 0 {
-                        out.push('_');
+                let mut snake = String::with_capacity(variant.len() + 4);
+                for (i, ch) in variant.char_indices() {
+                    if i > 0 && ch.is_uppercase() {
+                        snake.push('_');
                     }
-                    out.extend(c.to_lowercase());
+                    snake.push(ch.to_ascii_lowercase());
                 }
-                out
+                snake
             }
-            Self::ScreamingSnake => Self::Snake.apply(name).to_uppercase(),
-            Self::Kebab => Self::Snake.apply(name).replace('_', "-"),
-            Self::ScreamingKebab => Self::Kebab.apply(name).to_uppercase(),
+            Self::ScreamingSnake => Self::Snake.apply_to_variant(variant).to_ascii_uppercase(),
+            Self::Kebab => Self::Snake.apply_to_variant(variant).replace('_', "-"),
+            Self::ScreamingKebab => Self::ScreamingSnake
+                .apply_to_variant(variant)
+                .replace('_', "-"),
         }
+    }
+
+    /// Applies the rule to a struct field name (`snake_case` in Rust), exactly
+    /// like serde does.
+    pub fn apply_to_field(self, field: &str) -> String {
+        match self {
+            Self::Lower | Self::Snake => field.to_owned(),
+            Self::Upper | Self::ScreamingSnake => field.to_ascii_uppercase(),
+            Self::Pascal => {
+                let mut pascal = String::with_capacity(field.len());
+                let mut capitalize = true;
+                for ch in field.chars() {
+                    if ch == '_' {
+                        capitalize = true;
+                    } else if capitalize {
+                        pascal.push(ch.to_ascii_uppercase());
+                        capitalize = false;
+                    } else {
+                        pascal.push(ch);
+                    }
+                }
+                pascal
+            }
+            Self::Camel => lower_first(&Self::Pascal.apply_to_field(field)),
+            Self::Kebab => field.replace('_', "-"),
+            Self::ScreamingKebab => field.to_ascii_uppercase().replace('_', "-"),
+        }
+    }
+}
+
+/// The text with its first character in ASCII lowercase.
+fn lower_first(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_ascii_lowercase().to_string() + chars.as_str(),
+        None => String::new(),
     }
 }
 
 impl fmt::Display for RenameRule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-fn capitalize(part: &str) -> String {
-    let mut chars = part.chars();
-    match chars.next() {
-        Some(f) => f.to_uppercase().chain(chars).collect(),
-        None => String::new(),
     }
 }

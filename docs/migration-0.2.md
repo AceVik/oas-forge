@@ -79,6 +79,54 @@ That still works unchanged. Everything else moved:
 - Unknown directives (`@frobnicate`) are reported (`OF2006`) instead of being
   ignored silently.
 
+### Schemas follow serde
+Reflected schemas now describe exactly what serde writes (ADR 0002). The
+changes in every corpus snapshot come from the first three entries.
+
+- **`Option<T>` is nullable** (`struct_basic`, `readme_schemas`, …). Besides
+  being optional it accepts `null`: `type: [string, "null"]`, or
+  `anyOf: [{$ref}, {type: "null"}]` for references. For an `openapi: 3.0.x`
+  root this is written as `nullable: true` (`root_openapi_30`).
+  Query, header and path parameters only become optional.
+- **Integer ranges** (`type_mapping`). Unsigned types have `minimum: 0`;
+  `u32` is `int64` (its values do not fit `int32`); `i8`, `i16`, `u8`, `u16`
+  and `u32` carry their `minimum`/`maximum`; `i128`/`u128` have no format.
+  *Action:* clients generated from the spec may use wider integer types.
+- **Data-carrying enum variants are documented** (`enum_externally_tagged`,
+  `enum_untagged`). Externally tagged enums with data become `oneOf` of a
+  string enum and single-key objects, untagged enums `anyOf` of the variant
+  shapes; 0.1 dropped data variants. Internally tagged newtype variants carry
+  the fields of their struct via `allOf` (`enum_internally_tagged`).
+- **Struct shapes** (`struct_tuple_and_unit`): newtype structs are their
+  field's schema, tuple structs and tuples fixed-length arrays (`prefixItems`),
+  unit structs and `()` are `null`. A unit struct whose `@openapi` block
+  defines a schema keeps working as a virtual type.
+- **serde attributes** (`struct_serde_attributes`,
+  `serde_with_and_conversions`, `serde_enums_mixed`): `skip`, `default`,
+  `skip_serializing_if`, `skip_serializing` (`writeOnly`),
+  `skip_deserializing` (`readOnly`), `flatten` (`allOf`, maps become
+  `additionalProperties`), `deny_unknown_fields`, `transparent`,
+  `into`/`from`/`try_from`, known `with` modules, `rename(serialize = ..)`,
+  per-variant `untagged`, `rename_all_fields`, raw identifiers (`r#type` is
+  `type`) and attributes behind `cfg_attr`.
+- **Casing matches serde exactly.** Field and variant names use serde's two
+  rules (`rename_all = "snake_case"` leaves a field called `lastName`
+  unchanged, like serde).
+- **More types** (`type_mapping`): sets have `uniqueItems`, `[T; N]` has
+  `minItems`/`maxItems`, `char` is one character, maps with integer keys
+  restrict `propertyNames`, and `VecDeque`, `BTreeSet`, `IndexMap`,
+  `NonZero*`, `IpAddr`, `Duration`, `SystemTime`, `PathBuf`, `Bytes` and
+  the `jiff`/`time` types are mapped. `time` types assume
+  `time::serde::rfc3339` (time's default serde format is an array).
+  *Action:* map other formats with `Generator::map_type` or `[types]` in
+  `openapi.toml`.
+- **Validation** (`struct_validation`, `garde_validation`): `validator`
+  `length` is applied by type (`minItems` on `Vec`, `minProperties` on maps),
+  `range` accepts negative, float and exclusive bounds, `equal`, `contains`,
+  `does_not_contain`, `ip`, `required` and `regex(path = ..)` are supported;
+  `garde` is supported, including its length modes. Constraints whose value
+  is a constant are reported (`OF1006`) instead of silently dropped.
+
 ### Templates and references
 - **`@extend`: local values win** (`fragment_extend`). Values written next to
   `@extend` override the fragment, like inheritance. 0.1 let the fragment win.
@@ -90,6 +138,8 @@ That still works unchanged. Everything else moved:
 - **Unquoted placeholders stay strings** (`readme_root_variables`,
   `version_placeholder`). `version: {{CARGO_PKG_VERSION}}` is quoted before
   parsing, so a version such as `1.10` is no longer turned into the number 1.1.
+- `{"$ref": "$String"}` and other built-in type names (from blueprints such
+  as `$Page<String>`) become the type's schema instead of a dangling reference.
 - Missing fragment arguments (`fragment_insert`), unknown blueprints
   (`blueprint_generics`) and invalid `@openapi` overrides are reported
   (`OF3003`, `OF3004`, `OF1001`); the output is unchanged.

@@ -1,0 +1,1 @@
+description = "OpenAPI 3.0 root: nullable, tuples, exclusive bounds and unit types are lowered to 3.0 schemas"

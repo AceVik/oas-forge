@@ -1,9 +1,12 @@
 //! Smart references: whole string scalars `$Name` that name a known schema
-//! become `#/components/schemas/<name>` (ADR 0001).
+//! become `#/components/schemas/<name>` (ADR 0001). A `{"$ref": "$Name"}`
+//! that names a built-in type (`$String`, `$Uuid`, e.g. from a blueprint
+//! instantiated with `$Page<String>`) becomes that type's schema.
 
 use super::lexical::ESCAPED_DOLLAR;
 use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
+use crate::schema::{TypeExpr, TypeMapper};
 use serde_json::Value;
 use std::collections::{BTreeSet, HashSet};
 
@@ -43,26 +46,50 @@ fn reference_name(text: &str) -> Option<&str> {
         .then_some(name)
 }
 
+/// What smart references may resolve to.
+#[derive(Debug, Clone, Copy)]
+pub struct Targets<'a> {
+    /// The documented schema names.
+    pub known: &'a KnownSchemas,
+    /// Aliases from Rust names to schema names.
+    pub registry: &'a Registry,
+    /// The type table for built-in types.
+    pub types: &'a TypeMapper,
+}
+
 /// Resolves smart references in `value`; unknown names are reported once.
 pub fn resolve(
     value: &mut Value,
-    known: &KnownSchemas,
-    registry: &Registry,
+    targets: Targets<'_>,
     location: &Location,
     diagnostics: &mut Diagnostics,
 ) {
     let mut reported = HashSet::new();
-    resolve_at(value, known, registry, location, diagnostics, &mut reported);
+    resolve_at(value, targets, location, diagnostics, &mut reported);
+}
+
+/// The schema of a built-in type named by `{"$ref": "$Name"}`.
+fn builtin(name: &str, targets: Targets<'_>) -> Option<serde_json::Map<String, Value>> {
+    if targets.known.contains(name) || targets.registry.alias(name).is_some() {
+        return None;
+    }
+    let schema = targets.types.map(&TypeExpr::parse(name)?).into_schema();
+    match schema {
+        Value::Object(map) if !map.contains_key("$ref") => Some(map),
+        _ => None,
+    }
 }
 
 fn resolve_at(
     value: &mut Value,
-    known: &KnownSchemas,
-    registry: &Registry,
+    targets: Targets<'_>,
     location: &Location,
     diagnostics: &mut Diagnostics,
     reported: &mut HashSet<String>,
 ) {
+    let Targets {
+        known, registry, ..
+    } = targets;
     match value {
         Value::String(s) => {
             let Some(name) = reference_name(s) else {
@@ -93,12 +120,23 @@ fn resolve_at(
         }
         Value::Array(items) => {
             for item in items {
-                resolve_at(item, known, registry, location, diagnostics, reported);
+                resolve_at(item, targets, location, diagnostics, reported);
             }
         }
         Value::Object(map) => {
+            let schema = map
+                .get("$ref")
+                .and_then(Value::as_str)
+                .and_then(reference_name)
+                .and_then(|name| builtin(name, targets));
+            if let Some(schema) = schema {
+                map.remove("$ref");
+                for (key, value) in schema {
+                    map.entry(key).or_insert(value);
+                }
+            }
             for child in map.values_mut() {
-                resolve_at(child, known, registry, location, diagnostics, reported);
+                resolve_at(child, targets, location, diagnostics, reported);
             }
         }
         _ => {}

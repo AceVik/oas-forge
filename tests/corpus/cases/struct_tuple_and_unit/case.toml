@@ -1,2 +1,1 @@
 description = "Structs: tuple, newtype and unit structs (incl. virtual types via overrides)"
-known_bug = "Tuple and newtype structs become plain objects"

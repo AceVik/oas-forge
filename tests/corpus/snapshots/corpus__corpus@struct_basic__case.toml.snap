@@ -39,15 +39,26 @@ input_file: tests/corpus/cases/struct_basic/case.toml
                 "$ref": "#/components/schemas/Address"
               },
               "email": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "id": {
                 "description": "Unique identifier",
                 "format": "int64",
+                "minimum": 0,
                 "type": "integer"
               },
               "manager": {
-                "$ref": "#/components/schemas/User"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/User"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "name": {
                 "type": "string"
@@ -112,15 +123,26 @@ input_file: tests/corpus/cases/struct_basic/case.toml
                 "$ref": "#/components/schemas/Address"
               },
               "email": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "id": {
                 "description": "Unique identifier",
                 "format": "int64",
+                "minimum": 0,
                 "type": "integer"
               },
               "manager": {
-                "$ref": "#/components/schemas/User"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/User"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "name": {
                 "type": "string"
@@ -193,15 +215,26 @@ input_file: tests/corpus/cases/struct_basic/case.toml
             "$ref": "#/components/schemas/Address"
           },
           "email": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "id": {
             "description": "Unique identifier",
             "format": "int64",
+            "minimum": 0,
             "type": "integer"
           },
           "manager": {
-            "$ref": "#/components/schemas/User"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/User"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "name": {
             "type": "string"

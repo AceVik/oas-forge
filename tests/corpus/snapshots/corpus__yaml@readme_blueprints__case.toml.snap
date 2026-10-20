@@ -28,19 +28,22 @@ components:
       properties:
         total_count:
           type: integer
-          format: int32
+          format: int64
+          minimum: 0
+          maximum: 4294967295
           example: 100
         page:
           type: integer
-          format: int32
-          example: 1
+          format: int64
           minimum: 1
+          maximum: 4294967295
+          example: 1
         limit:
           type: integer
-          format: int32
-          example: 10
+          format: int64
           minimum: 1
           maximum: 1000
+          example: 10
         data:
           type: array
           items:
@@ -56,6 +59,8 @@ components:
       properties:
         id:
           type: integer
-          format: int32
+          format: int64
+          minimum: 0
+          maximum: 4294967295
       required:
       - id

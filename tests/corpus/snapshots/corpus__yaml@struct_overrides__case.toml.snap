@@ -26,9 +26,10 @@ components:
           example: abc
         count:
           type: integer
-          format: int32
-          description: Amount of items.
+          format: int64
           minimum: 1
+          maximum: 4294967295
+          description: Amount of items.
           example: 42
         broken:
           type: string

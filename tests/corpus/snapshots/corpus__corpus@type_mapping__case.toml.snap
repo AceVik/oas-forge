@@ -5,19 +5,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
 ---
 {
   "description": "Type mapping table: primitives, std and ecosystem types",
-  "diagnostics": [
-    "warning[OF3007]: `$i128` does not name a known schema (<case>/src/lib.rs:7)",
-    "warning[OF3007]: `$u128` does not name a known schema (<case>/src/lib.rs:7)",
-    "warning[OF3007]: `$OffsetDateTime` does not name a known schema (<case>/src/lib.rs:7)",
-    "warning[OF3007]: `$BTreeSet` does not name a known schema (<case>/src/lib.rs:7)",
-    "warning[OF3007]: `$VecDeque` does not name a known schema (<case>/src/lib.rs:7)",
-    "warning[OF3007]: `$IndexMap` does not name a known schema (<case>/src/lib.rs:7)",
-    "warning[OF3007]: `$NonZeroU32` does not name a known schema (<case>/src/lib.rs:7)",
-    "warning[OF3007]: `$IpAddr` does not name a known schema (<case>/src/lib.rs:7)",
-    "warning[OF3007]: `$Ipv4Addr` does not name a known schema (<case>/src/lib.rs:7)",
-    "warning[OF3007]: `$Duration` does not name a known schema (<case>/src/lib.rs:7)",
-    "warning[OF3007]: `$PathBuf` does not name a known schema (<case>/src/lib.rs:7)"
-  ],
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -30,8 +18,12 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               "array": {
                 "items": {
                   "format": "int32",
+                  "maximum": 255,
+                  "minimum": 0,
                   "type": "integer"
                 },
+                "maxItems": 4,
+                "minItems": 4,
                 "type": "array"
               },
               "b": {
@@ -51,16 +43,24 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "object"
               },
               "btree_set": {
-                "$ref": "$BTreeSet"
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
               },
               "bytes": {
                 "items": {
                   "format": "int32",
+                  "maximum": 255,
+                  "minimum": 0,
                   "type": "integer"
                 },
                 "type": "array"
               },
               "c": {
+                "maxLength": 1,
+                "minLength": 1,
                 "type": "string"
               },
               "cow": {
@@ -79,10 +79,30 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "string"
               },
               "deque": {
-                "$ref": "$VecDeque"
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
               },
               "duration": {
-                "$ref": "$Duration"
+                "properties": {
+                  "nanos": {
+                    "format": "int64",
+                    "maximum": 999999999,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "secs": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "secs",
+                  "nanos"
+                ],
+                "type": "object"
               },
               "f32_": {
                 "format": "float",
@@ -103,13 +123,16 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "items": {
                   "type": "string"
                 },
-                "type": "array"
+                "type": "array",
+                "uniqueItems": true
               },
               "i128_": {
-                "$ref": "$i128"
+                "type": "integer"
               },
               "i16_": {
                 "format": "int32",
+                "maximum": 32767,
+                "minimum": -32768,
                 "type": "integer"
               },
               "i32_": {
@@ -122,16 +145,30 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               },
               "i8_": {
                 "format": "int32",
+                "maximum": 127,
+                "minimum": -128,
                 "type": "integer"
               },
               "index_map": {
-                "$ref": "$IndexMap"
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
               },
               "ip": {
-                "$ref": "$IpAddr"
+                "anyOf": [
+                  {
+                    "format": "ipv4"
+                  },
+                  {
+                    "format": "ipv6"
+                  }
+                ],
+                "type": "string"
               },
               "ipv4": {
-                "$ref": "$Ipv4Addr"
+                "format": "ipv4",
+                "type": "string"
               },
               "isize_": {
                 "format": "int64",
@@ -149,23 +186,30 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "string"
               },
               "non_zero": {
-                "$ref": "$NonZeroU32"
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 1,
+                "type": "integer"
               },
               "object_id": {
                 "format": "objectid",
                 "type": "string"
               },
               "offset_datetime": {
-                "$ref": "$OffsetDateTime"
+                "format": "date-time",
+                "type": "string"
               },
               "optional_vec": {
                 "items": {
                   "type": "string"
                 },
-                "type": "array"
+                "type": [
+                  "array",
+                  "null"
+                ]
               },
               "path": {
-                "$ref": "$PathBuf"
+                "type": "string"
               },
               "rc": {
                 "type": "string"
@@ -176,6 +220,8 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               "slice": {
                 "items": {
                   "format": "int32",
+                  "maximum": 65535,
+                  "minimum": 0,
                   "type": "integer"
                 },
                 "type": "array"
@@ -188,29 +234,49 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "string"
               },
               "tuple": {
-                "type": "object"
+                "items": false,
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "format": "int32",
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
               },
               "u128_": {
-                "$ref": "$u128"
+                "minimum": 0,
+                "type": "integer"
               },
               "u16_": {
                 "format": "int32",
+                "maximum": 65535,
+                "minimum": 0,
                 "type": "integer"
               },
               "u32_": {
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               },
               "u64_": {
                 "format": "int64",
+                "minimum": 0,
                 "type": "integer"
               },
               "u8_": {
                 "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
                 "type": "integer"
               },
               "unit": {
-                "type": "object"
+                "type": "null"
               },
               "url": {
                 "format": "uri",
@@ -218,6 +284,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               },
               "usize_": {
                 "format": "int64",
+                "minimum": 0,
                 "type": "integer"
               },
               "uuid": {
@@ -234,7 +301,10 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               "vec_of_optional": {
                 "items": {
                   "format": "int32",
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "type": "array"
               }
@@ -298,19 +368,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
         }
       }
     },
-    "lints": [
-      "/components/schemas/AllTypes/properties/btree_set/$ref: unresolved $ref `$BTreeSet`",
-      "/components/schemas/AllTypes/properties/deque/$ref: unresolved $ref `$VecDeque`",
-      "/components/schemas/AllTypes/properties/duration/$ref: unresolved $ref `$Duration`",
-      "/components/schemas/AllTypes/properties/i128_/$ref: unresolved $ref `$i128`",
-      "/components/schemas/AllTypes/properties/index_map/$ref: unresolved $ref `$IndexMap`",
-      "/components/schemas/AllTypes/properties/ip/$ref: unresolved $ref `$IpAddr`",
-      "/components/schemas/AllTypes/properties/ipv4/$ref: unresolved $ref `$Ipv4Addr`",
-      "/components/schemas/AllTypes/properties/non_zero/$ref: unresolved $ref `$NonZeroU32`",
-      "/components/schemas/AllTypes/properties/offset_datetime/$ref: unresolved $ref `$OffsetDateTime`",
-      "/components/schemas/AllTypes/properties/path/$ref: unresolved $ref `$PathBuf`",
-      "/components/schemas/AllTypes/properties/u128_/$ref: unresolved $ref `$u128`"
-    ]
+    "lints": []
   },
   "full": {
     "document": {
@@ -324,8 +382,12 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               "array": {
                 "items": {
                   "format": "int32",
+                  "maximum": 255,
+                  "minimum": 0,
                   "type": "integer"
                 },
+                "maxItems": 4,
+                "minItems": 4,
                 "type": "array"
               },
               "b": {
@@ -345,16 +407,24 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "object"
               },
               "btree_set": {
-                "$ref": "$BTreeSet"
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
               },
               "bytes": {
                 "items": {
                   "format": "int32",
+                  "maximum": 255,
+                  "minimum": 0,
                   "type": "integer"
                 },
                 "type": "array"
               },
               "c": {
+                "maxLength": 1,
+                "minLength": 1,
                 "type": "string"
               },
               "cow": {
@@ -373,10 +443,30 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "string"
               },
               "deque": {
-                "$ref": "$VecDeque"
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
               },
               "duration": {
-                "$ref": "$Duration"
+                "properties": {
+                  "nanos": {
+                    "format": "int64",
+                    "maximum": 999999999,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "secs": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "secs",
+                  "nanos"
+                ],
+                "type": "object"
               },
               "f32_": {
                 "format": "float",
@@ -397,13 +487,16 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "items": {
                   "type": "string"
                 },
-                "type": "array"
+                "type": "array",
+                "uniqueItems": true
               },
               "i128_": {
-                "$ref": "$i128"
+                "type": "integer"
               },
               "i16_": {
                 "format": "int32",
+                "maximum": 32767,
+                "minimum": -32768,
                 "type": "integer"
               },
               "i32_": {
@@ -416,16 +509,30 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               },
               "i8_": {
                 "format": "int32",
+                "maximum": 127,
+                "minimum": -128,
                 "type": "integer"
               },
               "index_map": {
-                "$ref": "$IndexMap"
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
               },
               "ip": {
-                "$ref": "$IpAddr"
+                "anyOf": [
+                  {
+                    "format": "ipv4"
+                  },
+                  {
+                    "format": "ipv6"
+                  }
+                ],
+                "type": "string"
               },
               "ipv4": {
-                "$ref": "$Ipv4Addr"
+                "format": "ipv4",
+                "type": "string"
               },
               "isize_": {
                 "format": "int64",
@@ -443,23 +550,30 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "string"
               },
               "non_zero": {
-                "$ref": "$NonZeroU32"
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 1,
+                "type": "integer"
               },
               "object_id": {
                 "format": "objectid",
                 "type": "string"
               },
               "offset_datetime": {
-                "$ref": "$OffsetDateTime"
+                "format": "date-time",
+                "type": "string"
               },
               "optional_vec": {
                 "items": {
                   "type": "string"
                 },
-                "type": "array"
+                "type": [
+                  "array",
+                  "null"
+                ]
               },
               "path": {
-                "$ref": "$PathBuf"
+                "type": "string"
               },
               "rc": {
                 "type": "string"
@@ -470,6 +584,8 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               "slice": {
                 "items": {
                   "format": "int32",
+                  "maximum": 65535,
+                  "minimum": 0,
                   "type": "integer"
                 },
                 "type": "array"
@@ -482,29 +598,49 @@ input_file: tests/corpus/cases/type_mapping/case.toml
                 "type": "string"
               },
               "tuple": {
-                "type": "object"
+                "items": false,
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "format": "int32",
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
               },
               "u128_": {
-                "$ref": "$u128"
+                "minimum": 0,
+                "type": "integer"
               },
               "u16_": {
                 "format": "int32",
+                "maximum": 65535,
+                "minimum": 0,
                 "type": "integer"
               },
               "u32_": {
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               },
               "u64_": {
                 "format": "int64",
+                "minimum": 0,
                 "type": "integer"
               },
               "u8_": {
                 "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
                 "type": "integer"
               },
               "unit": {
-                "type": "object"
+                "type": "null"
               },
               "url": {
                 "format": "uri",
@@ -512,6 +648,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               },
               "usize_": {
                 "format": "int64",
+                "minimum": 0,
                 "type": "integer"
               },
               "uuid": {
@@ -528,7 +665,10 @@ input_file: tests/corpus/cases/type_mapping/case.toml
               "vec_of_optional": {
                 "items": {
                   "format": "int32",
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "type": "array"
               }
@@ -597,22 +737,9 @@ input_file: tests/corpus/cases/type_mapping/case.toml
       },
       "openapi": "3.1.0"
     },
-    "lints": [
-      "/components/schemas/AllTypes/properties/btree_set/$ref: unresolved $ref `$BTreeSet`",
-      "/components/schemas/AllTypes/properties/deque/$ref: unresolved $ref `$VecDeque`",
-      "/components/schemas/AllTypes/properties/duration/$ref: unresolved $ref `$Duration`",
-      "/components/schemas/AllTypes/properties/i128_/$ref: unresolved $ref `$i128`",
-      "/components/schemas/AllTypes/properties/index_map/$ref: unresolved $ref `$IndexMap`",
-      "/components/schemas/AllTypes/properties/ip/$ref: unresolved $ref `$IpAddr`",
-      "/components/schemas/AllTypes/properties/ipv4/$ref: unresolved $ref `$Ipv4Addr`",
-      "/components/schemas/AllTypes/properties/non_zero/$ref: unresolved $ref `$NonZeroU32`",
-      "/components/schemas/AllTypes/properties/offset_datetime/$ref: unresolved $ref `$OffsetDateTime`",
-      "/components/schemas/AllTypes/properties/path/$ref: unresolved $ref `$PathBuf`",
-      "/components/schemas/AllTypes/properties/u128_/$ref: unresolved $ref `$u128`"
-    ],
+    "lints": [],
     "validation": []
   },
-  "known_bug": "Many std/ecosystem types become dangling refs; u32 is int32; no minimum on unsigned types; tuples become objects",
   "paths": {
     "document": {},
     "lints": []
@@ -627,8 +754,12 @@ input_file: tests/corpus/cases/type_mapping/case.toml
           "array": {
             "items": {
               "format": "int32",
+              "maximum": 255,
+              "minimum": 0,
               "type": "integer"
             },
+            "maxItems": 4,
+            "minItems": 4,
             "type": "array"
           },
           "b": {
@@ -648,16 +779,24 @@ input_file: tests/corpus/cases/type_mapping/case.toml
             "type": "object"
           },
           "btree_set": {
-            "$ref": "$BTreeSet"
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
           },
           "bytes": {
             "items": {
               "format": "int32",
+              "maximum": 255,
+              "minimum": 0,
               "type": "integer"
             },
             "type": "array"
           },
           "c": {
+            "maxLength": 1,
+            "minLength": 1,
             "type": "string"
           },
           "cow": {
@@ -676,10 +815,30 @@ input_file: tests/corpus/cases/type_mapping/case.toml
             "type": "string"
           },
           "deque": {
-            "$ref": "$VecDeque"
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "duration": {
-            "$ref": "$Duration"
+            "properties": {
+              "nanos": {
+                "format": "int64",
+                "maximum": 999999999,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "secs": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "secs",
+              "nanos"
+            ],
+            "type": "object"
           },
           "f32_": {
             "format": "float",
@@ -700,13 +859,16 @@ input_file: tests/corpus/cases/type_mapping/case.toml
             "items": {
               "type": "string"
             },
-            "type": "array"
+            "type": "array",
+            "uniqueItems": true
           },
           "i128_": {
-            "$ref": "$i128"
+            "type": "integer"
           },
           "i16_": {
             "format": "int32",
+            "maximum": 32767,
+            "minimum": -32768,
             "type": "integer"
           },
           "i32_": {
@@ -719,16 +881,30 @@ input_file: tests/corpus/cases/type_mapping/case.toml
           },
           "i8_": {
             "format": "int32",
+            "maximum": 127,
+            "minimum": -128,
             "type": "integer"
           },
           "index_map": {
-            "$ref": "$IndexMap"
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "ip": {
-            "$ref": "$IpAddr"
+            "anyOf": [
+              {
+                "format": "ipv4"
+              },
+              {
+                "format": "ipv6"
+              }
+            ],
+            "type": "string"
           },
           "ipv4": {
-            "$ref": "$Ipv4Addr"
+            "format": "ipv4",
+            "type": "string"
           },
           "isize_": {
             "format": "int64",
@@ -746,23 +922,30 @@ input_file: tests/corpus/cases/type_mapping/case.toml
             "type": "string"
           },
           "non_zero": {
-            "$ref": "$NonZeroU32"
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 1,
+            "type": "integer"
           },
           "object_id": {
             "format": "objectid",
             "type": "string"
           },
           "offset_datetime": {
-            "$ref": "$OffsetDateTime"
+            "format": "date-time",
+            "type": "string"
           },
           "optional_vec": {
             "items": {
               "type": "string"
             },
-            "type": "array"
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "path": {
-            "$ref": "$PathBuf"
+            "type": "string"
           },
           "rc": {
             "type": "string"
@@ -773,6 +956,8 @@ input_file: tests/corpus/cases/type_mapping/case.toml
           "slice": {
             "items": {
               "format": "int32",
+              "maximum": 65535,
+              "minimum": 0,
               "type": "integer"
             },
             "type": "array"
@@ -785,29 +970,49 @@ input_file: tests/corpus/cases/type_mapping/case.toml
             "type": "string"
           },
           "tuple": {
-            "type": "object"
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "format": "int32",
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
           },
           "u128_": {
-            "$ref": "$u128"
+            "minimum": 0,
+            "type": "integer"
           },
           "u16_": {
             "format": "int32",
+            "maximum": 65535,
+            "minimum": 0,
             "type": "integer"
           },
           "u32_": {
-            "format": "int32",
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
             "type": "integer"
           },
           "u64_": {
             "format": "int64",
+            "minimum": 0,
             "type": "integer"
           },
           "u8_": {
             "format": "int32",
+            "maximum": 255,
+            "minimum": 0,
             "type": "integer"
           },
           "unit": {
-            "type": "object"
+            "type": "null"
           },
           "url": {
             "format": "uri",
@@ -815,6 +1020,7 @@ input_file: tests/corpus/cases/type_mapping/case.toml
           },
           "usize_": {
             "format": "int64",
+            "minimum": 0,
             "type": "integer"
           },
           "uuid": {
@@ -831,7 +1037,10 @@ input_file: tests/corpus/cases/type_mapping/case.toml
           "vec_of_optional": {
             "items": {
               "format": "int32",
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "type": "array"
           }
@@ -893,18 +1102,6 @@ input_file: tests/corpus/cases/type_mapping/case.toml
         "type": "object"
       }
     },
-    "lints": [
-      "/AllTypes/properties/btree_set/$ref: unresolved $ref `$BTreeSet`",
-      "/AllTypes/properties/deque/$ref: unresolved $ref `$VecDeque`",
-      "/AllTypes/properties/duration/$ref: unresolved $ref `$Duration`",
-      "/AllTypes/properties/i128_/$ref: unresolved $ref `$i128`",
-      "/AllTypes/properties/index_map/$ref: unresolved $ref `$IndexMap`",
-      "/AllTypes/properties/ip/$ref: unresolved $ref `$IpAddr`",
-      "/AllTypes/properties/ipv4/$ref: unresolved $ref `$Ipv4Addr`",
-      "/AllTypes/properties/non_zero/$ref: unresolved $ref `$NonZeroU32`",
-      "/AllTypes/properties/offset_datetime/$ref: unresolved $ref `$OffsetDateTime`",
-      "/AllTypes/properties/path/$ref: unresolved $ref `$PathBuf`",
-      "/AllTypes/properties/u128_/$ref: unresolved $ref `$u128`"
-    ]
+    "lints": []
   }
 }

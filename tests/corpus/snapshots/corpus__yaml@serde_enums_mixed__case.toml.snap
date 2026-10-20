@@ -1,0 +1,146 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/serde_enums_mixed/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Circle:
+      type: object
+      properties:
+        radius:
+          type: number
+          format: double
+      required:
+      - radius
+    Command:
+      anyOf:
+      - type: string
+        enum:
+        - Start
+        - Stop
+      - type: object
+        properties:
+          Configure:
+            type: object
+            properties:
+              max_items:
+                type: integer
+                format: int64
+                minimum: 0
+                maximum: 4294967295
+            required:
+            - max_items
+        required:
+        - Configure
+        additionalProperties: false
+      - type: string
+    Event:
+      type: object
+      oneOf:
+      - $ref: "#/components/schemas/EventUserCreated"
+      - $ref: "#/components/schemas/EventMoved"
+      - $ref: "#/components/schemas/EventPing"
+      discriminator:
+        propertyName: kind
+        mapping:
+          user-created: "#/components/schemas/EventUserCreated"
+          moved: "#/components/schemas/EventMoved"
+          ping: "#/components/schemas/EventPing"
+      description: A change event.
+    EventMoved:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - moved
+          description: "Discriminator: moved"
+        payload:
+          type: array
+          prefixItems:
+          - type: number
+            format: double
+          - type: number
+            format: double
+          items: false
+          minItems: 2
+          maxItems: 2
+      required:
+      - kind
+      - payload
+    EventPing:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - ping
+          description: "Discriminator: ping"
+      required:
+      - kind
+    EventUserCreated:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - user-created
+          description: "Discriminator: user-created"
+        payload:
+          type: object
+          properties:
+            userId:
+              type: integer
+              format: int64
+              minimum: 0
+            displayName:
+              type: string
+          required:
+          - userId
+          - displayName
+      required:
+      - kind
+      - payload
+      description: Created.
+    Shape:
+      type: object
+      oneOf:
+      - $ref: "#/components/schemas/ShapeCircle"
+      - $ref: "#/components/schemas/ShapeSquare"
+      discriminator:
+        propertyName: type
+        mapping:
+          Circle: "#/components/schemas/ShapeCircle"
+          sq: "#/components/schemas/ShapeSquare"
+    ShapeCircle:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - Circle
+          description: "Discriminator: Circle"
+      required:
+      - type
+      allOf:
+      - $ref: "#/components/schemas/Circle"
+    ShapeSquare:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - sq
+          description: "Discriminator: sq"
+        side:
+          type: number
+          format: double
+      required:
+      - type
+      - side

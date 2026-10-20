@@ -47,7 +47,9 @@ input_file: tests/corpus/cases/unicode_docs/case.toml
                 "name": "id",
                 "required": true,
                 "schema": {
-                  "format": "int32",
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
                   "type": "integer"
                 }
               }
@@ -118,7 +120,9 @@ input_file: tests/corpus/cases/unicode_docs/case.toml
                 "name": "id",
                 "required": true,
                 "schema": {
-                  "format": "int32",
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
                   "type": "integer"
                 }
               }
@@ -156,7 +160,9 @@ input_file: tests/corpus/cases/unicode_docs/case.toml
               "name": "id",
               "required": true,
               "schema": {
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               }
             }

@@ -1,8 +1,9 @@
 use crate::common::{codes, here};
 use oas_forge::diagnostics::{Code, Diagnostics};
+use oas_forge::schema::TypeMapper;
 use oas_forge::template::Registry;
 use oas_forge::template::lexical::ESCAPED_DOLLAR;
-use oas_forge::template::refs::{KnownSchemas, resolve, unescape};
+use oas_forge::template::refs::{KnownSchemas, Targets, resolve, unescape};
 use serde_json::{Value, json};
 
 fn known(names: &[&str]) -> KnownSchemas {
@@ -16,7 +17,12 @@ fn known(names: &[&str]) -> KnownSchemas {
 fn run(value: Value, known: &KnownSchemas, registry: &Registry) -> (Value, Diagnostics) {
     let mut value = value;
     let mut diagnostics = Diagnostics::new();
-    resolve(&mut value, known, registry, &here(), &mut diagnostics);
+    let targets = Targets {
+        known,
+        registry,
+        types: TypeMapper::builtin(),
+    };
+    resolve(&mut value, targets, &here(), &mut diagnostics);
     (value, diagnostics)
 }
 
@@ -116,4 +122,46 @@ fn unescape_restores_protected_dollars_in_values_and_keys() {
     let mut plain = json!({ "a": "x" });
     unescape(&mut plain);
     assert_eq!(plain, json!({ "a": "x" }));
+}
+
+#[test]
+fn references_to_built_in_types_become_their_schema() {
+    // `$Page<String>` instantiates `{"$ref": "$T"}` as `{"$ref": "$String"}`.
+    let (value, diagnostics) = run(
+        json!({
+            "a": { "$ref": "$String", "description": "d", "type": "kept" },
+            "b": { "$ref": "$u8" },
+            "c": { "$ref": "$Uuid" },
+            "d": { "$ref": "$Vec" },
+            "e": { "$ref": "$Unknown" },
+        }),
+        &known(&[]),
+        &Registry::new(),
+    );
+    assert_eq!(
+        value,
+        json!({
+            "a": { "description": "d", "type": "kept" },
+            "b": { "type": "integer", "format": "int32", "minimum": 0, "maximum": 255 },
+            "c": { "type": "string", "format": "uuid" },
+            "d": { "type": "array" },
+            "e": { "$ref": "$Unknown" },
+        })
+    );
+    assert_eq!(codes(&diagnostics), [Code::UnresolvedReference]);
+}
+
+#[test]
+fn documented_schemas_shadow_built_in_types() {
+    let mut registry = Registry::new();
+    registry.add_alias("Url", "Link");
+    let (value, _) = run(
+        json!([{ "$ref": "$String" }, { "$ref": "$Url" }]),
+        &known(&["String", "Link"]),
+        &registry,
+    );
+    assert_eq!(
+        value,
+        json!([{ "$ref": "#/components/schemas/String" }, { "$ref": "#/components/schemas/Link" }])
+    );
 }

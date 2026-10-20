@@ -8,3 +8,11 @@ openapi: "3.1.0"
 info:
   title: Corpus
   version: "1.0.0"
+components:
+  schemas:
+    IdOrName:
+      anyOf:
+      - type: integer
+        format: int64
+        minimum: 0
+      - type: string

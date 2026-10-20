@@ -31,6 +31,7 @@ input_file: tests/corpus/cases/dsl_request_body/case.toml
               },
               "total": {
                 "format": "int64",
+                "minimum": 0,
                 "type": "integer"
               }
             },
@@ -55,7 +56,7 @@ input_file: tests/corpus/cases/dsl_request_body/case.toml
         "x-oas-forge-format": 1,
         "x-oas-forge-templates": {
           "Page": {
-            "body": "type: object\nproperties:\n  total:\n    type: integer\n    format: int64\n  items:\n    type: array\n    items:\n      $ref: $T\nrequired:\n- total\n",
+            "body": "type: object\nproperties:\n  total:\n    type: integer\n    format: int64\n    minimum: 0\n  items:\n    type: array\n    items:\n      $ref: $T\nrequired:\n- total\n",
             "params": [
               "T"
             ]
@@ -167,6 +168,7 @@ input_file: tests/corpus/cases/dsl_request_body/case.toml
                 "required": true,
                 "schema": {
                   "format": "int64",
+                  "minimum": 0,
                   "type": "integer"
                 }
               }
@@ -224,6 +226,7 @@ input_file: tests/corpus/cases/dsl_request_body/case.toml
               },
               "total": {
                 "format": "int64",
+                "minimum": 0,
                 "type": "integer"
               }
             },
@@ -356,6 +359,7 @@ input_file: tests/corpus/cases/dsl_request_body/case.toml
                 "required": true,
                 "schema": {
                   "format": "int64",
+                  "minimum": 0,
                   "type": "integer"
                 }
               }
@@ -495,6 +499,7 @@ input_file: tests/corpus/cases/dsl_request_body/case.toml
               "required": true,
               "schema": {
                 "format": "int64",
+                "minimum": 0,
                 "type": "integer"
               }
             }
@@ -549,6 +554,7 @@ input_file: tests/corpus/cases/dsl_request_body/case.toml
           },
           "total": {
             "format": "int64",
+            "minimum": 0,
             "type": "integer"
           }
         },

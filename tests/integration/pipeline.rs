@@ -120,8 +120,8 @@ fn reflected_models_are_registered() {
             "type": "object",
             "description": "Error payload",
             "properties": {
-                "errorCode": { "type": "integer", "format": "int32" },
-                "message": { "type": "string" }
+                "errorCode": { "type": "integer", "format": "int32", "minimum": 0, "maximum": 65535 },
+                "message": { "type": ["string", "null"] }
             },
             "required": ["errorCode"]
         })
@@ -186,8 +186,10 @@ fn output_contains_no_nulls_or_unresolved_markers() {
     generate(&project);
     let text = project.read("openapi.yaml");
 
+    // `"null"` is a type name (`Option<String>`); a leaked value is unquoted.
     for marker in [
-        "null",
+        ": null",
+        "- null",
         "@insert",
         "@extend",
         "x-openapi-extend",

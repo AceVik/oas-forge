@@ -1,2 +1,1 @@
 description = "Type mapping table: primitives, std and ecosystem types"
-known_bug = "Many std/ecosystem types become dangling refs; u32 is int32; no minimum on unsigned types; tuples become objects"

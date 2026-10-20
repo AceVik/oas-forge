@@ -26,13 +26,16 @@ paths:
         schema:
           type: integer
           format: int64
+          minimum: 0
         description: User id
       - name: limit
         in: query
         required: false
         schema:
           type: integer
-          format: int32
+          format: int64
+          minimum: 0
+          maximum: 4294967295
         description: Page size
       - name: sort
         in: query

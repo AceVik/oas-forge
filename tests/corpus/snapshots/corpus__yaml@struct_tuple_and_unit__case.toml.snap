@@ -11,11 +11,20 @@ info:
 components:
   schemas:
     Marker:
-      type: object
+      type: "null"
     Pair:
-      type: object
+      type: array
+      prefixItems:
+      - type: string
+      - type: integer
+        format: int32
+      items: false
+      minItems: 2
+      maxItems: 2
     UserId:
-      type: object
+      type: integer
+      format: int64
+      minimum: 0
     Virtual:
       type: string
       enum:

@@ -11,7 +11,8 @@ input_file: tests/corpus/cases/type_aliases/case.toml
       "components": {
         "schemas": {
           "Count": {
-            "format": "int32",
+            "format": "int64",
+            "maximum": 4294967295,
             "minimum": 0,
             "type": "integer"
           },
@@ -53,7 +54,8 @@ input_file: tests/corpus/cases/type_aliases/case.toml
       "components": {
         "schemas": {
           "Count": {
-            "format": "int32",
+            "format": "int64",
+            "maximum": 4294967295,
             "minimum": 0,
             "type": "integer"
           },
@@ -103,7 +105,8 @@ input_file: tests/corpus/cases/type_aliases/case.toml
   "schemas": {
     "document": {
       "Count": {
-        "format": "int32",
+        "format": "int64",
+        "maximum": 4294967295,
         "minimum": 0,
         "type": "integer"
       },

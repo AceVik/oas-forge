@@ -1,2 +1,1 @@
 description = "Enums: serde untagged"
-known_bug = "Untagged enums produce an empty string enum"

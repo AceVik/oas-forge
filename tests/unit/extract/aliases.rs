@@ -78,7 +78,16 @@ fn invalid_override_is_reported_and_ignored() {
         extract_with_diagnostics("/// @openapi\n/// format: [unclosed\ntype Id = u64;");
     assert_eq!(
         schema(&items, "Id"),
-        json!({ "type": "integer", "format": "int64" })
+        json!({ "type": "integer", "format": "int64", "minimum": 0 })
     );
     assert_eq!(codes(&diagnostics), [Code::InvalidOverride]);
+}
+
+#[test]
+fn optional_aliases_are_nullable() {
+    let items = extract("type MaybeName = Option<String>;");
+    assert_eq!(
+        schema(&items, "MaybeName"),
+        json!({ "type": ["string", "null"] })
+    );
 }

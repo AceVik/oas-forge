@@ -1,2 +1,1 @@
 description = "Structs: validator attributes"
-known_bug = "Negative/float ranges, exclusive bounds, equal, contains, required and regex(path) are ignored; length on Vec emits minLength"

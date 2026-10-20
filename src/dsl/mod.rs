@@ -31,7 +31,21 @@ const YAML_KEYS: &[&str] = &[
 ];
 
 /// One route block.
+///
+/// ```
+/// # use oas_forge::diagnostics::{Diagnostics, Location};
+/// # use oas_forge::dsl::{self, RouteSource};
+/// let lines = vec!["@route GET /ping".to_string()];
+/// let location = Location::new("api.rs", 1);
+/// let route = dsl::compile(
+///     RouteSource::new(&lines, &location).operation_id(Some("ping")),
+///     &mut Diagnostics::new(),
+/// )
+/// .unwrap();
+/// assert_eq!(route.path, "/ping");
+/// ```
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct RouteSource<'a> {
     /// The doc lines (after `@insert`/`@extend` expansion).
     pub lines: &'a [String],
@@ -43,6 +57,46 @@ pub struct RouteSource<'a> {
     pub default_tags: &'a [String],
     /// Where the block starts.
     pub location: &'a Location,
+    /// How Rust types in the block map to schemas.
+    pub types: &'a TypeMapper,
+}
+
+impl<'a> RouteSource<'a> {
+    /// A block of `lines` starting at `location`, with the built-in type table.
+    pub fn new(lines: &'a [String], location: &'a Location) -> Self {
+        Self {
+            lines,
+            line_numbers: &[],
+            operation_id: None,
+            default_tags: &[],
+            location,
+            types: TypeMapper::builtin(),
+        }
+    }
+
+    /// Sets the source line of each entry of `lines`.
+    pub fn line_numbers(mut self, line_numbers: &'a [usize]) -> Self {
+        self.line_numbers = line_numbers;
+        self
+    }
+
+    /// Sets the default operationId (derived from method and path when `None`).
+    pub fn operation_id(mut self, operation_id: Option<&'a str>) -> Self {
+        self.operation_id = operation_id;
+        self
+    }
+
+    /// Sets the tags of routes without `@tag`.
+    pub fn default_tags(mut self, tags: &'a [String]) -> Self {
+        self.default_tags = tags;
+        self
+    }
+
+    /// Sets the type mapping.
+    pub fn types(mut self, types: &'a TypeMapper) -> Self {
+        self.types = types;
+        self
+    }
 }
 
 /// A compiled route.
@@ -230,7 +284,7 @@ impl Builder<'_> {
             self.declared.insert(name.to_string());
             let schema = TypeExpr::parse(type_text.unwrap_or("String")).map_or_else(
                 || json!({ "type": "string" }),
-                |t| TypeMapper::new().map(&t).schema,
+                |t| self.source.types.map(&t).schema,
             );
             let mut param =
                 json!({ "name": name, "in": "path", "required": true, "schema": schema });
@@ -273,7 +327,7 @@ impl Builder<'_> {
         };
         let (schema, mut required) = match TypeExpr::parse(type_text) {
             Some(t) => {
-                let mapped = TypeMapper::new().map(&t);
+                let mapped = self.source.types.map(&t);
                 (mapped.schema, mapped.required)
             }
             None => (json!({ "type": "string" }), true),
@@ -322,7 +376,7 @@ impl Builder<'_> {
         let mut content = Map::new();
         content.insert(
             media.to_string(),
-            json!({ "schema": type_schema(type_text, false) }),
+            json!({ "schema": type_schema(type_text, false, self.source.types) }),
         );
         self.operation
             .insert("requestBody".into(), json!({ "content": content }));
@@ -343,8 +397,7 @@ impl Builder<'_> {
         let unit = type_text.is_empty() || type_text == "()" || type_text == "unit";
         let mut response = json!({ "description": description.unwrap_or_default() });
         if !unit {
-            response["content"] =
-                json!({ "application/json": { "schema": type_schema(type_text, true) } });
+            response["content"] = json!({ "application/json": { "schema": type_schema(type_text, true, self.source.types) } });
         }
         self.responses.insert(code.trim().to_string(), response);
     }
@@ -524,7 +577,7 @@ impl Builder<'_> {
 }
 
 /// The schema of a DSL type: `$Ref`, `Vec<T>`, `$Page<User>`, `{ inline }`.
-fn type_schema(text: &str, allow_inline: bool) -> Value {
+fn type_schema(text: &str, allow_inline: bool, types: &TypeMapper) -> Value {
     const STD: &[&str] = &["Option<", "Vec<", "Box<", "Arc<", "Rc<", "Cow<"];
     if allow_inline && text.starts_with('{') {
         return yaml::parse(text).unwrap_or_else(|_| json!({ "$ref": text }));
@@ -536,7 +589,7 @@ fn type_schema(text: &str, allow_inline: bool) -> Value {
         return json!({ "$ref": format!("#/components/schemas/{name}") });
     }
     match TypeExpr::parse(text) {
-        Some(t) => TypeMapper::new().map(&t).schema,
+        Some(t) => types.map(&t).into_schema(),
         None => json!({ "$ref": format!("#/components/schemas/{text}") }),
     }
 }

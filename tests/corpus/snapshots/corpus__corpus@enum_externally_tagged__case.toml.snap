@@ -11,10 +11,48 @@ input_file: tests/corpus/cases/enum_externally_tagged/case.toml
       "components": {
         "schemas": {
           "Shape": {
-            "enum": [
-              "Point"
-            ],
-            "type": "string"
+            "oneOf": [
+              {
+                "enum": [
+                  "Point"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "Circle": {
+                    "properties": {
+                      "radius": {
+                        "format": "double",
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "radius"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "Circle"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "Square": {
+                    "format": "double",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "Square"
+                ],
+                "type": "object"
+              }
+            ]
           }
         }
       }
@@ -26,10 +64,48 @@ input_file: tests/corpus/cases/enum_externally_tagged/case.toml
       "components": {
         "schemas": {
           "Shape": {
-            "enum": [
-              "Point"
-            ],
-            "type": "string"
+            "oneOf": [
+              {
+                "enum": [
+                  "Point"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "Circle": {
+                    "properties": {
+                      "radius": {
+                        "format": "double",
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "radius"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "Circle"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "Square": {
+                    "format": "double",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "Square"
+                ],
+                "type": "object"
+              }
+            ]
           }
         }
       },
@@ -42,7 +118,6 @@ input_file: tests/corpus/cases/enum_externally_tagged/case.toml
     "lints": [],
     "validation": []
   },
-  "known_bug": "Data variants of externally tagged enums are dropped (only unit variants remain)",
   "paths": {
     "document": {},
     "lints": []
@@ -50,10 +125,48 @@ input_file: tests/corpus/cases/enum_externally_tagged/case.toml
   "schemas": {
     "document": {
       "Shape": {
-        "enum": [
-          "Point"
-        ],
-        "type": "string"
+        "oneOf": [
+          {
+            "enum": [
+              "Point"
+            ],
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Circle": {
+                "properties": {
+                  "radius": {
+                    "format": "double",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "radius"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Circle"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Square": {
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "Square"
+            ],
+            "type": "object"
+          }
+        ]
       }
     },
     "lints": []

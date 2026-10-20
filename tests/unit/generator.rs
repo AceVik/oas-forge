@@ -715,3 +715,129 @@ components:
         assert_eq!(document, json!({}));
     }
 }
+
+mod types_and_dialects {
+    use super::*;
+
+    #[test]
+    fn pattern_constants_are_resolved_across_files() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "a.rs",
+                "/// @openapi\nstruct S {\n  #[validate(regex(path = *SLUG))]\n  slug: String,\n  #[garde(pattern(MISSING))]\n  other: String,\n  #[validate(regex(path = *SLUG))]\n  #[validate(contains(pattern = \"-\"))]\n  both: String,\n}",
+            ),
+            (
+                "b.rs",
+                "static SLUG: LazyLock<Regex> = LazyLock::new(|| Regex::new(\"^[a-z-]+$\").unwrap());",
+            ),
+        ]);
+        let properties = &document["components"]["schemas"]["S"]["properties"];
+        assert_eq!(
+            properties["slug"],
+            json!({ "type": "string", "pattern": "^[a-z-]+$" })
+        );
+        assert_eq!(properties["other"], json!({ "type": "string" }));
+        assert_eq!(
+            properties["both"],
+            json!({ "type": "string", "pattern": "-", "allOf": [{ "pattern": "^[a-z-]+$" }] })
+        );
+        assert_eq!(codes(&diagnostics), [Code::UnresolvedPattern]);
+        assert!(
+            diagnostics
+                .iter()
+                .next()
+                .unwrap()
+                .message()
+                .contains("MISSING")
+        );
+    }
+
+    #[test]
+    fn patterns_in_generic_instances_are_resolved() {
+        let (document, diagnostics) = pipeline(&[(
+            "a.rs",
+            "static ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(\"^i$\").unwrap());\n/// @openapi<T>\nstruct Page<T> {\n  #[validate(regex(path = *ID))]\n  cursor: String,\n  items: Vec<T>,\n}\n/// @openapi\n/// paths: { /p: { get: { responses: { '200': { description: x, content: { a/b: { schema: { $ref: $Page<String> } } } } } } } }\nfn f() {}",
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            document["components"]["schemas"]["Page_String"]["properties"]["cursor"]["pattern"],
+            "^i$"
+        );
+    }
+
+    #[test]
+    fn mapped_types_are_used_by_structs_aliases_and_routes() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC).file(
+            "src/api.rs",
+            "/// @openapi\nstruct User { id: UserId, tags: Vec<geo::Point> }\ntype Owner = UserId;\n/// @route GET /users/{id: UserId}\n/// @return 200: UserId\nfn get() {}",
+        );
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .map_type("UserId", json!({ "type": "string", "format": "uuid" }))
+            .map_type(
+                "geo::Point",
+                json!({ "type": "array", "items": { "type": "number" } }),
+            )
+            .build()
+            .unwrap();
+        let document = spec.document();
+        let uuid = json!({ "type": "string", "format": "uuid" });
+        assert_eq!(
+            document["components"]["schemas"]["User"]["properties"]["id"],
+            uuid
+        );
+        assert_eq!(document["components"]["schemas"]["Owner"], uuid);
+        assert_eq!(
+            document["components"]["schemas"]["User"]["properties"]["tags"]["items"]["type"],
+            "array"
+        );
+        let operation = &document["paths"]["/users/{id}"]["get"];
+        assert_eq!(operation["parameters"][0]["schema"], uuid);
+        assert_eq!(
+            operation["responses"]["200"]["content"]["application/json"]["schema"],
+            uuid
+        );
+        assert!(spec.diagnostics().is_empty(), "{:?}", spec.diagnostics());
+    }
+
+    #[test]
+    fn openapi_30_roots_get_30_schemas() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "root.yaml",
+                "openapi: 3.0.3\ninfo: { title: T, version: '1' }",
+            ),
+            (
+                "a.rs",
+                "/// @openapi\nstruct S { a: Option<String>, b: Option<Other>, t: (u8, u8) }\n/// @openapi\nstruct Other { x: u8 }",
+            ),
+        ]);
+        let properties = &document["components"]["schemas"]["S"]["properties"];
+        assert_eq!(
+            properties["a"],
+            json!({ "type": "string", "nullable": true })
+        );
+        assert_eq!(
+            properties["b"],
+            json!({ "allOf": [{ "$ref": "#/components/schemas/Other" }], "nullable": true })
+        );
+        assert!(properties["t"].get("prefixItems").is_none());
+        assert_eq!(codes(&diagnostics), [Code::LossyLowering]);
+    }
+
+    #[test]
+    fn openapi_31_roots_keep_2020_12_schemas() {
+        let (document, _) = pipeline(&[
+            (
+                "root.yaml",
+                "openapi: 3.1.0\ninfo: { title: T, version: '1' }",
+            ),
+            ("a.rs", "/// @openapi\nstruct S { a: Option<String> }"),
+        ]);
+        assert_eq!(
+            document["components"]["schemas"]["S"]["properties"]["a"],
+            json!({ "type": ["string", "null"] })
+        );
+    }
+}

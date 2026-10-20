@@ -47,7 +47,9 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
                 "example": "johndoe@mail.com"
               },
               "id": {
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               },
               "is_active": {
@@ -64,7 +66,10 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
               "username": {
                 "description": "The username of the user.",
                 "example": "johndoe",
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -123,7 +128,9 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
                 "example": "johndoe@mail.com"
               },
               "id": {
-                "format": "int32",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
                 "type": "integer"
               },
               "is_active": {
@@ -140,7 +147,10 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
               "username": {
                 "description": "The username of the user.",
                 "example": "johndoe",
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -207,7 +217,9 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
             "example": "johndoe@mail.com"
           },
           "id": {
-            "format": "int32",
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
             "type": "integer"
           },
           "is_active": {
@@ -224,7 +236,10 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
           "username": {
             "description": "The username of the user.",
             "example": "johndoe",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [

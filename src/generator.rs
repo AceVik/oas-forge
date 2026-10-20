@@ -1,5 +1,6 @@
 //! The generator: configuration, the pipeline run and its result.
 
+use super::attrs::validate::resolve_patterns;
 use super::config::Config;
 use super::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
 use super::dsl::{self, RouteSource};
@@ -8,13 +9,16 @@ use super::extract::{self, Item};
 use super::lint;
 use super::merge::{Policy, merge};
 use super::output::{self, Format, OutputKind};
+use super::schema::TypeMapper;
+use super::schema::dialect::{self, Dialect};
 use super::source::{DEFAULT_MAX_FILE_SIZE, DiscoverOptions, SourceFile, SourceKind, SourceSet};
 use super::template::generics::Instantiator;
 use super::template::lexical::{self, EXTEND_KEY, Variables};
-use super::template::refs::{self, KnownSchemas};
+use super::template::refs::{self, KnownSchemas, Targets};
 use super::template::{Blueprint, Fragment, Registry, extend};
 use super::yaml;
 use serde_json::{Map, Value, json};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Builds OpenAPI documents from Rust sources.
@@ -35,6 +39,7 @@ pub struct Generator {
     deny_warnings: bool,
     max_file_size: u64,
     cargo_directives: bool,
+    types: TypeMapper,
 }
 
 impl Default for Generator {
@@ -52,6 +57,7 @@ impl Default for Generator {
             deny_warnings: false,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             cargo_directives: false,
+            types: TypeMapper::new(),
         }
     }
 }
@@ -71,8 +77,12 @@ impl Generator {
             output_schemas,
             output_paths,
             output_fragments,
+            types,
             ..
         } = config;
+        for (name, schema) in types.unwrap_or_default() {
+            self.types = self.types.with_type(name, schema);
+        }
         self.inputs.extend(input.unwrap_or_default());
         self.includes.extend(include.unwrap_or_default());
         for (kind, paths) in [
@@ -131,6 +141,18 @@ impl Generator {
         self
     }
 
+    /// Documents the Rust type `name` (or path `my_crate::Name`) with `schema`
+    /// instead of the built-in mapping or a `$ref`.
+    ///
+    /// ```
+    /// let generator = oas_forge::Generator::new()
+    ///     .map_type("UserId", serde_json::json!({ "type": "string", "format": "uuid" }));
+    /// ```
+    pub fn map_type(mut self, name: impl Into<String>, schema: Value) -> Self {
+        self.types = self.types.with_type(name, schema);
+        self
+    }
+
     /// Treats warnings as errors.
     pub fn deny_warnings(mut self, deny: bool) -> Self {
         self.deny_warnings = deny;
@@ -162,7 +184,7 @@ impl Generator {
             .with_max_file_size(self.max_file_size);
         let sources =
             SourceSet::discover(&self.inputs, &self.includes, &options, &mut diagnostics)?;
-        let (document, registry) = run(&sources, &self.variables, &mut diagnostics)?;
+        let (document, registry) = run(&sources, &self.variables, &self.types, &mut diagnostics)?;
         if self.deny_warnings {
             diagnostics.deny_warnings();
         }
@@ -296,9 +318,11 @@ enum Pending {
 pub(crate) fn run(
     sources: &SourceSet,
     variables: &Variables,
+    types: &TypeMapper,
     diagnostics: &mut Diagnostics,
 ) -> Result<(Value, Registry)> {
     let mut registry = Registry::new();
+    let mut patterns = BTreeMap::new();
     let mut known = KnownSchemas::default();
     let mut snippets: Vec<Snippet> = Vec::new();
     let mut pending: Vec<(usize, Pending)> = Vec::new();
@@ -307,7 +331,11 @@ pub(crate) fn run(
     for file in sources.files() {
         match file.kind() {
             SourceKind::Rust => {
-                for item in extract::extract(file, diagnostics)? {
+                for item in extract::extract(file, types, diagnostics)? {
+                    if let Item::Pattern(pattern) = item {
+                        patterns.insert(pattern.name, pattern.pattern);
+                        continue;
+                    }
                     register(
                         item,
                         &mut registry,
@@ -342,7 +370,7 @@ pub(crate) fn run(
         .map(|(i, s)| (i * 2, s))
         .collect();
     for (position, item) in pending {
-        if let Some(snippet) = materialize(item, &registry, variables, diagnostics)? {
+        if let Some(snippet) = materialize(item, &registry, variables, types, diagnostics)? {
             known.collect_from(&snippet.value);
             ordered.push((position * 2 + 1, snippet));
         }
@@ -360,19 +388,30 @@ pub(crate) fn run(
         known.insert(name.clone());
     }
 
-    // Pass 4: smart references.
+    // Pass 4: smart references and pattern constants.
     for snippet in &mut snippets {
-        refs::resolve(
+        let targets = Targets {
+            known: &known,
+            registry: &registry,
+            types,
+        };
+        refs::resolve(&mut snippet.value, targets, &snippet.location, diagnostics);
+        resolve_patterns(
             &mut snippet.value,
-            &known,
-            &registry,
+            &patterns,
             &snippet.location,
             diagnostics,
         );
     }
     let mut generated = Vec::new();
     for (name, (mut body, location)) in concrete {
-        refs::resolve(&mut body, &known, &registry, &location, diagnostics);
+        let targets = Targets {
+            known: &known,
+            registry: &registry,
+            types,
+        };
+        refs::resolve(&mut body, targets, &location, diagnostics);
+        resolve_patterns(&mut body, &patterns, &location, diagnostics);
         generated.push(Snippet {
             value: json!({ "components": { "schemas": { name: body } } }),
             location,
@@ -384,6 +423,9 @@ pub(crate) fn run(
     refs::unescape(&mut document);
     output::strip_transport(&mut document);
     normalize(&mut document);
+    if let Some(dialect) = Dialect::of_document(&document) {
+        dialect::lower(&mut document, dialect, diagnostics);
+    }
     lint::check(&document, diagnostics);
     Ok((document, registry))
 }
@@ -454,6 +496,8 @@ fn register(
             ));
         }
         Item::Route(route) => pending.push((snippets.len(), Pending::Route(route))),
+        // Collected by the caller before registration.
+        Item::Pattern(_) => {}
     }
 }
 
@@ -462,6 +506,7 @@ fn materialize(
     pending: Pending,
     registry: &Registry,
     variables: &Variables,
+    types: &TypeMapper,
     diagnostics: &mut Diagnostics,
 ) -> Result<Option<Snippet>> {
     match pending {
@@ -504,13 +549,11 @@ fn materialize(
                 lexical::expand(&text, registry, variables, &route.location, diagnostics);
             let lines: Vec<String> = expanded.lines().map(str::to_string).collect();
             let compiled = dsl::compile(
-                RouteSource {
-                    lines: &lines,
-                    line_numbers: &route.line_numbers,
-                    operation_id: route.operation_id.as_deref(),
-                    default_tags: &route.tags,
-                    location: &route.location,
-                },
+                RouteSource::new(&lines, &route.location)
+                    .line_numbers(&route.line_numbers)
+                    .operation_id(route.operation_id.as_deref())
+                    .default_tags(&route.tags)
+                    .types(types),
                 diagnostics,
             );
             let Some(compiled) = compiled else {
@@ -682,6 +725,11 @@ pub fn generate_from_sources(
     variables: &Variables,
 ) -> Result<(Value, Diagnostics)> {
     let mut diagnostics = Diagnostics::new();
-    let (document, _) = run(&SourceSet::from_files(files), variables, &mut diagnostics)?;
+    let (document, _) = run(
+        &SourceSet::from_files(files),
+        variables,
+        TypeMapper::builtin(),
+        &mut diagnostics,
+    )?;
     Ok((document, diagnostics))
 }

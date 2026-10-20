@@ -7,11 +7,44 @@ input_file: tests/corpus/cases/enum_untagged/case.toml
   "description": "Enums: serde untagged",
   "diagnostics": [],
   "fragments": {
-    "document": {},
+    "document": {
+      "components": {
+        "schemas": {
+          "IdOrName": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      }
+    },
     "lints": []
   },
   "full": {
     "document": {
+      "components": {
+        "schemas": {
+          "IdOrName": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      },
       "info": {
         "title": "Corpus",
         "version": "1.0.0"
@@ -19,17 +52,27 @@ input_file: tests/corpus/cases/enum_untagged/case.toml
       "openapi": "3.1.0"
     },
     "lints": [],
-    "validation": [
-      ": value is not valid under any of the schemas listed in the 'anyOf' keyword"
-    ]
+    "validation": []
   },
-  "known_bug": "Untagged enums produce an empty string enum",
   "paths": {
     "document": {},
     "lints": []
   },
   "schemas": {
-    "document": {},
+    "document": {
+      "IdOrName": {
+        "anyOf": [
+          {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      }
+    },
     "lints": []
   }
 }
