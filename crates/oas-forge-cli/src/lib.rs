@@ -5,7 +5,11 @@
 //! spawning a process.
 
 #![forbid(unsafe_code)]
-#![deny(missing_docs, clippy::missing_errors_doc)]
+#![deny(
+    missing_docs,
+    clippy::missing_docs_in_private_items,
+    clippy::missing_errors_doc
+)]
 #![deny(
     clippy::indexing_slicing,
     clippy::string_slice,
