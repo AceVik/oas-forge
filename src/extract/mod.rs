@@ -301,8 +301,14 @@ impl Extractor<'_> {
         }
     }
 
-    fn reflector(&mut self) -> reflect::Reflector<'_> {
-        reflect::Reflector::new(self.path, self.options, self.diagnostics)
+    /// Reflects a struct, enum or type alias; fragments in its doc comments
+    /// come first, in source order.
+    fn reflect(&mut self, reflect: impl FnOnce(&mut reflect::Reflector<'_>) -> Vec<Item>) {
+        let mut reflector = reflect::Reflector::new(self.path, self.options, self.diagnostics);
+        let items = reflect(&mut reflector);
+        let fragments = reflector.take_fragments();
+        self.items.extend(fragments);
+        self.items.extend(items);
     }
 
     fn blocks(&mut self, lines: &[DocLine]) {
@@ -346,20 +352,17 @@ impl<'ast> Visit<'ast> for Extractor<'_> {
     }
 
     fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {
-        let items = self.reflector().structure(item);
-        self.items.extend(items);
+        self.reflect(|reflector| reflector.structure(item));
         visit::visit_item_struct(self, item);
     }
 
     fn visit_item_enum(&mut self, item: &'ast syn::ItemEnum) {
-        let items = self.reflector().enumeration(item);
-        self.items.extend(items);
+        self.reflect(|reflector| reflector.enumeration(item));
         visit::visit_item_enum(self, item);
     }
 
     fn visit_item_type(&mut self, item: &'ast syn::ItemType) {
-        let schema = self.reflector().alias(item);
-        self.items.extend(schema);
+        self.reflect(|reflector| reflector.alias(item).into_iter().collect());
         visit::visit_item_type(self, item);
     }
 

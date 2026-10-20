@@ -1095,3 +1095,115 @@ mod directives {
         assert_eq!(schema(&items, "S")["x-stage"], "{{STAGE}}");
     }
 }
+
+mod fragments {
+    use super::*;
+    use crate::common::pipeline;
+    use crate::extract::{fragment, kinds};
+
+    #[test]
+    fn fragments_before_a_type_are_registered() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            r#"
+            /// @openapi-fragment Paging(max)
+            /// - name: page
+            ///   in: query
+            ///   schema: { type: integer, maximum: {{max}} }
+
+            /// One page.
+            /// @openapi
+            pub struct Page { pub total: bool }
+            "#,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(kinds(&items), ["fragment:Paging", "schema:Page"]);
+        let paging = fragment(&items, "Paging");
+        assert_eq!(paging.params, ["max"]);
+        assert_eq!(
+            paging.body,
+            "- name: page\n  in: query\n  schema: { type: integer, maximum: {{max}} }"
+        );
+        assert_eq!(paging.location.line(), 2);
+        assert_eq!(
+            schema(&items, "Page"),
+            json!({
+                "type": "object",
+                "properties": { "total": { "type": "boolean" } },
+                "required": ["total"],
+                "description": "One page.",
+            })
+        );
+    }
+
+    #[test]
+    fn a_fragment_ends_at_the_next_directive_and_exports_nothing() {
+        let items = extract(
+            r#"
+            /// @openapi-fragment A
+            /// a: 1
+            /// @openapi-fragment B
+            /// b: 2
+            /// @example { total: true }
+            pub struct Hidden { pub total: bool }
+            pub enum E {
+                /// @openapi-fragment C
+                /// c: 3
+                V,
+            }
+            "#,
+        );
+        assert_eq!(kinds(&items), ["fragment:A", "fragment:B"]);
+        assert_eq!(fragment(&items, "B").body, "b: 2");
+    }
+
+    #[test]
+    fn fragments_of_fields_and_variants_are_registered() {
+        let items = extract(
+            "/// @openapi\npub struct S {\n  /// @openapi-fragment F\n  /// f: 1\n  pub a: bool,\n}\n/// @openapi\npub enum E {\n  /// @openapi-fragment G\n  /// g: 1\n  V,\n}",
+        );
+        assert_eq!(
+            kinds(&items),
+            ["fragment:F", "schema:S", "fragment:G", "schema:E"]
+        );
+        assert_eq!(
+            schema(&items, "S")["properties"]["a"],
+            json!({ "type": "boolean" })
+        );
+    }
+
+    #[test]
+    fn fragments_on_types_can_be_inserted() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            r#"
+            /// @openapi
+            /// openapi: 3.1.0
+            /// info: { title: T, version: 1.0.0 }
+            pub fn root() {}
+
+            /// @openapi-fragment Paging
+            /// - name: page
+            ///   in: query
+            ///   schema: { type: integer }
+
+            /// One page.
+            /// @openapi
+            pub struct Page { pub total: u64 }
+
+            /// @route GET /x
+            /// parameters:
+            ///   - @insert Paging
+            pub async fn x() {}
+            "#,
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            document["paths"]["/x"]["get"]["parameters"][0]["name"],
+            "page"
+        );
+        assert_eq!(
+            document["components"]["schemas"]["Page"]["description"],
+            "One page."
+        );
+    }
+}

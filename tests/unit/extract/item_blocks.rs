@@ -164,3 +164,21 @@ fn block_comments_are_split_into_lines() {
     assert_eq!(documents[0].text, "paths:\n  /block: {}");
     assert_eq!(documents[0].location.line(), 3);
 }
+
+#[test]
+fn an_interrupted_doc_comment_ends_the_section() {
+    let items = extract(
+        r#"
+        /// @openapi-fragment Paging
+        /// - name: page
+
+        /// Not part of the fragment.
+        /// @openapi
+        /// paths: {}
+        fn f() {}
+        "#,
+    );
+    assert_eq!(kinds(&items), ["fragment:Paging", "document"]);
+    assert_eq!(fragment(&items, "Paging").body, "- name: page");
+    assert_eq!(document_items(&items)[0].text, "paths: {}");
+}

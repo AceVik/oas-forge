@@ -142,7 +142,11 @@ pub async fn reports() {}
 
 - `@openapi-fragment Name(param, …)` defines a fragment, in a file comment
   or on any item. The parameters are optional; `{{param}}` in the body is
-  replaced by the argument.
+  replaced by the argument. The body ends at the next `@openapi…` line (on
+  a type, field or variant also at an `@example` line) or where the doc
+  comment is interrupted by a line that is not a doc comment, such as a
+  blank line between two `///` groups; a fragment above a type is not part
+  of the type's description or `@openapi` override.
 - `@insert Name(args)` pastes the fragment's text at that line, indented
   like the line, before the YAML is parsed. Use it for list items. Inserts
   may insert other fragments, up to a depth of 8. `@insert Name` without

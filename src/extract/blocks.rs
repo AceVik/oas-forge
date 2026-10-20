@@ -39,9 +39,19 @@ pub(super) fn item_blocks(
     let mut items = Vec::new();
     let mut header: Option<DocLine> = None;
     let mut body: Vec<DocLine> = Vec::new();
+    let mut last_line: Option<usize> = None;
 
     for line in lines {
         let trimmed = line.trimmed();
+        // Where the doc comment is interrupted by a non-doc line (a blank
+        // line between two `///` groups), the open section ends.
+        if last_line.is_some_and(|last| line.line > last + 1)
+            && let Some(h) = header.take()
+        {
+            section(path, &h, &body, tags, diagnostics, &mut items);
+            body.clear();
+        }
+        last_line = Some(line.line);
         if trimmed == ROUTE_DEFAULTS {
             if let Some(h) = header.take() {
                 section(path, &h, &body, tags, diagnostics, &mut items);
@@ -126,6 +136,22 @@ fn section(
             tags: tags.to_vec(),
         }));
     }
+}
+
+/// A fragment defined in the doc comment of a struct, enum, field, variant or
+/// type alias (`header` is the trimmed `@openapi-fragment Name(..)` line).
+pub(super) fn item_fragment(path: &Path, header: &DocLine, body: &[DocLine]) -> Item {
+    let rest = header
+        .text
+        .strip_prefix("@openapi-fragment")
+        .unwrap_or_default();
+    let (name, params) = signature(rest.trim());
+    Item::Fragment(FragmentItem {
+        name,
+        params,
+        body: join(&unindent(body)).trim().to_string(),
+        location: Location::new(path, header.line),
+    })
 }
 
 /// `Name(a, b)` → (`Name`, [`a`, `b`]); `Name` → (`Name`, []).

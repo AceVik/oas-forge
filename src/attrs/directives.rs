@@ -25,6 +25,10 @@ pub(crate) struct ItemDocs {
     pub examples: Vec<DocLine>,
     /// Directives with an invalid argument (the message and its line).
     pub problems: Vec<DocLine>,
+    /// `@openapi-fragment` blocks placed in the doc comment: the header and
+    /// the body lines. They are not part of the item's description or
+    /// override.
+    pub fragments: Vec<(DocLine, Vec<DocLine>)>,
 }
 
 /// How the text after `@openapi` on a header line is used.
@@ -41,9 +45,30 @@ impl ItemDocs {
         let mut docs = Self::default();
         let mut description_lines = Vec::new();
         let mut in_block = false;
+        // The open `@openapi-fragment` block, and the line of the last line.
+        let mut fragment: Option<(DocLine, Vec<DocLine>)> = None;
+        let mut last_line: Option<usize> = None;
 
         for line in lines {
             let trimmed = line.trimmed();
+            // A fragment block ends at the next `@openapi…`/`@example` line or
+            // where the doc comment is interrupted (a blank line between two
+            // `///` groups), like the blocks of file comments.
+            let gap = last_line.is_some_and(|last| line.line > last + 1);
+            last_line = Some(line.line);
+            if let Some((header, mut body)) = fragment.take() {
+                if gap || trimmed.starts_with("@openapi") || trimmed.starts_with("@example") {
+                    docs.fragments.push((header, body));
+                } else {
+                    body.push(line.clone());
+                    fragment = Some((header, body));
+                    continue;
+                }
+            }
+            if trimmed.starts_with("@openapi-fragment") {
+                fragment = Some((DocLine::new(trimmed, line.line), Vec::new()));
+                continue;
+            }
             if let Some(example) = trimmed.strip_prefix("@example")
                 && (example.is_empty() || example.starts_with(char::is_whitespace))
             {
@@ -120,6 +145,7 @@ impl ItemDocs {
                 docs.overrides.push(DocLine::new(rest, line.line));
             }
         }
+        docs.fragments.extend(fragment);
         docs.description = description(&description_lines);
         docs
     }

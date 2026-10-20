@@ -101,6 +101,8 @@ pub(super) struct Reflector<'a> {
     types: &'a TypeMapper,
     variables: &'a Variables,
     diagnostics: &'a mut Diagnostics,
+    /// `@openapi-fragment` blocks found in the doc comments read so far.
+    fragments: Vec<Item>,
 }
 
 impl<'a> Reflector<'a> {
@@ -114,7 +116,14 @@ impl<'a> Reflector<'a> {
             types: options.types,
             variables: options.variables,
             diagnostics,
+            fragments: Vec::new(),
         }
+    }
+
+    /// The fragments defined in the doc comments read so far (also of items
+    /// that are not exported).
+    pub(super) fn take_fragments(&mut self) -> Vec<Item> {
+        std::mem::take(&mut self.fragments)
     }
 
     fn location(&self, line: usize) -> Location {
@@ -124,6 +133,10 @@ impl<'a> Reflector<'a> {
     fn naming(&mut self, attrs: &[syn::Attribute], default: &str, kind: ItemKind) -> Naming {
         let serde = SerdeAttrs::parse(attrs);
         let docs = ItemDocs::parse(&doc_lines(attrs), kind);
+        for (header, body) in &docs.fragments {
+            self.fragments
+                .push(super::blocks::item_fragment(self.path, header, body));
+        }
         for problem in &docs.problems {
             self.diagnostics.push(
                 Diagnostic::new(Code::InvalidSchemaDirective, problem.text.clone())
