@@ -52,7 +52,7 @@ jobs:
         run: cargo publish --workspace --dry-run --locked
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-about
+          tool: cargo-about@0.9.2
       - name: Third-party notices of the binary
         run: >-
           cargo about generate --locked

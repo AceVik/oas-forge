@@ -36,7 +36,9 @@ cargo mutants --package oas-forge --test-tool nextest -f src/<changed>.rs
 All of them must pass before a change is done. CI also checks the minimal
 dependency versions (`cargo +nightly update -Z direct-minimal-versions`), the
 MSRV build, `cargo publish --dry-run` on release, and audits the workflows with
-`zizmor`. Actions in `.github/workflows/` are pinned to commit hashes.
+`zizmor`. Actions in `.github/workflows/` are pinned to commit hashes
+(Dependabot updates them); the tools they install (`typos`, `zizmor`,
+`cargo-about`, …) are pinned by version and bumped by hand.
 
 ## Where things are
 
