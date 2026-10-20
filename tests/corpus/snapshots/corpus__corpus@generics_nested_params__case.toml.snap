@@ -97,13 +97,13 @@ input_file: tests/corpus/cases/generics_nested_params/case.toml
             ]
           },
           "Page": {
-            "body": "type: object\nproperties:\n  first:\n    $ref: $Envelope<T>\n  rest:\n    type: array\n    items:\n      $ref: $Envelope<T>\n  next:\n    anyOf:\n    - $ref: $Page<T>\n    - type: \"null\"\nrequired:\n- first\n- rest\ndescription: A page of wrapped values.\n",
+            "body": "type: object\nproperties:\n  first:\n    $ref: $Envelope<$T>\n  rest:\n    type: array\n    items:\n      $ref: $Envelope<$T>\n  next:\n    anyOf:\n    - $ref: $Page<$T>\n    - type: \"null\"\nrequired:\n- first\n- rest\ndescription: A page of wrapped values.\n",
             "params": [
               "T"
             ]
           },
           "Tree": {
-            "body": "type: object\nproperties:\n  value:\n    $ref: $T\n  children:\n    type: array\n    items:\n      $ref: $Tree<T>\nrequired:\n- value\n- children\ndescription: A tree.\n",
+            "body": "type: object\nproperties:\n  value:\n    $ref: $T\n  children:\n    type: array\n    items:\n      $ref: $Tree<$T>\nrequired:\n- value\n- children\ndescription: A tree.\n",
             "params": [
               "T"
             ]
