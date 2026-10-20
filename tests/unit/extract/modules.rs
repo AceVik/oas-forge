@@ -215,8 +215,14 @@ fn route_defaults_are_collected_per_module() {
     assert_eq!(
         defaults,
         [
-            vec![" @prefix /api", " @tag Api", " @prefix /v1"],
-            vec![" @prefix /api", " @tag Api"],
+            vec![
+                "@route-defaults",
+                " @prefix /api",
+                " @tag Api",
+                "@route-defaults",
+                " @prefix /v1"
+            ],
+            vec!["@route-defaults", " @prefix /api", " @tag Api"],
             vec![],
         ]
     );

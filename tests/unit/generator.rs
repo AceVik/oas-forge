@@ -1034,7 +1034,7 @@ mod operations {
     }
 
     #[test]
-    fn query_parameters_in_yaml_stop_query_inference() {
+    fn query_parameters_in_yaml_win_over_inferred_ones() {
         let (document, diagnostics) = pipeline(&[
             ("models.rs", MODELS),
             (
@@ -1051,8 +1051,69 @@ mod operations {
                 .map(|p| p["name"].as_str().unwrap().to_string())
                 .collect()
         };
-        assert_eq!(names("/a"), ["q"]);
+        // Single parameters written in the block do not stop the inference
+        // of the handler's `Query<Paging>`.
+        assert_eq!(names("/a"), ["q", "page", "size"]);
         assert_eq!(names("/b"), ["X-Trace", "page", "size"]);
+    }
+
+    #[test]
+    fn flattened_structs_are_expanded_too() {
+        let (document, diagnostics) = pipeline(&[
+            ("models.rs", MODELS),
+            (
+                "api.rs",
+                "/// @openapi\n#[derive(serde::Deserialize)]\nstruct Sorting { sort: String }\n/// @openapi\n#[derive(serde::Deserialize)]\nstruct Filter {\n  q: Option<String>,\n  #[serde(flatten)]\n  paging: Paging,\n  #[serde(flatten)]\n  sorting: Option<Sorting>,\n}\n/// @route GET /a\nasync fn a(Query(f): Query<Filter>) {}",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let names: Vec<String> = document["paths"]["/a"]["get"]["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| format!("{}:{}", p["name"].as_str().unwrap(), p["required"]))
+            .collect();
+        // `sort` is required in `Sorting`, but the flattened field is optional.
+        assert_eq!(names, ["q:false", "page:false", "size:true", "sort:false"]);
+    }
+
+    #[test]
+    fn qualified_struct_paths_are_expanded() {
+        let (document, diagnostics) = pipeline(&[
+            ("models.rs", &format!("pub mod models {{\n{MODELS}\n}}")),
+            (
+                "api.rs",
+                "/// @route GET /orgs/{org}/users/{id}\nasync fn a(Path(p): Path<models::Ids>, Query(q): axum::extract::Query<crate::models::Paging>) {}\n/// @route GET /b\n/// @query-params models::Paging\nfn b() {}",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let names = |path: &str| -> Vec<String> {
+            document["paths"][path]["get"]["parameters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["name"].as_str().unwrap().to_string())
+                .collect()
+        };
+        assert_eq!(
+            names("/orgs/{org}/users/{id}"),
+            ["org", "id", "page", "size"]
+        );
+        assert_eq!(names("/b"), ["page", "size"]);
+    }
+
+    #[test]
+    fn unresolved_expansions_are_reported_at_their_annotation() {
+        let (_, diagnostics) = pipeline(&[(
+            "api.rs",
+            "\n/// Get\n/// @route GET /a\n/// @query-params $Nope\nfn a() {}\n/// @route GET /b\nasync fn b(Query(q): Query<Gone>) {}",
+        )]);
+        let located: Vec<String> = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::UnresolvedExpansion)
+            .map(|d| d.location().map(ToString::to_string).unwrap_or_default())
+            .collect();
+        assert_eq!(located, ["api.rs:4", "api.rs:6"]);
     }
 
     #[test]

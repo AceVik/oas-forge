@@ -2,23 +2,27 @@
 
 /// Splits at whitespace outside double quotes and brackets. Quotes are kept,
 /// so callers can tell `"description"` tokens apart; `example="a b"` and
-/// `enum=[a, b]` stay one token each.
+/// `enum=[a, b]` stay one token each. Brackets in a `pattern=` value are
+/// regular expression syntax and do not group.
 pub(super) fn tokenize(text: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut quoted = false;
     let mut depth = 0usize;
     for c in text.chars() {
+        // A regular expression ends at whitespace; its brackets need not be
+        // balanced (`pattern=[^(]+`).
+        let literal = depth == 0 && current.starts_with("pattern=");
         match c {
             '"' => {
                 quoted = !quoted;
                 current.push(c);
             }
-            '[' | '{' | '(' | '<' if !quoted => {
+            '[' | '{' | '(' | '<' if !quoted && !literal => {
                 depth += 1;
                 current.push(c);
             }
-            ']' | '}' | ')' | '>' if !quoted => {
+            ']' | '}' | ')' | '>' if !quoted && !literal => {
                 depth = depth.saturating_sub(1);
                 current.push(c);
             }

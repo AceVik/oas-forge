@@ -143,7 +143,8 @@ pub struct RouteItem {
     pub operation_id: Option<String>,
     /// Tags of the enclosing modules, applied when the route has no `@tag`.
     pub tags: Vec<String>,
-    /// `@route-defaults` lines of the enclosing modules, outermost first.
+    /// `@route-defaults` blocks of the enclosing modules, outermost first;
+    /// each starts with its `@route-defaults` header.
     pub defaults: Vec<String>,
     /// What the handler's signature says (signature inference).
     pub signature: Option<Signature>,
@@ -331,7 +332,13 @@ impl<'ast> Visit<'ast> for Extractor<'_> {
         let lines = doc_lines(&item.attrs);
         let saved = (self.tags.len(), self.defaults.len());
         self.tags.extend(blocks::module_tags(&lines));
-        self.defaults.extend(blocks::route_defaults(&lines));
+        let defaults = blocks::route_defaults(&lines);
+        if !defaults.is_empty() {
+            // The header separates the modules: inner defaults replace the
+            // tags and security of outer ones.
+            self.defaults.push("@route-defaults".to_string());
+            self.defaults.extend(defaults);
+        }
         self.blocks(&lines);
         visit::visit_item_mod(self, item);
         self.tags.truncate(saved.0);

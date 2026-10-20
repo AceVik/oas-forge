@@ -41,17 +41,8 @@ pub(super) fn security(rest: &str) -> Option<Security> {
     (!requirement.is_empty()).then_some(Security::Requirement(requirement))
 }
 
-/// `@external-docs URL ["description"]`
-pub(super) fn external_docs(rest: &str) -> Option<Value> {
-    url_with_description(rest)
-}
-
-/// `@server URL ["description"]`
-pub(super) fn server(rest: &str) -> Option<Value> {
-    url_with_description(rest)
-}
-
-fn url_with_description(rest: &str) -> Option<Value> {
+/// `URL ["description"]` of `@external-docs` and `@server`.
+pub(super) fn url_with_description(rest: &str) -> Option<Value> {
     let (url, description) = trailing_description(rest);
     let tokens = tokenize(url);
     let [url] = tokens.as_slice() else {

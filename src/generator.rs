@@ -891,13 +891,21 @@ fn materialize(
             let expanded =
                 lexical::expand(&text, registry, variables, &route.location, diagnostics);
             let lines: Vec<String> = expanded.lines().map(str::to_string).collect();
+            let defaults = lexical::expand(
+                &route.defaults.join("\n"),
+                registry,
+                variables,
+                &route.location,
+                diagnostics,
+            );
+            let defaults: Vec<String> = defaults.lines().map(str::to_string).collect();
             let compiled = dsl::compile(
                 RouteSource::new(&lines, &route.location)
                     .line_numbers(&route.line_numbers)
                     .operation_id(route.operation_id.as_deref())
                     .default_tags(&route.tags)
                     .types(types)
-                    .defaults(&route.defaults)
+                    .defaults(&defaults)
                     .signature(route.signature.as_ref().filter(|_| infer)),
                 diagnostics,
             );

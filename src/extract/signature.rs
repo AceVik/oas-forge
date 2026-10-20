@@ -12,6 +12,8 @@
 //! | `Form<T>`, `web::Form<T>` | `application/x-www-form-urlencoded` body |
 //! | `Multipart` | `multipart/form-data` body |
 //!
+//! A body extractor in `Option` (`Option<Json<T>>`) is an optional body.
+//!
 //! A return type of `Json<T>`, `Result<Json<T>, E>` or `(StatusCode, Json<T>)`
 //! is the success response.
 
@@ -26,6 +28,18 @@ pub(super) fn infer(signature: &syn::Signature) -> Option<Signature> {
             continue;
         };
         let ty = TypeExpr::from_syn(&argument.ty);
+        // `Option<Json<T>>`: an optional body.
+        let (ty, optional) = match (ty.name(), ty.args()) {
+            (Some("Option"), [inner])
+                if matches!(inner.name(), Some("Json" | "Form" | "Multipart")) =>
+            {
+                (inner.clone(), true)
+            }
+            _ => (ty, false),
+        };
+        if optional {
+            out.optional_body = true;
+        }
         let inner = ty.args().first().cloned();
         match ty.name() {
             Some("Path") => {

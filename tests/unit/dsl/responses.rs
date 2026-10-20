@@ -212,8 +212,27 @@ mod return_directive {
     }
 
     #[test]
-    fn invalid_inline_schema_is_kept_as_raw_ref() {
-        assert_eq!(schema_of("{ broken"), json!({ "$ref": "{ broken" }));
+    fn invalid_inline_schema_is_reported_and_ignored() {
+        let src = [
+            "@route GET /x",
+            "@return 200: { type: array, items: { type: string }",
+        ];
+        assert_eq!(findings(&src), [Code::InvalidDirective]);
+        let op = operation(&src, "/x", "get");
+        assert_eq!(
+            op["responses"],
+            json!({ "default": { "description": "Default response" } })
+        );
+    }
+
+    #[test]
+    fn text_that_is_neither_type_nor_schema_name_is_reported() {
+        let src = ["@route GET /x", "@return 200: User Profile"];
+        assert_eq!(findings(&src), [Code::InvalidDirective]);
+        assert_eq!(
+            findings(&["@route POST /x", "@body { broken"]),
+            [Code::InvalidDirective]
+        );
     }
 
     #[test]

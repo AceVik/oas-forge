@@ -21,8 +21,8 @@ pub(super) struct Body {
     pub(super) description: Option<String>,
 }
 
-/// Parses a `@body` directive; `None` without a type.
-pub(super) fn body(rest: &str, types: &TypeMapper) -> Option<Body> {
+/// Parses a `@body` directive; the error says what is wrong with it.
+pub(super) fn body(rest: &str, types: &TypeMapper) -> Result<Body, String> {
     let (rest, description) = trailing_description(rest);
     let (rest, optional) = match rest.strip_prefix("optional") {
         Some(after) if after.starts_with(char::is_whitespace) => (after.trim(), true),
@@ -30,16 +30,16 @@ pub(super) fn body(rest: &str, types: &TypeMapper) -> Option<Body> {
     };
     let (type_text, media) = split_media(rest);
     if type_text.is_empty() {
-        return None;
+        return Err("`@body` needs a type".into());
     }
     let optional =
         optional || TypeExpr::parse(&type_text).is_some_and(|t| t.name() == Some("Option"));
-    let schema = type_schema(&type_text, types);
+    let schema = type_schema(&type_text, types)?;
     let mut content = Map::new();
     for media in media_or(&media, DEFAULT_MEDIA) {
         content.insert(media, json!({ "schema": schema }));
     }
-    Some(Body {
+    Ok(Body {
         content,
         required: !optional,
         description,
@@ -52,12 +52,13 @@ pub(super) struct Response {
     pub(super) value: Value,
 }
 
-/// Parses a `@return` directive; `None` without `CODE:`.
-pub(super) fn response(rest: &str, types: &TypeMapper) -> Option<Response> {
-    let (code, residue) = rest.split_once(':')?;
+/// Parses a `@return` directive; the error says what is wrong with it.
+pub(super) fn response(rest: &str, types: &TypeMapper) -> Result<Response, String> {
+    const SYNTAX: &str = "`@return` needs `code: [Type] [media...] [\"description\"]`";
+    let (code, residue) = rest.split_once(':').ok_or(SYNTAX)?;
     let code = code.trim().to_string();
     if code.is_empty() || code.contains(char::is_whitespace) {
-        return None;
+        return Err(SYNTAX.into());
     }
     let (residue, description) = trailing_description(residue);
     let description = description
@@ -75,7 +76,7 @@ pub(super) fn response(rest: &str, types: &TypeMapper) -> Option<Response> {
             .and_then(|t| t.strip_suffix('>'))
         {
             // OpenAPI 3.2: a stream of items (SSE, JSON Lines, ...).
-            let schema = type_schema(item, types);
+            let schema = type_schema(item, types)?;
             for media in media_or(&media, STREAM_MEDIA) {
                 content.insert(media, json!({ "itemSchema": schema }));
             }
@@ -83,7 +84,7 @@ pub(super) fn response(rest: &str, types: &TypeMapper) -> Option<Response> {
             let entry = if unit {
                 json!({})
             } else {
-                json!({ "schema": type_schema(type_text, types) })
+                json!({ "schema": type_schema(type_text, types)? })
             };
             for media in media_or(&media, DEFAULT_MEDIA) {
                 content.insert(media, entry.clone());
@@ -91,7 +92,7 @@ pub(super) fn response(rest: &str, types: &TypeMapper) -> Option<Response> {
         }
         value.insert("content".into(), Value::Object(content));
     }
-    Some(Response {
+    Ok(Response {
         code,
         value: Value::Object(value),
     })
@@ -184,26 +185,44 @@ fn media_or(media: &[String], default: &str) -> Vec<String> {
 }
 
 /// The schema of a DSL type: `$Ref`, `Vec<T>`, `$Page<User>`, `{ inline }`.
-pub(super) fn type_schema(text: &str, types: &TypeMapper) -> Value {
+/// The error describes text that is neither a type nor valid inline YAML.
+pub(super) fn type_schema(text: &str, types: &TypeMapper) -> Result<Value, String> {
     const STD: &[&str] = &[
         "Option<", "Vec<", "Box<", "Arc<", "Rc<", "Cow<", "Json<", "Form<",
     ];
     if text.starts_with('{') {
-        return yaml::parse(text).unwrap_or_else(|_| json!({ "$ref": text }));
+        return yaml::parse(text).map_err(|e| {
+            format!(
+                "the inline schema `{text}` is not valid YAML: {}",
+                e.message
+            )
+        });
     }
     if text.contains('<') && !STD.iter().any(|p| text.starts_with(p)) {
         // `Page<User>` and `$Page<User>`: instantiated from the blueprint.
-        return json!({ "$ref": format!("${}", text.trim_start_matches('$')) });
+        return Ok(json!({ "$ref": format!("${}", text.trim_start_matches('$')) }));
     }
     if text.starts_with('$') {
         // Resolved with the other smart references: renamed types are found
         // under their Rust name, unknown names are reported.
-        return json!({ "$ref": text });
+        return Ok(json!({ "$ref": text }));
     }
     match TypeExpr::parse(text) {
-        Some(t) => types.map(&t).into_schema(),
-        None => json!({ "$ref": format!("#/components/schemas/{text}") }),
+        Some(t) => Ok(types.map(&t).into_schema()),
+        // A schema name that is no Rust identifier (`api-error`).
+        None if is_component_name(text) => {
+            Ok(json!({ "$ref": format!("#/components/schemas/{text}") }))
+        }
+        None => Err(format!("`{text}` is neither a type nor a schema name")),
     }
+}
+
+/// Whether `text` may name a component (`^[a-zA-Z0-9.\-_]+$`).
+fn is_component_name(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
 /// The standard reason phrase of a status code (or code range), used when a

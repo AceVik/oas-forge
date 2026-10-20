@@ -69,3 +69,29 @@ fn methods_are_inferred_too() {
     );
     assert!(routes(&items)[0].signature.as_ref().unwrap().body.is_some());
 }
+
+#[test]
+fn optional_body_extractors() {
+    let found = signature(
+        "/// @route POST /x\nasync fn h(body: Option<Json<New>>) -> Json<User> { todo!() }",
+    )
+    .unwrap();
+    assert_eq!(found.body, Some((ty("New"), "application/json".into())));
+    assert!(found.optional_body);
+
+    let found =
+        signature("/// @route POST /x\nasync fn h(f: Option<web::Form<Login>>) {}").unwrap();
+    assert_eq!(
+        found.body,
+        Some((ty("Login"), "application/x-www-form-urlencoded".into()))
+    );
+    assert!(found.optional_body);
+
+    let found = signature("/// @route POST /x\nasync fn h(Json(b): Json<Option<New>>) {}").unwrap();
+    assert!(!found.optional_body, "a JSON `null` body is still a body");
+    // Other `Option`s are not extractors.
+    assert_eq!(
+        signature("/// @route POST /x\nasync fn h(o: Option<User>) {}"),
+        None
+    );
+}

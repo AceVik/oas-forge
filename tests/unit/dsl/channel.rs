@@ -135,3 +135,29 @@ fn problems_are_reported() {
         ]
     );
 }
+
+#[test]
+fn a_payload_that_is_no_type_is_reported_and_skipped() {
+    let (document, diagnostics) = compile(
+        &[
+            "@channel orders",
+            "@send Broken: { type: object",
+            "@send Fine: $Order",
+        ],
+        Some("publish"),
+    );
+    assert_eq!(codes(&diagnostics), [Code::InvalidDirective]);
+    let document = document.unwrap();
+    assert!(document["components"]["messages"].get("Broken").is_none());
+    assert!(document["components"]["messages"]["Fine"].is_object());
+}
+
+#[test]
+fn a_block_without_channel_line_is_rejected_once() {
+    let (document, diagnostics) = compile(&["@send A: $A"], None);
+    assert!(document.is_none());
+    assert_eq!(codes(&diagnostics), [Code::InvalidRoute]);
+    let (document, diagnostics) = compile(&["@channel"], None);
+    assert!(document.is_none());
+    assert_eq!(codes(&diagnostics), [Code::InvalidRoute]);
+}

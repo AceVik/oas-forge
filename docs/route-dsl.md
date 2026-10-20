@@ -34,7 +34,9 @@ parameters say, see [below](#signature-inference).
   `responses:`, `callbacks:`, `deprecated:`, `security:`, `servers:`) or an
   extension (`x-…:`) starts embedded YAML, which runs until the next
   directive. `@openapi` starts YAML explicitly, see
-  [embedded OpenAPI](#embedded-openapi).
+  [embedded OpenAPI](#embedded-openapi). An `@extend` line merges a
+  fragment into the operation without starting YAML: plain lines after it
+  are still description.
 - One block contains one `@route` or `@webhook`.
 
 ## Paths
@@ -54,7 +56,8 @@ A placeholder can declare its parameter inline:
 | `{slug "Readable id"}` | a string with a description |
 
 Every placeholder needs a parameter and every path parameter a placeholder;
-otherwise the route is rejected with an error (`OF2002`, `OF2003`).
+otherwise the route is rejected with an error (`OF2002`, `OF2003`). A path
+that does not start with `/` gets one.
 
 Without a function (in a `//!` file comment, a *virtual route*), the
 operationId is derived from the method and path: `GET /users/{id}` becomes
@@ -69,7 +72,7 @@ methods work like functions.
 | `@webhook` | `[METHOD] name` | `webhooks.name` (OpenAPI 3.1+); the method defaults to `POST` |
 | `@summary` | `text` | `summary` |
 | `@description` | `text` | `description` |
-| `@tag` | `Name[, Name…]` | `tags` |
+| `@tag` | `Name[, Name…]` | `tags` (several lines add up) |
 | `@deprecated` | | `deprecated: true` (also from `#[deprecated]` on the handler) |
 | `@operation-id` | `id` | `operationId` |
 | `@external-docs` | `URL ["description"]` | `externalDocs` |
@@ -100,6 +103,10 @@ Wherever the DSL takes a type:
 | `{ type: string, format: binary }` | inline YAML or JSON |
 | `unit`, `()` or nothing | no body (for `@return`) |
 | `stream<T>` | a stream of `T` (OpenAPI 3.2 `itemSchema`), for `@return` |
+| `api-error` | a reference to the schema `api-error` (a schema name that is no Rust type) |
+
+Text that is none of these, such as invalid inline YAML, is reported
+(`OF2004`) and the directive ignored.
 
 ## Parameters
 
@@ -129,8 +136,11 @@ Flags may come in any order; an unknown flag is reported and ignored.
 
 `@query-params $Pagination` adds one query parameter per field of the
 documented struct `Pagination` (field descriptions included; `Option`
-fields are optional). It works for `path`, `header` and `cookie` too.
-Parameters written explicitly win over expanded ones with the same name.
+fields are optional). Fields of `#[serde(flatten)]` structs are included; a
+flattened `Option<T>` makes its fields optional. A path such as
+`models::Pagination` names the struct by its last segment. It works for
+`path`, `header` and `cookie` too. Parameters written explicitly win over
+expanded ones with the same name.
 
 A `querystring` parameter (OpenAPI 3.2) describes the whole query string
 with a schema; it is written as
@@ -272,10 +282,20 @@ pub mod tenants {
 }
 ```
 
-`@prefix` is prepended to every path (nested prefixes add up). Parameters,
-responses and other directives are added to each route unless the route sets
-the same itself: the route's tags, security and responses win. Module doc
-lines of the form `tags: [A, B]` (from 0.1) still tag the operations inside.
+`@prefix` is prepended to every path; nested prefixes add up, joined with
+exactly one `/`, and may declare parameters inline
+(`@prefix /tenants/{tenant: String "Tenant slug"}`). Parameters, responses
+and other directives are added to each route unless the route sets the same
+itself: the route's tags, security and responses win. Likewise, the `@tag`
+and `@security` lines of an inner module replace those of the outer modules
+(in the example, `invoice` is tagged `Billing` only); within one module,
+several lines add up. Webhooks get no path parameters from the defaults.
+
+The defaults are a block like a route's: `{{variables}}`, `@insert` and
+`@extend` work, `@no-infer` turns signature inference off for every route
+of the module, and embedded YAML (`x-rate-limit: 10`, `@openapi path`, …)
+fills what the route leaves open. Module doc lines of the form
+`tags: [A, B]` (from 0.1) still tag the operations inside.
 
 ## Signature inference
 
@@ -286,7 +306,7 @@ open:
 | :--- | :--- |
 | `Path<T>`, `web::Path<T>` | the types of undeclared path parameters (a tuple in path order; a struct is expanded) |
 | `Query<T>` | one query parameter per field of `T` |
-| `Json<T>`, `Form<T>` | the request body (`application/json`, `application/x-www-form-urlencoded`) |
+| `Json<T>`, `Form<T>` | the request body (`application/json`, `application/x-www-form-urlencoded`); in `Option` it is optional |
 | `Multipart` | a `multipart/form-data` body |
 | `-> Json<T>`, `-> Result<Json<T>, E>`, `-> (StatusCode, Json<T>)` | the `200` response |
 
@@ -301,8 +321,14 @@ pub async fn update_user(
 }
 ```
 
-Everything written in the block wins: inference only fills gaps. A path
-extractor that does not fit the placeholders is reported (`OF2007`).
+Everything written in the block (and its module defaults) wins: inference
+only fills gaps. The `200` response is inferred unless the block documents a
+`2XX` response; a `default` response, usually the error, does not count.
+`Query<T>` is expanded unless the block has `@query-params` or a
+`querystring` parameter; single query parameters written in the block win
+over expanded ones of the same name. Extractor types may be paths
+(`axum::extract::Query<models::Paging>`). A path extractor that does not
+fit the placeholders is reported (`OF2007`).
 `@no-infer` turns inference off for one route,
 `Generator::infer_signatures(false)` for all.
 

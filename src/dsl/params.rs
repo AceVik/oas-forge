@@ -5,6 +5,7 @@
 
 use super::tokens::{tokenize, unquote};
 use crate::attrs::validate::{Constraints, LengthUnit, Rule};
+use crate::diagnostics::Location;
 use crate::schema::{TypeExpr, TypeMapper};
 use crate::yaml;
 use serde_json::{Map, Number, Value, json};
@@ -155,10 +156,24 @@ pub(super) fn inline_path(
 }
 
 /// `@query-params $Pagination`: one parameter per property of the struct,
-/// expanded once the struct's schema is known.
-pub(super) fn expansion(location: &str, type_text: &str) -> Value {
+/// expanded once the struct's schema is known. A path such as
+/// `models::Pagination` names the struct by its last segment, like every
+/// other Rust type.
+/// The marker carries `at`, the annotation that asked for the expansion, for
+/// findings.
+pub(super) fn expansion(location: &str, type_text: &str, at: &Location) -> Value {
     let name = type_text.trim().trim_start_matches('$');
-    json!({ EXPAND_KEY: { "in": location, "schema": format!("${name}") } })
+    let name = if name.contains('<') {
+        name
+    } else {
+        name.rsplit("::").next().unwrap_or(name)
+    };
+    json!({ EXPAND_KEY: {
+        "in": location,
+        "schema": format!("${name}"),
+        "file": at.file().to_string_lossy(),
+        "line": at.line(),
+    } })
 }
 
 /// Sets `key` of an object schema; other schemas (a custom mapping such as

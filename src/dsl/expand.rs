@@ -3,10 +3,13 @@
 //! component schema is known.
 
 use super::EXPAND_KEY;
-use crate::diagnostics::{Code, Diagnostic, Diagnostics};
+use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::document::for_each_operation;
 use crate::schema::strip_null;
 use serde_json::{Map, Value, json};
+
+/// How deep flattened structs (`#[serde(flatten)]`) are followed.
+const MAX_FLATTEN_DEPTH: usize = 8;
 
 /// Replaces every expansion marker with one parameter per property of the
 /// referenced schema. Placeholders an expansion leaves undeclared are
@@ -27,7 +30,7 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
         let explicit: Vec<(Value, Value)> = parameters
             .iter()
             .filter(|p| p.get(EXPAND_KEY).is_none())
-            .map(|p| (p["name"].clone(), p["in"].clone()))
+            .map(identity)
             .collect();
         let mut expanded = Vec::with_capacity(parameters.len());
         for parameter in std::mem::take(parameters) {
@@ -35,15 +38,24 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
                 expanded.push(parameter);
                 continue;
             };
-            let location = marker["in"].as_str().unwrap_or("query").to_string();
-            let target = marker["schema"].as_str().unwrap_or_default();
+            let location = marker
+                .get("in")
+                .and_then(Value::as_str)
+                .unwrap_or("query")
+                .to_string();
+            let target = marker
+                .get("schema")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             let schema = target
                 .strip_prefix("#/components/schemas/")
                 .and_then(|name| schemas.get(name));
             let new = match schema {
-                Some(schema) => from_schema(schema, target, &location, marker.get("name")),
+                Some(schema) => {
+                    from_schema(schema, &schemas, target, &location, marker.get("name"))
+                }
                 None => {
-                    diagnostics.push(Diagnostic::new(
+                    let mut diagnostic = Diagnostic::new(
                         Code::UnresolvedExpansion,
                         format!(
                             "`{}` of {} {} {} is not a documented struct; its {location} parameters are not documented",
@@ -52,19 +64,22 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
                             at.section.trim_end_matches('s'),
                             at.name
                         ),
-                    ));
+                    );
+                    if let (Some(file), Some(line)) = (
+                        marker.get("file").and_then(Value::as_str),
+                        marker.get("line").and_then(Value::as_u64),
+                    ) {
+                        let line = usize::try_from(line).unwrap_or_default();
+                        diagnostic = diagnostic.at(Location::new(file, line));
+                    }
+                    diagnostics.push(diagnostic);
                     Vec::new()
                 }
             };
             for parameter in new {
-                let identity = (
-                    parameter.get("name").cloned().unwrap_or_default(),
-                    parameter.get("in").cloned().unwrap_or_default(),
-                );
-                let duplicate = explicit.contains(&identity)
-                    || expanded
-                        .iter()
-                        .any(|p| p["name"] == identity.0 && p["in"] == identity.1);
+                let id = identity(&parameter);
+                let duplicate =
+                    explicit.contains(&id) || expanded.iter().any(|p| identity(p) == id);
                 if !duplicate {
                     expanded.push(parameter);
                 }
@@ -75,39 +90,109 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
     remove_empty_parameters(document);
 }
 
-/// One parameter per property of an object schema; a non-object schema is a
-/// single parameter called `fallback`.
+/// The name and location of a parameter.
+fn identity(parameter: &Value) -> (Value, Value) {
+    (
+        parameter.get("name").cloned().unwrap_or_default(),
+        parameter.get("in").cloned().unwrap_or_default(),
+    )
+}
+
+/// The properties of an object schema with the names it requires, including
+/// those of flattened structs (`allOf`; an optional one is
+/// `anyOf: [{$ref}, {}]`).
+#[derive(Default)]
+struct Fields {
+    properties: Map<String, Value>,
+    required: Vec<String>,
+}
+
+impl Fields {
+    fn collect(&mut self, schema: &Value, schemas: &Value, optional: bool, depth: usize) {
+        if depth > MAX_FLATTEN_DEPTH {
+            return;
+        }
+        if let Some(target) = schema
+            .get("$ref")
+            .and_then(Value::as_str)
+            .and_then(|r| r.strip_prefix("#/components/schemas/"))
+            .and_then(|name| schemas.get(name))
+        {
+            self.collect(target, schemas, optional, depth + 1);
+            return;
+        }
+        if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
+            for (name, property) in properties {
+                if !self.properties.contains_key(name) {
+                    self.properties.insert(name.clone(), property.clone());
+                }
+            }
+        }
+        if !optional {
+            let required = schema.get("required").and_then(Value::as_array);
+            for name in required.into_iter().flatten().filter_map(Value::as_str) {
+                if !self.required.iter().any(|r| r == name) {
+                    self.required.push(name.to_string());
+                }
+            }
+        }
+        for part in schema
+            .get("allOf")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            match part.get("anyOf").and_then(Value::as_array) {
+                // `#[serde(flatten)] field: Option<T>`: every field optional.
+                Some(alternatives) if alternatives.iter().any(is_empty_or_null) => {
+                    for alternative in alternatives.iter().filter(|a| !is_empty_or_null(a)) {
+                        self.collect(alternative, schemas, true, depth + 1);
+                    }
+                }
+                _ => self.collect(part, schemas, optional, depth + 1),
+            }
+        }
+    }
+}
+
+/// `{}` or `{type: null}`: the alternative of an optional value.
+fn is_empty_or_null(schema: &Value) -> bool {
+    schema.as_object().is_some_and(Map::is_empty)
+        || schema.get("type").and_then(Value::as_str) == Some("null")
+}
+
+/// One parameter per property of an object schema (flattened structs
+/// included); a non-object schema is a single parameter called `fallback`.
 fn from_schema(
     schema: &Value,
+    schemas: &Value,
     target: &str,
     location: &str,
     fallback: Option<&Value>,
 ) -> Vec<Value> {
-    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+    let mut fields = Fields::default();
+    fields.collect(schema, schemas, false, 0);
+    if fields.properties.is_empty() {
         return fallback
             .map(|name| vec![json!({ "name": name, "in": location, "required": true, "schema": { "$ref": target } })])
             .unwrap_or_default();
-    };
-    let required: Vec<&Value> = schema
-        .get("required")
-        .and_then(Value::as_array)
-        .map(|r| r.iter().collect())
-        .unwrap_or_default();
+    }
+    let Fields {
+        properties,
+        required,
+    } = fields;
     properties
-        .iter()
-        .map(|(name, property)| {
-            let mut property = property.clone();
+        .into_iter()
+        .map(|(name, mut property)| {
             let description = match &mut property {
                 Value::Object(map) => map.remove("description"),
                 _ => None,
             };
+            let required = location == "path" || required.contains(&name);
             let mut parameter = Map::new();
             parameter.insert("name".into(), json!(name));
             parameter.insert("in".into(), json!(location));
-            parameter.insert(
-                "required".into(),
-                json!(location == "path" || required.contains(&&json!(name))),
-            );
+            parameter.insert("required".into(), json!(required));
             if let Some(description) = description {
                 parameter.insert("description".into(), description);
             }

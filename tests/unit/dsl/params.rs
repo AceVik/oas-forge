@@ -415,19 +415,31 @@ mod dsl_v2 {
             .iter()
             .map(|p| p["x-oas-forge-expand"].clone())
             .collect();
+        // The marker remembers the annotation for findings of the expansion.
+        let at = |location: &str, schema: &str| json!({ "in": location, "schema": schema, "file": "test.rs", "line": 1 });
         assert_eq!(
             markers,
             [
-                json!({ "in": "path", "schema": "$Ids" }),
-                json!({ "in": "query", "schema": "$Filter" }),
-                json!({ "in": "header", "schema": "$H" }),
-                json!({ "in": "cookie", "schema": "$C" }),
+                at("path", "$Ids"),
+                at("query", "$Filter"),
+                at("header", "$H"),
+                at("cookie", "$C"),
             ]
         );
         assert_eq!(
             findings(&["@route GET /x", "@query-params"]),
             [Code::InvalidDirective]
         );
+    }
+
+    #[test]
+    fn qualified_struct_names_use_the_last_segment() {
+        let op = operation(
+            &["@route GET /x", "@query-params crate::models::Filter"],
+            "/x",
+            "get",
+        );
+        assert_eq!(params(&op)[0]["x-oas-forge-expand"]["schema"], "$Filter");
     }
 
     #[test]
@@ -453,4 +465,19 @@ fn flag_values_that_are_not_yaml_stay_text() {
     assert_eq!(q["example"], "[open \"x\"");
     assert_eq!(q["schema"]["default"], "");
     assert_eq!(q["required"], false);
+}
+
+#[test]
+fn brackets_in_a_pattern_do_not_group() {
+    let op = operation(
+        &[
+            "@route GET /x",
+            "@query-param q: String pattern=[^(]+ \"Search text\"",
+        ],
+        "/x",
+        "get",
+    );
+    let q = param(&op, "q");
+    assert_eq!(q["schema"]["pattern"], "[^(]+");
+    assert_eq!(q["description"], "Search text");
 }

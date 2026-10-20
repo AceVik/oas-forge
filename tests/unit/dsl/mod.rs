@@ -7,7 +7,8 @@ mod responses;
 
 use crate::common::{codes, here, lines, operation, route, try_route};
 use oas_forge::diagnostics::{Code, Diagnostics, Location, Severity};
-use oas_forge::dsl::{self, RouteSource};
+use oas_forge::dsl::{self, RouteSource, Signature};
+use oas_forge::schema::TypeExpr;
 use serde_json::{Value, json};
 
 /// Compiles `src` and returns the codes of the findings.
@@ -507,6 +508,293 @@ mod methods {
                 .unwrap()
                 .message()
                 .contains("`G(E)T` is not an HTTP method")
+        );
+    }
+}
+
+/// Compiles `src` with module `defaults` and a handler `signature`.
+fn compile_with(
+    src: &[&str],
+    defaults: &[&str],
+    signature: Option<&Signature>,
+) -> (Option<Value>, Diagnostics) {
+    let mut diagnostics = Diagnostics::new();
+    let block = lines(src);
+    let defaults = lines(defaults);
+    let location = here();
+    let compiled = dsl::compile(
+        RouteSource::new(&block, &location)
+            .operation_id(Some("op"))
+            .defaults(&defaults)
+            .signature(signature),
+        &mut diagnostics,
+    );
+    (compiled.map(|c| c.document), diagnostics)
+}
+
+mod module_defaults {
+    use super::*;
+
+    fn op(src: &[&str], defaults: &[&str], path: &str) -> Value {
+        let (document, diagnostics) = compile_with(src, defaults, None);
+        let document = document.unwrap_or_else(|| panic!("rejected: {diagnostics:#?}"));
+        document["paths"][path]["get"].clone()
+    }
+
+    #[test]
+    fn inner_module_security_replaces_the_outer_one() {
+        let defaults = [
+            "@route-defaults",
+            "@security bearer",
+            "@route-defaults",
+            "@security admin_key",
+            "@security admin_cert",
+        ];
+        let op = op(&["@route GET /x"], &defaults, "/x");
+        // Not `bearer OR admin_key`: the inner module restricts access.
+        assert_eq!(
+            op["security"],
+            json!([{ "admin_key": [] }, { "admin_cert": [] }])
+        );
+    }
+
+    #[test]
+    fn outer_security_applies_when_the_inner_module_sets_none() {
+        let defaults = [
+            "@route-defaults",
+            "@security bearer",
+            "@route-defaults",
+            "@tag Inner",
+        ];
+        let op = op(&["@route GET /x"], &defaults, "/x");
+        assert_eq!(op["security"], json!([{ "bearer": [] }]));
+        assert_eq!(op["tags"], json!(["Inner"]));
+    }
+
+    #[test]
+    fn tag_lines_of_one_block_add_up() {
+        let op = op(
+            &["@route GET /x", "@tag Users", "@tag Admin, Users"],
+            &[],
+            "/x",
+        );
+        assert_eq!(op["tags"], json!(["Users", "Admin"]));
+        let defaults = [
+            "@route-defaults",
+            "@tag A",
+            "@tag B",
+            "@route-defaults",
+            "@tag C",
+        ];
+        assert_eq!(op_tags(&defaults), json!(["C"]));
+        assert_eq!(op_tags(&defaults[..3]), json!(["A", "B"]));
+    }
+
+    fn op_tags(defaults: &[&str]) -> Value {
+        op(&["@route GET /x"], defaults, "/x")["tags"].clone()
+    }
+
+    #[test]
+    fn yaml_in_defaults_fills_what_the_route_leaves_open() {
+        let defaults = [
+            "@route-defaults",
+            "x-rate-limit: 10",
+            "x-owner: team-a",
+            "parameters:",
+            "  - { name: trace, in: header, schema: { type: string } }",
+            "  - { name: page, in: query, schema: { type: integer } }",
+        ];
+        let op = op(
+            &[
+                "@route GET /x",
+                "@query-param page: u8 \"Own\"",
+                "x-owner: team-b",
+            ],
+            &defaults,
+            "/x",
+        );
+        assert_eq!(op["x-rate-limit"], 10);
+        assert_eq!(op["x-owner"], "team-b", "the route wins");
+        let names: Vec<_> = params(&op).iter().map(|p| p["name"].clone()).collect();
+        assert_eq!(names, [json!("page"), json!("trace")]);
+        assert_eq!(param(&op, "page")["description"], "Own");
+    }
+
+    #[test]
+    fn no_infer_in_defaults_turns_inference_off() {
+        let mut signature = Signature::default();
+        signature.response = TypeExpr::parse("User");
+        let (document, _) = compile_with(
+            &["@route GET /x"],
+            &["@route-defaults", "@no-infer"],
+            Some(&signature),
+        );
+        let document = document.unwrap();
+        assert_eq!(
+            document["paths"]["/x"]["get"]["responses"],
+            json!({ "default": { "description": "Default response" } })
+        );
+    }
+
+    #[test]
+    fn prefixes_are_joined_with_one_slash_and_declare_inline_parameters() {
+        let defaults = [
+            "@route-defaults",
+            "@prefix /api/",
+            "@route-defaults",
+            "@prefix tenants/{tenant: String \"Tenant slug\"}",
+        ];
+        let (document, diagnostics) = compile_with(&["@route GET users"], &defaults, None);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let document = document.unwrap();
+        let op = &document["paths"]["/api/tenants/{tenant}/users"]["get"];
+        assert_eq!(
+            param(op, "tenant"),
+            json!({ "name": "tenant", "in": "path", "required": true, "description": "Tenant slug", "schema": { "type": "string" } })
+        );
+    }
+
+    #[test]
+    fn webhooks_get_no_path_parameters_from_defaults() {
+        let defaults = [
+            "@route-defaults",
+            "@prefix /tenants/{tenant}",
+            "@path-param tenant: String",
+            "@header-param X-Trace: String",
+        ];
+        let (document, diagnostics) = compile_with(&["@webhook orderPaid"], &defaults, None);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let op = &document.unwrap()["webhooks"]["orderPaid"]["post"];
+        let names: Vec<_> = params(op).iter().map(|p| p["name"].clone()).collect();
+        assert_eq!(names, [json!("X-Trace")]);
+    }
+
+    #[test]
+    fn extend_markers_of_defaults_and_route_do_not_collide() {
+        let marker = |n: u8| format!("x-oas-forge-extend-{n}: 'Frag{n}'");
+        let route_marker = marker(1);
+        let default_marker = marker(1);
+        let (document, _) = compile_with(
+            &["@route GET /x", &route_marker],
+            &["@route-defaults", &default_marker],
+            None,
+        );
+        let op = &document.unwrap()["paths"]["/x"]["get"];
+        assert_eq!(op["x-oas-forge-extend-1"], "Frag1");
+        assert_eq!(op["x-oas-forge-extend-defaults-1"], "Frag1");
+    }
+}
+
+mod block_lines {
+    use super::*;
+
+    #[test]
+    fn an_extend_marker_does_not_start_a_yaml_section() {
+        let op = operation(
+            &[
+                "Summary",
+                "x-oas-forge-extend-1: 'Common'",
+                "More description.",
+                "@route GET /x",
+            ],
+            "/x",
+            "get",
+        );
+        assert_eq!(op["description"], "More description.");
+        assert_eq!(op["x-oas-forge-extend-1"], "Common");
+    }
+
+    #[test]
+    fn prose_starting_with_x_is_not_yaml() {
+        let src = [
+            "Summary",
+            "x-forwarded headers are honoured.",
+            "x-request-id: echoed",
+            "@route GET /x",
+        ];
+        assert_eq!(findings(&src), []);
+        let op = operation(&src, "/x", "get");
+        assert_eq!(op["description"], "x-forwarded headers are honoured.");
+        assert_eq!(op["x-request-id"], "echoed");
+    }
+
+    #[test]
+    fn a_path_without_leading_slash_is_normalized() {
+        assert!(route(&["@route GET users"])["paths"]["/users"]["get"].is_object());
+    }
+}
+
+mod inference {
+    use super::*;
+
+    fn with(signature: &Signature, src: &[&str]) -> Value {
+        let (document, diagnostics) = compile_with(src, &[], Some(signature));
+        let document = document.unwrap_or_else(|| panic!("rejected: {diagnostics:#?}"));
+        document["paths"]["/x"]["get"].clone()
+    }
+
+    fn returning(ty: &str) -> Signature {
+        let mut signature = Signature::default();
+        signature.response = TypeExpr::parse(ty);
+        signature
+    }
+
+    #[test]
+    fn a_default_response_does_not_stop_the_success_response() {
+        let op = with(
+            &returning("User"),
+            &["@route GET /x", "@return default: $Error \"Unexpected\""],
+        );
+        let codes: Vec<_> = op["responses"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        assert_eq!(
+            codes,
+            ["200", "default"],
+            "the success response comes first"
+        );
+        assert_eq!(response_schema(&op, "200"), json!({ "$ref": "$User" }));
+    }
+
+    #[test]
+    fn a_documented_success_response_wins() {
+        for code in ["201", "2XX"] {
+            let op = with(
+                &returning("User"),
+                &["@route GET /x", &format!("@return {code}: $Other")],
+            );
+            assert!(op["responses"].get("200").is_none(), "{code}");
+        }
+    }
+
+    #[test]
+    fn single_query_parameters_do_not_stop_query_inference() {
+        let mut signature = Signature::default();
+        signature.query = TypeExpr::parse("ListParams");
+        let op = with(&signature, &["@route GET /x", "@query-param sort: String"]);
+        assert_eq!(
+            params(&op)[1],
+            json!({ "x-oas-forge-expand": { "in": "query", "schema": "$ListParams", "file": "test.rs", "line": 1 } })
+        );
+        for declared in ["@query-params $Other", "@querystring-param q: $Filter"] {
+            let op = with(&signature, &["@route GET /x", declared]);
+            assert_eq!(params(&op).len(), 1, "{declared}");
+        }
+    }
+
+    #[test]
+    fn an_optional_body_is_not_required() {
+        let mut signature = Signature::default();
+        signature.body = TypeExpr::parse("User").map(|t| (t, "application/json".to_string()));
+        signature.optional_body = true;
+        let op = with(&signature, &["@route GET /x"]);
+        assert_eq!(op["requestBody"]["required"], false);
+        assert_eq!(
+            op["requestBody"]["content"]["application/json"]["schema"],
+            json!({ "$ref": "$User" })
         );
     }
 }

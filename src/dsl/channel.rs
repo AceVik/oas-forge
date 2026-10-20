@@ -93,6 +93,8 @@ pub fn compile_channel(
         None => source.location.clone(),
     };
     let mut channel: Option<(String, String)> = None;
+    // An invalid `@channel` line is reported where it is.
+    let mut channel_lines = 0;
     let mut summary: Option<String> = None;
     let mut description: Vec<String> = Vec::new();
     let mut tags: Vec<String> = Vec::new();
@@ -113,6 +115,7 @@ pub fn compile_channel(
             .map_or((directive, ""), |(n, r)| (n, r.trim()));
         match name {
             "channel" => {
+                channel_lines += 1;
                 let tokens: Vec<&str> = rest.split_whitespace().collect();
                 channel = match tokens.as_slice() {
                     [address] => Some((derived_id(address), (*address).to_string())),
@@ -158,7 +161,17 @@ pub fn compile_channel(
                 let mut object = Map::new();
                 object.insert("name".into(), json!(message));
                 if !type_text.is_empty() {
-                    object.insert("payload".into(), type_schema(type_text, source.types));
+                    match type_schema(type_text, source.types) {
+                        Ok(payload) => {
+                            object.insert("payload".into(), payload);
+                        }
+                        Err(message) => {
+                            diagnostics.push(
+                                Diagnostic::new(Code::InvalidDirective, message).at(at(index)),
+                            );
+                            continue;
+                        }
+                    }
                 }
                 if let Some(text) = text {
                     object.insert("description".into(), json!(text));
@@ -183,7 +196,7 @@ pub fn compile_channel(
     }
 
     let Some((id, address)) = channel else {
-        if !diagnostics.iter().any(|d| d.code() == Code::InvalidRoute) {
+        if channel_lines == 0 {
             diagnostics.push(
                 Diagnostic::new(Code::InvalidRoute, "`@channel` needs an address")
                     .at(source.location.clone()),

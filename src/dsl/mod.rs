@@ -26,6 +26,7 @@ pub(crate) use params::EXPAND_KEY;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
 use crate::merge::{Policy, merge};
 use crate::schema::{TypeExpr, TypeMapper};
+use crate::template::lexical::EXTEND_KEY;
 use crate::yaml;
 use operation::Security;
 use regex::Regex;
@@ -48,6 +49,9 @@ const YAML_KEYS: &[&str] = &[
     "servers",
 ];
 
+/// The `@extend` marker prefix of module defaults.
+const DEFAULTS_EXTEND_KEY: &str = "x-oas-forge-extend-defaults-";
+
 /// Methods that are fixed fields of a path item (OpenAPI 3.2 adds `query`);
 /// other methods go to `additionalOperations`.
 pub(crate) const METHODS: &[&str] = &[
@@ -67,6 +71,8 @@ pub struct Signature {
     pub query: Option<TypeExpr>,
     /// The request body type and media type (`Json<T>`, `Form<T>`).
     pub body: Option<(TypeExpr, String)>,
+    /// Whether the body may be left out (`Option<Json<T>>`).
+    pub optional_body: bool,
     /// The type of the successful response (`Json<T>`, `Result<Json<T>, E>`).
     pub response: Option<TypeExpr>,
 }
@@ -100,7 +106,9 @@ pub struct RouteSource<'a> {
     pub location: &'a Location,
     /// How Rust types in the block map to schemas.
     pub types: &'a TypeMapper,
-    /// `@route-defaults` lines of the enclosing modules, outermost first.
+    /// `@route-defaults` blocks of the enclosing modules, outermost first.
+    /// Each block starts with its `@route-defaults` header line, so that the
+    /// tags and security of an inner module replace those of outer ones.
     pub defaults: &'a [String],
     /// The handler's signature, used to fill gaps of the block.
     pub signature: Option<&'a Signature>,
@@ -196,13 +204,16 @@ struct Builder {
     summary: Option<String>,
     description: Vec<String>,
     in_description: bool,
-    yaml: Vec<(Scope, usize, String)>,
+    yaml: Vec<(Scope, Option<usize>, String)>,
     scope: Option<Scope>,
     declared: BTreeSet<String>,
     document: Map<String, Value>,
     no_infer: bool,
-    query_declared: bool,
     route_lines: usize,
+    /// The tags and security so far come from an enclosing module; the next
+    /// `@tag` or `@security` of an inner module replaces them.
+    outer_tags: bool,
+    outer_security: bool,
 }
 
 static INLINE_PARAM_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -235,7 +246,10 @@ pub fn compile(source: RouteSource<'_>, diagnostics: &mut Diagnostics) -> Option
     // Module defaults are compiled like a block without `@route`.
     let mut defaults = Builder::default();
     for line in source.defaults {
-        compiler.line(&mut defaults, None, line, true);
+        // `@extend` markers of the defaults must not collide with those of
+        // the route when both are merged into the operation.
+        let line = line.replace(EXTEND_KEY, DEFAULTS_EXTEND_KEY);
+        compiler.line(&mut defaults, None, &line, true);
     }
     let mut builder = Builder::default();
     for (index, line) in source.lines.iter().enumerate() {
@@ -271,7 +285,7 @@ impl Compiler<'_, '_> {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             match b.scope {
-                Some(scope) => b.yaml.push((scope, index.unwrap_or(0), String::new())),
+                Some(scope) => b.yaml.push((scope, index, String::new())),
                 None if b.in_description || b.summary.is_some() => {
                     b.description.push(String::new());
                 }
@@ -285,15 +299,26 @@ impl Compiler<'_, '_> {
             self.directive(b, index, directive, defaults);
             return;
         }
-        let key = trimmed.split(':').next().unwrap_or_default().trim();
+        // A key is a word before `:`; prose such as `x-forwarded headers…`
+        // is not one.
+        let key = trimmed
+            .split_once(':')
+            .map(|(key, _)| key.trim())
+            .filter(|key| !key.is_empty() && !key.contains(char::is_whitespace));
+        if b.scope.is_none() && key.is_some_and(|key| key.starts_with(EXTEND_KEY)) {
+            // An `@extend` line merges into the operation but does not start
+            // a YAML section: the lines after it are still prose.
+            b.yaml.push((Scope::Operation, index, line.to_string()));
+            return;
+        }
         if b.scope.is_none()
             && !b.in_description
-            && (YAML_KEYS.contains(&key) || key.starts_with("x-"))
+            && key.is_some_and(|key| YAML_KEYS.contains(&key) || key.starts_with("x-"))
         {
             b.scope = Some(Scope::Operation);
         }
         match b.scope {
-            Some(scope) => b.yaml.push((scope, index.unwrap_or(0), line.to_string())),
+            Some(scope) => b.yaml.push((scope, index, line.to_string())),
             None if b.in_description || b.summary.is_some() => {
                 b.description.push(line.to_string());
             }
@@ -315,14 +340,26 @@ impl Compiler<'_, '_> {
         match name {
             "route" if !defaults => self.route(b, index, rest),
             "webhook" if !defaults => self.webhook(b, index, rest),
-            "prefix" if defaults => b.prefix.push_str(rest.trim_end_matches('/')),
+            // Each module's defaults start with their header: what an inner
+            // module sets replaces what the outer modules set.
+            "route-defaults" if defaults => {
+                b.outer_tags = b.tags.is_some();
+                b.outer_security = b.security.is_some();
+            }
+            "prefix" if defaults => {
+                let prefix = self.path_template(b, rest);
+                b.prefix.push_str(prefix.trim_end_matches('/'));
+            }
             "tag" => {
-                b.tags = Some(
-                    rest.split(',')
-                        .map(|t| t.trim().to_string())
-                        .filter(|t| !t.is_empty())
-                        .collect(),
-                );
+                if std::mem::take(&mut b.outer_tags) {
+                    b.tags = None;
+                }
+                let tags = b.tags.get_or_insert_with(Vec::new);
+                for tag in rest.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+                    if !tags.iter().any(|t| t == tag) {
+                        tags.push(tag.to_string());
+                    }
+                }
             }
             "summary" => b.summary = Some(rest.to_string()),
             "description" => {
@@ -337,28 +374,36 @@ impl Compiler<'_, '_> {
             "operation-id" if !rest.is_empty() => {
                 b.operation.insert("operationId".into(), json!(rest));
             }
-            "external-docs" => match operation::external_docs(rest) {
+            "external-docs" => match operation::url_with_description(rest) {
                 Some(docs) => {
                     b.operation.insert("externalDocs".into(), docs);
                 }
                 None => self.invalid(index, "`@external-docs` needs `URL [\"description\"]`"),
             },
-            "server" => match operation::server(rest) {
+            "server" => match operation::url_with_description(rest) {
                 Some(server) => push(&mut b.operation, "servers", server),
                 None => self.invalid(index, "`@server` needs `URL [\"description\"]`"),
             },
-            "security" => match operation::security(rest) {
-                // `{}` allows anonymous access; alone it means no security.
-                Some(Security::None) => b.security.get_or_insert_with(Vec::new).push(json!({})),
-                Some(Security::Requirement(requirement)) => b
-                    .security
+            "security" => {
+                let requirement = match operation::security(rest) {
+                    // `{}` allows anonymous access; alone it means no security.
+                    Some(Security::None) => Map::new(),
+                    Some(Security::Requirement(requirement)) => requirement,
+                    None => {
+                        self.invalid(
+                            index,
+                            "`@security` needs `scheme[(scopes)] [+ scheme...]` or `none`",
+                        );
+                        return;
+                    }
+                };
+                if std::mem::take(&mut b.outer_security) {
+                    b.security = None;
+                }
+                b.security
                     .get_or_insert_with(Vec::new)
-                    .push(Value::Object(requirement)),
-                None => self.invalid(
-                    index,
-                    "`@security` needs `scheme[(scopes)] [+ scheme...]` or `none`",
-                ),
-            },
+                    .push(Value::Object(requirement));
+            }
             "param" => {
                 let (location, rest) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
                 self.parameter(b, index, location, rest);
@@ -376,14 +421,12 @@ impl Compiler<'_, '_> {
                         format!("`@{name}` needs a struct, e.g. `@{name} $Filter`"),
                     );
                 } else {
-                    if location == "query" {
-                        b.query_declared = true;
-                    }
-                    b.parameters.push(params::expansion(location, rest));
+                    let at = self.location(index);
+                    b.parameters.push(params::expansion(location, rest, &at));
                 }
             }
             "body" => match responses::body(rest, types) {
-                Some(body) => {
+                Ok(body) => {
                     let request = b
                         .operation
                         .entry("requestBody")
@@ -398,14 +441,11 @@ impl Compiler<'_, '_> {
                         request["description"] = json!(description);
                     }
                 }
-                None => self.invalid(index, "`@body` needs a type"),
+                Err(message) => self.invalid(index, message),
             },
             "return" => match responses::response(rest, types) {
-                Some(response) => add_response(&mut b.responses, response.code, response.value),
-                None => self.invalid(
-                    index,
-                    "`@return` needs `code: [Type] [media...] [\"description\"]`",
-                ),
+                Ok(response) => add_response(&mut b.responses, response.code, response.value),
+                Err(message) => self.invalid(index, message),
             },
             "return-header" => match responses::header(rest, types) {
                 Some((code, name, header)) => {
@@ -488,12 +528,8 @@ impl Compiler<'_, '_> {
                 format!("`{token}` is not a parameter flag and was ignored"),
             );
         }
-        match location {
-            "path" => {
-                b.declared.insert(parameter.name);
-            }
-            "query" | "querystring" => b.query_declared = true,
-            _ => {}
+        if location == "path" {
+            b.declared.insert(parameter.name);
         }
         add_parameter(&mut b.parameters, parameter.value);
     }
@@ -517,8 +553,17 @@ impl Compiler<'_, '_> {
             return;
         }
         b.method = method_key(method);
+        b.path = self.path_template(b, raw_path);
+    }
+
+    /// Normalizes a path (or `@prefix`) to start with `/` and declares its
+    /// inline parameters (`{id: u64 "User id"}`).
+    fn path_template(&mut self, b: &mut Builder, raw_path: &str) -> String {
         let raw_path = raw_path.trim();
         let mut path = String::new();
+        if !raw_path.is_empty() && !raw_path.starts_with('/') {
+            path.push('/');
+        }
         let mut last = 0;
         for caps in INLINE_PARAM_RE.captures_iter(raw_path) {
             let whole = caps.get_match();
@@ -539,7 +584,7 @@ impl Compiler<'_, '_> {
             add_parameter(&mut b.parameters, param);
         }
         path.push_str(raw_path.get(last..).unwrap_or_default());
-        b.path = path;
+        path
     }
 
     fn webhook(&mut self, b: &mut Builder, index: Option<usize>, rest: &str) {
@@ -571,11 +616,8 @@ impl Compiler<'_, '_> {
 
     fn finish(&mut self, mut b: Builder, defaults: Builder) -> Option<CompiledRoute> {
         if b.method.is_empty() || (b.path.is_empty() && b.webhook.is_none()) {
-            if !self
-                .diagnostics
-                .iter()
-                .any(|d| d.code() == Code::InvalidRoute)
-            {
+            // An invalid `@route` or `@webhook` line has been reported.
+            if b.route_lines == 0 {
                 self.report(
                     Code::InvalidRoute,
                     None,
@@ -596,12 +638,16 @@ impl Compiler<'_, '_> {
             b.path = format!("{}{}", defaults.prefix, b.path);
         }
         // Defaults: parameters first, the rest only where the route has none.
+        // A webhook has no path, so path parameters do not apply to it.
         for parameter in defaults.parameters.into_iter().rev() {
-            if !has_parameter(&b.parameters, &parameter) {
+            if !has_parameter(&b.parameters, &parameter) && !(webhook && is_path(&parameter)) {
                 b.parameters.insert(0, parameter);
             }
         }
-        b.declared.extend(defaults.declared);
+        if !webhook {
+            b.declared.extend(defaults.declared);
+        }
+        b.no_infer |= defaults.no_infer;
         if b.tags.is_none() {
             b.tags = defaults.tags;
         }
@@ -654,16 +700,19 @@ impl Compiler<'_, '_> {
                 Value::Array(std::mem::take(&mut b.parameters)),
             );
         }
-        if let Some(mut security) = b.security.take() {
-            if security.iter().all(|r| *r == json!({})) {
-                security.clear();
+        if let Some(requirements) = b.security.take() {
+            // `{}` alone (only `@security none`) means no security at all.
+            let mut security: Vec<Value> = Vec::with_capacity(requirements.len());
+            if requirements
+                .iter()
+                .any(|r| r.as_object().is_none_or(|r| !r.is_empty()))
+            {
+                for requirement in requirements {
+                    if !security.contains(&requirement) {
+                        security.push(requirement);
+                    }
+                }
             }
-            let mut seen = Vec::new();
-            security.retain(|r| {
-                let new = !seen.contains(r);
-                seen.push(r.clone());
-                new
-            });
             operation.insert("security".into(), Value::Array(security));
         }
         operation.extend(std::mem::take(&mut b.operation));
@@ -674,12 +723,21 @@ impl Compiler<'_, '_> {
         let mut operation = Value::Object(operation);
 
         let mut path_item = Value::Object(Map::new());
-        self.embedded_yaml(&b, &mut operation, &mut path_item, &mut document);
+        let yaml = std::mem::take(&mut b.yaml);
+        self.embedded_yaml(&yaml, false, &mut operation, &mut path_item, &mut document);
+        // YAML of the module defaults fills what the route leaves open.
+        self.embedded_yaml(
+            &defaults.yaml,
+            true,
+            &mut operation,
+            &mut path_item,
+            &mut document,
+        );
         // Embedded YAML that is not a mapping is rejected, so the operation
         // is still an object.
         if let Value::Object(map) = &mut operation {
             if let Some(signature) = signature {
-                self.infer_rest(&b, map, signature);
+                self.infer_rest(map, signature);
             }
             // OpenAPI requires at least one response.
             if let Some(Value::Object(responses)) = map.get_mut("responses")
@@ -724,10 +782,7 @@ impl Compiler<'_, '_> {
     /// Fills undeclared path parameters from the signature; returns whether a
     /// struct expansion still has to declare some of them.
     fn infer_path(&mut self, b: &mut Builder, signature: Option<&Signature>) -> bool {
-        let pending = b
-            .parameters
-            .iter()
-            .any(|p| p.get(EXPAND_KEY).is_some_and(|m| m["in"] == "path"));
+        let pending = b.parameters.iter().any(is_path_expansion);
         let Some(signature) = signature else {
             return pending;
         };
@@ -747,7 +802,8 @@ impl Compiler<'_, '_> {
         match signature.path.as_slice() {
             // `Path<Params>` with a struct: expanded once its schema is known.
             [single] if is_custom(single, types) => {
-                let mut marker = params::expansion("path", &single.to_string());
+                let mut marker =
+                    params::expansion("path", &single.to_string(), self.source.location);
                 if let [only] = undeclared.as_slice()
                     && let Some(Value::Object(expand)) = marker.get_mut(EXPAND_KEY)
                 {
@@ -813,22 +869,32 @@ impl Compiler<'_, '_> {
     }
 
     /// Query parameters, body and success response from the signature, where
-    /// the block (including its YAML) has none.
-    fn infer_rest(&mut self, b: &Builder, map: &mut Map<String, Value>, signature: &Signature) {
+    /// the block (including its YAML and module defaults) has none.
+    fn infer_rest(&mut self, map: &mut Map<String, Value>, signature: &Signature) {
         let types = self.source.types;
-        if let Some(query) = &signature.query {
-            let yaml_query = map
+        if let Some(query) = &signature.query
+            && is_custom(query, types)
+        {
+            // Single query parameters written in the block win over expanded
+            // ones of the same name; a struct expansion or a `querystring`
+            // parameter describes the query itself.
+            let described = map
                 .get("parameters")
                 .and_then(Value::as_array)
                 .is_some_and(|ps| {
-                    ps.iter()
-                        .any(|p| p["in"] == "query" || p["in"] == "querystring")
+                    ps.iter().any(|p| {
+                        p.get("in").and_then(Value::as_str) == Some("querystring")
+                            || p.get(EXPAND_KEY)
+                                .and_then(|m| m.get("in"))
+                                .and_then(Value::as_str)
+                                == Some("query")
+                    })
                 });
-            if !b.query_declared && !yaml_query && is_custom(query, types) {
+            if !described {
                 push(
                     map,
                     "parameters",
-                    params::expansion("query", &query.to_string()),
+                    params::expansion("query", &query.to_string(), self.source.location),
                 );
             }
         }
@@ -836,7 +902,7 @@ impl Compiler<'_, '_> {
             && !map.contains_key("requestBody")
         {
             let mapped = types.map(ty);
-            let required = mapped.required;
+            let required = mapped.required && !signature.optional_body;
             let schema = mapped.into_schema();
             let mut content = Map::new();
             content.insert(media.clone(), json!({ "schema": schema }));
@@ -847,34 +913,41 @@ impl Compiler<'_, '_> {
         }
         if let Some(ty) = &signature.response {
             let responses = map.entry("responses").or_insert_with(|| json!({}));
-            let has_success = responses.as_object().is_some_and(|r| {
-                r.keys()
-                    .any(|code| code.starts_with('2') || code == "default")
-            });
-            if !has_success {
+            // `default` usually documents errors; only a `2XX` response
+            // replaces the inferred one.
+            let has_success = responses
+                .as_object()
+                .is_some_and(|r| r.keys().any(|code| code.starts_with('2')));
+            if !has_success && let Value::Object(responses) = responses {
                 let schema = types.map(ty).into_schema();
                 let mut content = Map::new();
                 content.insert(responses::DEFAULT_MEDIA.into(), json!({ "schema": schema }));
-                responses["200"] = json!({
-                    "description": responses::reason_phrase("200"),
-                    "content": content,
-                });
+                // The success response comes first, before `default` and errors.
+                let others = std::mem::take(responses);
+                responses.insert(
+                    "200".into(),
+                    json!({
+                        "description": responses::reason_phrase("200"),
+                        "content": content,
+                    }),
+                );
+                responses.extend(others);
             }
         }
     }
 
     /// Merges the embedded YAML sections into the operation, the path item
-    /// and the document.
+    /// and the document. YAML of the module `defaults` only fills gaps.
     fn embedded_yaml(
         &mut self,
-        b: &Builder,
+        yaml: &[(Scope, Option<usize>, String)],
+        defaults: bool,
         operation: &mut Value,
         path_item: &mut Value,
         document: &mut Value,
     ) {
         for scope in [Scope::Operation, Scope::PathItem, Scope::Document] {
-            let lines: Vec<(usize, &str)> = b
-                .yaml
+            let lines: Vec<(Option<usize>, &str)> = yaml
                 .iter()
                 .filter(|(s, _, _)| *s == scope)
                 .map(|(_, index, line)| (*index, line.as_str()))
@@ -887,9 +960,23 @@ impl Compiler<'_, '_> {
                 Ok(Value::Null) => {}
                 Ok(value) if !value.is_object() => self.report(
                     Code::InvalidRouteYaml,
-                    lines.first().map(|(i, _)| *i),
+                    lines.first().and_then(|(i, _)| *i),
                     "embedded OpenAPI YAML must be a mapping and was ignored",
                 ),
+                Ok(mut value) if defaults => match scope {
+                    Scope::Operation | Scope::PathItem => {
+                        let target = if scope == Scope::Operation {
+                            &mut *operation
+                        } else {
+                            &mut *path_item
+                        };
+                        drop_known_parameters(&mut value, target);
+                        merge(target, value, Policy::Extend);
+                    }
+                    Scope::Document => {
+                        merge(document, value, Policy::Document);
+                    }
+                },
                 Ok(value) => {
                     let conflicts = match scope {
                         Scope::Operation => merge(operation, value, Policy::Operation),
@@ -909,7 +996,9 @@ impl Compiler<'_, '_> {
                     }
                 }
                 Err(e) => {
-                    let index = lines.get(e.line - 1).map(|(index, _)| *index);
+                    let index = lines
+                        .get(e.line.saturating_sub(1))
+                        .and_then(|(index, _)| *index);
                     self.report(
                         Code::InvalidRouteYaml,
                         index,
@@ -984,6 +1073,29 @@ fn push(map: &mut Map<String, Value>, key: &str, value: Value) {
     match map.entry(key).or_insert_with(|| json!([])) {
         Value::Array(items) => items.push(value),
         other => *other = json!([value]),
+    }
+}
+
+/// Whether a parameter (or struct expansion) is in the path.
+fn is_path(parameter: &Value) -> bool {
+    parameter.get("in").and_then(Value::as_str) == Some("path") || is_path_expansion(parameter)
+}
+
+/// Whether a parameter is a struct expansion in the path (`Path<Params>`).
+fn is_path_expansion(parameter: &Value) -> bool {
+    parameter
+        .get(EXPAND_KEY)
+        .and_then(|m| m.get("in"))
+        .and_then(Value::as_str)
+        == Some("path")
+}
+
+/// Removes the parameters of default YAML that the operation (or path
+/// item) already declares, so the route's own declaration wins.
+fn drop_known_parameters(value: &mut Value, target: &Value) {
+    let known = target.get("parameters").and_then(Value::as_array);
+    if let (Some(known), Some(Value::Array(parameters))) = (known, value.get_mut("parameters")) {
+        parameters.retain(|p| !has_parameter(known, p));
     }
 }
 

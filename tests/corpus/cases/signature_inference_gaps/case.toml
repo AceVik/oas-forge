@@ -1,0 +1,1 @@
+description = "Signature inference fills gaps: a default response or single query parameters do not stop it, optional bodies, qualified extractor paths and flattened query structs"
