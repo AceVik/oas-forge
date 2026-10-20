@@ -119,7 +119,8 @@ Helpers are in `tests/common/` (`extract`, `schema`, `route`, `pipeline`,
 - Coverage stays at or above 98 % of lines. Line coverage is not enough:
   run `cargo mutants` on the modules you change; every surviving mutant gets
   a test, or an entry with its reason in `.cargo/mutants.toml` when it cannot
-  change behaviour.
+  change behaviour. CI runs it on the code a pull request changes
+  (`--in-diff`).
 
 ## Writing annotations (quick reference)
 
