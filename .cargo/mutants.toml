@@ -7,6 +7,9 @@ exclude_re = [
     # Delegates to `load_from(".")`; testing it would change the working
     # directory of the whole test process. `load_from` is tested.
     "replace Config::load -> ",
+    # Reads `OUT_DIR`, which only build scripts have; changing the process
+    # environment in tests is unsound. The examples job covers it.
+    "replace Package::from_build_env -> ",
     # YAML positions are 1-based; a line 0 never occurs.
     "src/yaml.rs:.*replace > with >= in parse",
     # Fast path and whitespace tidying of `to_string`: every candidate result

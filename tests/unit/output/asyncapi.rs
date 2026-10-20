@@ -21,6 +21,15 @@ fn channels_need_an_asyncapi_root() {
         spec.render(OutputKind::AsyncApi),
         Err(Error::NoAsyncApiRoot)
     ));
+    // `asyncapi` without `info` is no root either.
+    let (spec, _project) = spec_of(&[(
+        "lib.rs",
+        "//! @asyncapi\n//! asyncapi: 3.1.0\n\n/// @channel a\n/// @send A: u8\nfn a() {}",
+    )]);
+    assert!(matches!(
+        spec.render(OutputKind::AsyncApi),
+        Err(Error::NoAsyncApiRoot)
+    ));
 }
 
 #[test]

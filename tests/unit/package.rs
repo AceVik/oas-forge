@@ -93,6 +93,24 @@ mod manifests {
     }
 
     #[test]
+    fn only_workspace_true_inherits() {
+        let project = Project::new();
+        project
+            .file(
+                "Cargo.toml",
+                "[workspace]\nmembers = [\"api\"]\n\n[workspace.package]\nlicense = \"MIT\"\n",
+            )
+            .file(
+                "api/Cargo.toml",
+                "[package]\nname = \"api\"\nlicense = { workspace = false }\n",
+            );
+        let package = Package::from_manifest(project.path("api/Cargo.toml"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(package.license, None);
+    }
+
+    #[test]
     fn inheritance_without_a_workspace_leaves_the_field_unset() {
         let project = Project::new();
         project.file(

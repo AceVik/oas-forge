@@ -9,6 +9,7 @@ mod common;
 mod attrs;
 mod config;
 mod diagnostics;
+mod docs;
 mod dsl;
 mod error;
 mod extract;

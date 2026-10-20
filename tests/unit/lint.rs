@@ -414,6 +414,17 @@ mod references {
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
+    /// `properties` maps names to schemas: a property may be called like a
+    /// keyword whose value is data elsewhere.
+    #[test]
+    fn properties_named_like_data_keywords_are_schemas() {
+        let (_, diagnostics) = pipeline(&[(
+            "lib.rs",
+            "/// @openapi\n/// components:\n///   schemas:\n///     S:\n///       type: object\n///       properties:\n///         example: { $ref: '#/components/schemas/Missing' }\nfn docs() {}",
+        )]);
+        assert_eq!(codes(&diagnostics), [Code::DanglingReference]);
+    }
+
     #[test]
     fn data_values_are_not_searched_for_references() {
         let (_, diagnostics) = pipeline(&[(
