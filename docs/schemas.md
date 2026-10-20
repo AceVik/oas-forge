@@ -79,7 +79,7 @@ is reported (`OF1001`) and ignored.
 | `@openapi rename-all rule` | type | Renames all fields (structs) or variants (enums); rules as in serde: `camelCase`, `snake_case`, `kebab-case`, `PascalCase`, `SCREAMING_SNAKE_CASE`, `SCREAMING-KEBAB-CASE`, `lowercase`, `UPPERCASE` |
 | `@openapi skip` | type, field, variant | Leaves it out of the document |
 | `@example value` | type, field, variant | Adds a YAML value (or plain text) to `examples`; repeatable |
-| `@openapi<T, U>` | generic type | Declares a [blueprint](#explicit-blueprints) with YAML that uses `$T` |
+| `@openapi<T, U>` | generic type, type alias | Declares a [blueprint](#explicit-blueprints) with YAML that uses `$T` |
 | `#[deprecated]` | type, field, variant | Sets `deprecated: true` |
 
 Precedence for names: `@openapi rename`, then `#[serde(rename)]`, then
@@ -218,7 +218,8 @@ variants without parameters (`EventDeleted`) shared.
 ### Explicit blueprints
 
 `@openapi<T>` declares the template with YAML; `$T` stands for the argument.
-This also works for types without fields:
+This also works for types without fields and for type aliases
+(`/// @openapi<T>` above `pub type Envelope<T> = …;`):
 
 ```rust,ignore
 /// A response envelope.

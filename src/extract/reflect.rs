@@ -545,18 +545,24 @@ impl<'a> Reflector<'a> {
     /// generic alias is a blueprint).
     pub(super) fn alias(&mut self, item: &syn::ItemType) -> Option<Item> {
         let rust_name = item.ident.unraw().to_string();
-        let naming = self.naming(&item.attrs, &rust_name, ItemKind::Member);
+        let naming = self.naming(&item.attrs, &rust_name, ItemKind::Container);
         if naming.docs.skip {
             return None;
         }
         let mut schema = self.typed(&TypeExpr::from_syn(&item.ty), MappedType::into_schema);
         self.finish(&mut schema, &naming, &format!("type alias `{rust_name}`"));
-        // `type Paged<T> = Page<T>` is a template like a generic struct.
+        // `type Paged<T> = Page<T>` is a template like a generic struct, and
+        // `@openapi<T>` declares one like on a struct.
+        let blueprint = naming
+            .docs
+            .blueprint
+            .clone()
+            .or_else(|| type_params(&item.generics));
         Some(wrap_item(
             naming.name,
             rust_name,
             schema,
-            type_params(&item.generics),
+            blueprint,
             self.location(line_of(item.span())),
         ))
     }

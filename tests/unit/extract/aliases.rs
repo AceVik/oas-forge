@@ -129,3 +129,45 @@ fn generic_aliases_are_instantiated_where_used() {
     // Unused generic aliases (`Result<T>`) are not exported.
     assert!(schemas.get("Result").is_none() && schemas.get("Paged").is_none());
 }
+
+#[test]
+fn a_blueprint_header_declares_a_template() {
+    let items = extract(
+        "/// @openapi<T>\n/// type: object\n/// properties:\n///   data: { $ref: $T }\npub type Envelope<T> = Inner<T>;\n/// @openapi<T> description: Any\npub type Plain = serde_json::Value;",
+    );
+    let envelope = crate::extract::blueprint(&items, "Envelope");
+    assert_eq!(envelope.params, ["T"]);
+    assert_eq!(
+        envelope.schema,
+        json!({ "type": "object", "properties": { "data": { "$ref": "$T" } } })
+    );
+    let plain = crate::extract::blueprint(&items, "Plain");
+    assert_eq!(plain.params, ["T"]);
+    assert_eq!(plain.schema, json!({ "description": "Any" }));
+}
+
+#[test]
+fn a_blueprint_alias_is_instantiated() {
+    let (document, diagnostics) = crate::common::pipeline(&[(
+        "lib.rs",
+        r#"
+        /// @openapi<T>
+        /// type: object
+        /// properties:
+        ///   data: { $ref: $T }
+        pub type Envelope<T> = Inner<T>;
+        /// @openapi
+        pub struct User { pub id: u64 }
+        /// @openapi
+        pub struct H { pub e: Envelope<User> }
+        "#,
+    )]);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert_eq!(
+        document["components"]["schemas"]["Envelope_User"],
+        json!({
+            "type": "object",
+            "properties": { "data": { "$ref": "#/components/schemas/User" } },
+        })
+    );
+}
