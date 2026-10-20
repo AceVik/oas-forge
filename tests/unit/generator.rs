@@ -1078,6 +1078,21 @@ mod operations {
     }
 
     #[test]
+    fn cyclic_flattening_terminates() {
+        let (document, _) = pipeline(&[(
+            "api.rs",
+            "//! @openapi-type A\n//! type: object\n//! properties: { a: { type: string } }\n//! allOf: [{ $ref: $B }]\n\n//! @openapi-type B\n//! type: object\n//! properties: { b: { type: string } }\n//! allOf: [{ $ref: $A }]\n\n/// @route GET /a\n/// @query-params $A\nfn a() {}",
+        )]);
+        let names: Vec<_> = document["paths"]["/a"]["get"]["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].clone())
+            .collect();
+        assert_eq!(names, [json!("a"), json!("b")]);
+    }
+
+    #[test]
     fn qualified_struct_paths_are_expanded() {
         let (document, diagnostics) = pipeline(&[
             ("models.rs", &format!("pub mod models {{\n{MODELS}\n}}")),

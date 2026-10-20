@@ -621,6 +621,34 @@ mod module_defaults {
     }
 
     #[test]
+    fn path_and_document_yaml_in_defaults() {
+        let defaults = [
+            "@route-defaults",
+            "@openapi path",
+            "summary: Shared",
+            "x-scope: module",
+            "@openapi document",
+            "components:",
+            "  schemas:",
+            "    Shared: { type: string }",
+        ];
+        let (document, diagnostics) = compile_with(
+            &["@route GET /x", "@openapi path", "x-scope: route"],
+            &defaults,
+            None,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let document = document.unwrap();
+        let item = &document["paths"]["/x"];
+        assert_eq!(item["summary"], "Shared");
+        assert_eq!(item["x-scope"], "route", "the route wins");
+        assert_eq!(
+            document["components"]["schemas"]["Shared"],
+            json!({ "type": "string" })
+        );
+    }
+
+    #[test]
     fn no_infer_in_defaults_turns_inference_off() {
         let mut signature = Signature::default();
         signature.response = TypeExpr::parse("User");
