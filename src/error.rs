@@ -109,7 +109,7 @@ impl fmt::Display for Error {
                 f.write_str("Empty input: No files found in the specified directories.")
             }
             Self::NoOutput => f.write_str(
-                "At least one output path (output, output_schemas, output_paths, or output_fragments) is required",
+                "At least one output path (output, output_schemas, output_paths, output_fragments, output_json_schema, output_openapi_30, output_swagger2 or output_asyncapi) is required",
             ),
             Self::Diagnostics(diagnostics) => {
                 let errors = diagnostics.iter().filter(|d| d.is_error()).count();

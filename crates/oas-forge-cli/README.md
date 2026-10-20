@@ -63,8 +63,9 @@ Without an output option the document goes to `openapi.yaml`.
 
 Settings can also live in `[package.metadata.oas-forge]` of `Cargo.toml` or
 in `openapi.toml`; flags on the command line win. The package metadata in
-`Cargo.toml` provides the generated root (`info.title`, `info.version`, …)
-and the `{{CARGO_PKG_*}}` variables.
+`Cargo.toml`, including fields inherited from the workspace, provides the
+generated root (`info.title`, `info.version`, …) and the `{{CARGO_PKG_*}}`
+variables.
 
 ```toml
 # openapi.toml

@@ -53,11 +53,14 @@ fn validation_errors() {
         Error::NoFilesFound.to_string(),
         "Empty input: No files found in the specified directories."
     );
+    let no_output = Error::NoOutput.to_string();
     assert!(
-        Error::NoOutput
-            .to_string()
-            .contains("At least one output path")
+        no_output.contains("At least one output path"),
+        "{no_output}"
     );
+    for kind in ["output_json_schema", "output_swagger2", "output_asyncapi"] {
+        assert!(no_output.contains(kind), "{no_output}");
+    }
 
     let roots = Error::MultipleRootsFound {
         locations: vec![Location::new("a.rs", 1), Location::new("b.rs", 2)],

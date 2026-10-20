@@ -512,3 +512,51 @@ mod ci {
         assert!(stderr(&bad).contains("NAME=VALUE"));
     }
 }
+
+mod review_fixes {
+    use super::*;
+
+    #[test]
+    fn workspace_members_inherit_package_fields() {
+        let project = Project::new();
+        project
+            .file(
+                "Cargo.toml",
+                "[workspace]\nmembers = [\"api\"]\n\n[workspace.package]\nversion = \"2.5.0\"\nlicense = \"MIT\"\ndescription = \"From the workspace\"\n",
+            )
+            .file(
+                "api/Cargo.toml",
+                "[package]\nname = \"api\"\nversion.workspace = true\nlicense.workspace = true\ndescription.workspace = true\n",
+            )
+            .file(
+                "api/src/lib.rs",
+                "/// @openapi\n/// x-version: '{{CARGO_PKG_VERSION}}'\nstruct S { a: u8 }",
+            );
+        let output = Command::new(env!("CARGO_BIN_EXE_oas-forge"))
+            .args(["-i", "src", "-o", "openapi.yaml"])
+            .current_dir(project.path("api"))
+            .output()
+            .expect("run oas-forge binary");
+        assert!(output.status.success(), "{}", stderr(&output));
+        let api = project.read_yaml("api/openapi.yaml");
+        assert_eq!(api["info"]["version"], "2.5.0");
+        assert_eq!(api["info"]["license"]["name"], "MIT");
+        assert_eq!(api["info"]["description"], "From the workspace");
+        assert_eq!(api["components"]["schemas"]["S"]["x-version"], "2.5.0");
+    }
+
+    #[test]
+    fn failed_runs_still_print_their_warnings() {
+        let project = api_project();
+        project.file(
+            "src/api.rs",
+            "/// @route GET /x\n/// @frobnicate\nfn x() {}\n/// @route GET /items/{id}\nfn y() {}",
+        );
+        let output = oas_forge(&project, &["-i", "src", "-o", "a.yaml"]);
+        assert_eq!(output.status.code(), Some(1));
+        let text = stderr(&output);
+        assert!(text.contains("warning[OF2006]"), "{text}");
+        assert!(text.contains("error[OF2002]"), "{text}");
+        assert!(text.contains("Generation failed with 1 error(s)"), "{text}");
+    }
+}

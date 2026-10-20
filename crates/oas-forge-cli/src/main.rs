@@ -13,7 +13,7 @@
 use clap::Parser;
 use colored::Colorize;
 use oas_forge::Error;
-use oas_forge::diagnostics::Diagnostic;
+use oas_forge::diagnostics::{Diagnostic, Severity};
 use oas_forge_cli::{Cli, MessageFormat, run};
 use std::process::ExitCode;
 
@@ -65,19 +65,29 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => {
+            // Notes are informational, as on success.
+            let findings: Vec<&Diagnostic> = match &error {
+                Error::Diagnostics(findings) => findings
+                    .iter()
+                    .filter(|d| d.severity() != Severity::Note)
+                    .collect(),
+                _ => Vec::new(),
+            };
             if json {
-                match &error {
-                    Error::Diagnostics(findings) => {
-                        for finding in findings {
-                            println!("{}", finding.to_json());
-                        }
-                    }
-                    other => println!(
+                if findings.is_empty() {
+                    println!(
                         "{}",
-                        serde_json::json!({ "severity": "error", "message": other.to_string() })
-                    ),
+                        serde_json::json!({ "severity": "error", "message": error.to_string() })
+                    );
+                }
+                for finding in findings {
+                    println!("{}", finding.to_json());
                 }
             } else {
+                // The error message lists the errors; warnings come first.
+                for finding in findings.iter().filter(|d| !d.is_error()) {
+                    eprintln!("{}", human(finding));
+                }
                 eprintln!("{} {}", "ERROR:".red().bold(), error);
             }
             ExitCode::FAILURE

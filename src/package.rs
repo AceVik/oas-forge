@@ -148,6 +148,8 @@ fn read_manifest(path: &Path) -> Result<toml::Table> {
 /// `[workspace.package]` of the nearest manifest with a `[workspace]` at or
 /// above `manifest`.
 fn workspace_package(manifest: &Path) -> Option<toml::Table> {
+    // A relative path such as `./Cargo.toml` has no parents to walk up to.
+    let manifest = manifest.canonicalize().unwrap_or_else(|_| manifest.into());
     let mut dir: Option<PathBuf> = manifest.parent().map(Path::to_path_buf);
     while let Some(current) = dir {
         let candidate = current.join("Cargo.toml");
