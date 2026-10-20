@@ -1,0 +1,24 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /admin:
+    get:
+      operationId: admin
+      tags: []
+      parameters: []
+      responses:
+        "200":
+          description: ok
+        "401":
+          description: Unauthorized
+      security:
+      - oidc:
+        - admin

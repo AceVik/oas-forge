@@ -75,7 +75,8 @@ struct Builder<'a> {
     tags: Option<Vec<String>>,
     summary: Option<String>,
     description: Vec<String>,
-    yaml: Vec<(Scope, String)>,
+    /// Embedded YAML lines with their scope and index in the block.
+    yaml: Vec<(Scope, usize, String)>,
     scope: Option<Scope>,
     declared: BTreeSet<String>,
 }
@@ -130,7 +131,7 @@ impl Builder<'_> {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             match self.scope {
-                Some(scope) => self.yaml.push((scope, String::new())),
+                Some(scope) => self.yaml.push((scope, index, String::new())),
                 None if self.summary.is_some() => self.description.push(String::new()),
                 None => {}
             }
@@ -146,7 +147,7 @@ impl Builder<'_> {
             self.scope = Some(Scope::Operation);
         }
         match self.scope {
-            Some(scope) => self.yaml.push((scope, line.to_string())),
+            Some(scope) => self.yaml.push((scope, index, line.to_string())),
             None if self.summary.is_none() => self.summary = Some(trimmed.to_string()),
             None => self.description.push(line.to_string()),
         }
@@ -447,12 +448,13 @@ impl Builder<'_> {
         let mut path_item = Map::new();
         let mut document = Value::Object(Map::new());
         for scope in [Scope::Operation, Scope::PathItem, Scope::Document] {
-            let text: Vec<&str> = self
+            let lines: Vec<(usize, &str)> = self
                 .yaml
                 .iter()
-                .filter(|(s, _)| *s == scope)
-                .map(|(_, line)| line.as_str())
+                .filter(|(s, _, _)| *s == scope)
+                .map(|(_, index, line)| (*index, line.as_str()))
                 .collect();
+            let text: Vec<&str> = lines.iter().map(|(_, line)| *line).collect();
             if text.iter().all(|l| l.trim().is_empty()) {
                 continue;
             }
@@ -489,16 +491,22 @@ impl Builder<'_> {
                         );
                     }
                 }
-                Err(e) => diagnostics.push(
-                    Diagnostic::new(
-                        Code::InvalidRouteYaml,
-                        format!(
-                            "embedded OpenAPI YAML is invalid and was ignored: {}",
-                            e.message
-                        ),
-                    )
-                    .at(self.source.location.clone()),
-                ),
+                Err(e) => {
+                    let at = lines.get(e.line - 1).map_or_else(
+                        || self.source.location.clone(),
+                        |(index, _)| self.location(*index),
+                    );
+                    diagnostics.push(
+                        Diagnostic::new(
+                            Code::InvalidRouteYaml,
+                            format!(
+                                "embedded OpenAPI YAML is invalid and was ignored: {}",
+                                e.message
+                            ),
+                        )
+                        .at(at),
+                    );
+                }
             }
         }
 

@@ -54,6 +54,9 @@ fn corpus() {
     insta::glob!("cases/*/case.toml", |path| {
         let snapshot = run_case(path);
         insta::assert_json_snapshot!(snapshot);
+        if let Some(text) = rendered_yaml(path) {
+            insta::assert_snapshot!("yaml", text);
+        }
     });
 }
 
@@ -89,6 +92,20 @@ fn run_case(case_file: &Path) -> Value {
         }
     }
     redact(canonical(Value::Object(result)))
+}
+
+/// The exact YAML file a user gets: the full spec, or the fragments output
+/// when the case has no root document.
+fn rendered_yaml(case_file: &Path) -> Option<String> {
+    let dir = case_file.parent().unwrap();
+    let case: Case = toml::from_str(&std::fs::read_to_string(case_file).unwrap()).unwrap();
+    let spec = build(dir, &case).ok()?;
+    let (kind, value) = match spec.render(OutputKind::Full) {
+        Ok(value) => ("full", value),
+        Err(_) => ("fragments", spec.render(OutputKind::Fragments).ok()?),
+    };
+    let text = Format::Yaml.render(&value);
+    Some(format!("# {kind} output\n{}", redact_text(&text)))
 }
 
 fn build(dir: &Path, case: &Case) -> oas_forge::Result<Spec> {
@@ -166,10 +183,14 @@ fn canonical(value: Value) -> Value {
 
 /// The crate version is substituted for `{{CARGO_PKG_VERSION}}`; keep snapshots
 /// stable across version bumps.
+fn redact_text(text: &str) -> String {
+    text.replace(env!("CARGO_PKG_VERSION"), "<pkg-version>")
+}
+
+/// [`redact_text`] for every string of a value.
 fn redact(value: Value) -> Value {
-    let version = env!("CARGO_PKG_VERSION");
     match value {
-        Value::String(s) => Value::String(s.replace(version, "<pkg-version>")),
+        Value::String(s) => Value::String(redact_text(&s)),
         Value::Array(items) => Value::Array(items.into_iter().map(redact).collect()),
         Value::Object(map) => Value::Object(map.into_iter().map(|(k, v)| (k, redact(v))).collect()),
         other => other,

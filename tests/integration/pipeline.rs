@@ -315,7 +315,7 @@ fn health() {}
                     "{message}"
                 );
                 assert!(
-                    message.ends_with("    04 | This endpoint is documented elsewhere."),
+                    message.ends_with("  > 04 | This endpoint is documented elsewhere."),
                     "{message}"
                 );
             }

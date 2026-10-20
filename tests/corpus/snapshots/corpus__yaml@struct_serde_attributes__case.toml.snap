@@ -1,0 +1,54 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/struct_serde_attributes/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Meta:
+      type: object
+      properties:
+        created_by:
+          type: string
+      required:
+      - created_by
+    Settings:
+      type: object
+      properties:
+        secret:
+          type: string
+        password:
+          type: string
+        created_at:
+          type: string
+        note:
+          type: string
+        retries:
+          type: integer
+          format: int32
+        meta:
+          $ref: "#/components/schemas/Meta"
+        color:
+          type: string
+        r#type:
+          type: string
+      required:
+      - secret
+      - password
+      - created_at
+      - retries
+      - meta
+      - color
+      - r#type
+    Wrapper:
+      type: object
+      properties:
+        inner:
+          type: string
+      required:
+      - inner

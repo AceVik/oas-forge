@@ -1,0 +1,57 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/struct_basic/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Address:
+      type: object
+      properties:
+        street:
+          type: string
+        city:
+          type: string
+      required:
+      - street
+      - city
+    Role:
+      type: string
+      enum:
+      - Admin
+      - Member
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique identifier
+        name:
+          type: string
+        email:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Role"
+        settings:
+          type: object
+          additionalProperties:
+            type: string
+        address:
+          $ref: "#/components/schemas/Address"
+        manager:
+          $ref: "#/components/schemas/User"
+      required:
+      - id
+      - name
+      - roles
+      - settings
+      - address
+      description: A registered user. Spans two lines.

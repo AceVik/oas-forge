@@ -12,6 +12,8 @@ here.
 | `cargo install oas-forge` | `cargo install oas-forge-cli` (the binary is still called `oas-forge`) |
 | `oas-forge = { version = "0.1", default-features = false }` in `[build-dependencies]` | `oas-forge = "0.2"`; the library has no CLI dependencies and no `cli` feature any more |
 
+Rust 1.89 or newer is required (0.1 declared no minimum; edition 2024 needs 1.85).
+
 ## Library API
 
 Most build scripts only use `Generator::new().input(..).output(..).generate()`.
@@ -112,9 +114,20 @@ That still works unchanged. Everything else moved:
 - **Lints.** Dangling `#/components/...` references (`OF5001`) and duplicate
   operationIds (`OF5002`) are reported as warnings.
 
+### YAML
+The YAML library changed from `serde_yaml_ng` to `serde-saphyr` (ADR 0009). The
+meaning of documents is the same, with these exceptions:
+- Merge keys (`<<: *base`) are expanded. 0.1 kept `<<` as an ordinary key.
+- A `null` key (`~: x`) and complex keys (`? [a, b]`) are errors. 0.1 turned
+  them into text.
+- Documents with more than about 250 000 nodes after alias expansion or more
+  than 256 nesting levels are rejected.
+- Written YAML quotes version-like strings (`openapi: "3.1.0"`) and status codes
+  (`"200":`) with double quotes. The values are unchanged.
+
 ### Error messages
-- Locations point at the YAML text instead of the `@openapi` header line, so
-  the reported line is the first YAML line (`error_invalid_yaml`,
-  `error_non_mapping_snippet`, `readme_root`).
+- YAML errors point at the offending line instead of the `@openapi` header,
+  and the context marks it (`error_invalid_yaml`, `error_non_mapping_snippet`,
+  `readme_root`, `readme_dsl`).
 - Rust syntax errors include the column (`error_invalid_rust`).
 - "Multiple roots" lists every root location (`error_multiple_roots`).

@@ -1,0 +1,37 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/readme_manual_axum/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /manual/endpoint:
+    get:
+      tags:
+      - Manual
+      summary: Fully manual definition
+      description: This is standard OpenAPI YAML.
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+  /docs/openapi.yaml:
+    get:
+      tags:
+      - System
+      summary: Get OpenAPI Specification
+      description: Returns the dynamic OpenAPI specification.
+      responses:
+        "200":
+          description: The OpenAPI YAML file.
+          content:
+            application/yaml:
+              schema:
+                type: string

@@ -925,7 +925,8 @@ mod yaml_overrides {
             "/x",
             "get",
         );
-        assert_eq!(op["responses"]["200"]["description"], "a\n\nb");
+        // A `|` block that ends the text keeps a final line break.
+        assert_eq!(op["responses"]["200"]["description"], "a\n\nb\n");
     }
 }
 

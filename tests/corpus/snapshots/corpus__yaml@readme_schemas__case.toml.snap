@@ -1,0 +1,65 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/readme_schemas/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Email:
+      type: string
+      description: E-Mail address.
+      example: johnd@mail.com
+      format: email
+    PhoneNumber:
+      type: string
+      format: tel
+      pattern: ^\+?[1-9]\d{1,14}$
+      description: E.164 formatted phone number.
+      example: "+491701234567"
+    Role:
+      type: string
+      enum:
+      - Admin
+      - Moderator
+      - User
+      description: Description of user roles within the system.
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int32
+        username:
+          type: string
+          description: The username of the user.
+          example: johndoe
+        email:
+          $ref: "#/components/schemas/Email"
+          description: The email address of the user.
+          example: johndoe@mail.com
+        phone:
+          $ref: "#/components/schemas/PhoneNumber"
+        role:
+          $ref: "#/components/schemas/Role"
+          description: The role assigned to the user.
+          default: User
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          description: The timestamp when the user was created.
+          example: "2024-01-01T12:00:00"
+      required:
+      - id
+      - email
+      - phone
+      - role
+      - is_active
+      - created_at
+      description: Description of a User entity.

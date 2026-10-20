@@ -108,7 +108,10 @@ fn resolve(
             diagnostics.push(
                 Diagnostic::new(
                     Code::InvalidFragment,
-                    format!("fragment `{name}` is not valid YAML: {}", e.message),
+                    format!(
+                        "fragment `{name}` is not valid YAML (line {} of its body): {}",
+                        e.line, e.message
+                    ),
                 )
                 .at(location.clone()),
             );

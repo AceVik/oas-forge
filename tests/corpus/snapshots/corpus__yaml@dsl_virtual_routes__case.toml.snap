@@ -1,0 +1,36 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/dsl_virtual_routes/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /legacy/one:
+    get:
+      operationId: get_legacy_one
+      tags: []
+      parameters: []
+      responses:
+        "200":
+          description: One
+  /legacy/two:
+    get:
+      operationId: get_legacy_two
+      tags: []
+      parameters: []
+      responses:
+        "200":
+          description: Two
+  /legacy/proxy:
+    get:
+      operationId: get_legacy_proxy
+      tags:
+      - Legacy
+      parameters: []
+      responses:
+        "200":
+          description: Proxy Response

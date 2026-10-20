@@ -1,0 +1,12 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/version_placeholder/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Versioned
+  version: "<pkg-version>"
+  description: Built from version <pkg-version>
+x-unquoted-version: "<pkg-version>"

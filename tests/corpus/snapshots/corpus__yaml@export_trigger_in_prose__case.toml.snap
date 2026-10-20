@@ -1,0 +1,10 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/export_trigger_in_prose/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"

@@ -1,75 +1,104 @@
 //! The only place that talks to the YAML library (see ADR 0009).
 //!
 //! Documents are represented as `serde_json::Value` everywhere else; YAML is an
-//! input and output format only.
+//! input and output format only. The parser options are pinned here:
+//!
+//! - YAML 1.2 booleans only: `yes`, `no`, `on` and `off` stay strings.
+//! - Duplicate keys are errors.
+//! - Merge keys (`<<`) are expanded.
+//! - `.nan` and `.inf` become the strings `.nan` and `.inf` (JSON has no such numbers).
+//! - The default resource budget rejects alias bombs and excessive nesting.
 
-use serde_json::{Map, Number, Value};
+use serde_json::Value;
+use serde_saphyr::{DefaultMessageFormatter, MessageFormatter, NonFiniteFloatPolicy, Options};
 
 /// A YAML syntax error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct YamlError {
-    /// The parser message, including the position inside the snippet.
+    /// The parser message, without position.
     pub message: String,
+    /// 1-based line of the problem inside the parsed text.
+    pub line: usize,
 }
 
-/// Parses one YAML (or JSON) document.
+/// Advice in parser messages that refers to the library's options, which
+/// users of this crate cannot set.
+const LIBRARY_HINT: &str = ", set DuplicateKeyPolicy in Options if acceptable";
+
+fn options() -> Options {
+    let mut options = Options::default();
+    options.strict_booleans = true;
+    options.duplicate_keys = serde_saphyr::DuplicateKeyPolicy::Error;
+    options.merge_keys = serde_saphyr::MergeKeyPolicy::Merge;
+    options.non_finite_float_policy = NonFiniteFloatPolicy::AsString;
+    options.with_snippet = false;
+    options
+}
+
+/// Parses one YAML (or JSON) document; empty documents are `null`.
 ///
-/// Mapping keys that are not strings (`200:`) become their textual form, so
+/// Mapping keys that are numbers or booleans (`200:`) become their text, so
 /// every document is representable as JSON.
 pub(crate) fn parse(text: &str) -> Result<Value, YamlError> {
-    let value: serde_yaml_ng::Value = serde_yaml_ng::from_str(text).map_err(|e| YamlError {
-        message: e.to_string(),
-    })?;
-    Ok(to_json(value))
-}
-
-/// Serializes a value as a YAML document (no leading `---`).
-pub(crate) fn to_string(value: &Value) -> String {
-    let text = serde_yaml_ng::to_string(value).unwrap_or_default();
-    match text.strip_prefix("---\n") {
-        Some(rest) => rest.to_string(),
-        None => text,
-    }
-}
-
-fn to_json(value: serde_yaml_ng::Value) -> Value {
-    use serde_yaml_ng::Value as Y;
-    match value {
-        Y::Null => Value::Null,
-        Y::Bool(b) => Value::Bool(b),
-        Y::Number(n) => number(&n),
-        Y::String(s) => Value::String(s),
-        Y::Sequence(items) => Value::Array(items.into_iter().map(to_json).collect()),
-        Y::Mapping(mapping) => {
-            let mut map = Map::with_capacity(mapping.len());
-            for (key, value) in mapping {
-                map.insert(key_text(key), to_json(value));
-            }
-            Value::Object(map)
+    serde_saphyr::from_str_with_options(text, options()).map_err(|error| {
+        let error = error.without_snippet();
+        let message: String = DefaultMessageFormatter
+            .format_message(error)
+            .replace(LIBRARY_HINT, "")
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect();
+        YamlError {
+            message,
+            line: error
+                .location()
+                .and_then(|l| usize::try_from(l.line()).ok())
+                .filter(|line| *line > 0)
+                .unwrap_or(1),
         }
-        Y::Tagged(tagged) => to_json(tagged.value),
-    }
+    })
 }
 
-fn number(n: &serde_yaml_ng::Number) -> Value {
-    if let Some(i) = n.as_i64() {
-        Value::Number(i.into())
-    } else if let Some(u) = n.as_u64() {
-        Value::Number(u.into())
+/// Serializes a value as a YAML document.
+///
+/// Blank lines inside block scalars are written without indentation, so
+/// generated files have no trailing whitespace; this is only done when the
+/// result still reads back as `value`.
+pub(crate) fn to_string(value: &Value) -> String {
+    // Serializing a `serde_json::Value` cannot fail: keys are strings and
+    // numbers are finite.
+    let text = serde_saphyr::to_string(value).unwrap_or_default();
+    if !text
+        .lines()
+        .any(|line| !line.is_empty() && line.trim().is_empty())
+    {
+        return text;
+    }
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let indent = |line: &str| line.len() - line.trim_start_matches(' ').len();
+    let content = |line: &&&str| !line.trim().is_empty();
+    let tidy: String = lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            if line.trim().is_empty() && line.len() > 1 {
+                // Spaces up to the block's indentation are layout, more are content.
+                let before = lines[..i]
+                    .iter()
+                    .rev()
+                    .find(content)
+                    .map_or(0, |l| indent(l));
+                let after = lines[i + 1..].iter().find(content).map_or(0, |l| indent(l));
+                if line.trim_end_matches(['\r', '\n']).len() <= before.min(after) {
+                    return line.trim_start_matches(' ');
+                }
+            }
+            line
+        })
+        .collect();
+    if parse(&tidy).is_ok_and(|parsed| parsed == *value) {
+        tidy
     } else {
-        let f = n.as_f64().unwrap_or(f64::NAN);
-        Number::from_f64(f).map_or_else(|| Value::String(n.to_string()), Value::Number)
-    }
-}
-
-fn key_text(key: serde_yaml_ng::Value) -> String {
-    use serde_yaml_ng::Value as Y;
-    match key {
-        Y::String(s) => s,
-        Y::Number(n) => n.to_string(),
-        Y::Bool(b) => b.to_string(),
-        Y::Null => "null".to_string(),
-        Y::Tagged(tagged) => key_text(tagged.value),
-        other => to_string(&to_json(other)).trim_end().to_string(),
+        text
     }
 }

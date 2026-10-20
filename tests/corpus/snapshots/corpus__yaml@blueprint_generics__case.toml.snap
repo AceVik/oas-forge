@@ -1,0 +1,117 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/blueprint_generics/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /users:
+    get:
+      operationId: users
+      tags: []
+      parameters: []
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Page_User"
+  /pairs:
+    get:
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pair_User_Item"
+        "201":
+          description: Nested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Page_Page_Item"
+        "202":
+          description: Missing blueprint
+          content:
+            application/json:
+              schema:
+                $ref: $Missing_User
+components:
+  schemas:
+    Item:
+      type: object
+      properties:
+        sku:
+          type: string
+      required:
+      - sku
+    Page_Item:
+      type: object
+      properties:
+        total:
+          type: integer
+          format: int32
+          example: 100
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Item"
+      required:
+      - total
+      - data
+      description: Paginated response wrapper.
+    Page_Page_Item:
+      type: object
+      properties:
+        total:
+          type: integer
+          format: int32
+          example: 100
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Page_Item"
+      required:
+      - total
+      - data
+      description: Paginated response wrapper.
+    Page_User:
+      type: object
+      properties:
+        total:
+          type: integer
+          format: int32
+          example: 100
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+      required:
+      - total
+      - data
+      description: Paginated response wrapper.
+    Pair_User_Item:
+      type: object
+      properties:
+        tag:
+          type: string
+        left:
+          $ref: "#/components/schemas/User"
+        right:
+          $ref: "#/components/schemas/Item"
+      required:
+      - tag
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+      required:
+      - id

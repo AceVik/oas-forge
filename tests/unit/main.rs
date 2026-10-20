@@ -18,3 +18,4 @@ mod output;
 mod schema;
 mod source;
 mod template;
+mod yaml;

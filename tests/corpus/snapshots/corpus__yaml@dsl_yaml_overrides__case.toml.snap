@@ -1,0 +1,50 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /upload:
+    post:
+      summary: Upload a file
+      operationId: upload
+      tags: []
+      parameters: []
+      responses:
+        "200":
+          description: ok
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      externalDocs:
+        url: https://example.com/docs
+      servers:
+      - url: https://upload.example.com
+  /mixed:
+    get:
+      operationId: mixed
+      tags: []
+      parameters:
+      - name: dsl
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: yaml
+        in: query
+        schema:
+          type: string
+      responses:
+        "200":
+          description: ok

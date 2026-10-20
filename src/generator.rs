@@ -547,7 +547,7 @@ fn parse_text(
     Err(Error::Yaml {
         location: location.clone(),
         message: format!("an OpenAPI snippet must be a mapping at the top level, found {found}"),
-        context: context(text, location),
+        context: context(text, location, 1),
     })
 }
 
@@ -561,9 +561,9 @@ fn parse_any(
 ) -> Result<Option<Value>> {
     let expanded = lexical::expand(text, registry, variables, location, diagnostics);
     let mut value = yaml::parse(&expanded).map_err(|e| Error::Yaml {
-        location: location.clone(),
+        location: location.offset(e.line - 1),
         message: e.message,
-        context: context(&expanded, location),
+        context: context(&expanded, location, e.line),
     })?;
     if value.is_null() {
         return Ok(None);
@@ -572,11 +572,18 @@ fn parse_any(
     Ok(Some(value))
 }
 
-fn context(text: &str, location: &Location) -> String {
+/// Up to five lines around line `focus` (1-based) of `text`, numbered as in
+/// the source file that starts at `location`; the focus line is marked.
+fn context(text: &str, location: &Location, focus: usize) -> String {
+    let first = focus.saturating_sub(3);
     text.lines()
-        .take(5)
         .enumerate()
-        .map(|(i, line)| format!("    {:02} | {line}", location.line() + i))
+        .skip(first)
+        .take(5)
+        .map(|(i, line)| {
+            let marker = if i + 1 == focus { '>' } else { ' ' };
+            format!("  {marker} {:02} | {line}", location.line() + i)
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }

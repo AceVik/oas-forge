@@ -49,6 +49,8 @@ impl Project {
     /// Reads and parses a generated YAML/JSON file.
     pub fn read_yaml(&self, rel: &str) -> Value {
         let text = fs::read_to_string(self.path(rel)).expect("read output");
-        serde_yaml_ng::from_str(&text).expect("valid YAML")
+        let mut options = serde_saphyr::Options::default();
+        options.strict_booleans = true;
+        serde_saphyr::from_str_with_options(&text, options).expect("valid YAML")
     }
 }

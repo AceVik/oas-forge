@@ -302,6 +302,20 @@ proptest! {
     }
 
     #[test]
+    fn long_and_multi_line_strings_round_trip(
+        words in prop::collection::vec(prop_oneof![
+            "[a-z]{1,12}".prop_map(String::from),
+            Just(" ".to_string()), Just("  ".to_string()), Just("\n".to_string()),
+            Just("\n\n".to_string()), Just("\t".to_string()), Just("   \n".to_string()),
+            Just("- ".to_string()), Just("# ".to_string()), Just(": ".to_string()),
+        ], 0..60)
+    ) {
+        let value = json!({ "description": words.concat(), "nested": { "list": [words.concat()] } });
+        let text = Format::Yaml.render(&value);
+        prop_assert_eq!(yaml(&text), value, "{}", text);
+    }
+
+    #[test]
     fn rendered_documents_parse_back_unchanged(value in json_value()) {
         prop_assert_eq!(yaml(&Format::Yaml.render(&value)), value.clone());
         prop_assert_eq!(serde_json::from_str::<Value>(&Format::Json.render(&value)).unwrap(), value);

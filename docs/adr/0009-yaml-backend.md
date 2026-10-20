@@ -14,7 +14,23 @@ The adapter pins the options that change meaning:
 - merge keys (`<<`) are expanded,
 - the `properties` interpolation feature stays disabled (it would clash with
   `$Name` smart references),
-- an input budget limits pathological documents.
+- an input budget limits pathological documents (the library default: alias
+  bombs and nesting deeper than 256 levels are rejected),
+- `.nan` and `.inf` are read as strings, because JSON has no such numbers.
+
+Errors carry the line inside the parsed text; the pipeline adds the line where
+the text starts in the source file, so messages point at the offending line.
+
+The writer quotes every string another YAML parser could read as something else
+(`"yes"`, `"1.10"`, `"3.1.0"`). Blank lines inside block scalars are written
+without indentation, so generated files have no trailing whitespace; the adapter
+only does this when the result reads back as the same value.
 
 Fallback if a blocker appears: `saphyr` with an own value conversion. YAML and
 JSON remain fully supported for input (doc comments, included files) and output.
+
+## Consequences
+- No dependency with a RUSTSEC advisory remains; `deny.toml` has no exception.
+- MSRV is 1.89 (required by serde-saphyr).
+- Known deviation: a `|` block scalar at the very end of a text without a final
+  line break still ends with one line break.

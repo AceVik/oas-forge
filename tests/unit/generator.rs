@@ -251,8 +251,9 @@ mod failures {
             Err(Error::Yaml {
                 location, context, ..
             }) => {
-                assert_eq!(location.to_string(), "lib.rs:3");
-                assert!(context.contains("03 | paths:"), "{context}");
+                assert_eq!(location.to_string(), "lib.rs:4", "the offending line");
+                assert!(context.contains("  03 | paths:"), "{context}");
+                assert!(context.contains("> 04 |   a: : b"), "{context}");
             }
             other => panic!("expected a YAML error, got {other:?}"),
         }

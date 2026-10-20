@@ -37,7 +37,8 @@ mod format {
     fn yaml_has_no_document_marker_and_round_trips() {
         let value = json!({ "openapi": "3.1.0", "paths": { "/a": { "get": { "x": "yes" } } } });
         let text = Format::Yaml.render(&value);
-        assert!(text.starts_with("openapi: 3.1.0\n"), "{text}");
+        assert!(text.starts_with("openapi: "), "{text}");
+        assert!(!text.starts_with("---"), "{text}");
         assert!(text.ends_with('\n'));
         assert_eq!(yaml(&text), value, "strings like `yes` stay strings");
     }

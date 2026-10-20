@@ -9,11 +9,7 @@ all-features = true
 # check. Exceptions must be listed here with a reason and a removal plan.
 version = 2
 yanked = "deny"
-ignore = [
-    # unsafe-libyaml is unmaintained; pulled in by serde_yaml_ng. Removed when
-    # the YAML backend is replaced by serde-saphyr (refactor phase 5).
-    { id = "RUSTSEC-2024-0449", reason = "replaced in refactor phase 5" },
-]
+ignore = []
 
 [licenses]
 version = 2

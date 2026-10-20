@@ -17,9 +17,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
-/// Parses YAML (or JSON) text into a `serde_json::Value` for structural assertions.
+/// Parses YAML (or JSON) text into a `serde_json::Value` for structural
+/// assertions, with the same YAML 1.2 boolean rules as the generator.
 pub fn yaml(text: &str) -> Value {
-    serde_yaml_ng::from_str(text).unwrap_or_else(|e| panic!("invalid YAML ({e}):\n{text}"))
+    let mut options = serde_saphyr::Options::default();
+    options.strict_booleans = true;
+    serde_saphyr::from_str_with_options(text, options)
+        .unwrap_or_else(|e| panic!("invalid YAML ({e}):\n{text}"))
 }
 
 /// The location used for in-memory test sources.

@@ -249,10 +249,10 @@ impl TypeMapper {
 
     fn map_named(&self, name: &str, args: &[TypeExpr]) -> MappedType {
         let first = args.first();
-        if matches!(name, "Box" | "Arc" | "Rc" | "Cow") {
-            if let Some(inner) = first {
-                return self.map(inner);
-            }
+        if matches!(name, "Box" | "Arc" | "Rc" | "Cow")
+            && let Some(inner) = first
+        {
+            return self.map(inner);
         }
         let schema = match name {
             "bool" => json!({ "type": "boolean" }),

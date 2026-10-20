@@ -5,5 +5,5 @@ input_file: tests/corpus/cases/error_invalid_yaml/case.toml
 ---
 {
   "description": "Errors: invalid YAML in an @openapi block is reported with its location",
-  "error": "YAML error in <case>/src/lib.rs:9: mapping values are not allowed in this context at line 2 column 12\nContext:\n    09 | paths:\n    10 |   /broken: : yes"
+  "error": "YAML error in <case>/src/lib.rs:10: mapping values are not allowed in this context\nContext:\n    09 | paths:\n  > 10 |   /broken: : yes"
 }

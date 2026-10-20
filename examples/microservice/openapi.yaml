@@ -1,7 +1,7 @@
-openapi: 3.1.0
+openapi: "3.1.0"
 info:
   title: Microservice API
-  version: 1.0.0
+  version: "1.0.0"
   description: Example microservice demonstrating cross-crate template transport
 paths:
   /users:
@@ -12,12 +12,12 @@ paths:
       - Users
       parameters: []
       responses:
-        '200':
+        "200":
           description: Paginated list of users
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Paginated_User'
+                $ref: "#/components/schemas/Paginated_User"
 components:
   schemas:
     Paginated_User:
@@ -26,7 +26,7 @@ components:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/User'
+            $ref: "#/components/schemas/User"
         total:
           type: integer
           format: int64

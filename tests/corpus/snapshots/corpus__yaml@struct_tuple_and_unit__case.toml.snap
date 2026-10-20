@@ -1,0 +1,23 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/struct_tuple_and_unit/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Marker:
+      type: object
+    Pair:
+      type: object
+    UserId:
+      type: object
+    Virtual:
+      type: string
+      enum:
+      - a
+      - b

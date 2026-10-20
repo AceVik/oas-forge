@@ -109,16 +109,16 @@ impl Registry {
         else {
             return;
         };
-        if let Some(version) = components.remove(FORMAT_KEY) {
-            if version.as_u64() != Some(FORMAT_VERSION) {
-                diagnostics.push(
-                    Diagnostic::new(
-                        Code::UnknownTemplateFormat,
-                        format!("template wire format {version} is not supported; reading it as format {FORMAT_VERSION}"),
-                    )
-                    .at(location.clone()),
-                );
-            }
+        if let Some(version) = components.remove(FORMAT_KEY)
+            && version.as_u64() != Some(FORMAT_VERSION)
+        {
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::UnknownTemplateFormat,
+                    format!("template wire format {version} is not supported; reading it as format {FORMAT_VERSION}"),
+                )
+                .at(location.clone()),
+            );
         }
         if let Some(templates) = components.remove(TEMPLATES_KEY) {
             for (name, params, body) in entries(&templates) {
@@ -128,8 +128,8 @@ impl Registry {
                         Diagnostic::new(
                             Code::InvalidFragment,
                             format!(
-                                "imported template `{name}` is not valid YAML: {}",
-                                e.message
+                                "imported template `{name}` is not valid YAML (line {} of its body): {}",
+                                e.line, e.message
                             ),
                         )
                         .at(location.clone()),

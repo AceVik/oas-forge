@@ -1,0 +1,39 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/struct_generic_params/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        data:
+          $ref: $T
+        items:
+          type: array
+          items:
+            $ref: $T
+      required:
+      - data
+      - items
+    Response:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/Envelope"
+      required:
+      - user
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+      required:
+      - id

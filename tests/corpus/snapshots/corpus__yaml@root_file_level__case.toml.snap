@@ -1,0 +1,27 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/root_file_level/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Secure API
+  version: "1.0.0"
+paths:
+  /me:
+    get:
+      operationId: me
+      tags: []
+      parameters: []
+      responses:
+        "200":
+          description: ok
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+- BearerAuth: []

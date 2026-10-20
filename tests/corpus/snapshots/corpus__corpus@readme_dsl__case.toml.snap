@@ -6,7 +6,7 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
 {
   "description": "README: Route DSL examples (basic, inline params, flexible params, responses, body, security, raw YAML)",
   "diagnostics": [
-    "warning[OF2005]: embedded OpenAPI YAML is invalid and was ignored: externalDocs: duplicate entry with key \"description\" at line 8 column 4 (<case>/src/lib.rs:41)"
+    "warning[OF2005]: embedded OpenAPI YAML is invalid and was ignored: duplicate mapping key: description (<case>/src/lib.rs:54)"
   ],
   "fragments": {
     "document": {

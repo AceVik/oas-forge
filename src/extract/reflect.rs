@@ -74,7 +74,10 @@ fn apply_overrides(
                     e.message
                 ),
             )
-            .at(Location::new(path, docs.override_line().unwrap_or(1))),
+            .at(Location::new(
+                path,
+                docs.override_line().unwrap_or(1) + e.line - 1,
+            )),
         ),
     }
 }

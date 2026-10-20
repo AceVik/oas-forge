@@ -1,0 +1,70 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/struct_validation/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Signup:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        homepage:
+          type: string
+          format: uri
+        username:
+          type: string
+          minLength: 3
+          maxLength: 32
+        age:
+          type: integer
+          format: int32
+          minimum: 18
+          maximum: 130
+        offset:
+          type: integer
+          format: int32
+          maximum: 5
+        ratio:
+          type: number
+          format: double
+        tags:
+          type: array
+          items:
+            type: string
+          minLength: 1
+          maxLength: 10
+        slug:
+          type: string
+          pattern: ^[a-z]+$
+        code:
+          type: string
+        handle:
+          type: string
+        pin:
+          type: string
+        percent:
+          type: number
+          format: float
+        nickname:
+          type: string
+      required:
+      - email
+      - homepage
+      - username
+      - age
+      - offset
+      - ratio
+      - tags
+      - slug
+      - code
+      - handle
+      - pin
+      - percent

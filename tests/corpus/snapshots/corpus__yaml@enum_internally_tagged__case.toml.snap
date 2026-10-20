@@ -1,0 +1,83 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/enum_internally_tagged/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    CustomStorage:
+      type: object
+      properties:
+        url:
+          type: string
+      required:
+      - url
+    Storage:
+      type: object
+      oneOf:
+      - $ref: "#/components/schemas/StorageLocal"
+      - $ref: "#/components/schemas/StorageS3"
+      - $ref: "#/components/schemas/StorageDisabled"
+      - $ref: "#/components/schemas/StorageCustom"
+      discriminator:
+        propertyName: type
+        mapping:
+          local: "#/components/schemas/StorageLocal"
+          s3: "#/components/schemas/StorageS3"
+          disabled: "#/components/schemas/StorageDisabled"
+          custom: "#/components/schemas/StorageCustom"
+      description: Storage configuration.
+    StorageCustom:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - custom
+          description: "Discriminator: custom"
+      required:
+      - type
+    StorageDisabled:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - disabled
+          description: "Discriminator: disabled"
+      required:
+      - type
+    StorageLocal:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - local
+          description: "Discriminator: local"
+        root_path:
+          type: string
+      required:
+      - type
+      - root_path
+      description: Local disk
+    StorageS3:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - s3
+          description: "Discriminator: s3"
+        bucket:
+          type: string
+        region:
+          type: string
+      required:
+      - type
+      - bucket
