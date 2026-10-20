@@ -1,0 +1,1 @@
+description = "Generics: a generic type used with the parameter of another generic type (Envelope<T> in Page<T>, recursive Tree<T>) is instantiated with the argument"

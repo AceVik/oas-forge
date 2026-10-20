@@ -327,7 +327,9 @@ static PLACEHOLDER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$(\w+)").expect("constant pattern"));
 
 /// Replaces whole `$Param` identifiers in every string (and key) of `schema`
-/// in a single pass, so substituted names are never substituted again.
+/// in a single pass, so substituted names are never substituted again. In a
+/// whole generic reference (`$Envelope<T>`), bare parameter names are bound
+/// as well.
 fn substitute(schema: &Value, bindings: &BTreeMap<&str, &str>) -> Value {
     let replace = |text: &str| -> String {
         PLACEHOLDER_RE
@@ -338,7 +340,12 @@ fn substitute(schema: &Value, bindings: &BTreeMap<&str, &str>) -> Value {
             .into_owned()
     };
     match schema {
-        Value::String(s) => Value::String(replace(s)),
+        // A whole generic reference: parameters are bound with or without
+        // `$` (reflection writes `$Envelope<T>` for a field `Envelope<T>`).
+        Value::String(s) => Value::String(match GenericRef::parse(s) {
+            Some(generic) => format!("${}", rebind(&generic, bindings)),
+            None => replace(s),
+        }),
         Value::Array(items) => {
             Value::Array(items.iter().map(|i| substitute(i, bindings)).collect())
         }
@@ -349,4 +356,20 @@ fn substitute(schema: &Value, bindings: &BTreeMap<&str, &str>) -> Value {
         ),
         other => other.clone(),
     }
+}
+
+/// `generic` as type text without the leading `$`, with every argument that
+/// names a parameter replaced by its binding (`Envelope<T>` → `Envelope<User>`).
+fn rebind(generic: &GenericRef, bindings: &BTreeMap<&str, &str>) -> String {
+    let args: Vec<String> = generic
+        .args
+        .iter()
+        .map(|arg| match arg {
+            GenericArg::Name(name) => bindings
+                .get(name.as_str())
+                .map_or_else(|| name.clone(), |bound| (*bound).to_string()),
+            GenericArg::Generic(inner) => rebind(inner, bindings),
+        })
+        .collect();
+    format!("{}<{}>", generic.name, args.join(", "))
 }

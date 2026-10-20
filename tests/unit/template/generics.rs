@@ -261,6 +261,81 @@ mod instantiation {
     }
 
     #[test]
+    fn bare_parameters_in_nested_generic_references_are_bound() {
+        // Reflection writes a field `Envelope<T>` as `$Envelope<T>`, without
+        // `$` on the parameter.
+        let reg = registry(&[
+            ("Envelope", &["T"], json!({ "data": { "$ref": "$T" } })),
+            (
+                "Page",
+                &["T"],
+                json!({
+                    "first": { "$ref": "$Envelope<T>" },
+                    "rest": { "items": { "$ref": "$Envelope<$T>" } },
+                    "next": { "$ref": "$Page<T>" },
+                    "pairs": { "$ref": "$Envelope<Envelope<T>>" },
+                }),
+            ),
+        ]);
+        let (value, concrete, diagnostics) = run(&reg, json!("$Page<User>"));
+        assert_eq!(value, json!("$Page_User"));
+        assert_eq!(
+            concrete["Page_User"],
+            json!({
+                "first": { "$ref": "$Envelope_User" },
+                "rest": { "items": { "$ref": "$Envelope_User" } },
+                "next": { "$ref": "$Page_User" },
+                "pairs": { "$ref": "$Envelope_Envelope_User" },
+            })
+        );
+        assert_eq!(
+            concrete["Envelope_User"],
+            json!({ "data": { "$ref": "$User" } })
+        );
+        assert_eq!(
+            concrete.keys().collect::<Vec<_>>(),
+            ["Envelope_Envelope_User", "Envelope_User", "Page_User"]
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn bound_arguments_may_be_generic_types() {
+        let reg = registry(&[
+            ("Envelope", &["T"], json!({ "data": { "$ref": "$T" } })),
+            (
+                "Page",
+                &["T"],
+                json!({ "first": { "$ref": "$Envelope<T>" } }),
+            ),
+        ]);
+        let (_, concrete, diagnostics) = run(&reg, json!("$Page<Vec<User>>"));
+        assert_eq!(
+            concrete["Page_Vec_User"],
+            json!({ "first": { "$ref": "$Envelope_Vec_User" } })
+        );
+        assert_eq!(
+            concrete["Envelope_Vec_User"],
+            json!({ "data": { "type": "array", "items": { "$ref": "$User" } } })
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn parameter_names_in_text_are_not_bound() {
+        let reg = registry(&[(
+            "Page",
+            &["T"],
+            json!({ "description": "A page of T, see $Envelope<T> and $T" }),
+        )]);
+        let (_, concrete, _) = run(&reg, json!("$Page<User>"));
+        assert_eq!(
+            concrete["Page_User"],
+            json!({ "description": "A page of T, see $Envelope<T> and $User" })
+        );
+    }
+
+    #[test]
     fn ever_growing_instantiation_hits_the_depth_limit() {
         let reg = registry(&[
             ("Nest", &["T"], json!({ "inner": "$Nest<$Wrap<$T>>" })),

@@ -1,0 +1,83 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/generics_nested_params/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /users:
+    get:
+      summary: Lists users.
+      operationId: users
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Page_User"
+  /tree:
+    get:
+      summary: The user tree.
+      operationId: tree
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tree_String"
+components:
+  schemas:
+    Envelope_User:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/User"
+      required:
+      - data
+      description: One value with metadata.
+    Page_User:
+      type: object
+      properties:
+        first:
+          $ref: "#/components/schemas/Envelope_User"
+        rest:
+          type: array
+          items:
+            $ref: "#/components/schemas/Envelope_User"
+        next:
+          anyOf:
+          - $ref: "#/components/schemas/Page_User"
+          - type: "null"
+      required:
+      - first
+      - rest
+      description: A page of wrapped values.
+    Tree_String:
+      type: object
+      properties:
+        value:
+          type: string
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tree_String"
+      required:
+      - value
+      - children
+      description: A tree.
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - id
+      description: A user.

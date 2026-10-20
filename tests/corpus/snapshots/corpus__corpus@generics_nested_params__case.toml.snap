@@ -1,0 +1,730 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/generics_nested_params/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Generics: a generic type used with the parameter of another generic type (Envelope<T> in Page<T>, recursive Tree<T>) is instantiated with the argument",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Envelope_User": {
+            "description": "One value with metadata.",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/User"
+              }
+            },
+            "required": [
+              "data"
+            ],
+            "type": "object"
+          },
+          "Page_User": {
+            "description": "A page of wrapped values.",
+            "properties": {
+              "first": {
+                "$ref": "#/components/schemas/Envelope_User"
+              },
+              "next": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Page_User"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rest": {
+                "items": {
+                  "$ref": "#/components/schemas/Envelope_User"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "first",
+              "rest"
+            ],
+            "type": "object"
+          },
+          "Tree_String": {
+            "description": "A tree.",
+            "properties": {
+              "children": {
+                "items": {
+                  "$ref": "#/components/schemas/Tree_String"
+                },
+                "type": "array"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "children"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "description": "A user.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        },
+        "x-oas-forge-format": 1,
+        "x-oas-forge-templates": {
+          "Envelope": {
+            "body": "type: object\nproperties:\n  data:\n    $ref: $T\nrequired:\n- data\ndescription: One value with metadata.\n",
+            "params": [
+              "T"
+            ]
+          },
+          "Page": {
+            "body": "type: object\nproperties:\n  first:\n    $ref: $Envelope<T>\n  rest:\n    type: array\n    items:\n      $ref: $Envelope<T>\n  next:\n    anyOf:\n    - $ref: $Page<T>\n    - type: \"null\"\nrequired:\n- first\n- rest\ndescription: A page of wrapped values.\n",
+            "params": [
+              "T"
+            ]
+          },
+          "Tree": {
+            "body": "type: object\nproperties:\n  value:\n    $ref: $T\n  children:\n    type: array\n    items:\n      $ref: $Tree<T>\nrequired:\n- value\n- children\ndescription: A tree.\n",
+            "params": [
+              "T"
+            ]
+          }
+        }
+      },
+      "paths": {
+        "/tree": {
+          "get": {
+            "operationId": "tree",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Tree_String"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "The user tree."
+          }
+        },
+        "/users": {
+          "get": {
+            "operationId": "users",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Page_User"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Lists users."
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Envelope_User": {
+            "description": "One value with metadata.",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/User"
+              }
+            },
+            "required": [
+              "data"
+            ],
+            "type": "object"
+          },
+          "Page_User": {
+            "description": "A page of wrapped values.",
+            "properties": {
+              "first": {
+                "$ref": "#/components/schemas/Envelope_User"
+              },
+              "next": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Page_User"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rest": {
+                "items": {
+                  "$ref": "#/components/schemas/Envelope_User"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "first",
+              "rest"
+            ],
+            "type": "object"
+          },
+          "Tree_String": {
+            "description": "A tree.",
+            "properties": {
+              "children": {
+                "items": {
+                  "$ref": "#/components/schemas/Tree_String"
+                },
+                "type": "array"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "children"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "description": "A user.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/tree": {
+          "get": {
+            "operationId": "tree",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Tree_String"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "The user tree."
+          }
+        },
+        "/users": {
+          "get": {
+            "operationId": "users",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Page_User"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Lists users."
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Envelope_User": {
+          "description": "One value with metadata.",
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/User"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "type": "object"
+        },
+        "Page_User": {
+          "description": "A page of wrapped values.",
+          "properties": {
+            "first": {
+              "$ref": "#/$defs/Envelope_User"
+            },
+            "next": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Page_User"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "rest": {
+              "items": {
+                "$ref": "#/$defs/Envelope_User"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "first",
+            "rest"
+          ],
+          "type": "object"
+        },
+        "Tree_String": {
+          "description": "A tree.",
+          "properties": {
+            "children": {
+              "items": {
+                "$ref": "#/$defs/Tree_String"
+              },
+              "type": "array"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "value",
+            "children"
+          ],
+          "type": "object"
+        },
+        "User": {
+          "description": "A user.",
+          "properties": {
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Envelope_User": {
+            "description": "One value with metadata.",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/User"
+              }
+            },
+            "required": [
+              "data"
+            ],
+            "type": "object"
+          },
+          "Page_User": {
+            "description": "A page of wrapped values.",
+            "properties": {
+              "first": {
+                "$ref": "#/components/schemas/Envelope_User"
+              },
+              "next": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Page_User"
+                  }
+                ],
+                "nullable": true
+              },
+              "rest": {
+                "items": {
+                  "$ref": "#/components/schemas/Envelope_User"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "first",
+              "rest"
+            ],
+            "type": "object"
+          },
+          "Tree_String": {
+            "description": "A tree.",
+            "properties": {
+              "children": {
+                "items": {
+                  "$ref": "#/components/schemas/Tree_String"
+                },
+                "type": "array"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "children"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "description": "A user.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/tree": {
+          "get": {
+            "operationId": "tree",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Tree_String"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "The user tree."
+          }
+        },
+        "/users": {
+          "get": {
+            "operationId": "users",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Page_User"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Lists users."
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/tree": {
+        "get": {
+          "operationId": "tree",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Tree_String"
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          },
+          "summary": "The user tree."
+        }
+      },
+      "/users": {
+        "get": {
+          "operationId": "users",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Page_User"
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          },
+          "summary": "Lists users."
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Envelope_User": {
+        "description": "One value with metadata.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/User"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "Page_User": {
+        "description": "A page of wrapped values.",
+        "properties": {
+          "first": {
+            "$ref": "#/components/schemas/Envelope_User"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Page_User"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rest": {
+            "items": {
+              "$ref": "#/components/schemas/Envelope_User"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "first",
+          "rest"
+        ],
+        "type": "object"
+      },
+      "Tree_String": {
+        "description": "A tree.",
+        "properties": {
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/Tree_String"
+            },
+            "type": "array"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "children"
+        ],
+        "type": "object"
+      },
+      "User": {
+        "description": "A user.",
+        "properties": {
+          "id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "Envelope_User": {
+          "description": "One value with metadata.",
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/User"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "type": "object"
+        },
+        "Page_User": {
+          "description": "A page of wrapped values.",
+          "properties": {
+            "first": {
+              "$ref": "#/definitions/Envelope_User"
+            },
+            "next": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Page_User"
+                }
+              ],
+              "x-nullable": true
+            },
+            "rest": {
+              "items": {
+                "$ref": "#/definitions/Envelope_User"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "first",
+            "rest"
+          ],
+          "type": "object"
+        },
+        "Tree_String": {
+          "description": "A tree.",
+          "properties": {
+            "children": {
+              "items": {
+                "$ref": "#/definitions/Tree_String"
+              },
+              "type": "array"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "value",
+            "children"
+          ],
+          "type": "object"
+        },
+        "User": {
+          "description": "A user.",
+          "properties": {
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/tree": {
+          "get": {
+            "operationId": "tree",
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "$ref": "#/definitions/Tree_String"
+                }
+              }
+            },
+            "summary": "The user tree."
+          }
+        },
+        "/users": {
+          "get": {
+            "operationId": "users",
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "$ref": "#/definitions/Page_User"
+                }
+              }
+            },
+            "summary": "Lists users."
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}
