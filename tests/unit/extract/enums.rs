@@ -707,10 +707,11 @@ mod tagged_newtypes {
             }
             "#,
         );
-        assert_eq!(
-            schema(&items, "EA")["allOf"],
-            json!([{ "allOf": [{ "$ref": "$Base" }] }, { "unevaluatedProperties": false }])
-        );
+        // The closing keyword stays next to the merged properties: inside
+        // `allOf` it would see none of them and reject every property.
+        let ea = schema(&items, "EA");
+        assert_eq!(ea["allOf"], json!([{ "allOf": [{ "$ref": "$Base" }] }]));
+        assert_eq!(ea["unevaluatedProperties"], json!(false));
     }
 
     #[test]
@@ -781,6 +782,232 @@ mod directives {
         assert_eq!(
             schema(&items, "E"),
             json!({ "anyOf": [{ "type": "string" }] })
+        );
+    }
+}
+
+mod generic_tagged {
+    use super::*;
+    use crate::common::pipeline;
+
+    const EVENT: &str = r#"
+        /// @openapi
+        #[serde(tag = "type")]
+        pub enum Event<T> { Created { item: T }, Moved { items: Vec<Wrapper<T>> }, Deleted { id: u64 } }
+        "#;
+
+    #[test]
+    fn variants_that_use_a_type_parameter_are_blueprints() {
+        let items = extract(EVENT);
+        assert_eq!(
+            crate::extract::kinds(&items),
+            [
+                "blueprint:EventCreated",
+                "blueprint:EventMoved",
+                "schema:EventDeleted",
+                "blueprint:Event"
+            ]
+        );
+        let created = crate::extract::blueprint(&items, "EventCreated");
+        assert_eq!(created.params, ["T"]);
+        assert_eq!(
+            created.schema["properties"]["item"],
+            json!({ "$ref": "$T" })
+        );
+        let event = crate::extract::blueprint(&items, "Event");
+        assert_eq!(
+            event.schema["oneOf"],
+            json!([
+                { "$ref": "$EventCreated<$T>" },
+                { "$ref": "$EventMoved<$T>" },
+                { "$ref": "#/components/schemas/EventDeleted" },
+            ])
+        );
+        assert_eq!(
+            event.schema["discriminator"]["mapping"]["Created"],
+            "$EventCreated<$T>"
+        );
+    }
+
+    #[test]
+    fn each_instance_has_its_own_variants() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            &format!(
+                "{EVENT}
+                /// @openapi
+                pub struct Wrapper<T> {{ pub w: T }}
+                /// @openapi
+                pub struct User {{ pub id: u64 }}
+                /// @openapi
+                pub struct Holder {{ pub a: Event<User>, pub b: Event<String> }}"
+            ),
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let schemas = &document["components"]["schemas"];
+        assert_eq!(
+            schemas["Event_User"]["discriminator"]["mapping"],
+            json!({
+                "Created": "#/components/schemas/EventCreated_User",
+                "Moved": "#/components/schemas/EventMoved_User",
+                "Deleted": "#/components/schemas/EventDeleted",
+            })
+        );
+        assert_eq!(
+            schemas["EventCreated_User"]["properties"]["item"],
+            json!({ "$ref": "#/components/schemas/User" })
+        );
+        assert_eq!(
+            schemas["EventCreated_String"]["properties"]["item"],
+            json!({ "type": "string" })
+        );
+        // `Vec<Wrapper<T>>`: the parameter is substituted in nested arguments.
+        assert_eq!(
+            schemas["EventMoved_User"]["properties"]["items"]["items"],
+            json!({ "$ref": "#/components/schemas/Wrapper_User" })
+        );
+        assert!(schemas.get("EventCreated").is_none());
+    }
+}
+
+mod closed_variants {
+    use super::*;
+
+    #[test]
+    fn flattened_maps_of_struct_variants_stay_next_to_the_properties() {
+        // Inside `allOf`, `additionalProperties` would apply to the tag and
+        // every field.
+        let items = extract(
+            "/// @openapi\n#[serde(tag = \"kind\")]\nenum E { A { a: bool, #[serde(flatten)] extra: HashMap<String, String> } }",
+        );
+        let a = schema(&items, "EA");
+        assert_eq!(a["additionalProperties"], json!({ "type": "string" }));
+        assert!(a.get("allOf").is_none());
+    }
+
+    #[test]
+    fn the_enums_deny_unknown_fields_closes_struct_variants() {
+        let items = extract(
+            r#"
+            /// @openapi
+            #[serde(tag = "t", deny_unknown_fields)]
+            enum D { A { a: bool } }
+            /// @openapi
+            #[serde(deny_unknown_fields)]
+            enum X { B { b: bool } }
+            "#,
+        );
+        assert_eq!(schema(&items, "DA")["additionalProperties"], false);
+        assert_eq!(
+            schema(&items, "X")["oneOf"][0]["properties"]["B"]["additionalProperties"],
+            false
+        );
+    }
+}
+
+mod unit_variant_metadata {
+    use super::*;
+
+    #[test]
+    fn annotated_unit_variants_are_const_alternatives() {
+        let items = extract(
+            r#"
+            /// @openapi
+            pub enum Color {
+                /// The red one.
+                /// @openapi
+                /// x-rgb: ff0000
+                #[deprecated]
+                Red,
+                /// @example green
+                Green,
+                Blue,
+            }
+            "#,
+        );
+        // The `enum` stays for tools that ignore `oneOf`.
+        assert_eq!(
+            schema(&items, "Color"),
+            json!({
+                "type": "string",
+                "enum": ["Red", "Green", "Blue"],
+                "oneOf": [
+                    { "const": "Red", "description": "The red one.", "deprecated": true, "x-rgb": "ff0000" },
+                    { "const": "Green", "examples": ["green"] },
+                    { "const": "Blue" },
+                ],
+            })
+        );
+    }
+
+    #[test]
+    fn annotated_unit_variants_next_to_data_variants() {
+        let items =
+            extract("/// @openapi\npub enum Shape {\n  #[deprecated]\n  Empty,\n  Circle(f64),\n}");
+        assert_eq!(
+            schema(&items, "Shape")["oneOf"][0],
+            json!({
+                "type": "string",
+                "enum": ["Empty"],
+                "oneOf": [{ "const": "Empty", "deprecated": true }],
+            })
+        );
+    }
+
+    #[test]
+    fn documented_unit_variants_stay_a_string_enum() {
+        let items = extract("/// @openapi\npub enum State {\n  /// Open.\n  Open,\n  Closed,\n}");
+        assert_eq!(
+            schema(&items, "State"),
+            json!({ "type": "string", "enum": ["Open", "Closed"] })
+        );
+    }
+}
+
+mod serde_repr {
+    use super::*;
+
+    #[test]
+    fn repr_enums_are_their_discriminants() {
+        let items = extract(
+            r#"
+            /// Status codes.
+            /// @openapi
+            #[derive(Serialize_repr, Deserialize_repr)]
+            #[repr(i16)]
+            pub enum Status { A = 1, B, C = -3, D, E = 0x10 }
+            /// @openapi
+            #[cfg_attr(feature = "serde", derive(serde_repr::Serialize_repr))]
+            #[repr(u8)]
+            pub enum Implicit { First, Second }
+            "#,
+        );
+        assert_eq!(
+            schema(&items, "Status"),
+            json!({ "type": "integer", "enum": [1, 2, -3, -2, 16], "description": "Status codes." })
+        );
+        assert_eq!(
+            schema(&items, "Implicit"),
+            json!({ "type": "integer", "enum": [0, 1] })
+        );
+    }
+
+    #[test]
+    fn non_literal_discriminants_are_reported() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            "/// @openapi\n#[derive(Serialize_repr)]\n#[repr(u8)]\npub enum S {\n  A = BASE,\n  B,\n}",
+        );
+        assert_eq!(schema(&items, "S"), json!({ "type": "integer" }));
+        assert_eq!(codes(&diagnostics), [Code::UnknownDiscriminant]);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .next()
+                .unwrap()
+                .location()
+                .unwrap()
+                .line(),
+            5
         );
     }
 }

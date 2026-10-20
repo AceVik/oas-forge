@@ -91,3 +91,40 @@ fn optional_aliases_are_nullable() {
         json!({ "type": ["string", "null"] })
     );
 }
+
+#[test]
+fn generic_aliases_are_blueprints() {
+    let items = extract("pub type Paged<T> = Page<T>;");
+    let paged = crate::extract::blueprint(&items, "Paged");
+    assert_eq!(paged.params, ["T"]);
+    assert_eq!(paged.schema, json!({ "$ref": "$Page<$T>" }));
+}
+
+#[test]
+fn generic_aliases_are_instantiated_where_used() {
+    let (document, diagnostics) = crate::common::pipeline(&[(
+        "lib.rs",
+        r#"
+        pub type Result<T> = std::result::Result<T, AppError>;
+        pub type Paged<T> = Page<T>;
+        /// @openapi
+        pub struct Page<T> { pub items: Vec<T> }
+        /// @openapi
+        pub struct User { pub id: u64 }
+        /// @openapi
+        pub struct H { pub p: Paged<User> }
+        "#,
+    )]);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let schemas = &document["components"]["schemas"];
+    assert_eq!(
+        schemas["Paged_User"],
+        json!({ "$ref": "#/components/schemas/Page_User" })
+    );
+    assert_eq!(
+        schemas["Page_User"]["properties"]["items"]["items"],
+        json!({ "$ref": "#/components/schemas/User" })
+    );
+    // Unused generic aliases (`Result<T>`) are not exported.
+    assert!(schemas.get("Result").is_none() && schemas.get("Paged").is_none());
+}

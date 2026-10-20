@@ -37,6 +37,7 @@ components:
           type: string
       required:
       - startedAt
+      - endedAt
       - timeout
       - ref
       additionalProperties: {}

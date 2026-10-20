@@ -140,10 +140,14 @@ codes! {
     DuplicateSchema = "OF1004", Warning;
     /// A variant whose shape serde cannot represent in the enum's tagging mode.
     UnsupportedVariant = "OF1005", Warning;
-    /// A validation attribute whose value is not a literal (e.g. a constant).
+    /// A validation attribute whose value is not a literal (e.g. a constant) or out of range.
     NonLiteralConstraint = "OF1006", Warning;
     /// A `regex(path = ..)` / `pattern(..)` constant that is not defined in the scanned code.
     UnresolvedPattern = "OF1007", Warning;
+    /// An `@openapi` directive of a type, field or variant has an invalid argument.
+    InvalidSchemaDirective = "OF1008", Warning;
+    /// A variant of a `serde_repr` enum whose discriminant is not an integer literal.
+    UnknownDiscriminant = "OF1009", Warning;
 
     /// A route is missing its method or path.
     InvalidRoute = "OF2001", Error;

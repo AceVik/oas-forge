@@ -10,14 +10,14 @@ Attributes are also read inside `#[cfg_attr(…, serde(…))]`.
 
 | Attribute | Schema |
 | :--- | :--- |
-| `rename = "Name"` | the schema name; `rename(serialize = "A", deserialize = "B")` uses the serialize name |
-| `rename_all = "…"` | field names (structs) or variant names (enums), exactly as serde converts them |
+| `rename = "Name"` | the schema name; `rename(serialize = "A", deserialize = "B")` uses the serialize name (`deserialize` alone changes nothing) |
+| `rename_all = "…"` | field names (structs) or variant names (enums), exactly as serde converts them; names set with `rename` are kept as written |
 | `rename_all_fields = "…"` | field names of struct variants (enums) |
-| `tag = "t"` | internally tagged enum: one schema per variant with the tag property, `oneOf` and a `discriminator` |
+| `tag = "t"` | internally tagged enum: one schema per variant with the tag property, `oneOf` and a `discriminator`; on a struct: a required tag property with the struct's serde name |
 | `tag = "t", content = "c"` | adjacently tagged enum |
 | `untagged` | `anyOf` of the variants' content |
 | `transparent` | the schema of the single field |
-| `deny_unknown_fields` | `additionalProperties: false` (`unevaluatedProperties: false` with flattened fields) |
+| `deny_unknown_fields` | `additionalProperties: false` (`unevaluatedProperties: false` with flattened fields); on an enum also for its struct variants |
 | `default` | every field is optional |
 | `into = "T"`, `from = "T"`, `try_from = "T"` | the schema of `T` |
 | `bound`, `crate`, `remote`, `expecting`, `variant_identifier`, `field_identifier` | no effect on the format |
@@ -32,9 +32,10 @@ Attributes are also read inside `#[cfg_attr(…, serde(…))]`.
 | `skip_serializing` | `writeOnly: true` |
 | `skip_deserializing` | `readOnly: true` |
 | `skip_serializing_if = "…"` | not required |
-| `flatten` | a struct joins with `allOf`; a map becomes `additionalProperties`; an `Option` may be absent as a whole |
+| `flatten` | a struct joins with `allOf`; a map becomes `additionalProperties` (`unevaluatedProperties` next to flattened structs); an `Option` may be absent as a whole |
 | `with`, `serialize_with` | known modules change the type, see below; others keep the field's type |
-| `alias`, `deserialize_with`, `borrow`, `bound`, `getter` | no effect on the documented format |
+| `with`, `deserialize_with` | the field is required, also an `Option` (unless `default`) |
+| `alias`, `borrow`, `bound`, `getter` | no effect on the documented format |
 
 Known `with` modules:
 
@@ -60,13 +61,18 @@ Known `with` modules:
 
 | Representation | Unit variant | Newtype variant | Tuple variant | Struct variant |
 | :--- | :--- | :--- | :--- | :--- |
-| external (default) | string in `enum` | `{Variant: T}` | `{Variant: [..]}` | `{Variant: {..}}` |
+| external (default) | string in `enum` (with a `oneOf` of `const`s for overrides, `@example`, `#[deprecated]`) | `{Variant: T}` | `{Variant: [..]}` | `{Variant: {..}}` |
 | internal (`tag`) | `{tag}` | `{tag, ..fields of T}` for structs and maps; others are reported (`OF1005`) | reported (`OF1005`) | `{tag, ..fields}` |
 | adjacent (`tag`, `content`) | `{tag}` | `{tag, content: T}` | `{tag, content: [..]}` | `{tag, content: {..}}` |
 | untagged | `null` | `T` | `[..]` | `{..}` |
 
 Tagged variants are separate component schemas named `{Enum}{Variant}`; the
-discriminator maps the tag values to them.
+discriminator maps the tag values to them. In a generic enum, the variants
+that use a type parameter are instantiated per use (`{Enum}{Variant}_{Args}`).
+
+`#[derive(Serialize_repr)]` of [serde_repr](https://docs.rs/serde_repr)
+writes the discriminant: the enum is an integer `enum` of the discriminants
+(implicit ones counted like Rust does).
 
 ## validator
 

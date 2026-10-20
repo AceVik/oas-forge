@@ -687,6 +687,18 @@ mod serde_fields {
     }
 
     #[test]
+    fn flattened_maps_next_to_flattened_structs_are_unevaluated_properties() {
+        // `additionalProperties` would also apply to the fields of `Inner`.
+        let items = extract(
+            "/// @openapi\nstruct S {\n  a: bool,\n  #[serde(flatten)]\n  inner: Inner,\n  #[serde(flatten)]\n  rest: HashMap<String, String>,\n}",
+        );
+        let s = schema(&items, "S");
+        assert_eq!(s["allOf"], json!([{ "$ref": "$Inner" }]));
+        assert_eq!(s["unevaluatedProperties"], json!({ "type": "string" }));
+        assert!(s.get("additionalProperties").is_none());
+    }
+
+    #[test]
     fn deny_unknown_fields_closes_the_object() {
         let items = extract(
             r#"
@@ -853,6 +865,62 @@ mod struct_shapes {
         assert_eq!(schema(&items, "Bytes2")["type"], "array");
         assert_eq!(schema(&items, "Weird")["type"], "object");
     }
+
+    #[test]
+    fn tuple_structs_with_skipped_members_stay_arrays() {
+        // serde writes `[1]` for `T(1, 2)`: only a one-field struct (or a
+        // transparent one) is a newtype.
+        let items = extract(
+            "/// @openapi\nstruct T(pub u8, #[serde(skip)] pub u8);\n/// @openapi\n#[serde(transparent)]\nstruct W(bool, #[serde(skip)] PhantomData<u8>);",
+        );
+        assert_eq!(
+            schema(&items, "T"),
+            json!({
+                "type": "array",
+                "prefixItems": [{ "type": "integer", "format": "int32", "minimum": 0, "maximum": 255 }],
+                "items": false, "minItems": 1, "maxItems": 1,
+            })
+        );
+        assert_eq!(schema(&items, "W"), json!({ "type": "boolean" }));
+    }
+
+    #[test]
+    fn tagged_structs_carry_their_tag() {
+        let items = extract(
+            r#"
+            /// @openapi
+            #[serde(tag = "type", deny_unknown_fields)]
+            struct Tagged { a: bool }
+            /// @openapi rename "Doc"
+            #[serde(tag = "kind", rename = "Wire")]
+            struct Empty {}
+            "#,
+        );
+        let tagged = schema(&items, "Tagged");
+        assert_eq!(
+            tagged,
+            json!({
+                "type": "object",
+                "properties": {
+                    "type": { "type": "string", "enum": ["Tagged"] },
+                    "a": { "type": "boolean" },
+                },
+                "required": ["type", "a"],
+                "additionalProperties": false,
+            })
+        );
+        let names: Vec<&String> = tagged["properties"].as_object().unwrap().keys().collect();
+        assert_eq!(names, ["type", "a"]);
+        // The tag is serde's name, not the documented one.
+        assert_eq!(
+            schema(&items, "Doc"),
+            json!({
+                "type": "object",
+                "properties": { "kind": { "type": "string", "enum": ["Wire"] } },
+                "required": ["kind"],
+            })
+        );
+    }
 }
 
 #[test]
@@ -867,6 +935,17 @@ fn structural_overrides_replace_a_reflected_reference() {
     assert_eq!(
         schema(&items, "Id"),
         json!({ "type": "string", "format": "uuid", "description": "An id" })
+    );
+}
+
+#[test]
+fn structural_overrides_replace_a_nullable_reference() {
+    let items = extract(
+        "/// @openapi\nstruct S {\n/// The id.\n/// @openapi\n/// type: string\n/// format: uuid\nid: Option<UserId>,\n}",
+    );
+    assert_eq!(
+        schema(&items, "S")["properties"]["id"],
+        json!({ "type": ["string", "null"], "format": "uuid", "description": "The id." })
     );
 }
 
@@ -901,6 +980,17 @@ mod directives {
         let s = schema(&items, "S");
         assert_eq!(s["examples"], json!([{ "a": 1 }, "plain: [text"]));
         assert_eq!(s["properties"]["a"]["examples"], json!([42, "quoted"]));
+    }
+
+    #[test]
+    fn explicit_null_examples_are_null() {
+        let items = extract(
+            "/// @openapi\nstruct S {\n  /// @example null\n  /// @example ~\n  /// @example # not yaml\n  a: Option<u8>,\n}",
+        );
+        assert_eq!(
+            schema(&items, "S")["properties"]["a"]["examples"],
+            json!([null, null, "# not yaml"])
+        );
     }
 
     #[test]

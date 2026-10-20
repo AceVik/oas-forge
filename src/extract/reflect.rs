@@ -7,6 +7,7 @@
 
 use super::{BlueprintItem, DocumentItem, Item, Options, SchemaItem};
 use crate::attrs::directives::{ItemDocs, ItemKind};
+use crate::attrs::metas;
 use crate::attrs::rename::RenameRule;
 use crate::attrs::serde::SerdeAttrs;
 use crate::attrs::validate::Constraints;
@@ -49,7 +50,11 @@ const STRUCTURE_KEYS: &[&str] = &[
 
 /// What the attributes of an item, field or variant say about it.
 struct Naming {
+    /// The `rename`d name, or the Rust name.
     name: String,
+    /// Whether `name` comes from `#[serde(rename)]` or `@openapi rename`
+    /// (then no `rename_all` rule applies to it).
+    explicit: bool,
     rename_all: Option<RenameRule>,
     docs: ItemDocs,
     serde: SerdeAttrs,
@@ -116,20 +121,36 @@ impl<'a> Reflector<'a> {
         Location::new(self.path, line)
     }
 
-    fn naming(&self, attrs: &[syn::Attribute], default: &str, kind: ItemKind) -> Naming {
+    fn naming(&mut self, attrs: &[syn::Attribute], default: &str, kind: ItemKind) -> Naming {
         let serde = SerdeAttrs::parse(attrs);
         let docs = ItemDocs::parse(&doc_lines(attrs), kind);
-        let name = docs
-            .rename
-            .clone()
-            .or_else(|| serde.rename.clone())
-            .unwrap_or_else(|| default.to_string());
+        for problem in &docs.problems {
+            self.diagnostics.push(
+                Diagnostic::new(Code::InvalidSchemaDirective, problem.text.clone())
+                    .at(self.location(problem.line)),
+            );
+        }
+        let renamed = docs.rename.clone().or_else(|| serde.rename.clone());
         Naming {
-            name,
+            explicit: renamed.is_some(),
+            name: renamed.unwrap_or_else(|| default.to_string()),
             rename_all: docs.rename_all.or(serde.rename_all),
             deprecated: attrs.iter().any(|a| a.path().is_ident("deprecated")),
             docs,
             serde,
+        }
+    }
+
+    /// The serialized name of a field or variant: an explicit `rename` as
+    /// written, otherwise the Rust name converted by `rule`.
+    fn member_name(
+        naming: &Naming,
+        rule: Option<RenameRule>,
+        apply: fn(RenameRule, &str) -> String,
+    ) -> String {
+        match rule {
+            Some(rule) if !naming.explicit => apply(rule, &naming.name),
+            _ => naming.name.clone(),
         }
     }
 
@@ -158,12 +179,18 @@ impl<'a> Reflector<'a> {
                         self.diagnostics,
                     );
                     let text = item.strip_prefix("- ").unwrap_or(&item);
+                    // Text YAML reads as nothing (`@example # fff`) stays text;
+                    // an explicit `null` is the value `null`.
                     match yaml::parse(&item) {
-                        Ok(Value::Array(values)) => values
-                            .into_iter()
-                            .next()
-                            .filter(|value| !value.is_null())
-                            .unwrap_or_else(|| json!(text)),
+                        Ok(Value::Array(values)) => match values.into_iter().next() {
+                            Some(Value::Null)
+                                if matches!(text.trim(), "null" | "Null" | "NULL" | "~") =>
+                            {
+                                Value::Null
+                            }
+                            Some(value) if !value.is_null() => value,
+                            _ => json!(text),
+                        },
                         _ => json!(text),
                     }
                 })
@@ -182,17 +209,18 @@ impl<'a> Reflector<'a> {
         let text = lexical::substitute(&text, self.variables, &start, self.diagnostics);
         match yaml::parse(&text) {
             Ok(Value::Null) => {}
-            Ok(value) => {
-                // An override that defines the structure itself (a virtual
-                // type on a newtype such as `struct Wrapper<T>(T)`) replaces
-                // the reflected reference.
-                let structural = value
-                    .as_object()
-                    .is_some_and(|map| STRUCTURE_KEYS.iter().any(|k| map.contains_key(*k)));
-                if structural && let Value::Object(map) = schema {
-                    map.remove("$ref");
-                }
-                merge(schema, value, Policy::Override);
+            Ok(Value::Object(value)) => apply_override(schema, value),
+            Ok(_) => {
+                self.diagnostics.push(
+                    Diagnostic::new(
+                        Code::InvalidOverride,
+                        format!(
+                            "`@openapi` override of {what} is not a YAML mapping (`{}`); it is ignored",
+                            text.trim()
+                        ),
+                    )
+                    .at(start),
+                );
             }
             Err(e) => {
                 let line = naming.docs.override_line().unwrap_or(1) + e.line - 1;
@@ -224,7 +252,7 @@ impl<'a> Reflector<'a> {
             self.diagnostics.push(
                 Diagnostic::new(
                     Code::NonLiteralConstraint,
-                    format!("{problem} is not a literal; the constraint is not documented"),
+                    format!("{problem}; the constraint is not documented"),
                 )
                 .at(self.location(line)),
             );
@@ -275,11 +303,7 @@ impl<'a> Reflector<'a> {
         if serde.is_skipped() || naming.docs.skip {
             return Field::Skip;
         }
-        let name = if naming.name == ident {
-            rule.map_or_else(|| ident.clone(), |rule| rule.apply_to_field(&ident))
-        } else {
-            naming.name.clone()
-        };
+        let name = Self::member_name(&naming, rule, RenameRule::apply_to_field);
 
         let mapped = self.field_type(&field.ty, serde);
         if serde.flatten {
@@ -311,7 +335,9 @@ impl<'a> Reflector<'a> {
             }
         }
         self.finish(&mut schema, &naming, &format!("field `{ident}`"));
-        let required = (mapped.required || forced)
+        // A custom deserializer makes even an `Option` field mandatory: serde
+        // only fills in `None` for a missing field it deserializes itself.
+        let required = (mapped.required || forced || serde.custom_deserializer)
             && !serde.default
             && !container_default
             && !serde.skip_serializing_if;
@@ -359,18 +385,20 @@ impl<'a> Reflector<'a> {
         if always_required || !required.is_empty() {
             schema.insert("required".into(), Value::Array(required));
         }
-        if !flattened.is_empty() {
-            schema.insert("allOf".into(), Value::Array(flattened.clone()));
-        }
+        // `additionalProperties` does not see the properties of flattened
+        // schemas (`allOf`); `unevaluatedProperties` does.
+        let others = if flattened.is_empty() {
+            "additionalProperties"
+        } else {
+            schema.insert("allOf".into(), Value::Array(flattened));
+            "unevaluatedProperties"
+        };
         match additional {
             Some(values) => {
-                schema.insert("additionalProperties".into(), values);
-            }
-            None if container.deny_unknown_fields && flattened.is_empty() => {
-                schema.insert("additionalProperties".into(), json!(false));
+                schema.insert(others.into(), values);
             }
             None if container.deny_unknown_fields => {
-                schema.insert("unevaluatedProperties".into(), json!(false));
+                schema.insert(others.into(), json!(false));
             }
             None => {}
         }
@@ -401,18 +429,35 @@ impl<'a> Reflector<'a> {
                         .unwrap_or_else(|| json!({}))
                 }
                 syn::Fields::Named(fields) if !fields.named.is_empty() => {
-                    self.object(fields, naming.rename_all, serde, false)
+                    let mut schema = self.object(fields, naming.rename_all, serde, false);
+                    if let Some(tag) = &serde.tag {
+                        let value = serde.rename.as_deref().unwrap_or(&rust_name);
+                        struct_tag(&mut schema, tag, value);
+                    }
+                    schema
                 }
                 syn::Fields::Unnamed(fields) => {
-                    let members: Vec<Value> = fields
+                    let mut members: Vec<Value> = fields
                         .unnamed
                         .iter()
                         .filter_map(|f| self.unnamed_field(f))
                         .collect();
-                    match members.as_slice() {
-                        // A newtype struct is its single field.
-                        [single] => single.clone(),
-                        _ => tuple(members),
+                    // A newtype struct (one field, or `transparent`) is its
+                    // single field; serde writes other tuple structs as
+                    // arrays of their members, even when all but one are
+                    // skipped.
+                    match members.pop() {
+                        Some(single)
+                            if members.is_empty()
+                                && (fields.unnamed.len() == 1 || serde.transparent) =>
+                        {
+                            single
+                        }
+                        Some(last) => {
+                            members.push(last);
+                            tuple(members)
+                        }
+                        None => tuple(members),
                     }
                 }
                 _ => {
@@ -421,7 +466,14 @@ impl<'a> Reflector<'a> {
                     }
                     match (&item.fields, naming.docs.override_text()) {
                         // `struct S {}` is an empty object.
-                        (syn::Fields::Named(_), _) => json!({ "type": "object" }),
+                        (syn::Fields::Named(_), _) => {
+                            let mut schema = json!({ "type": "object" });
+                            if let Some(tag) = &serde.tag {
+                                let value = serde.rename.as_deref().unwrap_or(&rust_name);
+                                struct_tag(&mut schema, tag, value);
+                            }
+                            schema
+                        }
                         // A unit struct is `null`, unless the block defines a
                         // virtual type (0.1 compatible).
                         (_, Some(_)) => json!({ "type": "object" }),
@@ -461,7 +513,8 @@ impl<'a> Reflector<'a> {
         })
     }
 
-    /// Reflects a type alias (always exported, unless `@openapi skip`).
+    /// Reflects a type alias (always exported, unless `@openapi skip`; a
+    /// generic alias is a blueprint).
     pub(super) fn alias(&mut self, item: &syn::ItemType) -> Option<Item> {
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Member);
@@ -470,12 +523,14 @@ impl<'a> Reflector<'a> {
         }
         let mut schema = self.types.map(&TypeExpr::from_syn(&item.ty)).into_schema();
         self.finish(&mut schema, &naming, &format!("type alias `{rust_name}`"));
-        Some(Item::Schema(SchemaItem {
-            name: naming.name,
+        // `type Paged<T> = Page<T>` is a template like a generic struct.
+        Some(wrap_item(
+            naming.name,
             rust_name,
             schema,
-            location: self.location(line_of(item.span())),
-        }))
+            type_params(&item.generics),
+            self.location(line_of(item.span())),
+        ))
     }
 
     /// Reflects an enum with an `@openapi` directive.
@@ -502,7 +557,18 @@ impl<'a> Reflector<'a> {
             )];
         }
 
-        let serde = naming.serde.clone();
+        if let Some(mut schema) = self.repr_enum(item) {
+            self.finish(&mut schema, &naming, &format!("enum `{rust_name}`"));
+            return vec![wrap_item(
+                naming.name,
+                rust_name,
+                schema,
+                blueprint,
+                location,
+            )];
+        }
+
+        let serde = &naming.serde;
         let representation = match (&serde.tag, &serde.content) {
             _ if serde.untagged => Representation::Untagged,
             (Some(tag), Some(content)) => Representation::Adjacent { tag, content },
@@ -531,15 +597,26 @@ impl<'a> Reflector<'a> {
                     .collect::<Vec<_>>();
                 json!({ "anyOf": alternatives })
             }
-            Representation::Internal { tag } => {
-                self.tagged(&naming, &variants, tag, None, &rust_name, &mut items)
-            }
+            Representation::Internal { tag } => self.tagged(
+                &naming,
+                &variants,
+                &Tagging {
+                    tag,
+                    content: None,
+                    rust_name: &rust_name,
+                    params: blueprint.as_deref(),
+                },
+                &mut items,
+            ),
             Representation::Adjacent { tag, content } => self.tagged(
                 &naming,
                 &variants,
-                tag,
-                Some(content),
-                &rust_name,
+                &Tagging {
+                    tag,
+                    content: Some(content),
+                    rust_name: &rust_name,
+                    params: blueprint.as_deref(),
+                },
                 &mut items,
             ),
         };
@@ -557,14 +634,52 @@ impl<'a> Reflector<'a> {
         items
     }
 
-    /// The serialized name of a variant.
-    fn variant_name(variant: &syn::Variant, naming: &Naming, rule: Option<RenameRule>) -> String {
-        let ident = variant.ident.unraw().to_string();
-        if naming.name == ident {
-            rule.map_or(ident.clone(), |rule| rule.apply_to_variant(&ident))
-        } else {
-            naming.name.clone()
+    /// The schema of an enum serialized by `serde_repr` (`Serialize_repr`):
+    /// the integer discriminants of its variants.
+    fn repr_enum(&mut self, item: &syn::ItemEnum) -> Option<Value> {
+        let derived = metas(&item.attrs, "derive").iter().any(|meta| {
+            meta.path()
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "Serialize_repr")
+        });
+        if !derived {
+            return None;
         }
+        let mut values = Vec::new();
+        let mut next = Some(0_i128);
+        for variant in &item.variants {
+            let value = match &variant.discriminant {
+                Some((_, expr)) => integer_literal(expr),
+                None => next,
+            };
+            match value {
+                Some(value) => {
+                    values.push(integer_value(value));
+                    next = value.checked_add(1);
+                }
+                None => {
+                    self.diagnostics.push(
+                        Diagnostic::new(
+                            Code::UnknownDiscriminant,
+                            format!(
+                                "the discriminant of variant `{}` of `{}` is not an integer \
+                                 literal; the values of the enum are not documented",
+                                variant.ident, item.ident
+                            ),
+                        )
+                        .at(self.location(line_of(variant.span()))),
+                    );
+                    return Some(json!({ "type": "integer" }));
+                }
+            }
+        }
+        Some(json!({ "type": "integer", "enum": values }))
+    }
+
+    /// The serialized name of a variant.
+    fn variant_name(naming: &Naming, rule: Option<RenameRule>) -> String {
+        Self::member_name(naming, rule, RenameRule::apply_to_variant)
     }
 
     /// The data of a variant. Fields of struct variants follow the variant's
@@ -580,7 +695,10 @@ impl<'a> Reflector<'a> {
             syn::Fields::Unit => Content::Unit,
             syn::Fields::Named(fields) => {
                 let rule = naming.rename_all.or(container.serde.rename_all_fields);
-                Content::Struct(self.object(fields, rule, &naming.serde, always_required))
+                // The enum's `deny_unknown_fields` applies to its struct variants.
+                let mut attrs = naming.serde.clone();
+                attrs.deny_unknown_fields |= container.serde.deny_unknown_fields;
+                Content::Struct(self.object(fields, rule, &attrs, always_required))
             }
             syn::Fields::Unnamed(fields) => {
                 let members: Vec<Value> = fields
@@ -622,24 +740,43 @@ impl<'a> Reflector<'a> {
     fn external(&mut self, container: &Naming, variants: &[(&syn::Variant, Naming)]) -> Value {
         let rule = container.rename_all;
         let tagged: Vec<_> = variants.iter().filter(|(_, n)| !n.serde.untagged).collect();
-        let units: Vec<Value> = tagged
+        let units: Vec<_> = tagged
             .iter()
             .filter(|(v, _)| matches!(v.fields, syn::Fields::Unit))
-            .map(|(v, n)| json!(Self::variant_name(v, n, rule)))
             .collect();
+        let names: Vec<Value> = units
+            .iter()
+            .map(|(_, n)| json!(Self::variant_name(n, rule)))
+            .collect();
+        let mut strings = if names.is_empty() {
+            json!({ "type": "string" })
+        } else {
+            json!({ "type": "string", "enum": names })
+        };
+        // A string `enum` says nothing about single values. When a unit
+        // variant has an override, `@example` or `#[deprecated]`, a `oneOf`
+        // of `const`s next to the `enum` carries it (and the variants' docs).
+        let annotated = units.iter().any(|(_, n)| {
+            n.deprecated || !n.docs.examples.is_empty() || n.docs.override_text().is_some()
+        });
+        if annotated && let Value::Object(map) = &mut strings {
+            let mut values = Vec::new();
+            for (variant, naming) in &units {
+                let mut value = json!({ "const": Self::variant_name(naming, rule) });
+                self.finish(&mut value, naming, &format!("variant `{}`", variant.ident));
+                values.push(value);
+            }
+            map.insert("oneOf".into(), Value::Array(values));
+        }
         if units.len() == variants.len() {
-            return if units.is_empty() {
-                json!({ "type": "string" })
-            } else {
-                json!({ "type": "string", "enum": units })
-            };
+            return strings;
         }
         let mut alternatives = Vec::new();
         if !units.is_empty() {
-            alternatives.push(json!({ "type": "string", "enum": units }));
+            alternatives.push(strings);
         }
         for (variant, naming) in &tagged {
-            let name = Self::variant_name(variant, naming, rule);
+            let name = Self::variant_name(naming, rule);
             let content = match self.content(variant, naming, container, false) {
                 Content::Unit => continue,
                 Content::Newtype(schema) | Content::Tuple(schema) | Content::Struct(schema) => {
@@ -675,16 +812,22 @@ impl<'a> Reflector<'a> {
     }
 
     /// Internally (`tag`) and adjacently (`tag` + `content`) tagged enums: one
-    /// component schema per variant, combined with a discriminator.
+    /// component schema per variant, combined with a discriminator. Variants
+    /// of a generic enum that use its type parameters are blueprints
+    /// themselves (`$ShapeCircle<$T>`), instantiated with the enum.
     fn tagged(
         &mut self,
         container: &Naming,
         variants: &[(&syn::Variant, Naming)],
-        tag: &str,
-        content_key: Option<&str>,
-        rust_name: &str,
+        tagging: &Tagging<'_>,
         items: &mut Vec<Item>,
     ) -> Value {
+        let Tagging {
+            tag,
+            content: content_key,
+            rust_name,
+            params,
+        } = *tagging;
         let mut refs = Vec::new();
         let mut mapping = Map::new();
         let mut untagged = Vec::new();
@@ -694,11 +837,8 @@ impl<'a> Reflector<'a> {
                 untagged.push(self.untagged_alternative(variant, naming, container));
                 continue;
             }
-            let tag_value = Self::variant_name(variant, naming, container.rename_all);
+            let tag_value = Self::variant_name(naming, container.rename_all);
             let schema_name = format!("{}{}", container.name, variant.ident.unraw());
-            let reference = format!("#/components/schemas/{schema_name}");
-            refs.push(json!({ "$ref": reference }));
-            mapping.insert(tag_value.clone(), json!(reference));
 
             let mut properties = Map::new();
             properties.insert(
@@ -711,6 +851,9 @@ impl<'a> Reflector<'a> {
             );
             let mut required = vec![json!(tag)];
             let mut all_of = Vec::new();
+            // Keywords about the properties not listed in `properties`: they
+            // must stay next to the merged properties (and the tag).
+            let mut closing = Vec::new();
             let variant_line = line_of(variant.span());
 
             match (content_key, self.content(variant, naming, container, true)) {
@@ -722,19 +865,23 @@ impl<'a> Reflector<'a> {
                     properties.insert(key.to_string(), inner);
                     required.push(json!(key));
                 }
-                (None, Content::Struct(inner)) => {
-                    if let Some(props) = inner.get("properties").and_then(Value::as_object) {
-                        properties.extend(props.clone());
+                (None, Content::Struct(Value::Object(mut inner))) => {
+                    if let Some(Value::Object(props)) = inner.remove("properties") {
+                        properties.extend(props);
                     }
-                    if let Some(req) = inner.get("required").and_then(Value::as_array) {
-                        required.extend(req.iter().cloned());
+                    if let Some(Value::Array(req)) = inner.remove("required") {
+                        required.extend(req);
                     }
-                    for key in ["allOf", "additionalProperties", "unevaluatedProperties"] {
-                        if let Some(value) = inner.get(key) {
-                            all_of.push(json!({ key: value }));
+                    if let Some(value) = inner.remove("allOf") {
+                        all_of.push(json!({ "allOf": value }));
+                    }
+                    for key in ["additionalProperties", "unevaluatedProperties"] {
+                        if let Some(value) = inner.remove(key) {
+                            closing.push((key, value));
                         }
                     }
                 }
+                (None, Content::Struct(_)) => {}
                 // Internally tagged newtype variants carry the fields of a
                 // struct or map next to the tag.
                 (None, Content::Newtype(inner)) if is_object_like(&inner) => all_of.push(inner),
@@ -753,20 +900,50 @@ impl<'a> Reflector<'a> {
                 }
             }
 
-            let mut schema =
-                json!({ "type": "object", "properties": properties, "required": required });
-            if !all_of.is_empty()
-                && let Value::Object(map) = &mut schema
-            {
+            let mut map = Map::new();
+            map.insert("type".into(), json!("object"));
+            map.insert("properties".into(), Value::Object(properties));
+            map.insert("required".into(), Value::Array(required));
+            if !all_of.is_empty() {
                 map.insert("allOf".into(), Value::Array(all_of));
             }
+            for (key, value) in closing {
+                map.insert(key.into(), value);
+            }
+            let mut schema = Value::Object(map);
             self.finish(&mut schema, naming, &format!("variant `{}`", variant.ident));
-            items.push(Item::Schema(SchemaItem {
-                name: schema_name,
-                rust_name: format!("{rust_name}{}", variant.ident.unraw()),
-                schema,
-                location: self.location(variant_line),
-            }));
+
+            let used: Vec<String> = params
+                .unwrap_or_default()
+                .iter()
+                .filter(|param| mentions_param(&schema, param))
+                .cloned()
+                .collect();
+            let location = self.location(variant_line);
+            let variant_rust_name = format!("{rust_name}{}", variant.ident.unraw());
+            let reference = if used.is_empty() {
+                items.push(Item::Schema(SchemaItem {
+                    name: schema_name.clone(),
+                    rust_name: variant_rust_name,
+                    schema,
+                    location,
+                }));
+                format!("#/components/schemas/{schema_name}")
+            } else {
+                // Raw until the generics stage (`$ShapeCircle<$T>`).
+                let args: Vec<String> = used.iter().map(|p| format!("${p}")).collect();
+                let reference = format!("${schema_name}<{}>", args.join(", "));
+                items.push(Item::Blueprint(BlueprintItem {
+                    name: schema_name,
+                    rust_name: variant_rust_name,
+                    params: used,
+                    schema,
+                    location,
+                }));
+                reference
+            };
+            refs.push(json!({ "$ref": reference }));
+            mapping.insert(tag_value, json!(reference));
         }
 
         if untagged.is_empty() {
@@ -782,6 +959,79 @@ impl<'a> Reflector<'a> {
     }
 }
 
+/// How a tagged enum is written.
+#[derive(Clone, Copy)]
+struct Tagging<'a> {
+    /// The tag property.
+    tag: &'a str,
+    /// The content property (adjacently tagged enums).
+    content: Option<&'a str>,
+    /// The Rust name of the enum.
+    rust_name: &'a str,
+    /// The type parameters of a generic enum.
+    params: Option<&'a [String]>,
+}
+
+/// Whether a string or key of `schema` mentions the type parameter `$param`
+/// (`$T`, also inside `$Page<$T>`).
+fn mentions_param(schema: &Value, param: &str) -> bool {
+    let needle = format!("${param}");
+    let hit = |text: &str| {
+        text.match_indices(needle.as_str()).any(|(at, _)| {
+            !text
+                .get(at + needle.len()..)
+                .and_then(|rest| rest.chars().next())
+                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+        })
+    };
+    fn walk(value: &Value, hit: &dyn Fn(&str) -> bool) -> bool {
+        match value {
+            Value::String(text) => hit(text),
+            Value::Array(items) => items.iter().any(|item| walk(item, hit)),
+            Value::Object(map) => map.iter().any(|(key, value)| hit(key) || walk(value, hit)),
+            _ => false,
+        }
+    }
+    walk(schema, &hit)
+}
+
+/// Merges an `@openapi` override into a reflected schema. An override that
+/// defines the structure itself (a virtual type on a newtype such as
+/// `struct Wrapper<T>(T)`) replaces the reflected reference, also the one of
+/// an `Option<Newtype>`, which stays nullable.
+fn apply_override(schema: &mut Value, value: Map<String, Value>) {
+    let structural = STRUCTURE_KEYS.iter().any(|k| value.contains_key(*k));
+    let mut renullable = false;
+    if structural
+        && let Value::Object(map) = schema
+        && map.remove("$ref").is_none()
+        && is_nullable_reference(map)
+    {
+        map.remove("anyOf");
+        renullable = true;
+    }
+    merge(schema, Value::Object(value), Policy::Override);
+    if renullable {
+        *schema = nullable(std::mem::take(schema));
+    }
+}
+
+/// `{anyOf: [{$ref: …}, {type: null}]}`: a nullable reference.
+fn is_nullable_reference(map: &Map<String, Value>) -> bool {
+    match map
+        .get("anyOf")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+    {
+        Some([first, second]) => {
+            let null = json!({ "type": "null" });
+            let reference = |v: &Value| v.get("$ref").is_some();
+            (reference(first) && *second == null) || (*first == null && reference(second))
+        }
+        _ => false,
+    }
+}
+
 /// The type parameters of a generic item (`T` of `Page<T>`): such items are
 /// blueprints, instantiated where they are used (`Page<User>`).
 fn type_params(generics: &syn::Generics) -> Option<Vec<String>> {
@@ -790,6 +1040,65 @@ fn type_params(generics: &syn::Generics) -> Option<Vec<String>> {
         .map(|p| p.ident.to_string())
         .collect();
     (!params.is_empty()).then_some(params)
+}
+
+/// The value of an integer literal discriminant (`3`, `-1`, `0x10`).
+fn integer_literal(expr: &syn::Expr) -> Option<i128> {
+    match expr {
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Int(int),
+            ..
+        }) => int.base10_parse().ok(),
+        syn::Expr::Unary(syn::ExprUnary {
+            op: syn::UnOp::Neg(_),
+            expr,
+            ..
+        }) => integer_literal(expr)?.checked_neg(),
+        syn::Expr::Paren(syn::ExprParen { expr, .. })
+        | syn::Expr::Group(syn::ExprGroup { expr, .. }) => integer_literal(expr),
+        _ => None,
+    }
+}
+
+/// An integer as a JSON number (beyond 64 bits: its decimal text).
+fn integer_value(value: i128) -> Value {
+    i64::try_from(value)
+        .map(Value::from)
+        .or_else(|_| u64::try_from(value).map(Value::from))
+        .unwrap_or_else(|_| json!(value.to_string()))
+}
+
+/// `#[serde(tag = "t")]` on a struct: serde writes the tag (the struct's
+/// serde name) before the fields.
+fn struct_tag(schema: &mut Value, tag: &str, value: &str) {
+    let Value::Object(map) = schema else { return };
+    let mut properties = Map::new();
+    properties.insert(
+        tag.to_string(),
+        json!({ "type": "string", "enum": [value] }),
+    );
+    if let Some(Value::Object(fields)) = map.remove("properties") {
+        properties.extend(fields);
+    }
+    let mut required = vec![json!(tag)];
+    if let Some(Value::Array(fields)) = map.remove("required") {
+        required.extend(fields);
+    }
+    // Keep the keyword order of reflected objects: type, properties, required.
+    let rest = std::mem::take(map);
+    for (key, value) in rest {
+        map.insert(key.clone(), value);
+        if key == "type" {
+            map.insert(
+                "properties".into(),
+                Value::Object(std::mem::take(&mut properties)),
+            );
+            map.insert(
+                "required".into(),
+                Value::Array(std::mem::take(&mut required)),
+            );
+        }
+    }
 }
 
 /// `[A, B]`: a fixed-length array of the member schemas.

@@ -646,6 +646,38 @@ mod garde {
     }
 }
 
+mod bounds {
+    use super::*;
+
+    #[test]
+    fn bounds_cover_the_whole_64_bit_range() {
+        assert_eq!(
+            field_schema(
+                "#[validate(range(min = -9223372036854775808, max = 18446744073709551615))]",
+                "i128"
+            ),
+            json!({ "type": "integer", "minimum": i64::MIN, "maximum": u64::MAX })
+        );
+        assert_eq!(
+            field_schema("#[validate(range(min = -(-5)))]", "i64")["minimum"],
+            json!(5)
+        );
+    }
+
+    #[test]
+    fn unusable_values_are_reported_with_the_reason() {
+        let (_, diagnostics) = extract_with_diagnostics(
+            "/// @openapi\nstruct S {\n#[validate(length(min = 99999999999999999999), range(max = -99999999999999999999))]\na: String,\n#[garde(length(max = MAX), pattern(Regex::new(\"x\").unwrap()))]\nb: String,\n}",
+        );
+        assert_eq!(codes(&diagnostics), [Code::NonLiteralConstraint; 4]);
+        let messages: Vec<&str> = diagnostics.iter().map(|d| d.message()).collect();
+        assert!(messages[0].contains("is out of range"), "{messages:?}");
+        assert!(messages[1].contains("is out of range"), "{messages:?}");
+        assert!(messages[2].contains("is not a literal"), "{messages:?}");
+        assert!(messages[3].contains("`pattern` argument"), "{messages:?}");
+    }
+}
+
 mod serde_attribute {
     use super::*;
 
@@ -654,7 +686,7 @@ mod serde_attribute {
         let items = extract(
             "/// @openapi\n#[serde(borrow, rename(serialize = NAME, deserialize = \"In\"))]\nstruct S { #[serde(rename(serialize = NAME))] a: u8 }",
         );
-        assert!(schema(&items, "In")["properties"].get("a").is_some());
+        assert!(schema(&items, "S")["properties"].get("a").is_some());
     }
 
     #[test]
@@ -670,22 +702,25 @@ mod serde_attribute {
     }
 
     #[test]
-    fn serialize_names_are_preferred() {
+    fn serialize_names_are_used() {
         let items = extract(
             r#"
             /// @openapi
-            #[serde(rename(serialize = "Out", deserialize = "In"), rename_all(deserialize = "kebab-case"))]
+            #[serde(rename(serialize = "Out", deserialize = "In"), rename_all(serialize = "camelCase", deserialize = "kebab-case"))]
             struct S {
                 #[serde(rename(deserialize = "only_in"))]
                 a_b: String,
+                c_d: String,
             }
             "#,
         );
-        assert!(schema(&items, "Out")["properties"].get("only_in").is_some());
+        // `deserialize = ..` alone does not change what serde writes.
+        let properties = &schema(&items, "Out")["properties"];
+        assert!(properties.get("aB").is_some() && properties.get("cD").is_some());
         let items = extract(
             "/// @openapi\n#[serde(rename_all(deserialize = \"kebab-case\"))]\nstruct T { a_b: String }",
         );
-        assert!(schema(&items, "T")["properties"].get("a-b").is_some());
+        assert!(schema(&items, "T")["properties"].get("a_b").is_some());
     }
 
     #[test]
@@ -781,6 +816,60 @@ mod serde_attribute {
     }
 }
 
+mod serde_semantics {
+    use super::*;
+
+    #[test]
+    fn an_explicit_rename_is_never_converted() {
+        let items = extract(
+            r#"
+            /// @openapi
+            #[serde(rename_all = "camelCase")]
+            struct S {
+                #[serde(rename = "user_id")]
+                user_id: u32,
+                /// @openapi rename "full_name"
+                full_name: String,
+                other_field: u32,
+            }
+            /// @openapi
+            #[serde(rename_all = "lowercase")]
+            enum E { #[serde(rename = "Keep")] Keep, Other }
+            "#,
+        );
+        let properties = schema(&items, "S")["properties"].clone();
+        let names: Vec<&String> = properties.as_object().unwrap().keys().collect();
+        assert_eq!(names, ["user_id", "full_name", "otherField"]);
+        assert_eq!(schema(&items, "E")["enum"], json!(["Keep", "other"]));
+    }
+
+    #[test]
+    fn custom_deserializers_make_options_required() {
+        // serde fills in `None` for a missing `Option` only when it
+        // deserializes the field itself.
+        let code = r#"
+            /// @openapi
+            struct S {
+                #[serde(with = "chrono::serde::ts_seconds_option")]
+                a: Option<DateTime<Utc>>,
+                #[serde(deserialize_with = "parse")]
+                b: Option<u8>,
+                #[serde(serialize_with = "write")]
+                c: Option<u8>,
+                #[serde(default, with = "module")]
+                d: Option<u8>,
+                #[serde(skip_serializing_if = "Option::is_none", with = "module")]
+                e: Option<u8>,
+                f: Option<u8>,
+            }
+            "#;
+        assert_eq!(required(code, "S"), json!(["a", "b"]));
+        let properties = &schema(&extract(code), "S")["properties"];
+        assert_eq!(properties["a"]["type"], json!(["integer", "null"]));
+        assert_eq!(properties["b"]["type"], json!(["integer", "null"]));
+    }
+}
+
 mod directives {
     use super::*;
 
@@ -827,5 +916,67 @@ mod directives {
         let diagnostic = diagnostics.iter().next().expect("a diagnostic");
         assert_eq!(diagnostic.code(), Code::InvalidOverride);
         assert_eq!(diagnostic.location().unwrap().line(), 3);
+    }
+
+    #[test]
+    fn overrides_that_are_not_mappings_are_reported() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            "/// @openapi\nstruct S {\n/// @openapi This is the id\nb: bool,\n/// @openapi rename_all camelCase\nc_d: bool,\n}",
+        );
+        let properties = &schema(&items, "S")["properties"];
+        assert_eq!(properties["b"], json!({ "type": "boolean" }));
+        assert_eq!(properties["c_d"], json!({ "type": "boolean" }));
+        assert_eq!(
+            codes(&diagnostics),
+            [Code::InvalidOverride, Code::InvalidOverride]
+        );
+        let lines: Vec<usize> = diagnostics
+            .iter()
+            .map(|d| d.location().unwrap().line())
+            .collect();
+        assert_eq!(lines, [3, 5]);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|d| d.message().contains("not a YAML mapping"))
+        );
+    }
+
+    #[test]
+    fn directive_words_end_at_a_word_boundary() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            "/// @openapi\nstruct S {\n/// @openapi skip # internal\na: u8,\n/// @openapi skipped: true\nb: bool,\n/// @openapi renamed: true\nc: bool,\n/// @openapi rename\"quoted\"\nd: bool,\n}",
+        );
+        let properties = &schema(&items, "S")["properties"];
+        assert!(properties.get("a").is_none());
+        assert_eq!(properties["b"]["skipped"], true);
+        assert_eq!(properties["c"]["renamed"], true);
+        assert!(properties.get("quoted").is_some());
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn invalid_directive_arguments_are_reported() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            "/// @openapi rename-all camelcase\nstruct S {\n/// @openapi skip now\na_b: u8,\n/// @openapi rename\nc_d: u8,\n}",
+        );
+        let properties = &schema(&items, "S")["properties"];
+        // `skip` still applies; the unknown rule and the empty name do not.
+        assert!(properties.get("a_b").is_none());
+        assert!(properties.get("c_d").is_some());
+        assert_eq!(codes(&diagnostics), [Code::InvalidSchemaDirective; 3]);
+        let lines: Vec<usize> = diagnostics
+            .iter()
+            .map(|d| d.location().unwrap().line())
+            .collect();
+        assert_eq!(lines, [1, 3, 5]);
+        assert!(
+            diagnostics
+                .iter()
+                .next()
+                .unwrap()
+                .message()
+                .contains("camelCase")
+        );
     }
 }

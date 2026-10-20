@@ -103,7 +103,8 @@ impl Constraints {
     }
 
     /// Collects `#[validate(...)]` and `#[garde(...)]` rules. Values that are
-    /// not literals are returned as problems (their rule is left out).
+    /// not usable literals are returned as problems, each a sentence such as
+    /// "`length(max = MAX)` is not a literal" (their rule is left out).
     pub(crate) fn parse(attrs: &[Attribute]) -> (Self, Vec<String>) {
         let mut parser = Parser::default();
         for meta in metas(attrs, "validate") {
@@ -215,15 +216,18 @@ impl Parser {
             ("range", Meta::List(list)) => self.range(&args(list))?,
             ("contains" | "prefix" | "suffix" | "pattern", Meta::List(list)) => {
                 let expr: Expr = list.parse_args().ok()?;
-                match (name.as_str(), string_literal(&expr)) {
-                    ("pattern", Some(pattern)) => Rule::Pattern(pattern),
-                    ("pattern", None) => Rule::PatternConstant(last_segment(&expr)?),
-                    ("contains", Some(text)) => Rule::Pattern(escape(&text)),
-                    ("prefix", Some(text)) => Rule::Pattern(format!("^{}", escape(&text))),
-                    ("suffix", Some(text)) => Rule::Pattern(format!("{}$", escape(&text))),
+                let constant = || last_segment(&expr).filter(|_| name == "pattern");
+                match (name.as_str(), string_literal(&expr), constant()) {
+                    ("pattern", Some(pattern), _) => Rule::Pattern(pattern),
+                    (_, None, Some(constant)) => Rule::PatternConstant(constant),
+                    ("contains", Some(text), _) => Rule::Pattern(escape(&text)),
+                    ("prefix", Some(text), _) => Rule::Pattern(format!("^{}", escape(&text))),
+                    ("suffix", Some(text), _) => Rule::Pattern(format!("{}$", escape(&text))),
                     _ => {
-                        self.problems
-                            .push(format!("`{name}` argument `{}`", quote_expr(&expr)));
+                        self.problems.push(format!(
+                            "`{name}` argument `{}` is not a literal",
+                            quote_expr(&expr)
+                        ));
                         return None;
                     }
                 }
@@ -252,8 +256,11 @@ impl Parser {
                 continue;
             }
             let Some(value) = number(&nv.value).and_then(|n| n.as_u64()) else {
-                self.problems
-                    .push(format!("`length({key} = {})`", quote_expr(&nv.value)));
+                self.problems.push(format!(
+                    "`length({key} = {})` {}",
+                    quote_expr(&nv.value),
+                    unusable(&nv.value)
+                ));
                 continue;
             };
             match key.as_str() {
@@ -285,8 +292,11 @@ impl Parser {
                 continue;
             }
             let Some(value) = number(&nv.value) else {
-                self.problems
-                    .push(format!("`range({key} = {})`", quote_expr(&nv.value)));
+                self.problems.push(format!(
+                    "`range({key} = {})` {}",
+                    quote_expr(&nv.value),
+                    unusable(&nv.value)
+                ));
                 continue;
             };
             match key.as_str() {
@@ -391,15 +401,37 @@ fn number(expr: &Expr) -> Option<Number> {
             op: UnOp::Neg(_),
             expr,
             ..
-        }) => match number(expr)? {
-            n if n.is_u64() => {
-                let value = i64::try_from(n.as_u64()?).ok()?;
-                Some(Number::from(-value))
+        }) => {
+            let n = number(expr)?;
+            if let Some(value) = n.as_u64() {
+                // Down to `i64::MIN`, whose magnitude is not an `i64`.
+                i64::try_from(-i128::from(value)).ok().map(Number::from)
+            } else if let Some(value) = n.as_i64() {
+                value.checked_neg().map(Number::from)
+            } else {
+                Number::from_f64(-n.as_f64()?)
             }
-            n => Number::from_f64(-n.as_f64()?),
-        },
+        }
         Expr::Paren(p) => number(&p.expr),
         _ => None,
+    }
+}
+
+/// Why a bound is left out: a literal outside the 64-bit range, or not a
+/// literal at all.
+fn unusable(expr: &Expr) -> &'static str {
+    match expr {
+        Expr::Lit(ExprLit {
+            lit: Lit::Int(_) | Lit::Float(_),
+            ..
+        }) => "is out of range",
+        Expr::Unary(ExprUnary {
+            op: UnOp::Neg(_),
+            expr,
+            ..
+        }) => unusable(expr),
+        Expr::Paren(p) => unusable(&p.expr),
+        _ => "is not a literal",
     }
 }
 

@@ -3,7 +3,9 @@
 //! The schema describes the serialized form: where serde allows different
 //! names for serialization and deserialization (`rename(serialize = ..,
 //! deserialize = ..)`), the serialize name is used. Deserialize-only
-//! attributes such as `alias` do not change the schema.
+//! attributes such as `alias` do not change the schema, with one exception:
+//! a field with a custom deserializer (`with`, `deserialize_with`) must be
+//! present even if it is an `Option`.
 
 use super::rename::RenameRule;
 use super::{metas, string_literal};
@@ -49,6 +51,9 @@ pub struct SerdeAttrs {
     pub other: bool,
     /// `with = "module"` or `serialize_with = "function"`.
     pub with: Option<String>,
+    /// `with` or `deserialize_with`: a custom deserializer, so a missing
+    /// field is an error even for `Option` (unless `default` is set).
+    pub custom_deserializer: bool,
     /// `into = "Type"` (containers serialized as another type).
     pub into: Option<String>,
     /// `from = "Type"` / `try_from = "Type"` (containers deserialized from another type).
@@ -78,20 +83,15 @@ impl SerdeAttrs {
                     else {
                         continue;
                     };
-                    let mut serialize = None;
-                    let mut deserialize = None;
-                    for arg in args {
-                        let Meta::NameValue(nv) = arg else { continue };
-                        let Some(value) = string_literal(&nv.value) else {
-                            continue;
-                        };
-                        if nv.path.is_ident("serialize") {
-                            serialize = Some(value);
-                        } else if nv.path.is_ident("deserialize") {
-                            deserialize = Some(value);
+                    // Only the serialize half describes what serde writes;
+                    // `deserialize = ..` alone keeps the serialized name.
+                    let serialize = args.into_iter().find_map(|arg| match arg {
+                        Meta::NameValue(nv) if nv.path.is_ident("serialize") => {
+                            string_literal(&nv.value)
                         }
-                    }
-                    if let Some(value) = serialize.or(deserialize) {
+                        _ => None,
+                    });
+                    if let Some(value) = serialize {
                         out.value(&key, value);
                     }
                 }
@@ -124,7 +124,12 @@ impl SerdeAttrs {
             "content" => self.content = Some(value),
             "default" => self.default = true,
             "skip_serializing_if" => self.skip_serializing_if = true,
-            "with" | "serialize_with" => self.with = Some(value),
+            "with" => {
+                self.with = Some(value);
+                self.custom_deserializer = true;
+            }
+            "serialize_with" => self.with = Some(value),
+            "deserialize_with" => self.custom_deserializer = true,
             "into" => self.into = Some(value),
             "from" | "try_from" => self.from = Some(value),
             _ => {}

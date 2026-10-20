@@ -31,13 +31,15 @@ The codes are stable: a code keeps its meaning across releases
 
 | Code | Severity | Cause | Fix |
 | :--- | :--- | :--- | :--- |
-| `OF1001` | warning | The YAML after `@openapi` on a type, field or variant is invalid | Fix the YAML; the override is ignored meanwhile |
+| `OF1001` | warning | The YAML after `@openapi` on a type, field or variant is invalid or not a mapping (`/// @openapi The id`) | Fix the YAML (descriptions go before the `@openapi` line); the override is ignored meanwhile |
 | `OF1002` | warning | `@openapi<T>` on something without a name | Put it on a struct or enum |
 | `OF1003` | note | A separator line (`//! ---`) closed a file-level block | Nothing to do; text after it is not part of the block |
 | `OF1004` | warning | Two items produce the same schema name; they were merged | Rename one (`#[serde(rename)]` or `@openapi rename`) |
 | `OF1005` | warning | A variant shape serde cannot write in the enum's tagging mode (a tuple or primitive in an internally tagged enum); only the tag is documented | Use a struct variant or another representation |
-| `OF1006` | warning | A validation value is not a literal (`length(max = MAX)`); the constraint is left out | Use a literal, or add the keyword with an `@openapi` override |
+| `OF1006` | warning | A validation value is not a literal (`length(max = MAX)`) or outside the 64-bit range; the constraint is left out | Use a literal, or add the keyword with an `@openapi` override |
 | `OF1007` | warning | A `regex(path = …)` or `pattern(…)` constant is not defined in the scanned code | Scan the file that defines it, or define it with a literal pattern |
+| `OF1008` | warning | An `@openapi` directive has an invalid argument: an unknown `rename-all` rule, `rename` without a name, text after `skip` | Fix the directive; the argument is ignored meanwhile |
+| `OF1009` | warning | A variant of a `serde_repr` enum has a discriminant that is not an integer literal; the values are not documented | Use literals, or describe the enum with an `@openapi` override |
 
 ## Route DSL (OF2xxx)
 

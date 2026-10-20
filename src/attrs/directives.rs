@@ -23,6 +23,8 @@ pub(crate) struct ItemDocs {
     pub skip: bool,
     /// `@example value` lines (YAML values).
     pub examples: Vec<DocLine>,
+    /// Directives with an invalid argument (the message and its line).
+    pub problems: Vec<DocLine>,
 }
 
 /// How the text after `@openapi` on a header line is used.
@@ -60,12 +62,41 @@ impl ItemDocs {
             docs.exported = true;
             let rest = rest.trim_start();
 
-            if rest == "skip" {
+            // The directive word ends at whitespace or a quote, so that
+            // `rename_all` or `skipped` are not mistaken for `rename`/`skip`.
+            let (word, argument) = rest
+                .split_once(|c: char| c.is_whitespace() || c == '"')
+                .map_or((rest, ""), |(word, _)| {
+                    (word, rest.get(word.len()..).unwrap_or_default().trim())
+                });
+            if word == "skip" {
                 docs.skip = true;
-            } else if let Some(rule) = rest.strip_prefix("rename-all") {
-                docs.rename_all = RenameRule::parse(unquote(rule));
-            } else if let Some(name) = rest.strip_prefix("rename") {
-                docs.rename = Some(unquote(name).to_string());
+                if !argument.is_empty() && !argument.starts_with('#') {
+                    docs.problems.push(DocLine::new(
+                        format!("`@openapi skip` takes no argument; `{argument}` is ignored"),
+                        line.line,
+                    ));
+                }
+            } else if word == "rename-all" {
+                docs.rename_all = RenameRule::parse(unquote(argument));
+                if docs.rename_all.is_none() {
+                    let rules: Vec<&str> = RenameRule::ALL.iter().map(|(name, _)| *name).collect();
+                    docs.problems.push(DocLine::new(
+                        format!(
+                            "`@openapi rename-all` needs one of {}; `{argument}` is ignored",
+                            rules.join(", ")
+                        ),
+                        line.line,
+                    ));
+                }
+            } else if word == "rename" {
+                let name = unquote(argument);
+                if name.is_empty() {
+                    docs.problems
+                        .push(DocLine::new("`@openapi rename` needs a name", line.line));
+                } else {
+                    docs.rename = Some(name.to_string());
+                }
             } else if rest.starts_with('-') {
                 // `@openapi-type Name` and friends mark the item; their
                 // argument is not schema YAML.

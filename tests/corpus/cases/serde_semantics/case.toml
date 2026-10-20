@@ -1,0 +1,1 @@
+description = "serde semantics: generic tagged enums and aliases, struct tags, serde_repr, annotated unit variants, flattened maps next to structs, tuple structs with skipped members, custom deserializers"

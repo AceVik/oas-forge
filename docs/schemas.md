@@ -64,9 +64,11 @@ pub struct User {
 The same works on enum variants; it describes the variant as serialized. An
 override that defines the structure itself (`type`, `properties`, `oneOf`,
 …) replaces the reflected reference of a newtype, so `struct Id(Uuid)` with
-`/// @openapi type: string` is exactly `{type: string}`.
+`/// @openapi type: string` is exactly `{type: string}`; on a field of type
+`Option<Id>` the result stays nullable.
 
-Invalid YAML is reported (`OF1001`) and ignored.
+Invalid YAML, and text that is not a YAML mapping (`/// @openapi The id`),
+is reported (`OF1001`) and ignored.
 
 ## Directives
 
@@ -81,7 +83,10 @@ Invalid YAML is reported (`OF1001`) and ignored.
 | `#[deprecated]` | type, field, variant | Sets `deprecated: true` |
 
 Precedence for names: `@openapi rename`, then `#[serde(rename)]`, then
-`@openapi rename-all` or `#[serde(rename_all)]`, then the Rust name.
+`@openapi rename-all` or `#[serde(rename_all)]`, then the Rust name. An
+explicit name is used as written, even when it equals the Rust name. A
+directive with an invalid argument (an unknown `rename-all` rule, text after
+`skip` that is not a `# comment`) is reported (`OF1008`).
 References follow renames: a field of type `Profile` points to
 `#/components/schemas/UserProfile` when `Profile` is renamed.
 
@@ -156,6 +161,10 @@ A field is required unless one of these applies:
 - it has `#[serde(default)]`, or the container has it,
 - it has `#[serde(skip_serializing_if = "…")]`.
 
+A field with a custom deserializer (`#[serde(with = "…")]` or
+`deserialize_with`) is required even if it is an `Option`: serde reports a
+missing field instead of using `None`, unless the field has `default`.
+
 `#[validate(required)]` or `#[garde(required)]` on an `Option` makes it
 required and not nullable. `#[serde(skip_serializing)]` adds `writeOnly`,
 `#[serde(skip_deserializing)]` adds `readOnly`.
@@ -167,9 +176,16 @@ Enums follow serde's representation:
 | serde | Schema |
 | :--- | :--- |
 | default (externally tagged) | unit variants as a string `enum`; data variants as single-key objects; together a `oneOf` |
+| `#[derive(Serialize_repr)]` ([serde_repr](https://docs.rs/serde_repr)) | an integer `enum` of the discriminants |
 | `#[serde(tag = "type")]` | one component per variant (`{Enum}{Variant}`) with the tag property, combined with `oneOf` and a `discriminator` |
 | `#[serde(tag = "t", content = "c")]` | like internally tagged, the data under the content key |
 | `#[serde(untagged)]` | `anyOf` of the variants' content |
+
+A string `enum` cannot describe single values. When a unit variant has an
+`@openapi` override, an `@example` or `#[deprecated]`, the enum also gets a
+`oneOf` with one `const` per unit variant that carries it, together with the
+variants' doc comments. A `serde_repr` discriminant that is not an integer
+literal is reported (`OF1009`).
 
 Variants with `#[serde(untagged)]` in a tagged enum become additional
 `anyOf` alternatives. A variant shape serde cannot put next to an internal
@@ -193,6 +209,11 @@ Uses count everywhere: field types, `@return 200: $Page<User>`, `@body`,
 inferred handler signatures and YAML values `$ref: $Page<User>`. Arguments
 may be paths (`Page<models::User>`). A generic type that is never used is not
 exported. Instantiation stops at a nesting depth of 16 (`OF3006`).
+
+A generic type alias (`type Paged<T> = Page<T>;`) is a template too. The
+variants of a generic tagged enum that use a type parameter are instantiated
+with it: `Event<User>` has the variants `EventCreated_User`, … and keeps the
+variants without parameters (`EventDeleted`) shared.
 
 ### Explicit blueprints
 
