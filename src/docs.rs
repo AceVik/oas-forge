@@ -53,11 +53,32 @@ pub(crate) fn doc_lines(attrs: &[Attribute]) -> Vec<DocLine> {
         .iter()
         .filter_map(|attr| Some((doc_text(attr)?, line_of(attr.span()))))
         .flat_map(|(text, line)| {
-            text.split('\n')
+            doc_parts(&text)
+                .into_iter()
                 .enumerate()
-                .map(|(i, part)| DocLine::new(part.trim_end_matches('\r'), line + i))
+                .map(|(i, part)| DocLine::new(part, line + i))
                 .collect::<Vec<_>>()
         })
+        .collect()
+}
+
+/// The lines of one doc attribute. A `/** */` comment is split at its
+/// newlines; when its lines after the first all start with `*` (Javadoc
+/// style), that column is removed, like rustdoc does.
+pub(crate) fn doc_parts(text: &str) -> Vec<&str> {
+    let parts: Vec<&str> = text.split('\n').map(|p| p.trim_end_matches('\r')).collect();
+    let mut rest = parts
+        .iter()
+        .skip(1)
+        .filter(|p| !p.trim().is_empty())
+        .peekable();
+    let decorated = rest.peek().is_some() && rest.all(|p| p.trim_start().starts_with('*'));
+    if !decorated {
+        return parts;
+    }
+    parts
+        .into_iter()
+        .map(|p| p.trim_start().strip_prefix('*').unwrap_or(p))
         .collect()
 }
 
@@ -90,24 +111,89 @@ pub(crate) fn join(lines: &[DocLine]) -> String {
         .join("\n")
 }
 
-/// Turns documentation lines into a description: lines of a paragraph are
-/// joined with spaces, paragraphs with a blank line.
+/// Turns documentation lines into a description, with rustdoc's paragraph
+/// semantics: lines of a paragraph are joined with spaces, paragraphs with a
+/// blank line. Markdown that depends on line breaks keeps them: fenced code
+/// blocks (verbatim), list items and the line after a heading.
 pub(crate) fn description(lines: &[&str]) -> String {
-    let mut paragraphs: Vec<String> = Vec::new();
-    let mut current: Vec<&str> = Vec::new();
+    // The indentation (spaces) shared by all non-blank lines.
+    let indent = lines
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start_matches(' ').len())
+        .min()
+        .unwrap_or(0);
+    let mut out = String::new();
+    let mut fence: Option<&str> = None;
+    let mut blank = false;
+    let mut in_list = false;
+    let mut after_heading = false;
     for line in lines {
-        let line = line.trim();
-        if line.is_empty() {
-            if !current.is_empty() {
-                paragraphs.push(current.join(" "));
-                current.clear();
+        let text = line.get(indent..).unwrap_or_default().trim_end();
+        let trimmed = text.trim();
+        if let Some(marker) = fence {
+            out.push('\n');
+            out.push_str(text);
+            if trimmed.starts_with(marker) {
+                fence = None;
+                after_heading = true;
             }
+            continue;
+        }
+        if trimmed.is_empty() {
+            blank = !out.is_empty();
+            in_list = false;
+            after_heading = false;
+            continue;
+        }
+        let opens = fence_marker(trimmed);
+        let heading = is_heading(trimmed);
+        let item = is_list_item(trimmed);
+        let separator = if out.is_empty() {
+            ""
+        } else if blank {
+            "\n\n"
+        } else if opens.is_some() || heading || item || in_list || after_heading {
+            "\n"
         } else {
-            current.push(line);
+            " "
+        };
+        out.push_str(separator);
+        blank = false;
+        after_heading = heading;
+        in_list |= item;
+        if opens.is_some() {
+            fence = opens;
+            out.push_str(text);
+        } else if in_list {
+            // Nested items and continuation lines keep their indentation.
+            out.push_str(text);
+        } else {
+            out.push_str(trimmed);
         }
     }
-    if !current.is_empty() {
-        paragraphs.push(current.join(" "));
+    out
+}
+
+/// The marker of a line that opens a fenced code block (`` ``` ``, `~~~`).
+fn fence_marker(trimmed: &str) -> Option<&'static str> {
+    ["```", "~~~"]
+        .into_iter()
+        .find(|marker| trimmed.starts_with(marker))
+}
+
+/// `# Title` … `###### Title`.
+fn is_heading(trimmed: &str) -> bool {
+    let rest = trimmed.trim_start_matches('#');
+    let level = trimmed.len() - rest.len();
+    (1..=6).contains(&level) && (rest.is_empty() || rest.starts_with(' '))
+}
+
+/// `- item`, `* item`, `+ item`, `1. item`, `1) item`.
+fn is_list_item(trimmed: &str) -> bool {
+    if ["- ", "* ", "+ "].iter().any(|m| trimmed.starts_with(m)) {
+        return true;
     }
-    paragraphs.join("\n\n")
+    let rest = trimmed.trim_start_matches(|c: char| c.is_ascii_digit());
+    rest.len() < trimmed.len() && (rest.starts_with(". ") || rest.starts_with(") "))
 }

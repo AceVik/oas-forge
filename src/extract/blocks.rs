@@ -7,8 +7,9 @@
 
 use super::{ChannelItem, DocumentItem, FragmentItem, Item, NamedSchemaItem, RouteItem};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
-use crate::docs::{DocLine, doc_text, join, line_of, unindent};
+use crate::docs::{DocLine, doc_parts, doc_text, join, line_of, unindent};
 use crate::dsl;
+use crate::yaml;
 use std::path::Path;
 use syn::spanned::Spanned;
 
@@ -157,22 +158,28 @@ pub(super) fn route_defaults(lines: &[DocLine]) -> Vec<String> {
         .collect()
 }
 
-/// Tags declared in a module's doc comment (`tags: [A, B]`).
+/// Tags declared in a module's doc comment: lines `tags: [A, B]` whose list
+/// holds names only (a list of tag objects is document YAML, not this).
 pub(super) fn module_tags(lines: &[DocLine]) -> Vec<String> {
     let mut tags = Vec::new();
     for line in lines {
-        if !line.text.contains("tags:") {
-            continue;
-        }
-        let Some((_, list)) = line.text.split_once('[') else {
+        let text = line.trimmed();
+        let text = text.strip_prefix("@openapi ").map_or(text, str::trim_start);
+        let Some(list) = text.strip_prefix("tags:").map(str::trim) else {
             continue;
         };
-        if let Some((list, _)) = list.split_once(']') {
-            tags.extend(
-                list.split(',')
-                    .map(|t| t.trim().to_string())
-                    .filter(|t| !t.is_empty()),
-            );
+        if !list.starts_with('[') {
+            continue;
+        }
+        let Ok(serde_json::Value::Array(values)) = yaml::parse(list) else {
+            continue;
+        };
+        let names: Option<Vec<String>> = values
+            .iter()
+            .map(|value| value.as_str().map(str::to_string))
+            .collect();
+        if let Some(names) = names {
+            tags.extend(names.into_iter().filter(|name| !name.is_empty()));
         }
     }
     tags
@@ -200,8 +207,8 @@ pub(super) fn file_blocks(
             last_line = Some(attr.span().end().line.max(start));
             continue;
         };
-        for (offset, part) in text.split('\n').enumerate() {
-            let line = DocLine::new(part.trim_end_matches('\r'), start + offset);
+        for (offset, part) in doc_parts(&text).into_iter().enumerate() {
+            let line = DocLine::new(part, start + offset);
             if last_line.is_some_and(|last| line.line > last + 1) {
                 close(path, &mut block, &mut items, diagnostics);
             }

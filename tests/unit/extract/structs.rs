@@ -179,6 +179,56 @@ mod documentation {
             json!({ "type": "string", "description": "Clean Description", "example": "dirty" })
         );
     }
+
+    #[test]
+    fn javadoc_block_comments_are_read() {
+        let items = extract(
+            "/**\n * A user.\n *\n * Second paragraph.\n * @openapi\n */\nstruct J { id: bool }\n/** Starts on the first line.\n * @openapi */\nstruct K { id: bool }",
+        );
+        assert_eq!(
+            schema(&items, "J")["description"],
+            "A user.\n\nSecond paragraph."
+        );
+        assert_eq!(
+            schema(&items, "K")["description"],
+            "Starts on the first line."
+        );
+    }
+
+    #[test]
+    fn markdown_keeps_its_line_breaks() {
+        let items = extract(
+            r#"
+            /// A user.
+            /// Still the first paragraph.
+            ///
+            /// # Examples
+            /// Some text
+            /// continued.
+            ///
+            /// - one
+            /// - two
+            ///   continued
+            ///   - nested
+            /// 1. first
+            ///
+            /// ```
+            /// let x = 1;
+            ///
+            ///     indented();
+            /// ```
+            /// After the code.
+            /// @openapi
+            struct U { id: bool }
+            "#,
+        );
+        assert_eq!(
+            schema(&items, "U")["description"],
+            "A user. Still the first paragraph.\n\n# Examples\nSome text continued.\n\n\
+             - one\n- two\n  continued\n  - nested\n1. first\n\n\
+             ```\nlet x = 1;\n\n    indented();\n```\nAfter the code."
+        );
+    }
 }
 
 mod overrides {

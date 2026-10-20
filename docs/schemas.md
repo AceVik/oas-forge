@@ -33,7 +33,9 @@ User:
 ```
 
 - Doc lines before the first `@openapi` line are the description. Lines are
-  joined with spaces; blank lines separate paragraphs.
+  joined with spaces; blank lines separate paragraphs. Fenced code blocks,
+  list items and the line after a heading keep their line breaks.
+  `/** … */` comments work too, also with a leading `*` on every line.
 - Fields and variants need no `@openapi` line; their doc comments become
   their descriptions.
 - A sentence that merely mentions `@openapi` does not export anything.

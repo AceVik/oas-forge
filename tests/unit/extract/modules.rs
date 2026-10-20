@@ -244,3 +244,37 @@ mod m {}",
     );
     assert_eq!(document_items(&items)[0].text, "x-a: 1");
 }
+
+#[test]
+fn only_lists_of_names_are_module_tags() {
+    let items = extract(
+        r#"
+        /// @openapi
+        /// tags: [{ name: Users, description: "All, users" }]
+        mod users {
+            /// @route GET /users
+            fn list() {}
+        }
+        /// tags: ["Admin Area", Ops]
+        /// Other tags: [not, these]
+        mod admin {
+            /// @route GET /admin
+            fn admin() {}
+        }
+        /// @openapi tags: [Inline]
+        mod inline {
+            /// @route GET /inline
+            fn inline() {}
+        }
+        "#,
+    );
+    let tags: Vec<&Vec<String>> = routes(&items).iter().map(|r| &r.tags).collect();
+    assert_eq!(
+        tags,
+        [
+            &Vec::<String>::new(),
+            &vec!["Admin Area".to_string(), "Ops".to_string()],
+            &vec!["Inline".to_string()],
+        ]
+    );
+}
