@@ -144,6 +144,9 @@ fn path_parameters(document: &Value, diagnostics: &mut Diagnostics) {
     }
 }
 
+/// The names of the `in: path` parameters of a `parameters` array; a
+/// reference is followed into `components.parameters`, and one that does
+/// not resolve there is skipped.
 fn path_parameter_names(
     parameters: Option<&Value>,
     components: Option<&Map<String, Value>>,
@@ -166,6 +169,8 @@ fn path_parameter_names(
         .collect()
 }
 
+/// The `{placeholder}` names of a path template; an unclosed `{` ends the
+/// scan.
 fn placeholders(path: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let mut rest = path;
@@ -274,11 +279,14 @@ const NAME_MAPS: &[&str] = &[
 /// Reference targets in the order they are found, each once.
 #[derive(Default)]
 struct References {
+    /// The targets in the order they were first found.
     list: Vec<String>,
+    /// The targets of `list`, for the membership test.
     seen: BTreeSet<String>,
 }
 
 impl References {
+    /// Appends `target` unless it was added before.
     fn add(&mut self, target: &str) {
         if !self.seen.contains(target) {
             self.seen.insert(target.to_string());
@@ -331,6 +339,8 @@ fn collect_entry(key: &str, child: &Value, out: &mut References) {
     }
 }
 
+/// Decodes the percent-encoded braces (`%7B`, `%7D`) of a reference pointer.
+///
 /// JSON pointer segments are written with `~1` for `/` and `~0` for `~`; the
 /// pointer API expects them escaped, URIs may contain percent-encoding.
 fn unescape(pointer: &str) -> String {

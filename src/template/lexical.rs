@@ -22,24 +22,70 @@ pub const EXTEND_KEY: &str = "x-oas-forge-extend-";
 /// after the route's own markers, the innermost module first.
 pub const DEFAULTS_MARKER: &str = "defaults-";
 
+/// How deeply `@insert`s may nest; a deeper one is skipped and reported.
 const MAX_INSERT_DEPTH: usize = 8;
 
 /// Values of `{{NAME}}` placeholders.
 pub type Variables = BTreeMap<String, String>;
 
+/// An `@insert Name` or `@insert Name(args)` line, optionally a list item
+/// (`- @insert Name`, the dash is not captured); captures the indentation,
+/// the name and the argument text.
 static INSERT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(\s*)(?:-\s+)?@insert\s+([\w]+)\s*(?:\((.*)\))?\s*$").expect("constant pattern")
 });
 
+/// An `@extend Spec` line; captures the indentation and the spec
+/// (`Name` or `Name(args)`).
 static EXTEND_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\s*)@extend\s+(.+?)\s*$").expect("constant pattern"));
 
+/// A `{{NAME}}` or `{{env:NAME}}` placeholder (spaces inside the braces
+/// allowed); captures the name.
 static VARIABLE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\{\{\s*([A-Za-z_][\w:.-]*)\s*\}\}").expect("constant pattern"));
 
 /// Expands `@insert`, converts `@extend` lines into marker keys, substitutes
 /// variables and protects `\$` escapes. `location` is the position of the
 /// first line of `text`.
+///
+/// An `@insert` of an unknown name without arguments stands for a reusable
+/// parameter (`- $ref: "#/components/parameters/Name"`).
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::{Diagnostics, Location};
+/// use oas_forge::template::lexical::{self, ESCAPED_DOLLAR};
+/// use oas_forge::template::{Fragment, Registry, Variables};
+///
+/// let mut registry = Registry::new();
+/// registry.add_fragment(
+///     "Limit",
+///     Fragment { params: vec!["max".into()], body: "maximum: {{max}}".into() },
+/// );
+/// let mut variables = Variables::new();
+/// variables.insert("version".into(), "1.10".into());
+/// let text = "\
+/// type: integer
+/// @insert Limit(100)
+/// description: Costs \\$5 since {{version}}
+/// x-since: {{version}}
+/// @extend Audited
+/// ";
+/// let mut diagnostics = Diagnostics::new();
+/// let location = Location::new("src/lib.rs", 3);
+/// let expanded = lexical::expand(text, &registry, &variables, &location, &mut diagnostics);
+///
+/// let expected = format!(
+///     "type: integer\n\
+///      maximum: 100\n\
+///      description: Costs {ESCAPED_DOLLAR}5 since 1.10\n\
+///      x-since: '1.10'\n\
+///      x-oas-forge-extend-1: 'Audited'\n"
+/// );
+/// assert_eq!(expanded, expected);
+/// ```
 pub fn expand(
     text: &str,
     registry: &Registry,
@@ -60,6 +106,36 @@ pub fn expand(
 /// them), each with the 0-based offset of the line of `text` it comes from.
 /// Lines pasted by `@insert` come from the `@insert` line, so findings about
 /// them can point there.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::{Diagnostics, Location};
+/// use oas_forge::template::{Fragment, Registry, Variables, lexical};
+///
+/// let mut registry = Registry::new();
+/// registry.add_fragment(
+///     "Paging",
+///     Fragment { params: Vec::new(), body: "limit: 10\noffset: 0".into() },
+/// );
+/// let mut diagnostics = Diagnostics::new();
+/// let lines = lexical::expand_lines(
+///     "type: object\n@insert Paging\nx-paged: true",
+///     &registry,
+///     &Variables::new(),
+///     &Location::new("src/lib.rs", 3),
+///     &mut diagnostics,
+/// );
+/// let expected = [
+///     ("type: object", 0),
+///     ("limit: 10", 1),
+///     ("offset: 0", 1),
+///     ("x-paged: true", 2),
+/// ];
+/// let expected: Vec<(String, usize)> =
+///     expected.iter().map(|(line, offset)| (line.to_string(), *offset)).collect();
+/// assert_eq!(lines, expected);
+/// ```
 pub fn expand_lines(
     text: &str,
     registry: &Registry,
@@ -111,6 +187,16 @@ fn expand_text(
 }
 
 /// The names of the `{{env:NAME}}` placeholders in `text`, in order.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::template::lexical;
+///
+/// let text = "url: https://{{env:API_HOST}}/{{ env:API_BASE }} ({{version}})";
+/// let names: Vec<&str> = lexical::environment_variables(text).collect();
+/// assert_eq!(names, ["API_HOST", "API_BASE"]);
+/// ```
 pub fn environment_variables(text: &str) -> impl Iterator<Item = &str> {
     VARIABLE_RE
         .captures_iter(text)
@@ -123,6 +209,41 @@ pub fn environment_variables(text: &str) -> impl Iterator<Item = &str> {
 /// `1.10` stay strings; inside block scalars (`|`, `>`) text is inserted as
 /// it is. Unset environment variables are kept and reported at their line
 /// (`location` is the position of the first line of `text`).
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::{Code, Diagnostics, Location};
+/// use oas_forge::template::{Variables, lexical};
+///
+/// let mut variables = Variables::new();
+/// variables.insert("version".into(), "1.10".into());
+/// let text = "\
+/// version: {{version}}
+/// title: Shop {{version}}
+/// description: |
+///   {{version}}
+/// host: {{env:OAS_FORGE_EXAMPLE_UNSET}}
+/// ";
+/// let mut diagnostics = Diagnostics::new();
+/// let location = Location::new("src/lib.rs", 3);
+/// let substituted = lexical::substitute(text, &variables, &location, &mut diagnostics);
+///
+/// assert_eq!(
+///     substituted,
+///     "\
+/// version: '1.10'
+/// title: Shop 1.10
+/// description: |
+///   1.10
+/// host: {{env:OAS_FORGE_EXAMPLE_UNSET}}
+/// "
+/// );
+/// let finding = diagnostics.iter().next().ok_or("no finding")?;
+/// assert_eq!(finding.code(), Code::UnknownVariable);
+/// assert_eq!(finding.location(), Some(&Location::new("src/lib.rs", 7)));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn substitute(
     text: &str,
     variables: &Variables,
@@ -171,6 +292,7 @@ fn report_missing(
 
 /// The state of an [`expand`] run.
 struct Expansion<'a> {
+    /// The fragments `@insert` pastes.
     registry: &'a Registry,
     /// Expanded lines with the offset of the source line they come from.
     lines: Vec<(String, usize)>,
@@ -180,6 +302,8 @@ struct Expansion<'a> {
     stack: Vec<String>,
     /// Fragments whose cycle has been reported.
     cycles: BTreeSet<String>,
+    /// Receives cycles, argument count mismatches and unknown or too deeply
+    /// nested fragments.
     diagnostics: &'a mut Diagnostics,
 }
 
@@ -268,6 +392,16 @@ pub(crate) fn argument_count(name: &str, expected: usize, got: usize) -> Option<
 }
 
 /// Splits `a, "b, c", d` at commas outside quotes and removes the quotes.
+/// Arguments are trimmed; blank text has no arguments.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::template::lexical::split_args;
+///
+/// assert_eq!(split_args(r#"User, "a, b", 3"#), ["User", "a, b", "3"]);
+/// assert!(split_args("  ").is_empty());
+/// ```
 pub fn split_args(text: &str) -> Vec<String> {
     if text.trim().is_empty() {
         return Vec::new();
@@ -290,7 +424,22 @@ pub fn split_args(text: &str) -> Vec<String> {
 }
 
 /// Replaces `{{param}}` by the corresponding argument, in one pass: an
-/// argument that contains `{{other}}` is inserted as it is.
+/// argument that contains `{{other}}` is inserted as it is. Placeholders
+/// without an argument stay.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::template::lexical::substitute_params;
+///
+/// let params = ["max".to_string(), "min".to_string()];
+/// let body = "maximum: {{max}}\nminimum: {{min}}";
+/// let args = ["{{min}}".to_string()];
+/// assert_eq!(
+///     substitute_params(body, &params, &args),
+///     "maximum: {{min}}\nminimum: {{min}}"
+/// );
+/// ```
 pub fn substitute_params(body: &str, params: &[String], args: &[String]) -> String {
     if params.is_empty() || !body.contains("{{") {
         return body.to_string();

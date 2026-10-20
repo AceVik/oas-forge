@@ -29,6 +29,7 @@ pub(super) fn rewrite_refs(value: &mut Value, from: &str, to: &str) {
     }
 }
 
+/// Replaces the prefix `from` of `target` with `to`; other targets stay.
 fn replace_prefix(target: &mut String, from: &str, to: &str) {
     if let Some(rest) = target.strip_prefix(from) {
         *target = format!("{to}{rest}");

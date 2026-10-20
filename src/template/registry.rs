@@ -16,6 +16,31 @@ pub const FORMAT_KEY: &str = "x-oas-forge-format";
 pub const FORMAT_VERSION: u64 = 1;
 
 /// A reusable text fragment (`@openapi-fragment Name(params)`).
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::{Diagnostics, Location};
+/// use oas_forge::template::{Fragment, Registry, Variables, lexical};
+///
+/// let mut registry = Registry::new();
+/// registry.add_fragment(
+///     "Limit",
+///     Fragment {
+///         params: vec!["max".into()],
+///         body: "limit:\n  type: integer\n  maximum: {{max}}\n".into(),
+///     },
+/// );
+/// let mut diagnostics = Diagnostics::new();
+/// let text = lexical::expand(
+///     "@insert Limit(100)",
+///     &registry,
+///     &Variables::new(),
+///     &Location::new("src/lib.rs", 1),
+///     &mut diagnostics,
+/// );
+/// assert_eq!(text, "limit:\n  type: integer\n  maximum: 100");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fragment {
     /// Parameter names, substituted as `{{param}}`.
@@ -25,6 +50,34 @@ pub struct Fragment {
 }
 
 /// A generic schema template (`@openapi<T>`).
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::{Diagnostics, Location};
+/// use oas_forge::template::generics::Instantiator;
+/// use oas_forge::template::{Blueprint, Registry};
+/// use serde_json::json;
+///
+/// let mut registry = Registry::new();
+/// registry.add_blueprint(
+///     "Envelope",
+///     Blueprint {
+///         params: vec!["T".into()],
+///         schema: json!({ "properties": { "data": { "$ref": "$T" } } }),
+///     },
+/// );
+/// let mut value = json!({ "$ref": "$Envelope<Order>" });
+/// let mut diagnostics = Diagnostics::new();
+/// let mut instantiator = Instantiator::new(&registry);
+/// instantiator.apply(&mut value, &Location::new("src/lib.rs", 1), &mut diagnostics);
+///
+/// assert_eq!(value, json!({ "$ref": "$Envelope_Order" }));
+/// assert_eq!(
+///     instantiator.into_concrete()["Envelope_Order"].0,
+///     json!({ "properties": { "data": { "$ref": "$Order" } } })
+/// );
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct Blueprint {
     /// Type parameter names, referenced as `$T` in the schema.
@@ -34,30 +87,95 @@ pub struct Blueprint {
 }
 
 /// Everything later stages need to know about templates and names.
+///
+/// # Examples
+///
+/// The registry of a generator run holds the fragments of its sources:
+///
+/// ```
+/// use oas_forge::Generator;
+///
+/// let dir = tempfile::tempdir()?;
+/// std::fs::write(
+///     dir.path().join("lib.rs"),
+///     "//! @openapi-fragment Paging\n//! limit: {type: integer}\n",
+/// )?;
+/// let spec = Generator::new().input(dir.path()).build()?;
+/// let paging = spec.registry().fragment("Paging").ok_or("no fragment")?;
+/// assert_eq!(paging.body, "limit: {type: integer}");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Registry {
+    /// The fragments by name.
     fragments: BTreeMap<String, Fragment>,
+    /// The blueprints by name.
     blueprints: BTreeMap<String, Blueprint>,
+    /// The schema names of renamed Rust types, by Rust type name.
     aliases: BTreeMap<String, String>,
 }
 
 impl Registry {
     /// An empty registry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let registry = oas_forge::template::Registry::new();
+    /// assert!(!registry.has_templates());
+    /// assert_eq!(registry.fragments().count(), 0);
+    /// ```
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Registers a fragment (a later definition replaces an earlier one).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::{Fragment, Registry};
+    ///
+    /// let mut registry = Registry::new();
+    /// for body in ["type: string", "type: integer"] {
+    ///     registry.add_fragment("Id", Fragment { params: Vec::new(), body: body.into() });
+    /// }
+    /// let id = registry.fragment("Id").map(|f| f.body.as_str());
+    /// assert_eq!(id, Some("type: integer"));
+    /// ```
     pub fn add_fragment(&mut self, name: impl Into<String>, fragment: Fragment) {
         self.fragments.insert(name.into(), fragment);
     }
 
     /// Registers a blueprint (a later definition replaces an earlier one).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::{Blueprint, Registry};
+    /// use serde_json::json;
+    ///
+    /// let mut registry = Registry::new();
+    /// let schema = json!({ "type": "array", "items": { "$ref": "$T" } });
+    /// registry.add_blueprint("List", Blueprint { params: vec!["T".into()], schema });
+    /// assert_eq!(registry.blueprint("List").map(|b| b.params.len()), Some(1));
+    /// ```
     pub fn add_blueprint(&mut self, name: impl Into<String>, blueprint: Blueprint) {
         self.blueprints.insert(name.into(), blueprint);
     }
 
-    /// Records that the Rust type `rust_name` is published as schema `name`.
+    /// Records that the Rust type `rust_name` is published as schema `name`;
+    /// a name equal to `rust_name` is no alias and is not recorded.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut registry = oas_forge::template::Registry::new();
+    /// registry.add_alias("UserDto", "User");
+    /// registry.add_alias("Order", "Order");
+    /// assert_eq!(registry.alias("UserDto"), Some("User"));
+    /// assert_eq!(registry.alias("Order"), None);
+    /// ```
     pub fn add_alias(&mut self, rust_name: impl Into<String>, name: impl Into<String>) {
         let (rust_name, name) = (rust_name.into(), name.into());
         if rust_name != name {
@@ -66,37 +184,136 @@ impl Registry {
     }
 
     /// A fragment by name.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::{Fragment, Registry};
+    ///
+    /// let mut registry = Registry::new();
+    /// let fragment = Fragment { params: vec!["role".into()], body: "x-role: {{role}}".into() };
+    /// registry.add_fragment("Secured", fragment.clone());
+    /// assert_eq!(registry.fragment("Secured"), Some(&fragment));
+    /// assert_eq!(registry.fragment("Paging"), None);
+    /// ```
     pub fn fragment(&self, name: &str) -> Option<&Fragment> {
         self.fragments.get(name)
     }
 
     /// A blueprint by name.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::{Blueprint, Registry};
+    /// use serde_json::json;
+    ///
+    /// let mut registry = Registry::new();
+    /// let page = Blueprint { params: vec!["T".into()], schema: json!({ "items": "$T" }) };
+    /// registry.add_blueprint("Page", page.clone());
+    /// assert_eq!(registry.blueprint("Page"), Some(&page));
+    /// assert_eq!(registry.blueprint("Envelope"), None);
+    /// ```
     pub fn blueprint(&self, name: &str) -> Option<&Blueprint> {
         self.blueprints.get(name)
     }
 
     /// The schema name of a Rust type that was renamed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut registry = oas_forge::template::Registry::new();
+    /// registry.add_alias("UserDto", "User");
+    /// assert_eq!(registry.alias("UserDto"), Some("User"));
+    /// assert_eq!(registry.alias("User"), None);
+    /// ```
     pub fn alias(&self, rust_name: &str) -> Option<&str> {
         self.aliases.get(rust_name).map(String::as_str)
     }
 
     /// Every fragment, sorted by name.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::{Fragment, Registry};
+    ///
+    /// let mut registry = Registry::new();
+    /// for name in ["Secured", "Paging"] {
+    ///     registry.add_fragment(name, Fragment { params: Vec::new(), body: String::new() });
+    /// }
+    /// let names: Vec<&String> = registry.fragments().map(|(name, _)| name).collect();
+    /// assert_eq!(names, ["Paging", "Secured"]);
+    /// ```
     pub fn fragments(&self) -> impl Iterator<Item = (&String, &Fragment)> {
         self.fragments.iter()
     }
 
     /// Every blueprint, sorted by name.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::{Blueprint, Registry};
+    /// use serde_json::json;
+    ///
+    /// let mut registry = Registry::new();
+    /// for name in ["Page", "Envelope"] {
+    ///     let schema = json!({ "items": "$T" });
+    ///     registry.add_blueprint(name, Blueprint { params: vec!["T".into()], schema });
+    /// }
+    /// let names: Vec<&String> = registry.blueprints().map(|(name, _)| name).collect();
+    /// assert_eq!(names, ["Envelope", "Page"]);
+    /// ```
     pub fn blueprints(&self) -> impl Iterator<Item = (&String, &Blueprint)> {
         self.blueprints.iter()
     }
 
-    /// Whether there is anything to transport to other crates.
+    /// Whether there is anything to transport to other crates: fragments or
+    /// blueprints (aliases are not transported).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::{Fragment, Registry};
+    ///
+    /// let mut registry = Registry::new();
+    /// registry.add_alias("UserDto", "User");
+    /// assert!(!registry.has_templates());
+    /// registry.add_fragment("Paging", Fragment { params: Vec::new(), body: String::new() });
+    /// assert!(registry.has_templates());
+    /// ```
     pub fn has_templates(&self) -> bool {
         !self.fragments.is_empty() || !self.blueprints.is_empty()
     }
 
     /// Reads and removes the vendor extensions of an imported document's
-    /// `components`, registering their templates.
+    /// `components`, registering their templates. An unknown wire format
+    /// version ([`Code::UnknownTemplateFormat`]) and blueprint bodies that
+    /// are not valid YAML ([`Code::InvalidFragment`]) are reported at
+    /// `location`; malformed entries are skipped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Diagnostics, Location};
+    /// use oas_forge::template::{Fragment, Registry};
+    /// use serde_json::json;
+    ///
+    /// let mut shared = Registry::new();
+    /// shared.add_fragment("Paging", Fragment { params: Vec::new(), body: "limit: 10".into() });
+    /// let mut document = json!({ "openapi": "3.1.0", "components": shared.export() });
+    ///
+    /// let mut registry = Registry::new();
+    /// let mut diagnostics = Diagnostics::new();
+    /// let location = Location::new("shared/openapi.json", 1);
+    /// registry.import(&mut document, &location, &mut diagnostics);
+    ///
+    /// assert_eq!(registry, shared);
+    /// assert_eq!(document, json!({ "openapi": "3.1.0", "components": {} }));
+    /// assert!(diagnostics.is_empty());
+    /// ```
     pub fn import(
         &mut self,
         document: &mut Value,
@@ -144,7 +361,37 @@ impl Registry {
         }
     }
 
-    /// The vendor extensions that transport this registry's templates.
+    /// The vendor extensions that transport this registry's templates
+    /// (empty without templates); blueprints travel as YAML text.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::{Blueprint, Fragment, Registry};
+    /// use serde_json::{Value, json};
+    ///
+    /// let mut registry = Registry::new();
+    /// registry.add_fragment(
+    ///     "Limit",
+    ///     Fragment { params: vec!["max".into()], body: "maximum: {{max}}".into() },
+    /// );
+    /// registry.add_blueprint(
+    ///     "List",
+    ///     Blueprint { params: vec!["T".into()], schema: json!({ "items": { "$ref": "$T" } }) },
+    /// );
+    /// assert_eq!(
+    ///     Value::Object(registry.export()),
+    ///     json!({
+    ///         "x-oas-forge-templates": {
+    ///             "List": { "params": ["T"], "body": "items:\n  $ref: $T\n" }
+    ///         },
+    ///         "x-oas-forge-fragments": {
+    ///             "Limit": { "params": ["max"], "body": "maximum: {{max}}" }
+    ///         },
+    ///         "x-oas-forge-format": 1
+    ///     })
+    /// );
+    /// ```
     pub fn export(&self) -> Map<String, Value> {
         let mut map = Map::new();
         if !self.blueprints.is_empty() {

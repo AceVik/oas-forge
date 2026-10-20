@@ -17,6 +17,26 @@ use std::sync::LazyLock;
 pub const MAX_DEPTH: usize = 16;
 
 /// A parsed generic reference.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::template::generics::{GenericArg, GenericRef};
+///
+/// assert_eq!(
+///     GenericRef::parse("$Page<$Pair<User, Order>>"),
+///     Some(GenericRef {
+///         name: "Page".into(),
+///         args: vec![GenericArg::Generic(GenericRef {
+///             name: "Pair".into(),
+///             args: vec![
+///                 GenericArg::Name("User".into()),
+///                 GenericArg::Name("Order".into()),
+///             ],
+///         })],
+///     })
+/// );
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericRef {
     /// The blueprint name.
@@ -26,6 +46,17 @@ pub struct GenericRef {
 }
 
 /// One argument of a generic reference.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::template::generics::{GenericArg, GenericRef};
+///
+/// let generic = GenericRef::parse("$Map<String, $Page<User>>").ok_or("not generic")?;
+/// assert_eq!(generic.args[0], GenericArg::Name("String".into()));
+/// assert!(matches!(&generic.args[1], GenericArg::Generic(inner) if inner.name == "Page"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GenericArg {
     /// A plain type name (`User`).
@@ -36,13 +67,43 @@ pub enum GenericArg {
 
 impl GenericRef {
     /// Parses `$Name<Arg, $Other<X>>` (the `$` of arguments is optional).
+    /// `None` unless the whole text, apart from surrounding whitespace, is
+    /// one generic reference.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::generics::{GenericArg, GenericRef};
+    ///
+    /// assert_eq!(
+    ///     GenericRef::parse("$Page<User>"),
+    ///     Some(GenericRef {
+    ///         name: "Page".into(),
+    ///         args: vec![GenericArg::Name("User".into())],
+    ///     })
+    /// );
+    /// assert_eq!(GenericRef::parse("Page<User>"), None);
+    /// assert_eq!(GenericRef::parse("$Page<User> or more"), None);
+    /// ```
     pub fn parse(text: &str) -> Option<Self> {
         let text = text.trim().strip_prefix('$')?;
         let (generic, rest) = parse_ref(text)?;
         rest.trim().is_empty().then_some(generic)
     }
 
-    /// The concrete schema name (`Page_User`, `Map_String_Pair_A_B`).
+    /// The concrete schema name (`Page_User`, `Map_String_Pair_A_B`): only
+    /// the last segment of a path is used, and a reference without
+    /// arguments gets the suffix `_Generic`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::generics::GenericRef;
+    ///
+    /// let generic = GenericRef::parse("$Map<String, $Pair<models::A, B>>").ok_or("not generic")?;
+    /// assert_eq!(generic.concrete_name(), "Map_String_Pair_A_B");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn concrete_name(&self) -> String {
         let suffix = if self.args.is_empty() {
             "Generic".to_string()
@@ -59,7 +120,18 @@ impl GenericRef {
         format!("{}_{suffix}", last_segment(&self.name))
     }
 
-    /// The reference as type text without `$` (`Vec<User>`).
+    /// The reference as type text without `$` (`Vec<User>`); paths are
+    /// shortened to their last segment.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::template::generics::GenericRef;
+    ///
+    /// let generic = GenericRef::parse("$Page<$Vec<models::User>>").ok_or("not generic")?;
+    /// assert_eq!(generic.text(), "Page<Vec<User>>");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn text(&self) -> String {
         let args: Vec<String> = self
             .args
@@ -78,6 +150,7 @@ fn last_segment(name: &str) -> &str {
     name.rsplit("::").next().unwrap_or(name)
 }
 
+/// Whether `c` can be part of a (path-qualified) type name.
 fn is_name_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == ':'
 }
@@ -119,6 +192,8 @@ fn parse_ref(text: &str) -> Option<(GenericRef, &str)> {
     }
 }
 
+/// Parses one argument at the start of `text`, a name or a nested generic
+/// reference with an optional `$`; returns the rest.
 fn parse_arg(text: &str) -> Option<(GenericArg, &str)> {
     let text = text.strip_prefix('$').unwrap_or(text);
     let (name, rest) = split_name(text);
@@ -134,16 +209,78 @@ fn parse_arg(text: &str) -> Option<(GenericArg, &str)> {
 }
 
 /// Instantiates blueprints referenced by whole string scalars.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::{Diagnostics, Location};
+/// use oas_forge::template::generics::Instantiator;
+/// use oas_forge::template::{Blueprint, Registry};
+/// use serde_json::json;
+///
+/// let mut registry = Registry::new();
+/// registry.add_blueprint(
+///     "Page",
+///     Blueprint {
+///         params: vec!["T".into()],
+///         schema: json!({
+///             "type": "object",
+///             "properties": { "items": { "type": "array", "items": { "$ref": "$T" } } }
+///         }),
+///     },
+/// );
+/// // Generic references stay raw until this stage.
+/// let mut value = json!({ "$ref": "$Page<User>" });
+/// let mut diagnostics = Diagnostics::new();
+/// let mut instantiator = Instantiator::new(&registry);
+/// instantiator.apply(&mut value, &Location::new("src/lib.rs", 12), &mut diagnostics);
+///
+/// // Smart references to the concrete schema and to `User` remain.
+/// assert_eq!(value, json!({ "$ref": "$Page_User" }));
+/// let concrete = instantiator.into_concrete();
+/// assert_eq!(
+///     concrete["Page_User"].0,
+///     json!({
+///         "type": "object",
+///         "properties": { "items": { "type": "array", "items": { "$ref": "$User" } } }
+///     })
+/// );
+/// assert!(diagnostics.is_empty());
+/// ```
 pub struct Instantiator<'a> {
+    /// The blueprints to instantiate.
     registry: &'a Registry,
+    /// The type table for std containers and other mapped types
+    /// (`$Vec<User>`), which are inlined instead of instantiated.
     types: &'a TypeMapper,
+    /// The concrete schemas created so far, by name, with the location of
+    /// their first use.
     concrete: BTreeMap<String, (Value, Location)>,
+    /// The concrete names being instantiated, outermost first; a recursive
+    /// use of one of them is not instantiated again.
     in_progress: Vec<String>,
 }
 
 impl<'a> Instantiator<'a> {
     /// An instantiator using the blueprints of `registry` and the built-in
     /// type table.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Diagnostics, Location};
+    /// use oas_forge::template::Registry;
+    /// use oas_forge::template::generics::Instantiator;
+    /// use serde_json::json;
+    ///
+    /// let registry = Registry::new();
+    /// let mut instantiator = Instantiator::new(&registry);
+    /// // `Vec` is no blueprint: the built-in table makes it an inline array.
+    /// let mut value = json!({ "$ref": "$Vec<User>" });
+    /// let mut diagnostics = Diagnostics::new();
+    /// instantiator.apply(&mut value, &Location::new("src/lib.rs", 1), &mut diagnostics);
+    /// assert_eq!(value, json!({ "type": "array", "items": { "$ref": "$User" } }));
+    /// ```
     pub fn new(registry: &'a Registry) -> Self {
         Self {
             registry,
@@ -154,12 +291,69 @@ impl<'a> Instantiator<'a> {
     }
 
     /// Uses `types` for type arguments such as `Vec<User>` or `Option<u8>`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Diagnostics, Location};
+    /// use oas_forge::schema::TypeMapper;
+    /// use oas_forge::template::Registry;
+    /// use oas_forge::template::generics::Instantiator;
+    /// use serde_json::json;
+    ///
+    /// let types = TypeMapper::new().with_type("Money", json!({ "type": "string" }));
+    /// let registry = Registry::new();
+    /// let mut instantiator = Instantiator::new(&registry).with_types(&types);
+    /// let mut value = json!({ "$ref": "$Vec<Money>" });
+    /// let mut diagnostics = Diagnostics::new();
+    /// instantiator.apply(&mut value, &Location::new("src/lib.rs", 1), &mut diagnostics);
+    /// assert_eq!(value, json!({ "type": "array", "items": { "type": "string" } }));
+    /// ```
     pub fn with_types(mut self, types: &'a TypeMapper) -> Self {
         self.types = types;
         self
     }
 
     /// Replaces generic references in `value`; reports problems at `location`.
+    ///
+    /// A `$ref` to a std container (`$Vec<User>`) is replaced by the inline
+    /// schema and keeps its sibling keywords. A reference to an unknown
+    /// blueprint becomes the concrete name, so a schema written by hand can
+    /// satisfy it, and is reported as [`Code::UnknownBlueprint`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Code, Diagnostics, Location};
+    /// use oas_forge::template::Registry;
+    /// use oas_forge::template::generics::Instantiator;
+    /// use serde_json::json;
+    ///
+    /// let registry = Registry::new();
+    /// let mut instantiator = Instantiator::new(&registry);
+    /// let mut value = json!({
+    ///     "users": { "$ref": "$Vec<User>", "description": "All users" },
+    ///     "page": { "$ref": "$Missing<User>" }
+    /// });
+    /// let mut diagnostics = Diagnostics::new();
+    /// instantiator.apply(&mut value, &Location::new("src/lib.rs", 7), &mut diagnostics);
+    ///
+    /// assert_eq!(
+    ///     value,
+    ///     json!({
+    ///         "users": {
+    ///             "type": "array",
+    ///             "items": { "$ref": "$User" },
+    ///             "description": "All users"
+    ///         },
+    ///         "page": { "$ref": "$Missing_User" }
+    ///     })
+    /// );
+    /// let finding = diagnostics.iter().next().ok_or("no finding")?;
+    /// assert_eq!(finding.code(), Code::UnknownBlueprint);
+    /// assert_eq!(finding.location(), Some(&Location::new("src/lib.rs", 7)));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn apply(&mut self, value: &mut Value, location: &Location, diagnostics: &mut Diagnostics) {
         match value {
             Value::String(s) if s.starts_with('$') && s.contains('<') => {
@@ -229,10 +423,40 @@ impl<'a> Instantiator<'a> {
 
     /// The concrete schemas created so far, by name, with the location of
     /// their first use.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Diagnostics, Location};
+    /// use oas_forge::template::generics::Instantiator;
+    /// use oas_forge::template::{Blueprint, Registry};
+    /// use serde_json::json;
+    ///
+    /// let mut registry = Registry::new();
+    /// registry.add_blueprint(
+    ///     "Page",
+    ///     Blueprint { params: vec!["T".into()], schema: json!({ "items": "$T" }) },
+    /// );
+    /// let mut instantiator = Instantiator::new(&registry);
+    /// let mut diagnostics = Diagnostics::new();
+    /// let mut users = json!({ "$ref": "$Page<User>" });
+    /// instantiator.apply(&mut users, &Location::new("src/users.rs", 10), &mut diagnostics);
+    /// let mut nested = json!({ "$ref": "$Page<$Page<User>>" });
+    /// instantiator.apply(&mut nested, &Location::new("src/orders.rs", 20), &mut diagnostics);
+    ///
+    /// let concrete = instantiator.into_concrete();
+    /// let names: Vec<&str> = concrete.keys().map(String::as_str).collect();
+    /// assert_eq!(names, ["Page_Page_User", "Page_User"]);
+    /// assert_eq!(concrete["Page_Page_User"].0, json!({ "items": "$Page_User" }));
+    /// assert_eq!(concrete["Page_User"].1, Location::new("src/users.rs", 10));
+    /// ```
     pub fn into_concrete(self) -> BTreeMap<String, (Value, Location)> {
         self.concrete
     }
 
+    /// The replacement of the generic reference `text`: the inline schema of
+    /// a std container, else a smart reference (`$Page_User`) to the
+    /// concrete schema. `None` keeps `text` (instantiation failed).
     fn replace(
         &mut self,
         text: &str,
@@ -329,6 +553,7 @@ impl<'a> Instantiator<'a> {
     }
 }
 
+/// A `$Param` identifier in a blueprint string; captures the name.
 static PLACEHOLDER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$(\w+)").expect("constant pattern"));
 

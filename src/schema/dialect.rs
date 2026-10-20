@@ -10,6 +10,16 @@ use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
 
 /// A target dialect.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::schema::dialect::Dialect;
+///
+/// // Messages name the target by its `Display` form.
+/// assert_eq!(Dialect::OpenApi30.to_string(), "OpenAPI 3.0");
+/// assert_eq!(Dialect::AsyncApi3.to_string(), "AsyncAPI 3");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum Dialect {
@@ -39,7 +49,20 @@ impl std::fmt::Display for Dialect {
 }
 
 impl Dialect {
-    /// The dialect of a document with an `openapi` version field.
+    /// The dialect of a document with an `openapi` version field: `3.0.x`
+    /// and `3.1.x` are recognized, any other version counts as 3.2. `None`
+    /// without the field (a Swagger 2.0 or AsyncAPI document).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::schema::dialect::Dialect;
+    /// use serde_json::json;
+    ///
+    /// let document = json!({ "openapi": "3.0.3", "paths": {} });
+    /// assert_eq!(Dialect::of_document(&document), Some(Dialect::OpenApi30));
+    /// assert_eq!(Dialect::of_document(&json!({ "swagger": "2.0" })), None);
+    /// ```
     pub fn of_document(document: &Value) -> Option<Self> {
         let version = document.get("openapi")?.as_str()?;
         Some(if version.starts_with("3.0") {
@@ -171,6 +194,37 @@ const SCHEMA_20: &[&str] = &[
 /// `webhooks`) are removed and reported as [`Code::UnsupportedFeature`].
 /// Schemas are rewritten for the dialect; constructs without an equivalent
 /// are approximated and reported once per kind as [`Code::LossyLowering`].
+/// The `openapi` version field is left to the caller.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::{Code, Diagnostics};
+/// use oas_forge::schema::dialect::{self, Dialect};
+/// use serde_json::json;
+///
+/// let mut document = json!({
+///     "openapi": "3.1.0",
+///     "webhooks": { "petAdded": {} },
+///     "components": {
+///         "schemas": { "Name": { "type": ["string", "null"], "examples": ["Rex"] } }
+///     }
+/// });
+/// let mut diagnostics = Diagnostics::new();
+/// dialect::lower(&mut document, Dialect::OpenApi30, &mut diagnostics);
+///
+/// assert_eq!(
+///     document,
+///     json!({
+///         "openapi": "3.1.0",
+///         "components": {
+///             "schemas": { "Name": { "type": "string", "nullable": true, "example": "Rex" } }
+///         }
+///     })
+/// );
+/// let codes: Vec<Code> = diagnostics.iter().map(|d| d.code()).collect();
+/// assert_eq!(codes, [Code::UnsupportedFeature]); // the webhooks
+/// ```
 pub fn lower(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnostics) {
     if !dialect.has_32_features() && dialect != Dialect::AsyncApi3 {
         restrict(document, dialect, diagnostics);
@@ -185,7 +239,39 @@ pub fn lower(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnosti
     report_lost(lost, dialect, diagnostics);
 }
 
-/// Rewrites a single schema (and its subschemas) for `dialect`.
+/// Rewrites a single schema (and its subschemas) for `dialect`, like
+/// [`lower`] does for the schemas of a document.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::{Code, Diagnostics};
+/// use oas_forge::schema::dialect::{self, Dialect};
+/// use serde_json::json;
+///
+/// let mut schema = json!({
+///     "type": "object",
+///     "properties": {
+///         "quantity": { "type": "integer", "exclusiveMinimum": 0 },
+///         "id": { "oneOf": [{ "type": "string" }, { "type": "integer" }] }
+///     }
+/// });
+/// let mut diagnostics = Diagnostics::new();
+/// dialect::lower_schema_value(&mut schema, Dialect::Swagger20, &mut diagnostics);
+///
+/// assert_eq!(
+///     schema,
+///     json!({
+///         "type": "object",
+///         "properties": {
+///             "quantity": { "type": "integer", "minimum": 0, "exclusiveMinimum": true },
+///             "id": { "x-oneOf": [{ "type": "string" }, { "type": "integer" }] }
+///         }
+///     })
+/// );
+/// let codes: Vec<Code> = diagnostics.iter().map(|d| d.code()).collect();
+/// assert_eq!(codes, [Code::LossyLowering]); // `oneOf`
+/// ```
 pub fn lower_schema_value(schema: &mut Value, dialect: Dialect, diagnostics: &mut Diagnostics) {
     if matches!(dialect, Dialect::OpenApi31 | Dialect::OpenApi32) {
         return;
@@ -197,6 +283,8 @@ pub fn lower_schema_value(schema: &mut Value, dialect: Dialect, diagnostics: &mu
     report_lost(lost, dialect, diagnostics);
 }
 
+/// Reports each entry of `lost` once as [`Code::LossyLowering`], in sorted
+/// order.
 fn report_lost(lost: BTreeSet<String>, dialect: Dialect, diagnostics: &mut Diagnostics) {
     for what in lost {
         diagnostics.push(Diagnostic::new(
@@ -209,6 +297,9 @@ fn report_lost(lost: BTreeSet<String>, dialect: Dialect, diagnostics: &mut Diagn
     }
 }
 
+/// Rewrites one schema object, not its subschemas, for `dialect`: OpenAPI
+/// 3.0 and Swagger 2.0 lower step by step and drop the keywords they do not
+/// know, AsyncAPI 3 lowers to draft 7. Approximations are added to `lost`.
 fn lower_schema(schema: &mut Map<String, Value>, dialect: Dialect, lost: &mut BTreeSet<String>) {
     match dialect {
         Dialect::OpenApi30 => {
@@ -271,6 +362,8 @@ fn restrict(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnostic
     }
 }
 
+/// Removes the `in: querystring` parameters (OpenAPI 3.2) of a `parameters`
+/// array.
 fn remove_querystring(
     parameters: &mut Value,
     removed: &mut BTreeSet<(&'static str, &'static str)>,
@@ -332,6 +425,10 @@ fn walk_document(value: &mut Value, f: &mut impl FnMut(&mut Map<String, Value>))
     }
 }
 
+/// Calls `f` for the schema object `value`, then for its subschemas (the
+/// keywords of [`SCHEMA_KEYWORDS`], [`SCHEMA_ARRAYS`] and [`SCHEMA_MAPS`]).
+/// Subschemas are visited after `f` has rewritten their parent, so the ones
+/// `f` creates are walked too.
 fn walk_schema(value: &mut Value, f: &mut impl FnMut(&mut Map<String, Value>)) {
     let Value::Object(map) = value else {
         return;
@@ -493,6 +590,8 @@ fn lower_draft7(schema: &mut Map<String, Value>, lost: &mut BTreeSet<String>) {
     discriminator_as_string(schema);
 }
 
+/// Replaces a `discriminator` object by its `propertyName` (`null` without
+/// one): Swagger 2.0 and AsyncAPI 3 take only the property name.
 fn discriminator_as_string(schema: &mut Map<String, Value>) {
     if let Some(Value::Object(discriminator)) = schema.get("discriminator") {
         let name = discriminator
@@ -516,7 +615,8 @@ fn allow(schema: &mut Map<String, Value>, allowed: &[&str], lost: &mut BTreeSet<
     }
 }
 
-/// OpenAPI 3.0 and Swagger 2.0 ignore the siblings of `$ref`.
+/// Moves a `$ref` that has siblings to the front of `allOf`: OpenAPI 3.0 and
+/// Swagger 2.0 ignore the siblings of `$ref`.
 fn wrap_ref_siblings(schema: &mut Map<String, Value>) {
     if schema.contains_key("$ref") && schema.len() > 1 {
         let reference = schema.remove("$ref").unwrap_or_default();
@@ -529,6 +629,7 @@ fn wrap_ref_siblings(schema: &mut Map<String, Value>) {
     }
 }
 
+/// Whether `value` is exactly `{"type": "null"}`.
 fn is_null_schema(value: &Value) -> bool {
     *value == json!({ "type": "null" })
 }

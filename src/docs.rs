@@ -14,6 +14,7 @@ pub(crate) struct DocLine {
 }
 
 impl DocLine {
+    /// A doc line with `text` from the 1-based source `line`.
     pub(crate) fn new(text: impl Into<String>, line: usize) -> Self {
         Self {
             text: text.into(),
@@ -21,6 +22,7 @@ impl DocLine {
         }
     }
 
+    /// The text without leading and trailing whitespace.
     pub(crate) fn trimmed(&self) -> &str {
         self.text.trim()
     }

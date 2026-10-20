@@ -6,6 +6,7 @@ use crate::schema::dialect::{self, Dialect};
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
+/// The `$ref` prefix of a component schema, shared by OpenAPI and AsyncAPI.
 const SCHEMA_PREFIX: &str = "#/components/schemas/";
 
 /// Copies every component schema of the OpenAPI document that the AsyncAPI

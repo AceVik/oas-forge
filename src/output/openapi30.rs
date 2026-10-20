@@ -78,6 +78,8 @@ pub(super) fn export(canonical: &Value, diagnostics: &mut Diagnostics) -> Value 
     document
 }
 
+/// Removes the `summary` (new in OpenAPI 3.2) of every response in
+/// `responses` and notes it in `removed`.
 fn remove_response_summaries(responses: &mut Map<String, Value>, removed: &mut Vec<&str>) {
     for response in responses.values_mut().filter_map(Value::as_object_mut) {
         if response.remove("summary").is_some() {
@@ -86,6 +88,8 @@ fn remove_response_summaries(responses: &mut Map<String, Value>, removed: &mut V
     }
 }
 
+/// Removes the response `summary` of every operation in `paths` and
+/// `webhooks` (see [`for_each_operation`](crate::document::for_each_operation)).
 fn remove_operation_response_summaries(document: &mut Map<String, Value>, removed: &mut Vec<&str>) {
     let mut value = Value::Object(std::mem::take(document));
     crate::document::for_each_operation(&mut value, |_, operation| {

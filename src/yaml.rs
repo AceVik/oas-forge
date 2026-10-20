@@ -25,6 +25,8 @@ pub(crate) struct YamlError {
 /// users of this crate cannot set.
 const LIBRARY_HINT: &str = ", set DuplicateKeyPolicy in Options if acceptable";
 
+/// The pinned parser options listed in the module documentation. Snippets
+/// are off: callers report [`YamlError::line`] themselves.
 fn options() -> Options {
     let mut options = Options::default();
     options.strict_booleans = true;

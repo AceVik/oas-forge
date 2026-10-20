@@ -95,6 +95,8 @@ pub(super) fn export(canonical: &Value, diagnostics: &mut Diagnostics) -> Value 
     document
 }
 
+/// The state of one export: the lowered components and what Swagger 2.0
+/// cannot express.
 struct Converter {
     /// The lowered components, for resolving referenced request bodies,
     /// form schemas, parameters and headers.
@@ -106,10 +108,14 @@ struct Converter {
 }
 
 impl Converter {
+    /// Records that Swagger 2.0 cannot express `what`; [`export`] reports
+    /// each distinct `what` once as [`Code::LossyLowering`].
     fn lose(&self, what: &str) {
         self.lost.borrow_mut().insert(what.to_string());
     }
 
+    /// `info` without `summary` and `license.identifier`; an identifier that
+    /// repeats `license.name` is not reported as lost.
     fn info(&self, info: &Value) -> Value {
         let mut info = info.clone();
         if let Value::Object(map) = &mut info {
@@ -127,6 +133,7 @@ impl Converter {
         info
     }
 
+    /// A tag without the OpenAPI 3.2 `summary`, `parent` and `kind`.
     fn tag(&self, tag: &Value) -> Value {
         let mut tag = tag.clone();
         if let Value::Object(map) = &mut tag {
@@ -185,6 +192,9 @@ impl Converter {
         }
     }
 
+    /// A path item with its operations and parameters converted; keeps
+    /// `$ref` and `x-` extensions and loses `trace`, `summary`,
+    /// `description` and `servers`.
     fn path_item(&self, item: &Value) -> Value {
         let Value::Object(item) = item else {
             return item.clone();
@@ -212,6 +222,9 @@ impl Converter {
         Value::Object(out)
     }
 
+    /// An operation with its request body as `body`/`formData` parameters,
+    /// media types as `consumes`/`produces` and converted responses; loses
+    /// `callbacks` and `servers`.
     fn operation(&self, operation: &Value) -> Value {
         let Value::Object(operation) = operation else {
             return operation.clone();
@@ -323,6 +336,8 @@ impl Converter {
         }
     }
 
+    /// The converted parameters of a `parameters` array, without cookie
+    /// parameters (empty when it is not an array).
     fn parameters(&self, parameters: &Value) -> Vec<Value> {
         let Value::Array(parameters) = parameters else {
             return Vec::new();
@@ -333,6 +348,10 @@ impl Converter {
             .collect()
     }
 
+    /// A parameter with its schema inlined and, for an array, `style` and
+    /// `explode` as `collectionFormat`; `deprecated` and `example` become
+    /// `x-deprecated` and `x-example`. `None` for a cookie parameter or a
+    /// `$ref` to one.
     fn parameter(&self, parameter: &Value) -> Option<Value> {
         let Value::Object(source) = parameter else {
             return Some(parameter.clone());
@@ -493,6 +512,8 @@ impl Converter {
         consumes
     }
 
+    /// A response with one `schema` (see [`preferred_schema`]) and inlined
+    /// headers; adds its media types to `produces` and keeps a `$ref` as is.
     fn response(&self, response: &Value, produces: &mut Vec<String>) -> Value {
         let Value::Object(source) = response else {
             return response.clone();
@@ -621,6 +642,11 @@ impl Converter {
         }
     }
 
+    /// The `securityDefinitions` entry of a security scheme; `None` for a
+    /// scheme without `type` and for schemes Swagger 2.0 cannot express
+    /// (API keys in cookies, `openIdConnect`, `mutualTLS`, `oauth2` without a
+    /// known flow). HTTP schemes other than basic become an `Authorization`
+    /// header API key.
     fn security_scheme(&self, scheme: &Value) -> Option<Value> {
         let description = scheme.get("description").cloned();
         let mut out = match scheme["type"].as_str()? {
