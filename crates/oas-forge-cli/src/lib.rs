@@ -8,7 +8,8 @@
 #![deny(
     missing_docs,
     clippy::missing_docs_in_private_items,
-    clippy::missing_errors_doc
+    clippy::missing_errors_doc,
+    clippy::doc_markdown
 )]
 #![deny(
     clippy::indexing_slicing,

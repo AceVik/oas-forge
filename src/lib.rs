@@ -46,8 +46,14 @@
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, rustdoc::broken_intra_doc_links)]
-// Every fallible public function says when it fails.
-#![deny(clippy::missing_errors_doc)]
+// Every item is documented, internals included; fallible public functions
+// say when they fail; identifiers in docs are code (`clippy.toml` lists the
+// product names that are not).
+#![deny(
+    clippy::missing_docs_in_private_items,
+    clippy::missing_errors_doc,
+    clippy::doc_markdown
+)]
 // No panics on user input (AGENTS.md, rule 1): no unchecked indexing or
 // slicing, no `unwrap`. `expect` is reserved for invariants, with the reason.
 #![deny(

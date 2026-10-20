@@ -1,0 +1,3 @@
+# Product names are words, not code: `doc_markdown` would ask for backticks.
+# `rust_decimal` is a crate name in the README. ".." keeps clippy's defaults.
+doc-valid-idents = ["OpenAPI", "AsyncAPI", "rust_decimal", ".."]
