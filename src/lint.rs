@@ -5,7 +5,7 @@
 //! path. With strict lints also: unused components and missing descriptions.
 
 use super::diagnostics::{Code, Diagnostic, Diagnostics};
-use super::document::for_each_operation;
+use super::document::for_each_operation_ref;
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -18,9 +18,9 @@ pub(crate) struct Lints {
 
 /// Runs the lints on an OpenAPI or AsyncAPI document.
 pub(crate) fn check(document: &Value, lints: Lints, diagnostics: &mut Diagnostics) {
-    let mut refs = Vec::new();
+    let mut refs = References::default();
     collect_refs(document, &mut refs);
-    for target in &refs {
+    for target in &refs.list {
         let Some(pointer) = target.strip_prefix('#') else {
             continue;
         };
@@ -32,14 +32,13 @@ pub(crate) fn check(document: &Value, lints: Lints, diagnostics: &mut Diagnostic
         }
     }
 
-    let mut copy = document.clone();
     let mut ids = BTreeMap::<String, usize>::new();
     let mut requirements = Vec::new();
     if let Some(Value::Array(security)) = document.get("security") {
         requirements.extend(security.iter().cloned());
     }
     let mut undescribed = Vec::new();
-    for_each_operation(&mut copy, |at, operation| {
+    for_each_operation_ref(document, |at, operation| {
         if let Some(id) = operation.get("operationId").and_then(Value::as_str) {
             *ids.entry(id.to_string()).or_default() += 1;
         }
@@ -188,21 +187,34 @@ fn unused_components(document: &Value, diagnostics: &mut Diagnostics) {
     else {
         return;
     };
-    let mut pending = Vec::new();
+    let mut found = References::default();
     for (key, value) in root {
         if key != "components" {
-            collect_refs(value, &mut pending);
+            collect_entry(key, value, &mut found);
         }
     }
+    let mut pending = found.list;
     let mut reached = BTreeSet::new();
+    // The components a reference points into, as `(section, escaped name)`.
+    let mut used = BTreeSet::new();
     while let Some(target) = pending.pop() {
         if !reached.insert(target.clone()) {
             continue;
         }
-        if let Some(pointer) = target.strip_prefix('#')
-            && let Some(value) = document.pointer(&unescape(pointer))
+        let Some(pointer) = target.strip_prefix('#').map(unescape) else {
+            continue;
+        };
+        if let Some((section, rest)) = pointer
+            .strip_prefix("/components/")
+            .and_then(|rest| rest.split_once('/'))
         {
-            collect_refs(value, &mut pending);
+            let name = rest.split_once('/').map_or(rest, |(name, _)| name);
+            used.insert((section.to_string(), name.to_string()));
+        }
+        if let Some(value) = document.pointer(&pointer) {
+            let mut inner = References::default();
+            collect_refs(value, &mut inner);
+            pending.extend(inner.list);
         }
     }
     for (section, entries) in components {
@@ -214,15 +226,9 @@ fn unused_components(document: &Value, diagnostics: &mut Diagnostics) {
             continue;
         };
         for name in entries.keys() {
-            let target = format!(
-                "#/components/{section}/{}",
-                name.replace('~', "~0").replace('/', "~1")
-            );
-            let inside = format!("{target}/");
-            let used = reached
-                .iter()
-                .any(|r| *r == target || r.starts_with(&inside));
-            if !used {
+            let escaped = name.replace('~', "~0").replace('/', "~1");
+            if !used.contains(&(section.clone(), escaped.clone())) {
+                let target = format!("#/components/{section}/{escaped}");
                 diagnostics.push(Diagnostic::new(
                     Code::UnusedComponent,
                     format!("`{target}` is never referenced"),
@@ -232,38 +238,96 @@ fn unused_components(document: &Value, diagnostics: &mut Diagnostics) {
     }
 }
 
-fn collect_refs(value: &Value, out: &mut Vec<String>) {
+/// Keys whose values are data (examples, defaults, enumerations), never
+/// references.
+const DATA_KEYS: &[&str] = &["example", "default", "enum", "const", "value"];
+
+/// Keys whose value maps names (property names, status codes, component
+/// names, …) to objects; a name may look like a keyword (`default`).
+const NAME_MAPS: &[&str] = &[
+    "properties",
+    "patternProperties",
+    "$defs",
+    "definitions",
+    "dependentSchemas",
+    "schemas",
+    "responses",
+    "parameters",
+    "headers",
+    "requestBodies",
+    "securitySchemes",
+    "links",
+    "callbacks",
+    "pathItems",
+    "mediaTypes",
+    "content",
+    "encoding",
+    "paths",
+    "webhooks",
+    "channels",
+    "messages",
+    "operations",
+    "servers",
+    "variables",
+];
+
+/// Reference targets in the order they are found, each once.
+#[derive(Default)]
+struct References {
+    list: Vec<String>,
+    seen: BTreeSet<String>,
+}
+
+impl References {
+    fn add(&mut self, target: &str) {
+        if !self.seen.contains(target) {
+            self.seen.insert(target.to_string());
+            self.list.push(target.to_string());
+        }
+    }
+}
+
+/// The `$ref` targets and discriminator mappings below `value`.
+fn collect_refs(value: &Value, out: &mut References) {
     match value {
         Value::Object(map) => {
             for (key, child) in map {
-                if key.starts_with("x-oas-forge-") {
-                    continue;
-                }
-                match (key.as_str(), child) {
-                    ("$ref", Value::String(target)) => {
-                        if !out.contains(target) {
-                            out.push(target.clone());
-                        }
-                    }
-                    ("mapping", Value::Object(mapping)) => {
-                        for target in mapping.values().filter_map(Value::as_str) {
-                            // A mapping value is a reference or a schema name.
-                            let target = if target.contains(['#', '/', '.']) {
-                                target.to_string()
-                            } else {
-                                format!("#/components/schemas/{target}")
-                            };
-                            if !out.contains(&target) {
-                                out.push(target);
-                            }
-                        }
-                    }
-                    _ => collect_refs(child, out),
-                }
+                collect_entry(key, child, out);
             }
         }
         Value::Array(items) => items.iter().for_each(|i| collect_refs(i, out)),
         _ => {}
+    }
+}
+
+/// The references of the entry `key: child` of an object whose keys are
+/// keywords (a schema, an operation, a document, …).
+fn collect_entry(key: &str, child: &Value, out: &mut References) {
+    if key.starts_with("x-oas-forge-") || DATA_KEYS.contains(&key) {
+        return;
+    }
+    match (key, child) {
+        ("$ref", Value::String(target)) => out.add(target),
+        ("discriminator", Value::Object(discriminator)) => {
+            let Some(Value::Object(mapping)) = discriminator.get("mapping") else {
+                return;
+            };
+            for target in mapping.values().filter_map(Value::as_str) {
+                // A mapping value is a reference or a schema name.
+                if target.contains(['#', '/', '.']) {
+                    out.add(target);
+                } else {
+                    out.add(&format!("#/components/schemas/{target}"));
+                }
+            }
+        }
+        // A JSON Schema `examples` list is data; an OpenAPI `examples` map
+        // holds Example Objects or references.
+        ("examples", Value::Array(_)) => {}
+        (_, Value::Object(entries)) if NAME_MAPS.contains(&key) || key == "examples" => {
+            entries.values().for_each(|entry| collect_refs(entry, out));
+        }
+        _ => collect_refs(child, out),
     }
 }
 

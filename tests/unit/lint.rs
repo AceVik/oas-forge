@@ -376,3 +376,97 @@ fn asyncapi_documents_are_linted_too() {
     )]);
     assert_eq!(codes(&diagnostics), [Code::DanglingReference]);
 }
+
+mod references {
+    use super::*;
+
+    #[test]
+    fn properties_named_mapping_are_not_discriminator_mappings() {
+        let (_, diagnostics) = pipeline(&[(
+            "lib.rs",
+            "/// @openapi\nstruct Config { mapping: String, discriminator: String }",
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn data_values_are_not_searched_for_references() {
+        let (_, diagnostics) = pipeline(&[(
+            "lib.rs",
+            r##"
+            /// @openapi
+            /// paths:
+            ///   /a:
+            ///     get:
+            ///       responses:
+            ///         '200':
+            ///           description: OK
+            ///           content:
+            ///             application/json:
+            ///               example: { $ref: "#/components/schemas/Missing" }
+            ///               examples:
+            ///                 one: { value: { mapping: { a: B } } }
+            /// components:
+            ///   schemas:
+            ///     Doc:
+            ///       type: object
+            ///       default: { $ref: "#/components/schemas/Missing" }
+            ///       enum: [{ $ref: "#/components/schemas/Missing" }]
+            ///       const: { mapping: { a: Missing } }
+            ///       examples: [{ discriminator: { mapping: { a: Missing } } }]
+            fn docs() {}
+            "##,
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn discriminator_mappings_are_still_checked() {
+        let (_, diagnostics) = pipeline(&[(
+            "lib.rs",
+            r##"
+            /// @openapi
+            /// components:
+            ///   schemas:
+            ///     Pet:
+            ///       oneOf: [{ $ref: "#/components/schemas/Cat" }]
+            ///       discriminator: { propertyName: kind, mapping: { cat: Cat, dog: "#/components/schemas/Dog" } }
+            ///     Cat: { type: object, properties: { mapping: { type: string } } }
+            fn docs() {}
+            "##,
+        )]);
+        assert_eq!(codes(&diagnostics), [Code::DanglingReference]);
+        assert!(messages(&diagnostics)[0].contains("#/components/schemas/Dog"));
+    }
+}
+
+#[test]
+fn external_references_and_mappings_without_targets_are_not_components() {
+    let diagnostics = strict(
+        r##"
+        /// @openapi
+        /// paths:
+        ///   /a:
+        ///     get:
+        ///       summary: A
+        ///       responses:
+        ///         '200':
+        ///           description: OK
+        ///           content:
+        ///             application/json:
+        ///               schema: { $ref: "shared.yaml#/components/schemas/Remote" }
+        ///         '201':
+        ///           description: Created
+        ///           content:
+        ///             application/json:
+        ///               schema: { $ref: "#/components/schemas/Shape" }
+        /// components:
+        ///   schemas:
+        ///     Shape:
+        ///       description: Without a mapping.
+        ///       discriminator: { propertyName: kind }
+        fn docs() {}
+        "##,
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
