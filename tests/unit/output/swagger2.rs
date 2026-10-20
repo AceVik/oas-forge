@@ -48,6 +48,13 @@ fn servers_become_host_base_path_and_schemes() {
     )]);
     assert_eq!(document["host"], "files.example.com");
     assert!(document.get("schemes").is_none());
+    // A variable without a default, or no host at all, gives no `host`.
+    for url in ["'https://{tenant}.example.com/v1'", "'https:///v1'"] {
+        let (document, _) =
+            swagger(&[("root.yaml", &root(&format!("servers: [{{ url: {url} }}]")))]);
+        assert!(document.get("host").is_none(), "{url}: {document}");
+        assert_eq!(document["basePath"], "/v1", "{url}");
+    }
 }
 
 #[test]

@@ -35,6 +35,18 @@ mod request_body {
     }
 
     #[test]
+    fn half_media_types_are_not_media_types() {
+        for token in ["text/", "/plain"] {
+            let body = body(&["@route POST /x", &format!("@body String {token}")]);
+            assert!(
+                body["content"].get(token).is_none(),
+                "{token}: {}",
+                body["content"]
+            );
+        }
+    }
+
+    #[test]
     fn accepts_custom_media_type() {
         let body = body(&["@route POST /x", "@body String text/plain"]);
         assert_eq!(

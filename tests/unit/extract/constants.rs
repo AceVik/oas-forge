@@ -24,6 +24,7 @@ static BUILT: LazyLock<Regex> = LazyLock::new(|| RegexBuilder::new(r#"^"q"$"#).b
 const NOT_A_REGEX: &str = "^x$";
 static NO_LITERAL: LazyLock<Regex> = LazyLock::new(|| Regex::new(PATTERN).unwrap());
 static OTHER: u8 = new(5);
+static WRAPPED: LazyLock<Wrapper> = LazyLock::new(|| Wrapper::new("not a regex"));
 "##,
     );
     assert_eq!(

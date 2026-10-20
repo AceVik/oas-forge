@@ -166,7 +166,9 @@ impl Converter {
             None => (None, url.clone()),
         };
         let (host, path) = if scheme.is_some() || url.starts_with("//") {
-            let rest = rest.trim_start_matches('/');
+            // `//host/path` has no scheme; after `scheme://` the authority
+            // starts right away (and may be empty: `https:///v1`).
+            let rest = rest.strip_prefix("//").unwrap_or(&rest);
             // The path keeps its leading `/`.
             match rest
                 .find('/')
