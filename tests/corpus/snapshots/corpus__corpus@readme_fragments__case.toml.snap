@@ -8,7 +8,9 @@ input_file: tests/corpus/cases/readme_fragments/case.toml
     "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
   },
   "description": "README: 'Fragments & Mixins' definition example with separator comments",
-  "diagnostics": [],
+  "diagnostics": [
+    "warning[OF5005]: security scheme `oidcAuth` is required but not defined in `components.securitySchemes`"
+  ],
   "fragments": {
     "document": {
       "components": {

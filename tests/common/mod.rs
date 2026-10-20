@@ -10,7 +10,6 @@ use oas_forge::diagnostics::{Code, Diagnostics, Location};
 use oas_forge::dsl::{self, RouteSource};
 use oas_forge::extract::{self, Item};
 use oas_forge::generator::generate_from_sources;
-use oas_forge::schema::TypeMapper;
 use oas_forge::source::{SourceFile, SourceKind};
 use oas_forge::template::Variables;
 use serde_json::Value;
@@ -43,7 +42,7 @@ pub fn extract_with_diagnostics(code: &str) -> (Vec<Item>, Diagnostics) {
     let items = extract::extract_str(
         Path::new("test.rs"),
         code,
-        TypeMapper::builtin(),
+        extract::Options::new(),
         &mut diagnostics,
     )
     .unwrap_or_else(|e| panic!("test source must be valid Rust: {e}"));

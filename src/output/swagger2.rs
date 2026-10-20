@@ -108,8 +108,10 @@ impl Converter {
             if map.remove("summary").is_some() {
                 self.lose("`info.summary`");
             }
+            // An identifier that repeats the name loses nothing.
             if let Some(Value::Object(license)) = map.get_mut("license")
-                && license.remove("identifier").is_some()
+                && let Some(identifier) = license.remove("identifier")
+                && license.get("name") != Some(&identifier)
             {
                 self.lose("`license.identifier`");
             }

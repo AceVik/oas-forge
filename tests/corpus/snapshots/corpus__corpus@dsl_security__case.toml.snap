@@ -8,7 +8,11 @@ input_file: tests/corpus/cases/dsl_security/case.toml
     "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
   },
   "description": "Route DSL: @security with and without scopes",
-  "diagnostics": [],
+  "diagnostics": [
+    "warning[OF5005]: security scheme `bearer` is required but not defined in `components.securitySchemes`",
+    "warning[OF5005]: security scheme `oauth2` is required but not defined in `components.securitySchemes`",
+    "warning[OF5005]: security scheme `apiKey` is required but not defined in `components.securitySchemes`"
+  ],
   "fragments": {
     "document": {
       "paths": {

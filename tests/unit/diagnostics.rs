@@ -77,3 +77,29 @@ fn collection_tracks_errors_and_can_deny_warnings() {
     assert_eq!(borrowed, owned);
     assert_eq!(diagnostics.into_vec().len(), 2);
 }
+
+#[test]
+fn diagnostics_serialize_to_json_objects() {
+    let plain = Diagnostic::new(Code::DanglingReference, "gone");
+    assert_eq!(
+        plain.to_json(),
+        serde_json::json!({ "severity": "warning", "code": plain.code().as_str(), "message": "gone" })
+    );
+    let located = Diagnostic::new(Code::InvalidRoute, "bad")
+        .at(Location::new("src/api.rs", 7).with_column(3));
+    assert_eq!(
+        located.to_json(),
+        serde_json::json!({
+            "severity": "error",
+            "code": "OF2001",
+            "message": "bad",
+            "file": "src/api.rs",
+            "line": 7,
+            "column": 3,
+        })
+    );
+    let without_column = Diagnostic::new(Code::GeneratedRoot, "n").at(Location::new("a.rs", 1));
+    let json = without_column.to_json();
+    assert_eq!(json["severity"], "note");
+    assert!(json.get("column").is_none());
+}

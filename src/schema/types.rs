@@ -477,6 +477,11 @@ impl TypeMapper {
             "SocketAddr" | "SocketAddrV4" | "SocketAddrV6" | "PathBuf" | "Path" => {
                 json!({ "type": "string" })
             }
+            // `Page<User>`: a generic type, instantiated from its blueprint.
+            _ if !args.is_empty() => {
+                let args: Vec<String> = args.iter().map(ToString::to_string).collect();
+                json!({ "$ref": format!("${name}<{}>", args.join(", ")) })
+            }
             _ => json!({ "$ref": format!("${name}") }),
         };
         MappedType::required(schema)

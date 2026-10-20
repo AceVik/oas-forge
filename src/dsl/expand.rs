@@ -9,7 +9,8 @@ use crate::schema::strip_null;
 use serde_json::{Map, Value, json};
 
 /// Replaces every expansion marker with one parameter per property of the
-/// referenced schema, then checks that path placeholders are declared.
+/// referenced schema. Placeholders an expansion leaves undeclared are
+/// reported by the lints.
 pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnostics) {
     let schemas = document
         .pointer("/components/schemas")
@@ -29,14 +30,12 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
             .map(|p| (p["name"].clone(), p["in"].clone()))
             .collect();
         let mut expanded = Vec::with_capacity(parameters.len());
-        let mut path_markers = false;
         for parameter in std::mem::take(parameters) {
             let Some(marker) = parameter.get(EXPAND_KEY) else {
                 expanded.push(parameter);
                 continue;
             };
             let location = marker["in"].as_str().unwrap_or("query").to_string();
-            path_markers |= location == "path";
             let target = marker["schema"].as_str().unwrap_or_default();
             let schema = target
                 .strip_prefix("#/components/schemas/")
@@ -65,22 +64,6 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
                         .any(|p| p["name"] == identity.0 && p["in"] == identity.1);
                 if !duplicate {
                     expanded.push(parameter);
-                }
-            }
-        }
-        if path_markers {
-            for placeholder in placeholders(at.name) {
-                let declared = expanded
-                    .iter()
-                    .any(|p| p["in"] == "path" && p["name"] == placeholder.as_str());
-                if !declared {
-                    diagnostics.push(Diagnostic::new(
-                        Code::UndeclaredPathParam,
-                        format!(
-                            "path parameter `{placeholder}` of `{}` has no definition",
-                            at.name
-                        ),
-                    ));
                 }
             }
         }
@@ -129,18 +112,6 @@ fn from_schema(
             Value::Object(parameter)
         })
         .collect()
-}
-
-fn placeholders(path: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = path;
-    while let Some(open) = rest.find('{') {
-        let after = &rest[open + 1..];
-        let Some(close) = after.find('}') else { break };
-        out.push(after[..close].to_string());
-        rest = &after[close + 1..];
-    }
-    out
 }
 
 fn remove_empty_parameters(document: &mut Value) {

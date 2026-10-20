@@ -7,9 +7,10 @@ use super::document::for_each_operation;
 use super::dsl::{self, RouteSource};
 use super::error::{Error, Result};
 use super::extract::{self, Item};
-use super::lint;
+use super::lint::{self, Lints};
 use super::merge::{Policy, merge};
 use super::output::{self, Format, OutputKind};
+use super::package::Package;
 use super::schema::TypeMapper;
 use super::schema::dialect::{self, Dialect};
 use super::source::{DEFAULT_MAX_FILE_SIZE, DiscoverOptions, SourceFile, SourceKind, SourceSet};
@@ -42,15 +43,38 @@ pub struct Generator {
     cargo_directives: bool,
     types: TypeMapper,
     infer: bool,
+    package: Option<Package>,
+    strict_lints: bool,
 }
+
+/// The package variables Cargo sets for build scripts.
+const PACKAGE_VARIABLES: &[&str] = &[
+    "CARGO_PKG_NAME",
+    "CARGO_PKG_VERSION",
+    "CARGO_PKG_VERSION_MAJOR",
+    "CARGO_PKG_VERSION_MINOR",
+    "CARGO_PKG_VERSION_PATCH",
+    "CARGO_PKG_DESCRIPTION",
+    "CARGO_PKG_AUTHORS",
+    "CARGO_PKG_LICENSE",
+    "CARGO_PKG_REPOSITORY",
+    "CARGO_PKG_HOMEPAGE",
+    "CARGO_PKG_RUST_VERSION",
+];
 
 impl Default for Generator {
     fn default() -> Self {
+        // Cargo sets `CARGO_PKG_*` for build scripts; they are available as
+        // `{{CARGO_PKG_NAME}}` and so on.
         let mut variables = Variables::new();
-        variables.insert(
-            "CARGO_PKG_VERSION".into(),
-            std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into()),
-        );
+        for name in PACKAGE_VARIABLES {
+            if let Ok(value) = std::env::var(name) {
+                variables.insert((*name).to_string(), value);
+            }
+        }
+        variables
+            .entry("CARGO_PKG_VERSION".into())
+            .or_insert_with(|| "0.0.0".into());
         Self {
             inputs: Vec::new(),
             includes: Vec::new(),
@@ -61,6 +85,8 @@ impl Default for Generator {
             cargo_directives: false,
             types: TypeMapper::new(),
             infer: true,
+            package: Package::from_build_env(),
+            strict_lints: false,
         }
     }
 }
@@ -85,11 +111,13 @@ impl Generator {
             output_swagger2,
             output_asyncapi,
             types,
+            variables,
             ..
         } = config;
         for (name, schema) in types.unwrap_or_default() {
             self.types = self.types.with_type(name, schema);
         }
+        self.variables.extend(variables.unwrap_or_default());
         self.inputs.extend(input.unwrap_or_default());
         self.includes.extend(include.unwrap_or_default());
         for (kind, paths) in [
@@ -193,6 +221,26 @@ impl Generator {
         self
     }
 
+    /// Uses `package` for the root document when the sources define none.
+    /// In a build script the running package is used by default.
+    pub fn package(mut self, package: Package) -> Self {
+        self.package = Some(package);
+        self
+    }
+
+    /// Never generates a root document from package metadata.
+    pub fn without_package(mut self) -> Self {
+        self.package = None;
+        self
+    }
+
+    /// Also reports unused components and operations or schemas without
+    /// description.
+    pub fn strict_lints(mut self, strict: bool) -> Self {
+        self.strict_lints = strict;
+        self
+    }
+
     /// Treats warnings as errors.
     pub fn deny_warnings(mut self, deny: bool) -> Self {
         self.deny_warnings = deny;
@@ -228,6 +276,8 @@ impl Generator {
             variables: &self.variables,
             types: &self.types,
             infer: self.infer,
+            package: self.package.as_ref(),
+            strict_lints: self.strict_lints,
         };
         let documents = run(&sources, settings, &mut diagnostics)?;
         let mut spec = Spec {
@@ -358,6 +408,24 @@ impl Spec {
         Ok(rendered.into_iter().map(|(p, _)| p.clone()).collect())
     }
 
+    /// The configured output files whose content differs from what
+    /// [`Spec::write`] would write (missing files included), e.g. for a CI
+    /// check that the committed specification is up to date.
+    ///
+    /// # Errors
+    /// [`Error::NoRootFound`] or [`Error::NoAsyncApiRoot`] for outputs that
+    /// cannot be rendered.
+    pub fn check(&self) -> Result<Vec<PathBuf>> {
+        let mut outdated = Vec::new();
+        for (kind, path) in &self.outputs {
+            let text = Format::of(path).render(&self.render(*kind)?);
+            if std::fs::read_to_string(path).ok().as_deref() != Some(text.as_str()) {
+                outdated.push(path.clone());
+            }
+        }
+        Ok(outdated)
+    }
+
     /// Prints diagnostics as `cargo:warning=` and the inputs as
     /// `cargo:rerun-if-changed=` (for build scripts).
     pub fn print_cargo_directives(&self) {
@@ -414,21 +482,28 @@ enum Pending {
     Channel(Box<extract::ChannelItem>),
 }
 
-/// Runs every stage on `sources`; returns the merged document and registry.
 /// The settings of a pipeline run.
 #[derive(Clone, Copy)]
 pub(crate) struct Settings<'a> {
     pub(crate) variables: &'a Variables,
     pub(crate) types: &'a TypeMapper,
     pub(crate) infer: bool,
+    pub(crate) package: Option<&'a Package>,
+    pub(crate) strict_lints: bool,
 }
 
+/// Runs every stage on `sources`; returns the merged documents and registry.
 pub(crate) fn run(
     sources: &SourceSet,
     settings: Settings<'_>,
     diagnostics: &mut Diagnostics,
 ) -> Result<Documents> {
-    let Settings { types, .. } = settings;
+    let Settings {
+        types,
+        variables,
+        package,
+        ..
+    } = settings;
     let mut registry = Registry::new();
     let mut patterns = BTreeMap::new();
     let mut known = KnownSchemas::default();
@@ -439,7 +514,11 @@ pub(crate) fn run(
     for file in sources.files() {
         match file.kind() {
             SourceKind::Rust => {
-                for item in extract::extract(file, types, diagnostics)? {
+                for item in extract::extract(
+                    file,
+                    extract::Options::new().types(types).variables(variables),
+                    diagnostics,
+                )? {
                     if let Item::Pattern(pattern) = item {
                         patterns.insert(pattern.name, pattern.pattern);
                         continue;
@@ -487,7 +566,7 @@ pub(crate) fn run(
     let mut snippets: Vec<Snippet> = ordered.into_iter().map(|(_, s)| s).collect();
 
     // Pass 3: generic instantiation.
-    let mut instantiator = Instantiator::new(&registry);
+    let mut instantiator = Instantiator::new(&registry).with_types(types);
     for snippet in &mut snippets {
         instantiator.apply(&mut snippet.value, &snippet.location, diagnostics);
     }
@@ -532,6 +611,20 @@ pub(crate) fn run(
     let mut asyncapi = merge_documents(asyncapi, Vec::new(), is_asyncapi_root, diagnostics)?;
     refs::unescape(&mut asyncapi);
     let mut document = merge_documents(snippets, generated, output::is_root, diagnostics)?;
+    if !output::is_root(&document)
+        && let Some(package) = package
+    {
+        let mut root = package.root_document();
+        merge(&mut root, document, Policy::Document);
+        document = root;
+        diagnostics.push(Diagnostic::new(
+            Code::GeneratedRoot,
+            format!(
+                "no `openapi`/`info` root in the sources; it was generated from package `{}`",
+                package.name
+            ),
+        ));
+    }
     refs::unescape(&mut document);
     output::strip_transport(&mut document);
     normalize(&mut document);
@@ -540,10 +633,13 @@ pub(crate) fn run(
     if let Some(dialect) = Dialect::of_document(&document) {
         dialect::lower(&mut document, dialect, diagnostics);
     }
-    lint::check(&document, diagnostics);
+    let lints = Lints {
+        strict: settings.strict_lints,
+    };
+    lint::check(&document, lints, diagnostics);
     if !asyncapi.as_object().is_some_and(Map::is_empty) {
         output::asyncapi::add_shared_schemas(&mut asyncapi, &canonical);
-        lint::check(&asyncapi, diagnostics);
+        lint::check(&asyncapi, Lints::default(), diagnostics);
     }
     Ok(Documents {
         document,
@@ -664,6 +760,7 @@ fn materialize(
         variables,
         types,
         infer,
+        ..
     } = settings;
     match pending {
         Pending::Document {
@@ -912,6 +1009,8 @@ pub fn generate_from_sources(
         variables,
         types: TypeMapper::builtin(),
         infer: true,
+        package: None,
+        strict_lints: false,
     };
     let documents = run(&SourceSet::from_files(files), settings, &mut diagnostics)?;
     Ok((documents.document, diagnostics))

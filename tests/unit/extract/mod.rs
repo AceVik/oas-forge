@@ -14,8 +14,9 @@ mod structs;
 use crate::common::Project;
 use oas_forge::diagnostics::{Diagnostics, Location};
 use oas_forge::error::Error;
-use oas_forge::extract::{BlueprintItem, DocumentItem, FragmentItem, Item, RouteItem, extract};
-use oas_forge::schema::TypeMapper;
+use oas_forge::extract::{
+    BlueprintItem, DocumentItem, FragmentItem, Item, Options, RouteItem, extract,
+};
 use oas_forge::source::{SourceFile, SourceKind};
 
 /// A compact description of every item: `schema:Name`, `named:Name`,
@@ -93,7 +94,7 @@ fn extracts_from_a_source_file() {
         project.read("lib.rs"),
     );
 
-    let items = extract(&source, TypeMapper::builtin(), &mut Diagnostics::new()).unwrap();
+    let items = extract(&source, Options::new(), &mut Diagnostics::new()).unwrap();
 
     assert_eq!(kinds(&items), ["schema:User"]);
     assert_eq!(
@@ -140,7 +141,7 @@ fn every_item_kind_has_a_location() {
 #[test]
 fn invalid_rust_is_a_parse_error_with_position() {
     let source = SourceFile::new("broken.rs", SourceKind::Rust, "fn ok() {}\nfn {");
-    match extract(&source, TypeMapper::builtin(), &mut Diagnostics::new()) {
+    match extract(&source, Options::new(), &mut Diagnostics::new()) {
         Err(Error::Parse { location, message }) => {
             assert_eq!(location.file(), std::path::Path::new("broken.rs"));
             assert_eq!(location.line(), 2);

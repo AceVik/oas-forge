@@ -5,7 +5,7 @@
 //! `transparent`, newtype and tuple structs, and all four enum
 //! representations. Validation attributes add their keywords.
 
-use super::{BlueprintItem, DocumentItem, Item, SchemaItem};
+use super::{BlueprintItem, DocumentItem, Item, Options, SchemaItem};
 use crate::attrs::directives::{ItemDocs, ItemKind};
 use crate::attrs::rename::RenameRule;
 use crate::attrs::serde::SerdeAttrs;
@@ -15,6 +15,7 @@ use crate::docs::{doc_lines, line_of};
 use crate::merge::{Policy, merge};
 use crate::schema::nullable;
 use crate::schema::types::{MappedType, TypeExpr, TypeMapper};
+use crate::template::{Variables, lexical};
 use crate::yaml;
 use serde_json::{Map, Value, json};
 use std::path::Path;
@@ -93,18 +94,20 @@ enum Representation<'a> {
 pub(super) struct Reflector<'a> {
     path: &'a Path,
     types: &'a TypeMapper,
+    variables: &'a Variables,
     diagnostics: &'a mut Diagnostics,
 }
 
 impl<'a> Reflector<'a> {
     pub(super) fn new(
         path: &'a Path,
-        types: &'a TypeMapper,
+        options: Options<'a>,
         diagnostics: &'a mut Diagnostics,
     ) -> Self {
         Self {
             path,
-            types,
+            types: options.types,
+            variables: options.variables,
             diagnostics,
         }
     }
@@ -130,12 +133,38 @@ impl<'a> Reflector<'a> {
         }
     }
 
-    /// Adds description, `deprecated` and the `@openapi` override YAML.
+    /// Adds description, `deprecated`, `@example`s and the `@openapi`
+    /// override YAML.
     fn finish(&mut self, schema: &mut Value, naming: &Naming, what: &str) {
         if !naming.docs.description.is_empty()
             && let Value::Object(map) = schema
         {
             map.insert("description".into(), json!(naming.docs.description));
+        }
+        if !naming.docs.examples.is_empty()
+            && let Value::Object(map) = schema
+        {
+            let examples: Vec<Value> = naming
+                .docs
+                .examples
+                .iter()
+                .map(|line| {
+                    // Substituted as a list item, so that a value that is a
+                    // single placeholder stays a string (like `key: {{V}}`).
+                    let item = lexical::substitute(
+                        &format!("- {}", line.text),
+                        self.variables,
+                        &Location::new(self.path, line.line),
+                        self.diagnostics,
+                    );
+                    let text = item.strip_prefix("- ").unwrap_or(&item);
+                    match yaml::parse(&item) {
+                        Ok(Value::Array(mut values)) if !values[0].is_null() => values.remove(0),
+                        _ => json!(text),
+                    }
+                })
+                .collect();
+            map.insert("examples".into(), Value::Array(examples));
         }
         if naming.deprecated
             && let Value::Object(map) = schema
@@ -145,6 +174,8 @@ impl<'a> Reflector<'a> {
         let Some(text) = naming.docs.override_text() else {
             return;
         };
+        let start = self.location(naming.docs.override_line().unwrap_or(1));
+        let text = lexical::substitute(&text, self.variables, &start, self.diagnostics);
         match yaml::parse(&text) {
             Ok(Value::Null) => {}
             Ok(value) => {
@@ -237,7 +268,7 @@ impl<'a> Reflector<'a> {
             .unwrap_or_default();
         let naming = self.naming(&field.attrs, &ident, ItemKind::Member);
         let serde = &naming.serde;
-        if serde.is_skipped() {
+        if serde.is_skipped() || naming.docs.skip {
             return Field::Skip;
         }
         let name = if naming.name == ident {
@@ -346,7 +377,7 @@ impl<'a> Reflector<'a> {
     pub(super) fn structure(&mut self, item: &syn::ItemStruct) -> Vec<Item> {
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Container);
-        if !naming.docs.exported {
+        if !naming.docs.exported || naming.docs.skip {
             return Vec::new();
         }
         let location = self.location(line_of(item.span()));
@@ -396,11 +427,16 @@ impl<'a> Reflector<'a> {
             }
         };
         self.finish(&mut schema, &naming, &format!("struct `{rust_name}`"));
+        let blueprint = naming
+            .docs
+            .blueprint
+            .clone()
+            .or_else(|| type_params(&item.generics));
         vec![wrap_item(
             naming.name,
             rust_name,
             schema,
-            naming.docs.blueprint,
+            blueprint,
             location,
         )]
     }
@@ -421,35 +457,43 @@ impl<'a> Reflector<'a> {
         })
     }
 
-    /// Reflects a type alias (always exported).
-    pub(super) fn alias(&mut self, item: &syn::ItemType) -> Item {
+    /// Reflects a type alias (always exported, unless `@openapi skip`).
+    pub(super) fn alias(&mut self, item: &syn::ItemType) -> Option<Item> {
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Member);
+        if naming.docs.skip {
+            return None;
+        }
         let mut schema = self.types.map(&TypeExpr::from_syn(&item.ty)).into_schema();
         self.finish(&mut schema, &naming, &format!("type alias `{rust_name}`"));
-        Item::Schema(SchemaItem {
+        Some(Item::Schema(SchemaItem {
             name: naming.name,
             rust_name,
             schema,
             location: self.location(line_of(item.span())),
-        })
+        }))
     }
 
     /// Reflects an enum with an `@openapi` directive.
     pub(super) fn enumeration(&mut self, item: &syn::ItemEnum) -> Vec<Item> {
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Container);
-        if !naming.docs.exported {
+        if !naming.docs.exported || naming.docs.skip {
             return Vec::new();
         }
         let location = self.location(line_of(item.span()));
+        let blueprint = naming
+            .docs
+            .blueprint
+            .clone()
+            .or_else(|| type_params(&item.generics));
         if let Some(mut schema) = self.conversion(&naming.serde) {
             self.finish(&mut schema, &naming, &format!("enum `{rust_name}`"));
             return vec![wrap_item(
                 naming.name,
                 rust_name,
                 schema,
-                naming.docs.blueprint,
+                blueprint,
                 location,
             )];
         }
@@ -470,7 +514,7 @@ impl<'a> Reflector<'a> {
                     self.naming(&v.attrs, &v.ident.unraw().to_string(), ItemKind::Member),
                 )
             })
-            .filter(|(_, n)| !n.serde.is_skipped())
+            .filter(|(_, n)| !n.serde.is_skipped() && !n.docs.skip)
             .collect();
 
         let mut items = Vec::new();
@@ -503,7 +547,7 @@ impl<'a> Reflector<'a> {
             naming.name,
             rust_name,
             schema,
-            naming.docs.blueprint,
+            blueprint,
             location,
         ));
         items
@@ -554,17 +598,6 @@ impl<'a> Reflector<'a> {
         }
     }
 
-    /// Adds the variant's description and `deprecated` flag.
-    fn describe(schema: &mut Value, naming: &Naming) {
-        let Value::Object(map) = schema else { return };
-        if !naming.docs.description.is_empty() {
-            map.insert("description".into(), json!(naming.docs.description));
-        }
-        if naming.deprecated {
-            map.insert("deprecated".into(), json!(true));
-        }
-    }
-
     /// A variant of an untagged enum (or with `#[serde(untagged)]`).
     fn untagged_alternative(
         &mut self,
@@ -576,7 +609,7 @@ impl<'a> Reflector<'a> {
             Content::Unit => json!({ "type": "null" }),
             Content::Newtype(schema) | Content::Tuple(schema) | Content::Struct(schema) => schema,
         };
-        Self::describe(&mut schema, naming);
+        self.finish(&mut schema, naming, &format!("variant `{}`", variant.ident));
         schema
     }
 
@@ -617,7 +650,11 @@ impl<'a> Reflector<'a> {
                 "required": [name],
                 "additionalProperties": false,
             });
-            Self::describe(&mut alternative, naming);
+            self.finish(
+                &mut alternative,
+                naming,
+                &format!("variant `{}`", variant.ident),
+            );
             alternatives.push(alternative);
         }
         let mut untagged: Vec<Value> = variants
@@ -717,7 +754,7 @@ impl<'a> Reflector<'a> {
             if !all_of.is_empty() {
                 schema["allOf"] = Value::Array(all_of);
             }
-            Self::describe(&mut schema, naming);
+            self.finish(&mut schema, naming, &format!("variant `{}`", variant.ident));
             items.push(Item::Schema(SchemaItem {
                 name: schema_name,
                 rust_name: format!("{rust_name}{}", variant.ident.unraw()),
@@ -737,6 +774,16 @@ impl<'a> Reflector<'a> {
             json!({ "anyOf": refs })
         }
     }
+}
+
+/// The type parameters of a generic item (`T` of `Page<T>`): such items are
+/// blueprints, instantiated where they are used (`Page<User>`).
+fn type_params(generics: &syn::Generics) -> Option<Vec<String>> {
+    let params: Vec<String> = generics
+        .type_params()
+        .map(|p| p.ident.to_string())
+        .collect();
+    (!params.is_empty()).then_some(params)
 }
 
 /// `[A, B]`: a fixed-length array of the member schemas.

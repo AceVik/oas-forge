@@ -186,3 +186,184 @@ fn run_writes_exports() {
     assert_eq!(project.read_yaml("v30.json")["openapi"], "3.0.3");
     assert_eq!(project.read_yaml("v2.yaml")["swagger"], "2.0");
 }
+
+mod ci_options {
+    use super::*;
+    use oas_forge::diagnostics::Code;
+    use oas_forge::error::Error;
+    use oas_forge_cli::MessageFormat;
+
+    #[test]
+    fn are_off_by_default() {
+        let cli = parse(&["oas-forge"]);
+        assert!(cli.var.is_empty());
+        assert!(!cli.check && !cli.deny_warnings && !cli.strict);
+        assert_eq!(cli.message_format, MessageFormat::Human);
+    }
+
+    #[test]
+    fn are_parsed() {
+        let cli = parse(&[
+            "oas-forge",
+            "--var",
+            "STAGE=prod",
+            "--var",
+            " URL =https://x?a=b",
+            "--var",
+            "EMPTY=",
+            "--check",
+            "--deny-warnings",
+            "--strict",
+            "--message-format",
+            "json",
+        ]);
+        assert_eq!(
+            cli.var,
+            [
+                ("STAGE".to_string(), "prod".to_string()),
+                ("URL".to_string(), "https://x?a=b".to_string()),
+                ("EMPTY".to_string(), String::new()),
+            ]
+        );
+        assert!(cli.check && cli.deny_warnings && cli.strict);
+        assert_eq!(cli.message_format, MessageFormat::Json);
+    }
+
+    #[test]
+    fn variables_need_a_name_and_a_value() {
+        for bad in ["NOVALUE", "=value", " =value"] {
+            let error = Cli::try_parse_from(["oas-forge", "--var", bad]).unwrap_err();
+            assert!(error.to_string().contains("is not NAME=VALUE"), "{error}");
+        }
+        assert!(Cli::try_parse_from(["oas-forge", "--message-format", "xml"]).is_err());
+    }
+
+    #[test]
+    fn variables_override_configured_variables() {
+        let project = Project::new();
+        project.file(
+            "openapi.toml",
+            "[variables]\nSTAGE = \"dev\"\nREGION = \"eu\"\n",
+        );
+        let config = parse(&["oas-forge", "--var", "STAGE=prod"])
+            .resolve_config(project.root())
+            .unwrap();
+        let variables = config.variables.unwrap();
+        assert_eq!(variables["STAGE"], "prod");
+        assert_eq!(variables["REGION"], "eu");
+    }
+
+    #[test]
+    fn check_reports_outdated_outputs_without_writing() {
+        let project = Project::new();
+        project.file("src/main.rs", ROOT_DOC);
+        let src = project.path("src").display().to_string();
+        let out = project.path("api.yaml").display().to_string();
+        let cli = parse(&["oas-forge", "-i", &src, "-o", &out, "--check"]);
+        let outcome = run(&cli, project.root()).unwrap();
+        assert_eq!(outcome.outdated, [PathBuf::from(&out)]);
+        assert!(outcome.outputs.is_empty());
+        assert!(!project.path("api.yaml").exists());
+
+        run(
+            &parse(&["oas-forge", "-i", &src, "-o", &out]),
+            project.root(),
+        )
+        .unwrap();
+        assert!(run(&cli, project.root()).unwrap().outdated.is_empty());
+    }
+
+    #[test]
+    fn strict_lints_and_deny_warnings() {
+        let project = Project::new();
+        project
+            .file("src/main.rs", ROOT_DOC)
+            .file("src/models.rs", "/// @openapi\nstruct Unused { a: u8 }");
+        let src = project.path("src").display().to_string();
+        let out = project.path("api.yaml").display().to_string();
+
+        let outcome = run(
+            &parse(&["oas-forge", "-i", &src, "-o", &out]),
+            project.root(),
+        )
+        .unwrap();
+        assert!(outcome.diagnostics.is_empty(), "{:?}", outcome.diagnostics);
+
+        let outcome = run(
+            &parse(&["oas-forge", "-i", &src, "-o", &out, "--strict"]),
+            project.root(),
+        )
+        .unwrap();
+        let codes: Vec<Code> = outcome.diagnostics.iter().map(|d| d.code()).collect();
+        assert_eq!(codes, [Code::UnusedComponent, Code::MissingDescription]);
+
+        let error = run(
+            &parse(&[
+                "oas-forge",
+                "-i",
+                &src,
+                "-o",
+                &out,
+                "--strict",
+                "--deny-warnings",
+            ]),
+            project.root(),
+        )
+        .unwrap_err();
+        assert!(matches!(error, Error::Diagnostics(found) if found.len() == 2));
+    }
+}
+
+mod package_root {
+    use super::*;
+    use oas_forge::error::Error;
+
+    #[test]
+    fn the_manifest_of_the_working_directory_supplies_the_root() {
+        let project = Project::new();
+        project
+            .file(
+                "Cargo.toml",
+                "[package]\nname = \"shop\"\nversion = \"1.2.3\"\n",
+            )
+            .file("src/lib.rs", "/// @route GET /a\nfn a() {}");
+        let src = project.path("src").display().to_string();
+        let out = project.path("api.yaml").display().to_string();
+        let outcome = run(
+            &parse(&["oas-forge", "-i", &src, "-o", &out]),
+            project.root(),
+        )
+        .unwrap();
+        assert!(outcome.diagnostics.is_empty(), "the note is not a warning");
+        let api = project.read_yaml("api.yaml");
+        assert_eq!(api["info"]["title"], "shop");
+        assert_eq!(api["info"]["version"], "1.2.3");
+    }
+
+    #[test]
+    fn a_virtual_manifest_supplies_nothing() {
+        let project = Project::new();
+        project
+            .file("Cargo.toml", "[workspace]\nmembers = []\n")
+            .file("src/lib.rs", "/// @route GET /a\nfn a() {}");
+        let src = project.path("src").display().to_string();
+        let out = project.path("api.yaml").display().to_string();
+        let error = run(
+            &parse(&["oas-forge", "-i", &src, "-o", &out]),
+            project.root(),
+        )
+        .unwrap_err();
+        assert!(matches!(error, Error::NoRootFound), "{error:?}");
+    }
+
+    #[test]
+    fn a_broken_manifest_is_an_error() {
+        let project = Project::new();
+        project
+            .file("Cargo.toml", "[package\n")
+            .file("src/main.rs", ROOT_DOC);
+        let src = project.path("src").display().to_string();
+        let error = run(&parse(&["oas-forge", "-i", &src]), project.root()).unwrap_err();
+        assert!(matches!(error, Error::Config { .. }), "{error:?}");
+    }
+}

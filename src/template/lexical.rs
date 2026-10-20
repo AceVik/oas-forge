@@ -44,99 +44,149 @@ pub fn expand(
     location: &Location,
     diagnostics: &mut Diagnostics,
 ) -> String {
-    let mut counter = 0usize;
-    let mut out = Vec::new();
+    let mut expansion = Expansion {
+        registry,
+        lines: Vec::new(),
+        counter: 0,
+        diagnostics,
+    };
     for (offset, line) in text.lines().enumerate() {
-        let here = location.offset(offset);
-        insert_line(
-            line,
-            registry,
-            &here,
-            0,
-            &mut counter,
-            &mut out,
-            diagnostics,
-        );
+        expansion.line(line, &location.offset(offset), offset, 0);
     }
-    let mut joined = out.join("\n");
+    let Expansion { lines, .. } = expansion;
+    let mut missing = Vec::new();
+    let mut joined = lines
+        .iter()
+        .map(|(line, offset)| substitute_line(line, variables, *offset, &mut missing))
+        .collect::<Vec<_>>()
+        .join("\n");
     if text.ends_with('\n') {
         // A final line break is content for block scalars (`|`) at the end.
         joined.push('\n');
     }
-    let substituted = substitute_variables(&joined, variables);
-    substituted.replace("\\$", &ESCAPED_DOLLAR.to_string())
+    report_missing(missing, location, diagnostics);
+    joined.replace("\\$", &ESCAPED_DOLLAR.to_string())
 }
 
-fn insert_line(
-    line: &str,
-    registry: &Registry,
+/// Substitutes `{{NAME}}` from `variables` and `{{env:NAME}}` from the
+/// environment. A placeholder that is the whole, unquoted value of a mapping
+/// entry or list item is inserted as a quoted string so that values like
+/// `1.10` stay strings. Unset environment variables are kept and reported at
+/// their line (`location` is the position of the first line of `text`).
+pub fn substitute(
+    text: &str,
+    variables: &Variables,
     location: &Location,
-    depth: usize,
-    counter: &mut usize,
-    out: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
+) -> String {
+    if !text.contains("{{") {
+        return text.to_string();
+    }
+    let mut missing = Vec::new();
+    let mut substituted = text
+        .lines()
+        .enumerate()
+        .map(|(offset, line)| substitute_line(line, variables, offset, &mut missing))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if text.ends_with('\n') {
+        substituted.push('\n');
+    }
+    report_missing(missing, location, diagnostics);
+    substituted
+}
+
+/// One diagnostic per unset environment variable, at its first use.
+fn report_missing(
+    mut missing: Vec<(usize, String)>,
+    location: &Location,
     diagnostics: &mut Diagnostics,
 ) {
-    if let Some(caps) = insert_re().captures(line) {
-        let indent = &caps[1];
-        let name = &caps[2];
-        let args = caps.get(3).map(|m| split_args(m.as_str()));
-        match registry.fragment(name) {
-            Some(fragment) if depth < MAX_INSERT_DEPTH => {
-                let provided = args.unwrap_or_default();
-                if provided.len() < fragment.params.len() {
-                    diagnostics.push(
-                        Diagnostic::new(
-                            Code::MissingFragmentArgument,
-                            format!(
-                                "fragment `{name}` expects {} argument(s), got {}",
-                                fragment.params.len(),
-                                provided.len()
-                            ),
-                        )
-                        .at(location.clone()),
-                    );
-                }
-                let body = substitute_params(&fragment.body, &fragment.params, &provided);
-                for inserted in body.lines() {
-                    let indented = format!("{indent}{inserted}");
-                    insert_line(
-                        &indented,
-                        registry,
-                        location,
-                        depth + 1,
-                        counter,
-                        out,
-                        diagnostics,
-                    );
-                }
-            }
-            Some(_) => diagnostics.push(
+    missing.sort();
+    let mut reported = std::collections::BTreeSet::new();
+    for (offset, variable) in missing {
+        if reported.insert(variable.clone()) {
+            diagnostics.push(
                 Diagnostic::new(
-                    Code::UnknownFragment,
-                    format!("`@insert {name}` is nested too deeply"),
+                    Code::UnknownVariable,
+                    format!("environment variable `{variable}` is not set; `{{{{env:{variable}}}}}` is kept"),
                 )
-                .at(location.clone()),
-            ),
-            None if args.is_none() => {
-                // Documented fallback: an unknown name refers to a reusable parameter.
-                out.push(format!(
-                    "{indent}- $ref: \"#/components/parameters/{name}\""
-                ));
-            }
-            None => diagnostics.push(
-                Diagnostic::new(Code::UnknownFragment, format!("unknown fragment `{name}`"))
-                    .at(location.clone()),
-            ),
+                .at(location.offset(offset)),
+            );
         }
-        return;
     }
-    if let Some(caps) = extend_re().captures(line) {
-        *counter += 1;
-        let marker = caps[2].replace('\'', "''");
-        out.push(format!("{}{EXTEND_KEY}{}: '{marker}'", &caps[1], *counter));
-        return;
+}
+
+/// The state of an [`expand`] run.
+struct Expansion<'a> {
+    registry: &'a Registry,
+    /// Expanded lines with the offset of the source line they come from.
+    lines: Vec<(String, usize)>,
+    /// Numbers the `@extend` markers.
+    counter: usize,
+    diagnostics: &'a mut Diagnostics,
+}
+
+impl Expansion<'_> {
+    /// Expands one line; `offset` is its source line within the text.
+    fn line(&mut self, line: &str, location: &Location, offset: usize, depth: usize) {
+        if let Some(caps) = insert_re().captures(line) {
+            let indent = &caps[1];
+            let name = &caps[2];
+            let args = caps.get(3).map(|m| split_args(m.as_str()));
+            match self.registry.fragment(name) {
+                Some(fragment) if depth < MAX_INSERT_DEPTH => {
+                    let provided = args.unwrap_or_default();
+                    if provided.len() < fragment.params.len() {
+                        self.diagnostics.push(
+                            Diagnostic::new(
+                                Code::MissingFragmentArgument,
+                                format!(
+                                    "fragment `{name}` expects {} argument(s), got {}",
+                                    fragment.params.len(),
+                                    provided.len()
+                                ),
+                            )
+                            .at(location.clone()),
+                        );
+                    }
+                    let body = substitute_params(&fragment.body, &fragment.params, &provided);
+                    for inserted in body.lines() {
+                        self.line(&format!("{indent}{inserted}"), location, offset, depth + 1);
+                    }
+                }
+                Some(_) => self.diagnostics.push(
+                    Diagnostic::new(
+                        Code::UnknownFragment,
+                        format!("`@insert {name}` is nested too deeply"),
+                    )
+                    .at(location.clone()),
+                ),
+                None if args.is_none() => {
+                    // Documented fallback: an unknown name refers to a reusable parameter.
+                    self.lines.push((
+                        format!("{indent}- $ref: \"#/components/parameters/{name}\""),
+                        offset,
+                    ));
+                }
+                None => self.diagnostics.push(
+                    Diagnostic::new(Code::UnknownFragment, format!("unknown fragment `{name}`"))
+                        .at(location.clone()),
+                ),
+            }
+            return;
+        }
+        if let Some(caps) = extend_re().captures(line) {
+            self.counter += 1;
+            let marker = caps[2].replace('\'', "''");
+            self.lines.push((
+                format!("{}{EXTEND_KEY}{}: '{marker}'", &caps[1], self.counter),
+                offset,
+            ));
+            return;
+        }
+        self.lines.push((line.to_string(), offset));
     }
-    out.push(line.to_string());
 }
 
 /// Splits `a, "b, c", d` at commas outside quotes and removes the quotes.
@@ -170,34 +220,44 @@ pub fn substitute_params(body: &str, params: &[String], args: &[String]) -> Stri
     result
 }
 
-/// Substitutes known `{{NAME}}` variables. A placeholder that is the whole,
-/// unquoted value of a mapping entry or list item is inserted as a quoted
-/// string so that values like `1.10` stay strings.
-fn substitute_variables(text: &str, variables: &Variables) -> String {
-    if variables.is_empty() || !text.contains("{{") {
-        return text.to_string();
+/// Substitutes the placeholders of one line; unset environment variables are
+/// added to `missing` with `offset`.
+fn substitute_line(
+    line: &str,
+    variables: &Variables,
+    offset: usize,
+    missing: &mut Vec<(usize, String)>,
+) -> String {
+    if !line.contains("{{") {
+        return line.to_string();
     }
-    text.lines()
-        .map(|line| {
-            let value_start = value_position(line);
-            variable_re()
-                .replace_all(line, |caps: &regex::Captures| {
-                    let Some(value) = variables.get(&caps[1]) else {
-                        return caps[0].to_string();
-                    };
-                    let whole = caps.get(0).unwrap();
-                    let is_whole_value =
-                        value_start == Some(whole.start()) && line[whole.end()..].trim().is_empty();
-                    if is_whole_value {
-                        format!("'{}'", value.replace('\'', "''"))
-                    } else {
-                        value.clone()
+    let value_start = value_position(line);
+    variable_re()
+        .replace_all(line, |caps: &regex::Captures| {
+            let name = &caps[1];
+            let value = match name.strip_prefix("env:") {
+                Some(variable) => {
+                    let value = std::env::var(variable).ok();
+                    if value.is_none() {
+                        missing.push((offset, variable.to_string()));
                     }
-                })
-                .into_owned()
+                    value
+                }
+                None => variables.get(name).cloned(),
+            };
+            let Some(value) = value else {
+                return caps[0].to_string();
+            };
+            let whole = caps.get(0).unwrap();
+            let is_whole_value =
+                value_start == Some(whole.start()) && line[whole.end()..].trim().is_empty();
+            if is_whole_value {
+                format!("'{}'", value.replace('\'', "''"))
+            } else {
+                value
+            }
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .into_owned()
 }
 
 /// Byte offset where the unquoted value of `key: value` or `- value` starts.

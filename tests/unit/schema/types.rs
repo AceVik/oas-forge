@@ -393,7 +393,11 @@ mod table {
             &["User", "crate::models::User", "$User"],
             json!({ "$ref": "$User" }),
         );
-        assert_all(&["Page<User>"], json!({ "$ref": "$Page" }));
+        assert_all(&["Page<User>"], json!({ "$ref": "$Page<User>" }));
+        assert_all(
+            &["models::Pair<u8, Vec<User>>"],
+            json!({ "$ref": "$Pair<u8, Vec<User>>" }),
+        );
         assert_all(&["$Page<User>"], json!({ "$ref": "$Page<User>" }));
     }
 }

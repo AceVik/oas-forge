@@ -13,6 +13,14 @@
 //! inputs = ["src"]            # optional, default ["src"]
 //! includes = ["shared.yaml"]  # optional files passed to `Generator::include`
 //! known_bug = "…"             # optional: the snapshot documents wrong behaviour
+//! strict_lints = true         # optional: unused components, missing descriptions
+//!
+//! [variables]                 # optional `Generator::var` values
+//! STAGE = "prod"
+//!
+//! [package]                   # optional `Generator::package` (the fallback root)
+//! name = "shop"
+//! version = "1.0.0"
 //! ```
 
 #[path = "../common/mod.rs"]
@@ -20,10 +28,10 @@ mod common;
 
 use common::spec;
 use oas_forge::output::{Format, OutputKind};
-use oas_forge::{Generator, Spec};
+use oas_forge::{Generator, Package, Spec};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 #[derive(Deserialize)]
@@ -36,6 +44,34 @@ struct Case {
     includes: Vec<String>,
     #[serde(default)]
     known_bug: Option<String>,
+    #[serde(default)]
+    strict_lints: bool,
+    #[serde(default)]
+    variables: BTreeMap<String, String>,
+    #[serde(default)]
+    package: Option<CasePackage>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CasePackage {
+    name: String,
+    version: String,
+    description: Option<String>,
+    license: Option<String>,
+    repository: Option<String>,
+    homepage: Option<String>,
+}
+
+impl CasePackage {
+    fn to_package(&self) -> Package {
+        let mut package = Package::new(&self.name, &self.version);
+        package.description = self.description.clone();
+        package.license = self.license.clone();
+        package.repository = self.repository.clone();
+        package.homepage = self.homepage.clone();
+        package
+    }
 }
 
 fn default_inputs() -> Vec<String> {
@@ -130,7 +166,13 @@ fn build(dir: &Path, case: &Case) -> oas_forge::Result<Spec> {
     for include in &case.includes {
         generator = generator.include(dir.join(include));
     }
-    generator.build()
+    for (name, value) in &case.variables {
+        generator = generator.var(name, value);
+    }
+    if let Some(package) = &case.package {
+        generator = generator.package(package.to_package());
+    }
+    generator.strict_lints(case.strict_lints).build()
 }
 
 /// Every output goes through both file formats; both must preserve the document.

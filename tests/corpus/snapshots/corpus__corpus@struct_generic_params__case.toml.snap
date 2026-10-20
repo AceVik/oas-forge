@@ -8,21 +8,19 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
     "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
   },
   "description": "Structs: generic structs used without an @openapi<T> blueprint",
-  "diagnostics": [
-    "warning[OF3007]: `$T` does not name a known schema (<case>/src/lib.rs:7)"
-  ],
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
         "schemas": {
-          "Envelope": {
+          "Envelope_User": {
             "properties": {
               "data": {
-                "$ref": "$T"
+                "$ref": "#/components/schemas/User"
               },
               "items": {
                 "items": {
-                  "$ref": "$T"
+                  "$ref": "#/components/schemas/User"
                 },
                 "type": "array"
               }
@@ -36,7 +34,7 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
           "Response": {
             "properties": {
               "user": {
-                "$ref": "#/components/schemas/Envelope"
+                "$ref": "#/components/schemas/Envelope_User"
               }
             },
             "required": [
@@ -56,26 +54,32 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
             ],
             "type": "object"
           }
+        },
+        "x-oas-forge-format": 1,
+        "x-oas-forge-templates": {
+          "Envelope": {
+            "body": "type: object\nproperties:\n  data:\n    $ref: $T\n  items:\n    type: array\n    items:\n      $ref: $T\nrequired:\n- data\n- items\n",
+            "params": [
+              "T"
+            ]
+          }
         }
       }
     },
-    "lints": [
-      "/components/schemas/Envelope/properties/data/$ref: unresolved $ref `$T`",
-      "/components/schemas/Envelope/properties/items/items/$ref: unresolved $ref `$T`"
-    ]
+    "lints": []
   },
   "full": {
     "document": {
       "components": {
         "schemas": {
-          "Envelope": {
+          "Envelope_User": {
             "properties": {
               "data": {
-                "$ref": "$T"
+                "$ref": "#/components/schemas/User"
               },
               "items": {
                 "items": {
-                  "$ref": "$T"
+                  "$ref": "#/components/schemas/User"
                 },
                 "type": "array"
               }
@@ -89,7 +93,7 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
           "Response": {
             "properties": {
               "user": {
-                "$ref": "#/components/schemas/Envelope"
+                "$ref": "#/components/schemas/Envelope_User"
               }
             },
             "required": [
@@ -117,23 +121,20 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
       },
       "openapi": "3.1.0"
     },
-    "lints": [
-      "/components/schemas/Envelope/properties/data/$ref: unresolved $ref `$T`",
-      "/components/schemas/Envelope/properties/items/items/$ref: unresolved $ref `$T`"
-    ],
+    "lints": [],
     "validation": []
   },
   "json_schema": {
     "document": {
       "$defs": {
-        "Envelope": {
+        "Envelope_User": {
           "properties": {
             "data": {
-              "$ref": "$T"
+              "$ref": "#/$defs/User"
             },
             "items": {
               "items": {
-                "$ref": "$T"
+                "$ref": "#/$defs/User"
               },
               "type": "array"
             }
@@ -147,7 +148,7 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
         "Response": {
           "properties": {
             "user": {
-              "$ref": "#/$defs/Envelope"
+              "$ref": "#/$defs/Envelope_User"
             }
           },
           "required": [
@@ -170,27 +171,21 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
       },
       "$schema": "https://json-schema.org/draft/2020-12/schema"
     },
-    "lints": [
-      "/$defs/Envelope/properties/data/$ref: unresolved $ref `$T`",
-      "/$defs/Envelope/properties/items/items/$ref: unresolved $ref `$T`"
-    ],
-    "validation": [
-      "bundle: Resource '$T' is not present in a registry and retrieving it failed: No base URI is available"
-    ]
+    "lints": [],
+    "validation": []
   },
-  "known_bug": "Generic structs without @openapi<T> leave $T and $Envelope unresolved",
   "openapi_30": {
     "document": {
       "components": {
         "schemas": {
-          "Envelope": {
+          "Envelope_User": {
             "properties": {
               "data": {
-                "$ref": "$T"
+                "$ref": "#/components/schemas/User"
               },
               "items": {
                 "items": {
-                  "$ref": "$T"
+                  "$ref": "#/components/schemas/User"
                 },
                 "type": "array"
               }
@@ -204,7 +199,7 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
           "Response": {
             "properties": {
               "user": {
-                "$ref": "#/components/schemas/Envelope"
+                "$ref": "#/components/schemas/Envelope_User"
               }
             },
             "required": [
@@ -233,10 +228,7 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
       "openapi": "3.0.3",
       "paths": {}
     },
-    "lints": [
-      "/components/schemas/Envelope/properties/data/$ref: unresolved $ref `$T`",
-      "/components/schemas/Envelope/properties/items/items/$ref: unresolved $ref `$T`"
-    ],
+    "lints": [],
     "validation": []
   },
   "paths": {
@@ -245,14 +237,14 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
   },
   "schemas": {
     "document": {
-      "Envelope": {
+      "Envelope_User": {
         "properties": {
           "data": {
-            "$ref": "$T"
+            "$ref": "#/components/schemas/User"
           },
           "items": {
             "items": {
-              "$ref": "$T"
+              "$ref": "#/components/schemas/User"
             },
             "type": "array"
           }
@@ -266,7 +258,7 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
       "Response": {
         "properties": {
           "user": {
-            "$ref": "#/components/schemas/Envelope"
+            "$ref": "#/components/schemas/Envelope_User"
           }
         },
         "required": [
@@ -287,22 +279,19 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
         "type": "object"
       }
     },
-    "lints": [
-      "/Envelope/properties/data/$ref: unresolved $ref `$T`",
-      "/Envelope/properties/items/items/$ref: unresolved $ref `$T`"
-    ]
+    "lints": []
   },
   "swagger_2": {
     "document": {
       "definitions": {
-        "Envelope": {
+        "Envelope_User": {
           "properties": {
             "data": {
-              "$ref": "$T"
+              "$ref": "#/definitions/User"
             },
             "items": {
               "items": {
-                "$ref": "$T"
+                "$ref": "#/definitions/User"
               },
               "type": "array"
             }
@@ -316,7 +305,7 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
         "Response": {
           "properties": {
             "user": {
-              "$ref": "#/definitions/Envelope"
+              "$ref": "#/definitions/Envelope_User"
             }
           },
           "required": [
@@ -344,10 +333,7 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
       "paths": {},
       "swagger": "2.0"
     },
-    "lints": [
-      "/definitions/Envelope/properties/data/$ref: unresolved $ref `$T`",
-      "/definitions/Envelope/properties/items/items/$ref: unresolved $ref `$T`"
-    ],
+    "lints": [],
     "validation": []
   }
 }

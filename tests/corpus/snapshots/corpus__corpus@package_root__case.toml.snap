@@ -1,0 +1,348 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/package_root/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Root: generated from package metadata when the sources define none; partial info is completed",
+  "diagnostics": [
+    "note[OF0004]: no `openapi`/`info` root in the sources; it was generated from package `shop`"
+  ],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Product": {
+            "description": "A product.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "externalDocs": {
+        "url": "https://example.com/shop"
+      },
+      "paths": {
+        "/products": {
+          "get": {
+            "operationId": "list",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Product"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Lists products."
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Product": {
+            "description": "A product.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "externalDocs": {
+        "url": "https://example.com/shop"
+      },
+      "info": {
+        "contact": {
+          "email": "team@example.com",
+          "name": "Shop team"
+        },
+        "description": "The shop API",
+        "license": {
+          "identifier": "MIT OR Apache-2.0",
+          "name": "MIT OR Apache-2.0"
+        },
+        "title": "shop",
+        "version": "2.1.0"
+      },
+      "openapi": "3.1.1",
+      "paths": {
+        "/products": {
+          "get": {
+            "operationId": "list",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Product"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Lists products."
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Product": {
+          "description": "A product.",
+          "properties": {
+            "id": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Product": {
+            "description": "A product.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "externalDocs": {
+        "url": "https://example.com/shop"
+      },
+      "info": {
+        "contact": {
+          "email": "team@example.com",
+          "name": "Shop team"
+        },
+        "description": "The shop API",
+        "license": {
+          "name": "MIT OR Apache-2.0"
+        },
+        "title": "shop",
+        "version": "2.1.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/products": {
+          "get": {
+            "operationId": "list",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Product"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Lists products."
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/products": {
+        "get": {
+          "operationId": "list",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/Product"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          },
+          "summary": "Lists products."
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Product": {
+        "description": "A product.",
+        "properties": {
+          "id": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "Product": {
+          "description": "A product.",
+          "properties": {
+            "id": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ],
+          "type": "object"
+        }
+      },
+      "externalDocs": {
+        "url": "https://example.com/shop"
+      },
+      "info": {
+        "contact": {
+          "email": "team@example.com",
+          "name": "Shop team"
+        },
+        "description": "The shop API",
+        "license": {
+          "name": "MIT OR Apache-2.0"
+        },
+        "title": "shop",
+        "version": "2.1.0"
+      },
+      "paths": {
+        "/products": {
+          "get": {
+            "operationId": "list",
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "items": {
+                    "$ref": "#/definitions/Product"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "summary": "Lists products."
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

@@ -10,15 +10,15 @@ info:
   version: "1.0.0"
 components:
   schemas:
-    Envelope:
+    Envelope_User:
       type: object
       properties:
         data:
-          $ref: $T
+          $ref: "#/components/schemas/User"
         items:
           type: array
           items:
-            $ref: $T
+            $ref: "#/components/schemas/User"
       required:
       - data
       - items
@@ -26,7 +26,7 @@ components:
       type: object
       properties:
         user:
-          $ref: "#/components/schemas/Envelope"
+          $ref: "#/components/schemas/Envelope_User"
       required:
       - user
     User:

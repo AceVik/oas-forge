@@ -109,3 +109,19 @@ fn configured_exports_report_into_the_run() {
     spec.write().unwrap();
     assert_eq!(project.read_yaml("out/api30.yaml")["openapi"], "3.0.3");
 }
+
+#[test]
+fn a_license_identifier_that_repeats_the_name_is_dropped_silently() {
+    for (license, findings) in [
+        ("{ name: MIT, identifier: MIT }", 0),
+        ("{ name: MIT License, identifier: MIT }", 1),
+    ] {
+        let (spec, _project) = spec_of(&[(
+            "root.yaml",
+            &format!("openapi: 3.1.0\ninfo: {{ title: T, version: '1', license: {license} }}"),
+        )]);
+        let (document, diagnostics) = spec.render_with_diagnostics(OutputKind::OpenApi30).unwrap();
+        assert!(document.pointer("/info/license/identifier").is_none());
+        assert_eq!(diagnostics.len(), findings, "{license}: {diagnostics:?}");
+    }
+}

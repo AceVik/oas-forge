@@ -1,27 +1,88 @@
 use clap::Parser;
 use colored::Colorize;
-use oas_forge_cli::{Cli, run};
+use oas_forge::Error;
+use oas_forge::diagnostics::{Diagnostic, Severity};
+use oas_forge_cli::{Cli, MessageFormat, run};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-
-    println!("{} Starting oas-forge...", "INFO:".blue().bold());
+    let json = cli.message_format == MessageFormat::Json;
+    if !json {
+        println!("{} Starting oas-forge...", "INFO:".blue().bold());
+    }
     match run(&cli, std::path::Path::new(".")) {
         Ok(outcome) => {
             for diagnostic in &outcome.diagnostics {
-                eprintln!("{} {diagnostic}", "WARNING:".yellow().bold());
+                if json {
+                    println!("{}", diagnostic.to_json());
+                } else {
+                    eprintln!("{}", human(diagnostic));
+                }
             }
-            println!(
-                "{} Successfully generated OpenAPI definition(s) at {:?}",
-                "SUCCESS:".green().bold(),
-                outcome.outputs
-            );
+            if cli.check {
+                if outcome.outdated.is_empty() {
+                    if !json {
+                        println!("{} Every output is up to date", "SUCCESS:".green().bold());
+                    }
+                    return ExitCode::SUCCESS;
+                }
+                for path in &outcome.outdated {
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::json!({ "severity": "error", "message": "output is not up to date", "file": path.display().to_string() })
+                        );
+                    } else {
+                        eprintln!(
+                            "{} {} is not up to date",
+                            "ERROR:".red().bold(),
+                            path.display()
+                        );
+                    }
+                }
+                return ExitCode::FAILURE;
+            }
+            if !json {
+                println!(
+                    "{} Successfully generated OpenAPI definition(s) at {:?}",
+                    "SUCCESS:".green().bold(),
+                    outcome.outputs
+                );
+            }
             ExitCode::SUCCESS
         }
-        Err(e) => {
-            eprintln!("{} {}", "ERROR:".red().bold(), e);
+        Err(error) => {
+            if json {
+                match &error {
+                    Error::Diagnostics(findings) => {
+                        for finding in findings {
+                            println!("{}", finding.to_json());
+                        }
+                    }
+                    other => println!(
+                        "{}",
+                        serde_json::json!({ "severity": "error", "message": other.to_string() })
+                    ),
+                }
+            } else {
+                eprintln!("{} {}", "ERROR:".red().bold(), error);
+            }
             ExitCode::FAILURE
         }
+    }
+}
+
+/// `warning[OF5001]: message (file:line)` with a colored label.
+fn human(diagnostic: &Diagnostic) -> String {
+    let label = format!("{}[{}]", diagnostic.severity(), diagnostic.code());
+    let label = match diagnostic.severity() {
+        Severity::Error => label.red().bold(),
+        Severity::Warning => label.yellow().bold(),
+        _ => label.cyan().bold(),
+    };
+    match diagnostic.location() {
+        Some(location) => format!("{label}: {} ({location})", diagnostic.message()),
+        None => format!("{label}: {}", diagnostic.message()),
     }
 }

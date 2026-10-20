@@ -324,3 +324,163 @@ output_fragments = ["out/fragments.yaml"]
         assert!(project.path("out/fragments.yaml").exists());
     }
 }
+
+mod ci {
+    use super::*;
+
+    #[test]
+    fn help_lists_the_new_options() {
+        let help = stdout(&oas_forge(&Project::new(), &["--help"]));
+        for flag in [
+            "--output-json-schema",
+            "--output-openapi-30",
+            "--output-swagger2",
+            "--output-asyncapi",
+            "--var",
+            "--check",
+            "--deny-warnings",
+            "--strict",
+            "--message-format",
+        ] {
+            assert!(help.contains(flag), "missing {flag} in:\n{help}");
+        }
+    }
+
+    #[test]
+    fn check_fails_until_the_output_is_written() {
+        let project = api_project();
+        let outdated = oas_forge(&project, &["-i", "src", "-o", "openapi.yaml", "--check"]);
+        assert!(!outdated.status.success());
+        assert!(
+            stderr(&outdated).contains("openapi.yaml is not up to date"),
+            "{}",
+            stderr(&outdated)
+        );
+        assert!(
+            !project.path("openapi.yaml").exists(),
+            "--check writes nothing"
+        );
+
+        assert!(
+            oas_forge(&project, &["-i", "src", "-o", "openapi.yaml"])
+                .status
+                .success()
+        );
+        let current = oas_forge(&project, &["-i", "src", "-o", "openapi.yaml", "--check"]);
+        assert!(current.status.success(), "{}", stderr(&current));
+        assert!(stdout(&current).contains("up to date"));
+    }
+
+    #[test]
+    fn deny_warnings_and_json_messages() {
+        let project = api_project();
+        project.file(
+            "src/api.rs",
+            "/// @route GET /x\n/// @frobnicate\nfn x() {}",
+        );
+        let lenient = oas_forge(
+            &project,
+            &["-i", "src", "-o", "a.yaml", "--message-format", "json"],
+        );
+        assert!(lenient.status.success());
+        let line = stdout(&lenient)
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        let finding: serde_json::Value = serde_json::from_str(&line).expect("JSON line");
+        assert_eq!(finding["code"], "OF2006");
+        assert_eq!(finding["severity"], "warning");
+        assert_eq!(finding["line"], 2);
+        assert!(finding["file"].as_str().unwrap().ends_with("api.rs"));
+
+        let strict = oas_forge(
+            &project,
+            &[
+                "-i",
+                "src",
+                "-o",
+                "a.yaml",
+                "--deny-warnings",
+                "--message-format",
+                "json",
+            ],
+        );
+        assert!(!strict.status.success());
+        let finding: serde_json::Value =
+            serde_json::from_str(stdout(&strict).lines().next().unwrap()).unwrap();
+        assert_eq!(finding["severity"], "error");
+
+        let broken = oas_forge(
+            &Project::new(),
+            &["-i", "missing", "--message-format", "json"],
+        );
+        assert!(!broken.status.success());
+        let finding: serde_json::Value = serde_json::from_str(stdout(&broken).trim()).unwrap();
+        assert_eq!(finding["severity"], "error");
+    }
+
+    #[test]
+    fn check_outdated_as_json() {
+        let project = api_project();
+        let output = oas_forge(
+            &project,
+            &[
+                "-i",
+                "src",
+                "-o",
+                "a.yaml",
+                "--check",
+                "--message-format",
+                "json",
+            ],
+        );
+        assert!(!output.status.success());
+        let finding: serde_json::Value = serde_json::from_str(stdout(&output).trim()).unwrap();
+        assert_eq!(finding["message"], "output is not up to date");
+        assert_eq!(
+            oas_forge(
+                &project,
+                &["-i", "src", "-o", "a.yaml", "--message-format", "json"]
+            )
+            .status
+            .code(),
+            Some(0)
+        );
+        let ok = oas_forge(
+            &project,
+            &[
+                "-i",
+                "src",
+                "-o",
+                "a.yaml",
+                "--check",
+                "--message-format",
+                "json",
+            ],
+        );
+        assert!(ok.status.success());
+        assert!(stdout(&ok).trim().is_empty());
+    }
+
+    #[test]
+    fn variables_and_the_package_root() {
+        let project = Project::new();
+        project
+            .file("Cargo.toml", "[package]\nname = \"shop\"\nversion = \"2.1.0\"\ndescription = \"A shop\"\nlicense = \"MIT\"\n")
+            .file("src/lib.rs", "/// @openapi\n/// x-env: {{STAGE}}\n/// x-name: '{{CARGO_PKG_NAME}}'\nstruct S { a: u8 }");
+        let output = oas_forge(
+            &project,
+            &["-i", "src", "-o", "api.yaml", "--var", "STAGE=prod"],
+        );
+        assert!(output.status.success(), "{}", stderr(&output));
+        let api = project.read_yaml("api.yaml");
+        assert_eq!(api["info"]["title"], "shop");
+        assert_eq!(api["info"]["version"], "2.1.0");
+        assert_eq!(api["info"]["license"]["identifier"], "MIT");
+        assert_eq!(api["components"]["schemas"]["S"]["x-env"], "prod");
+        let bad = oas_forge(&project, &["--var", "novalue"]);
+        assert!(!bad.status.success());
+        assert!(stderr(&bad).contains("NAME=VALUE"));
+    }
+}

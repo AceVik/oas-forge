@@ -73,7 +73,7 @@ fn unit_struct_can_define_a_virtual_type() {
 #[test]
 fn generic_type_parameters_become_smart_refs() {
     let items = extract("/// @openapi\nstruct Container<T> { pub item: T, pub items: Vec<T> }");
-    let props = &schema(&items, "Container")["properties"];
+    let props = &crate::extract::blueprint(&items, "Container").schema["properties"];
     assert_eq!(props["item"], json!({ "$ref": "$T" }));
     assert_eq!(props["items"]["items"], json!({ "$ref": "$T" }));
 }
@@ -427,9 +427,22 @@ mod blueprints {
     }
 
     #[test]
-    fn unterminated_generic_header_is_a_plain_schema() {
-        let items = extract("/// @openapi<T\nstruct Page<T> { items: Vec<T> }");
-        assert_eq!(schema_names(&items), ["Page"]);
+    fn generic_structs_are_blueprints_without_a_header() {
+        // `Page<T>` is instantiated where it is used, so `@openapi<T>` is optional.
+        for code in [
+            "/// @openapi<T\nstruct Page<T> { items: Vec<T> }",
+            "/// @openapi\nstruct Page<T> { items: Vec<T> }",
+        ] {
+            let items = extract(code);
+            assert!(schema_names(&items).is_empty(), "{code}");
+            assert_eq!(blueprint(&items, "Page").params, ["T"]);
+        }
+        let items = extract("/// @openapi\nstruct Borrowed<'a, const N: usize> { s: &'a str }");
+        assert_eq!(
+            schema_names(&items),
+            ["Borrowed"],
+            "lifetimes and constants are not type parameters"
+        );
     }
 
     #[test]
@@ -805,4 +818,114 @@ fn structural_overrides_replace_a_reflected_reference() {
         schema(&items, "Id"),
         json!({ "type": "string", "format": "uuid", "description": "An id" })
     );
+}
+
+mod directives {
+    use super::*;
+    use oas_forge::diagnostics::Diagnostics;
+    use oas_forge::extract::{Options, extract_str};
+    use oas_forge::template::Variables;
+    use std::path::Path;
+
+    #[test]
+    fn skip_leaves_out_items_and_fields() {
+        let items = extract(
+            "/// @openapi skip\nstruct Hidden { a: u8 }\n/// @openapi\nstruct S {\n  /// @openapi skip\n  internal: u8,\n  shown: u8,\n}\n/// @openapi skip\ntype Alias = u8;",
+        );
+        assert_eq!(schema_names(&items), ["S"]);
+        assert_eq!(
+            schema(&items, "S"),
+            json!({
+                "type": "object",
+                "properties": { "shown": { "type": "integer", "format": "int32", "minimum": 0, "maximum": 255 } },
+                "required": ["shown"]
+            })
+        );
+    }
+
+    #[test]
+    fn examples_are_yaml_values_or_plain_text() {
+        let items = extract(
+            "/// @openapi\n/// @example { a: 1 }\n/// @example plain: [text\nstruct S {\n  /// @example 42\n  /// @example \"quoted\"\n  a: u8,\n}",
+        );
+        let s = schema(&items, "S");
+        assert_eq!(s["examples"], json!([{ "a": 1 }, "plain: [text"]));
+        assert_eq!(s["properties"]["a"]["examples"], json!([42, "quoted"]));
+    }
+
+    #[test]
+    fn an_empty_example_is_an_empty_string() {
+        let items = extract("/// @openapi\nstruct S {\n  /// @example\n  a: String,\n}");
+        assert_eq!(
+            schema(&items, "S")["properties"]["a"]["examples"],
+            json!([""])
+        );
+    }
+
+    #[test]
+    fn example_needs_a_word_boundary() {
+        let items = extract("/// @examples are not examples\n/// @openapi\nstruct S { a: u8 }");
+        let s = schema(&items, "S");
+        assert!(s.get("examples").is_none());
+        assert_eq!(s["description"], "@examples are not examples");
+    }
+
+    fn extract_with(
+        code: &str,
+        variables: &Variables,
+    ) -> (Vec<oas_forge::extract::Item>, Diagnostics) {
+        let mut diagnostics = Diagnostics::new();
+        let items = extract_str(
+            Path::new("test.rs"),
+            code,
+            Options::new().variables(variables),
+            &mut diagnostics,
+        )
+        .unwrap();
+        (items, diagnostics)
+    }
+
+    #[test]
+    fn variables_fill_overrides_and_examples() {
+        let variables = Variables::from([("STAGE".to_string(), "1.10".to_string())]);
+        let (items, diagnostics) = extract_with(
+            "/// @openapi\n/// x-stage: {{STAGE}}\nstruct S {\n  /// @example {{STAGE}}\n  /// @openapi\n  /// description: Stage {{STAGE}}\n  a: u8,\n}",
+            &variables,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let s = schema(&items, "S");
+        // A whole-value placeholder stays a string.
+        assert_eq!(s["x-stage"], "1.10");
+        assert_eq!(s["properties"]["a"]["description"], "Stage 1.10");
+        assert_eq!(s["properties"]["a"]["examples"], json!(["1.10"]));
+    }
+
+    #[test]
+    fn unset_environment_variables_are_reported_where_they_are_used() {
+        let (items, diagnostics) = extract_with(
+            "/// @openapi\nstruct S {\n  /// @openapi\n  /// description: '{{env:OAS_FORGE_TEST_UNSET_VARIABLE}}'\n  a: u8,\n}",
+            &Variables::new(),
+        );
+        assert_eq!(codes(&diagnostics), [Code::UnknownVariable]);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .next()
+                .unwrap()
+                .location()
+                .unwrap()
+                .line(),
+            4
+        );
+        assert_eq!(
+            schema(&items, "S")["properties"]["a"]["description"],
+            "{{env:OAS_FORGE_TEST_UNSET_VARIABLE}}"
+        );
+    }
+
+    #[test]
+    fn without_variables_placeholders_are_kept() {
+        let items = extract("/// @openapi\n/// x-stage: '{{STAGE}}'\nstruct S { a: u8 }");
+        assert_eq!(schema(&items, "S")["x-stage"], "{{STAGE}}");
+    }
 }

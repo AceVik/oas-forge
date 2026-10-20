@@ -908,7 +908,10 @@ mod operations {
             [
                 Code::UnresolvedReference,
                 Code::UnresolvedExpansion,
-                Code::UndeclaredPathParam
+                // `{x}` has no parameter; `org` and `id` are not in the path.
+                Code::PathParameterMismatch,
+                Code::PathParameterMismatch,
+                Code::PathParameterMismatch,
             ]
         );
         let operation = &document["paths"]["/a/{x}"]["get"];
@@ -1016,5 +1019,267 @@ mod operations {
             json!({})
         );
         assert_eq!(codes(&diagnostics), [Code::UnsupportedFeature; 3]);
+    }
+}
+
+mod auto_generics {
+    use super::*;
+
+    const PAGE: &str = r#"
+        /// A page.
+        /// @openapi
+        struct Page<T> { items: Vec<T> }
+
+        mod models {
+            /// @openapi
+            pub struct User { name: String }
+        }
+    "#;
+
+    #[test]
+    fn generic_structs_are_instantiated_where_they_are_used() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            &format!(
+                "{PAGE}\n/// @openapi\nstruct Holder {{\n  numbers: Page<u64>,\n  lists: Page<Vec<models::User>>,\n  optional: Page<Option<models::User>>,\n  nested: Page<Page<models::User>>,\n}}"
+            ),
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let schemas = document["components"]["schemas"].as_object().unwrap();
+        let mut names: Vec<_> = schemas.keys().collect();
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                "Holder",
+                "Page_Option_User",
+                "Page_Page_User",
+                "Page_User",
+                "Page_Vec_User",
+                "Page_u64",
+                "User"
+            ]
+        );
+        assert_eq!(
+            schemas["Holder"]["properties"]["lists"],
+            json!({ "$ref": "#/components/schemas/Page_Vec_User" })
+        );
+        assert_eq!(
+            schemas["Page_u64"],
+            json!({
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": { "type": "integer", "format": "int64", "minimum": 0 }
+                    }
+                },
+                "required": ["items"],
+                "description": "A page."
+            })
+        );
+        assert_eq!(
+            schemas["Page_Option_User"]["properties"]["items"]["items"],
+            json!({ "anyOf": [{ "$ref": "#/components/schemas/User" }, { "type": "null" }] })
+        );
+        assert_eq!(
+            schemas["Page_Page_User"]["properties"]["items"]["items"],
+            json!({ "$ref": "#/components/schemas/Page_User" })
+        );
+    }
+
+    #[test]
+    fn unused_generic_structs_are_not_emitted() {
+        let (document, diagnostics) = pipeline(&[("lib.rs", PAGE)]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let schemas = document["components"]["schemas"].as_object().unwrap();
+        assert_eq!(schemas.keys().collect::<Vec<_>>(), ["User"]);
+    }
+
+    #[test]
+    fn generic_enums_are_instantiated_too() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            "/// @openapi\nenum Either<L, R> { Left(L), Right(R) }\n/// @openapi\nstruct S { e: Either<String, u8> }",
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            document["components"]["schemas"]["Either_String_u8"]["oneOf"][0]["properties"]["Left"],
+            json!({ "type": "string" })
+        );
+    }
+
+    #[test]
+    fn routes_and_inferred_signatures_share_the_instances() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            &format!(
+                "{PAGE}\n/// @route GET /a\n/// @return 200: $Page<User>\nfn a() {{}}\n/// @route GET /b\nfn b() -> Json<Page<models::User>> {{ todo!() }}"
+            ),
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let schema = |path: &str| {
+            document["paths"][path]["get"]["responses"]["200"]["content"]["application/json"]["schema"].clone()
+        };
+        assert_eq!(
+            schema("/a"),
+            json!({ "$ref": "#/components/schemas/Page_User" })
+        );
+        assert_eq!(schema("/a"), schema("/b"));
+        assert_eq!(
+            document["components"]["schemas"].as_object().unwrap().len(),
+            2,
+            "Page_User and User"
+        );
+    }
+}
+
+mod package_root {
+    use super::*;
+    use oas_forge::Package;
+
+    fn package() -> Package {
+        let mut package = Package::new("shop", "2.1.0");
+        package.description = Some("A shop".into());
+        package
+    }
+
+    #[test]
+    fn a_missing_root_is_generated_from_the_package() {
+        let project = Project::new();
+        project.file("src/lib.rs", "/// @route GET /a\nfn a() {}");
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .package(package())
+            .build()
+            .unwrap();
+        assert_eq!(spec.document()["openapi"], oas_forge::package::ROOT_VERSION);
+        assert_eq!(
+            spec.document()["info"],
+            json!({ "title": "shop", "version": "2.1.0", "description": "A shop" })
+        );
+        assert!(spec.document()["paths"]["/a"]["get"].is_object());
+        let notes: Vec<_> = spec.diagnostics().iter().collect();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].code(), Code::GeneratedRoot);
+        assert_eq!(notes[0].severity(), Severity::Note);
+        assert!(notes[0].message().contains("`shop`"));
+    }
+
+    #[test]
+    fn the_note_survives_deny_warnings() {
+        let project = Project::new();
+        project.file("src/lib.rs", "/// @route GET /a\nfn a() {}");
+        let generator = Generator::new()
+            .input(project.path("src"))
+            .output(project.path("api.yaml"))
+            .package(package())
+            .deny_warnings(true);
+        generator.generate().expect("notes never fail a run");
+        assert_eq!(project.read_yaml("api.yaml")["info"]["title"], "shop");
+    }
+
+    #[test]
+    fn a_root_in_the_sources_wins() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC);
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .package(package())
+            .build()
+            .unwrap();
+        assert_eq!(spec.document()["info"]["title"], "Test API");
+        assert_eq!(spec.document()["openapi"], "3.1.0");
+        assert!(spec.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn partial_roots_are_completed() {
+        let project = Project::new();
+        project.file(
+            "src/lib.rs",
+            "/// @openapi\n/// info:\n///   description: Ours\n///   contact: { name: Team }\nfn docs() {}",
+        );
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .package(package())
+            .build()
+            .unwrap();
+        assert_eq!(
+            spec.document()["info"],
+            json!({
+                "title": "shop",
+                "version": "2.1.0",
+                "description": "Ours",
+                "contact": { "name": "Team" }
+            })
+        );
+    }
+
+    #[test]
+    fn without_a_package_a_full_output_needs_a_root() {
+        let project = Project::new();
+        project.file("src/lib.rs", "/// @route GET /a\nfn a() {}");
+        let result = Generator::new()
+            .input(project.path("src"))
+            .output(project.path("api.yaml"))
+            .package(package())
+            .without_package()
+            .generate();
+        assert!(matches!(result, Err(Error::NoRootFound)), "{result:?}");
+    }
+}
+
+mod checks {
+    use super::*;
+
+    #[test]
+    fn check_lists_missing_and_outdated_outputs() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC);
+        let generator = Generator::new()
+            .input(project.path("src"))
+            .output(project.path("api.yaml"))
+            .output_schemas(project.path("schemas.json"));
+        let outdated = generator.build().unwrap().check().unwrap();
+        assert_eq!(
+            outdated,
+            [project.path("api.yaml"), project.path("schemas.json")]
+        );
+
+        generator.generate().unwrap();
+        assert!(generator.build().unwrap().check().unwrap().is_empty());
+
+        project.file("schemas.json", "{}");
+        assert_eq!(
+            generator.build().unwrap().check().unwrap(),
+            [project.path("schemas.json")]
+        );
+    }
+
+    #[test]
+    fn check_fails_for_outputs_that_cannot_be_rendered() {
+        let project = Project::new();
+        project.file("src/lib.rs", "/// @openapi\nstruct S { a: u8 }");
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .output(project.path("api.yaml"))
+            .without_package()
+            .build()
+            .unwrap();
+        assert!(matches!(spec.check(), Err(Error::NoRootFound)));
+    }
+
+    #[test]
+    fn check_does_not_write() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC);
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .output(project.path("api.yaml"))
+            .build()
+            .unwrap();
+        spec.check().unwrap();
+        assert!(!project.path("api.yaml").exists());
     }
 }

@@ -1,0 +1,8 @@
+description = "Root: generated from package metadata when the sources define none; partial info is completed"
+
+[package]
+name = "shop"
+version = "2.1.0"
+description = "The shop API"
+license = "MIT OR Apache-2.0"
+repository = "https://example.com/shop"

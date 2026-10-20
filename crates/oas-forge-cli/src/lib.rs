@@ -4,8 +4,8 @@
 //! argument handling and configuration layering can be tested without
 //! spawning a process.
 
-use clap::Parser;
-use oas_forge::{Config, Diagnostic, Error, Generator, Severity};
+use clap::{Parser, ValueEnum};
+use oas_forge::{Config, Diagnostic, Error, Generator, Package, Severity};
 use std::path::{Path, PathBuf};
 
 /// Command-line arguments of `oas-forge`.
@@ -55,6 +55,46 @@ pub struct Cli {
     /// Path to a configuration file (toml)
     #[arg(long = "config")]
     pub config: Option<PathBuf>,
+
+    /// Value of a `{{NAME}}` placeholder (repeatable)
+    #[arg(long = "var", value_name = "NAME=VALUE", value_parser = parse_variable)]
+    pub var: Vec<(String, String)>,
+
+    /// Write nothing; fail when an output is not up to date (for CI)
+    #[arg(long = "check")]
+    pub check: bool,
+
+    /// Treat warnings as errors
+    #[arg(long = "deny-warnings")]
+    pub deny_warnings: bool,
+
+    /// Also report unused components and missing descriptions
+    #[arg(long = "strict")]
+    pub strict: bool,
+
+    /// How findings are printed
+    #[arg(long = "message-format", value_enum, default_value_t = MessageFormat::Human)]
+    pub message_format: MessageFormat,
+}
+
+/// How findings are printed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum MessageFormat {
+    /// Colored text for terminals.
+    #[default]
+    Human,
+    /// One JSON object per line (for editors and CI tools).
+    Json,
+}
+
+/// `NAME=VALUE`
+fn parse_variable(text: &str) -> Result<(String, String), String> {
+    match text.split_once('=') {
+        Some((name, value)) if !name.trim().is_empty() => {
+            Ok((name.trim().to_string(), value.to_string()))
+        }
+        _ => Err(format!("`{text}` is not NAME=VALUE")),
+    }
 }
 
 impl Cli {
@@ -87,6 +127,9 @@ impl Cli {
         flags.output_openapi_30 = self.output_openapi_30.clone();
         flags.output_swagger2 = self.output_swagger2.clone();
         flags.output_asyncapi = self.output_asyncapi.clone();
+        if !self.var.is_empty() {
+            flags.variables = Some(self.var.iter().cloned().collect());
+        }
         flags
     }
 }
@@ -96,8 +139,11 @@ impl Cli {
 pub struct Outcome {
     /// Every configured output file.
     pub outputs: Vec<PathBuf>,
-    /// Warnings and notes of the run.
+    /// Warnings of the run.
     pub diagnostics: Vec<Diagnostic>,
+    /// With `--check`: the outputs that are not up to date (nothing is
+    /// written).
+    pub outdated: Vec<PathBuf>,
 }
 
 /// Generates every configured output.
@@ -106,18 +152,37 @@ pub struct Outcome {
 /// Any generator error; [`Error::Diagnostics`] when a diagnostic has error severity.
 pub fn run(cli: &Cli, dir: &Path) -> oas_forge::Result<Outcome> {
     let config = cli.resolve_config(dir)?;
-    let spec = Generator::new().with_config(config).build()?;
+    let mut generator = Generator::new()
+        .with_config(config)
+        .deny_warnings(cli.deny_warnings)
+        .strict_lints(cli.strict);
+    let manifest = dir.join("Cargo.toml");
+    if manifest.is_file()
+        && let Some(package) = Package::from_manifest(&manifest)?
+    {
+        generator = generator.package(package);
+    }
+    let spec = generator.build()?;
     if spec.diagnostics().has_errors() {
         return Err(Error::Diagnostics(spec.diagnostics().clone().into_vec()));
+    }
+    let diagnostics = spec
+        .diagnostics()
+        .iter()
+        .filter(|d| d.severity() != Severity::Note)
+        .cloned()
+        .collect();
+    if cli.check {
+        return Ok(Outcome {
+            outputs: Vec::new(),
+            diagnostics,
+            outdated: spec.check()?,
+        });
     }
     let outputs = spec.write()?;
     Ok(Outcome {
         outputs,
-        diagnostics: spec
-            .diagnostics()
-            .iter()
-            .filter(|d| d.severity() != Severity::Note)
-            .cloned()
-            .collect(),
+        diagnostics,
+        outdated: Vec::new(),
     })
 }

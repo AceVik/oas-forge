@@ -27,8 +27,10 @@ pub(super) fn export(canonical: &Value, diagnostics: &mut Diagnostics) -> Value 
             if info.remove("summary").is_some() {
                 removed.push("`info.summary`");
             }
+            // An identifier that repeats the name loses nothing.
             if let Some(Value::Object(license)) = info.get_mut("license")
-                && license.remove("identifier").is_some()
+                && let Some(identifier) = license.remove("identifier")
+                && license.get("name") != Some(&identifier)
             {
                 removed.push("`license.identifier`");
             }

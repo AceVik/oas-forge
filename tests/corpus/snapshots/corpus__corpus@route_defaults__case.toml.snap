@@ -8,7 +8,9 @@ input_file: tests/corpus/cases/route_defaults/case.toml
     "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
   },
   "description": "Module route defaults: prefix, tags, security, shared parameters and responses; nested modules and per-route overrides",
-  "diagnostics": [],
+  "diagnostics": [
+    "warning[OF5005]: security scheme `bearer` is required but not defined in `components.securitySchemes`"
+  ],
   "fragments": {
     "document": {
       "paths": {

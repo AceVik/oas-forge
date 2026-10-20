@@ -69,9 +69,16 @@ mod string_enums {
     }
 
     #[test]
-    fn unterminated_generic_header_is_a_plain_schema() {
-        let items = extract("/// @openapi<T\nenum Choice<T> { A }");
-        assert_eq!(schema_names(&items), ["Choice"]);
+    fn generic_enums_are_blueprints() {
+        let items = extract("/// @openapi<T\nenum Choice<T> { A, B(T) }");
+        assert!(schema_names(&items).is_empty());
+        assert_eq!(crate::extract::blueprint(&items, "Choice").params, ["T"]);
+        let items =
+            extract("/// @openapi\n#[serde(into = \"String\")]\nenum Converted<T> { A(T) }");
+        assert_eq!(
+            crate::extract::blueprint(&items, "Converted").schema,
+            json!({ "type": "string" })
+        );
     }
 }
 
@@ -711,5 +718,58 @@ mod tagged_newtypes {
         let items =
             extract("/// @openapi\n#[serde(into = \"String\")]\nenum Level { Low, High(u8) }");
         assert_eq!(schema(&items, "Level"), json!({ "type": "string" }));
+    }
+}
+
+mod directives {
+    use super::*;
+
+    #[test]
+    fn skip_leaves_out_enums_and_variants() {
+        let items = extract(
+            "/// @openapi skip\nenum Hidden { A }\n/// @openapi\nenum E {\n  A,\n  /// @openapi skip\n  B,\n  /// @example { x: 1 }\n  C { x: u8 },\n}",
+        );
+        assert_eq!(schema_names(&items), ["E"]);
+        let e = schema(&items, "E");
+        let text = e.to_string();
+        assert!(!text.contains("\"B\""), "{text}");
+        assert!(text.contains("\"A\""), "{text}");
+        assert!(text.contains("\"examples\":[{\"x\":1}]"), "{text}");
+    }
+
+    #[test]
+    fn deprecated_enums_are_marked() {
+        let items = extract("/// @openapi\n#[deprecated]\nenum E { A }");
+        assert_eq!(schema(&items, "E")["deprecated"], true);
+    }
+
+    #[test]
+    fn variant_overrides_and_examples_describe_the_serialized_variant() {
+        let items = extract(
+            "/// @openapi\n#[serde(tag = \"kind\")]\nenum E {\n  /// @example { kind: A, x: 1 }\n  /// @openapi\n  /// x-internal: true\n  A { x: u8 },\n}",
+        );
+        let a = schema(&items, "EA");
+        assert_eq!(a["examples"], json!([{ "kind": "A", "x": 1 }]));
+        assert_eq!(a["x-internal"], true);
+    }
+
+    #[test]
+    fn invalid_variant_overrides_are_reported() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            "/// @openapi\n#[serde(untagged)]\nenum E {\n  /// @openapi\n  /// [broken\n  A(String),\n}",
+        );
+        assert_eq!(codes(&diagnostics), [Code::InvalidOverride]);
+        assert!(
+            diagnostics
+                .iter()
+                .next()
+                .unwrap()
+                .message()
+                .contains("variant `A`")
+        );
+        assert_eq!(
+            schema(&items, "E"),
+            json!({ "anyOf": [{ "type": "string" }] })
+        );
     }
 }

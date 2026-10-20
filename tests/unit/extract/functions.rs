@@ -114,3 +114,22 @@ fn channel_handlers_and_asyncapi_blocks() {
     );
     assert_eq!(kinds(&items), ["channel:publish", "asyncapi", "document"]);
 }
+
+#[test]
+fn deprecated_handlers_deprecate_their_operation() {
+    let (document, _) = pipeline(&[(
+        "api.rs",
+        "/// @route GET /old\n#[deprecated(note = \"use /new\")]\nfn old() {}\n/// @route GET /new\nfn new() {}",
+    )]);
+    assert_eq!(document["paths"]["/old"]["get"]["deprecated"], true);
+    assert!(document["paths"]["/new"]["get"].get("deprecated").is_none());
+}
+
+#[test]
+fn deprecated_attributes_do_not_turn_functions_into_routes() {
+    let items = extract(
+        "#[deprecated]\nfn helper() {}\n/// @openapi\n/// paths: {}\n#[deprecated]\nfn block() {}",
+    );
+    assert_eq!(routes(&items).len(), 0);
+    assert_eq!(document_items(&items).len(), 1);
+}

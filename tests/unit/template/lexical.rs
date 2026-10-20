@@ -1,7 +1,7 @@
 use crate::common::{codes, here};
 use oas_forge::diagnostics::{Code, Diagnostics};
 use oas_forge::template::lexical::{
-    ESCAPED_DOLLAR, EXTEND_KEY, expand, split_args, substitute_params,
+    ESCAPED_DOLLAR, EXTEND_KEY, expand, split_args, substitute, substitute_params,
 };
 use oas_forge::template::{Fragment, Registry, Variables};
 
@@ -214,6 +214,85 @@ mod variables {
             run_with("a: {{Q}}", &Registry::new(), &vars).0,
             "a: 'it''s'"
         );
+    }
+
+    #[test]
+    fn environment_variables_are_read() {
+        // Cargo sets `CARGO_PKG_NAME` for test binaries.
+        let (out, diagnostics) = run("name: {{env:CARGO_PKG_NAME}}", &Registry::new());
+        assert_eq!(out, format!("name: '{}'", env!("CARGO_PKG_NAME")));
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unset_environment_variables_are_kept_and_reported_once() {
+        let (out, diagnostics) = run(
+            "a: {{env:OAS_FORGE_UNSET_B}}\nb: {{env:OAS_FORGE_UNSET_A}} {{env:OAS_FORGE_UNSET_B}}",
+            &Registry::new(),
+        );
+        assert_eq!(
+            out,
+            "a: {{env:OAS_FORGE_UNSET_B}}\nb: {{env:OAS_FORGE_UNSET_A}} {{env:OAS_FORGE_UNSET_B}}"
+        );
+        assert_eq!(
+            codes(&diagnostics),
+            [Code::UnknownVariable, Code::UnknownVariable]
+        );
+        // In order of their first use, at its line.
+        let found: Vec<(&str, usize)> = diagnostics
+            .iter()
+            .map(|d| (d.message(), d.location().unwrap().line()))
+            .collect();
+        assert!(
+            found[0].0.contains("`OAS_FORGE_UNSET_B`") && found[0].1 == 1,
+            "{found:?}"
+        );
+        assert!(
+            found[1].0.contains("`OAS_FORGE_UNSET_A`") && found[1].1 == 2,
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn inserted_lines_report_at_the_insert_line() {
+        let reg = registry(&[("Env", &[], "a: 1\nb: {{env:OAS_FORGE_UNSET_C}}")]);
+        let (_, diagnostics) = run("x: 1\n@insert Env", &reg);
+        assert_eq!(codes(&diagnostics), [Code::UnknownVariable]);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .next()
+                .unwrap()
+                .location()
+                .unwrap()
+                .line(),
+            2
+        );
+    }
+
+    #[test]
+    fn a_final_line_break_survives_substitution() {
+        let text = "d: |\n  {{VERSION}}\n";
+        assert_eq!(
+            run_with(text, &Registry::new(), &vars()).0,
+            "d: |\n  1.10\n"
+        );
+        let mut diagnostics = Diagnostics::new();
+        assert_eq!(
+            substitute(text, &vars(), &here(), &mut diagnostics),
+            "d: |\n  1.10\n"
+        );
+    }
+
+    #[test]
+    fn substitute_touches_only_placeholders() {
+        let mut diagnostics = Diagnostics::new();
+        let text = "@insert Frag\nprice: \\$1\nv: {{VERSION}}";
+        assert_eq!(
+            substitute(text, &vars(), &here(), &mut diagnostics),
+            "@insert Frag\nprice: \\$1\nv: '1.10'"
+        );
+        assert!(diagnostics.is_empty());
     }
 }
 

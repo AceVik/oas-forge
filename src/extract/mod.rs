@@ -15,6 +15,7 @@ use super::dsl::{self, Signature};
 use super::error::{Error, Result};
 use super::schema::TypeMapper;
 use super::source::SourceFile;
+use super::template::Variables;
 use serde_json::Value;
 use std::path::Path;
 use syn::spanned::Spanned;
@@ -176,16 +177,56 @@ pub struct PatternItem {
     pub location: Location,
 }
 
+/// How [`extract`] reads annotations.
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct Options<'a> {
+    /// How Rust types map to schemas.
+    pub types: &'a TypeMapper,
+    /// Values of `{{NAME}}` placeholders in type overrides and `@example`s.
+    /// Free blocks and routes are expanded later, together with `@insert`.
+    pub variables: &'a Variables,
+}
+
+impl Default for Options<'_> {
+    fn default() -> Self {
+        static NONE: Variables = Variables::new();
+        Self {
+            types: TypeMapper::builtin(),
+            variables: &NONE,
+        }
+    }
+}
+
+impl<'a> Options<'a> {
+    /// The built-in type table and no variables.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the type mapping.
+    pub fn types(mut self, types: &'a TypeMapper) -> Self {
+        self.types = types;
+        self
+    }
+
+    /// Sets the values of `{{NAME}}` placeholders.
+    pub fn variables(mut self, variables: &'a Variables) -> Self {
+        self.variables = variables;
+        self
+    }
+}
+
 /// Parses Rust `source` and returns its annotations in source order.
 ///
 /// # Errors
 /// [`Error::Parse`] when the file is not valid Rust.
 pub fn extract(
     source: &SourceFile,
-    types: &TypeMapper,
+    options: Options<'_>,
     diagnostics: &mut Diagnostics,
 ) -> Result<Vec<Item>> {
-    extract_str(source.path(), source.text(), types, diagnostics)
+    extract_str(source.path(), source.text(), options, diagnostics)
 }
 
 /// Parses Rust source text and returns its annotations in source order.
@@ -195,7 +236,7 @@ pub fn extract(
 pub fn extract_str(
     path: &Path,
     text: &str,
-    types: &TypeMapper,
+    options: Options<'_>,
     diagnostics: &mut Diagnostics,
 ) -> Result<Vec<Item>> {
     let file = syn::parse_file(text).map_err(|e| Error::Parse {
@@ -204,7 +245,7 @@ pub fn extract_str(
     })?;
     let mut visitor = Extractor {
         path,
-        types,
+        options,
         items: Vec::new(),
         tags: Vec::new(),
         defaults: Vec::new(),
@@ -216,7 +257,7 @@ pub fn extract_str(
 
 struct Extractor<'a> {
     path: &'a Path,
-    types: &'a TypeMapper,
+    options: Options<'a>,
     items: Vec<Item>,
     tags: Vec<String>,
     defaults: Vec<String>,
@@ -240,6 +281,11 @@ impl Extractor<'_> {
                 location: self.location(lines.first().map_or(line, |l| l.line)),
             }));
         } else if dsl::is_route(&texts) {
+            let mut texts = texts;
+            // `#[deprecated]` on a handler deprecates its operation.
+            if attrs.iter().any(|a| a.path().is_ident("deprecated")) {
+                texts.push("@deprecated".into());
+            }
             self.items.push(Item::Route(RouteItem {
                 lines: texts,
                 line_numbers: lines.iter().map(|l| l.line).collect(),
@@ -255,7 +301,7 @@ impl Extractor<'_> {
     }
 
     fn reflector(&mut self) -> reflect::Reflector<'_> {
-        reflect::Reflector::new(self.path, self.types, self.diagnostics)
+        reflect::Reflector::new(self.path, self.options, self.diagnostics)
     }
 
     fn blocks(&mut self, lines: &[DocLine]) {
@@ -306,7 +352,7 @@ impl<'ast> Visit<'ast> for Extractor<'_> {
 
     fn visit_item_type(&mut self, item: &'ast syn::ItemType) {
         let schema = self.reflector().alias(item);
-        self.items.push(schema);
+        self.items.extend(schema);
         visit::visit_item_type(self, item);
     }
 

@@ -49,14 +49,32 @@ impl GenericRef {
             self.args
                 .iter()
                 .map(|arg| match arg {
-                    GenericArg::Name(name) => name.clone(),
+                    GenericArg::Name(name) => last_segment(name).to_string(),
                     GenericArg::Generic(inner) => inner.concrete_name(),
                 })
                 .collect::<Vec<_>>()
                 .join("_")
         };
-        format!("{}_{suffix}", self.name)
+        format!("{}_{suffix}", last_segment(&self.name))
     }
+
+    /// The reference as type text without `$` (`Vec<User>`).
+    pub fn text(&self) -> String {
+        let args: Vec<String> = self
+            .args
+            .iter()
+            .map(|arg| match arg {
+                GenericArg::Name(name) => last_segment(name).to_string(),
+                GenericArg::Generic(inner) => inner.text(),
+            })
+            .collect();
+        format!("{}<{}>", last_segment(&self.name), args.join(", "))
+    }
+}
+
+/// `User` for `models::User`.
+fn last_segment(name: &str) -> &str {
+    name.rsplit("::").next().unwrap_or(name)
 }
 
 fn is_name_char(c: char) -> bool {
@@ -112,18 +130,27 @@ fn parse_arg(text: &str) -> Option<(GenericArg, &str)> {
 /// Instantiates blueprints referenced by whole string scalars.
 pub struct Instantiator<'a> {
     registry: &'a Registry,
+    types: &'a TypeMapper,
     concrete: BTreeMap<String, (Value, Location)>,
     in_progress: Vec<String>,
 }
 
 impl<'a> Instantiator<'a> {
-    /// An instantiator using the blueprints of `registry`.
+    /// An instantiator using the blueprints of `registry` and the built-in
+    /// type table.
     pub fn new(registry: &'a Registry) -> Self {
         Self {
             registry,
+            types: TypeMapper::builtin(),
             concrete: BTreeMap::new(),
             in_progress: Vec::new(),
         }
+    }
+
+    /// Uses `types` for type arguments such as `Vec<User>` or `Option<u8>`.
+    pub fn with_types(mut self, types: &'a TypeMapper) -> Self {
+        self.types = types;
+        self
     }
 
     /// Replaces generic references in `value`; reports problems at `location`.
@@ -163,8 +190,9 @@ impl<'a> Instantiator<'a> {
         }
     }
 
-    /// The inline schema of a `$Vec<T>`-style shorthand (std containers that
-    /// are not shadowed by a blueprint of the same name).
+    /// The inline schema of a `$Vec<T>`-style shorthand: std containers and
+    /// other types of the type table that are not shadowed by a blueprint of
+    /// the same name.
     fn std_container(
         &mut self,
         text: &str,
@@ -172,10 +200,18 @@ impl<'a> Instantiator<'a> {
         diagnostics: &mut Diagnostics,
     ) -> Option<Value> {
         let generic = GenericRef::parse(text)?;
-        if !is_container(&generic.name) || self.registry.blueprint(&generic.name).is_some() {
+        if self
+            .registry
+            .blueprint(last_segment(&generic.name))
+            .is_some()
+        {
             return None;
         }
-        let mut schema = TypeMapper::new().map(&TypeExpr::parse(text)?).schema;
+        let mapped = self.types.map(&TypeExpr::parse(text)?);
+        if !is_container(last_segment(&generic.name)) && mapped.schema.get("$ref").is_some() {
+            return None;
+        }
+        let mut schema = mapped.into_schema();
         self.apply(&mut schema, location, diagnostics);
         Some(schema)
     }
@@ -208,7 +244,7 @@ impl<'a> Instantiator<'a> {
         location: &Location,
         diagnostics: &mut Diagnostics,
     ) -> Option<String> {
-        let Some(blueprint) = self.registry.blueprint(&generic.name) else {
+        let Some(blueprint) = self.registry.blueprint(last_segment(&generic.name)) else {
             diagnostics.push(
                 Diagnostic::new(
                     Code::UnknownBlueprint,
@@ -223,11 +259,19 @@ impl<'a> Instantiator<'a> {
             // written by hand (`Missing_User`) satisfy the reference.
             return Some(generic.concrete_name());
         };
+        // Arguments that are blueprints become concrete schemas; other
+        // generic types (`Vec<User>`) are substituted as written and resolved
+        // in the instantiated body.
         let mut arg_names = Vec::new();
         for arg in &generic.args {
             arg_names.push(match arg {
-                GenericArg::Name(name) => name.clone(),
-                GenericArg::Generic(inner) => self.instantiate(inner, location, diagnostics)?,
+                GenericArg::Name(name) => last_segment(name).to_string(),
+                GenericArg::Generic(inner)
+                    if self.registry.blueprint(last_segment(&inner.name)).is_some() =>
+                {
+                    self.instantiate(inner, location, diagnostics)?
+                }
+                GenericArg::Generic(inner) => inner.text(),
             });
         }
         let name = generic.concrete_name();

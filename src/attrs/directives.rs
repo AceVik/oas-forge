@@ -19,6 +19,10 @@ pub(crate) struct ItemDocs {
     pub blueprint: Option<Vec<String>>,
     /// YAML override lines (text after a bare `@openapi`, and every following line).
     pub overrides: Vec<DocLine>,
+    /// `@openapi skip`: the item, field or variant is left out.
+    pub skip: bool,
+    /// `@example value` lines (YAML values).
+    pub examples: Vec<DocLine>,
 }
 
 /// How the text after `@openapi` on a header line is used.
@@ -38,6 +42,12 @@ impl ItemDocs {
 
         for line in lines {
             let trimmed = line.trimmed();
+            if let Some(example) = trimmed.strip_prefix("@example")
+                && (example.is_empty() || example.starts_with(char::is_whitespace))
+            {
+                docs.examples.push(DocLine::new(example.trim(), line.line));
+                continue;
+            }
             let Some(rest) = trimmed.strip_prefix("@openapi") else {
                 if in_block {
                     docs.overrides.push(line.clone());
@@ -50,7 +60,9 @@ impl ItemDocs {
             docs.exported = true;
             let rest = rest.trim_start();
 
-            if let Some(rule) = rest.strip_prefix("rename-all") {
+            if rest == "skip" {
+                docs.skip = true;
+            } else if let Some(rule) = rest.strip_prefix("rename-all") {
                 docs.rename_all = RenameRule::parse(unquote(rule));
             } else if let Some(name) = rest.strip_prefix("rename") {
                 docs.rename = Some(unquote(name).to_string());

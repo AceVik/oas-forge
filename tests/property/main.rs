@@ -11,7 +11,7 @@ use common::{here, yaml};
 use oas_forge::attrs::RenameRule;
 use oas_forge::diagnostics::Diagnostics;
 use oas_forge::dsl::{self, RouteSource};
-use oas_forge::extract::extract_str;
+use oas_forge::extract::{Options, extract_str};
 use oas_forge::generator::generate_from_sources;
 use oas_forge::merge::{Policy, merge};
 use oas_forge::output::Format;
@@ -304,7 +304,7 @@ proptest! {
         };
         let text = quote::ToTokens::to_token_stream(&file).to_string();
         let mut diagnostics = Diagnostics::new();
-        extract_str(Path::new("prop.rs"), &text, TypeMapper::builtin(), &mut diagnostics).expect("generated Rust is valid");
+        extract_str(Path::new("prop.rs"), &text, Options::new(), &mut diagnostics).expect("generated Rust is valid");
     }
 
     #[test]

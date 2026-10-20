@@ -186,7 +186,8 @@ pub(super) fn type_schema(text: &str, types: &TypeMapper) -> Value {
         return yaml::parse(text).unwrap_or_else(|_| json!({ "$ref": text }));
     }
     if text.contains('<') && !STD.iter().any(|p| text.starts_with(p)) {
-        return json!({ "$ref": text });
+        // `Page<User>` and `$Page<User>`: instantiated from the blueprint.
+        return json!({ "$ref": format!("${}", text.trim_start_matches('$')) });
     }
     if let Some(name) = text.strip_prefix('$') {
         return json!({ "$ref": format!("#/components/schemas/{name}") });

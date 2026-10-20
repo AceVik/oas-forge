@@ -29,8 +29,11 @@ That still works unchanged. Everything else moved:
   diagnostics. `Spec::render(kind)` returns any output strategy as a value.
 - **New builder options.** `var(name, value)` for `{{name}}` placeholders,
   `deny_warnings(true)`, `max_file_size(bytes)`, `emit_cargo_directives(true)`
-  (prints `cargo:warning=` and `cargo:rerun-if-changed=` in build scripts) and
-  `output_as(kind, path)`.
+  (prints `cargo:warning=` and `cargo:rerun-if-changed=` in build scripts),
+  `output_as(kind, path)`, `map_type(name, schema)`, `infer_signatures(bool)`,
+  `package(Package)` / `without_package()` and `strict_lints(true)`.
+- **CI checks.** `Spec::check()` lists the configured outputs whose files are
+  missing or differ from what `Spec::write()` would write.
 - **Errors.** `Error` is `#[non_exhaustive]` and no longer wraps foreign error
   types:
   - `Io(io::Error)` became `Io { path, source }`.
@@ -212,8 +215,45 @@ Every 0.1 route block still compiles; these outputs changed:
   files written by 0.1 (without the marker) are still read.
 - **Top-level `tags` are tag objects** (`dsl_module_tags`): `tags: [Admin]`
   becomes `tags: [{name: Admin}]`, as the OpenAPI schema requires.
-- **Lints.** Dangling `#/components/...` references (`OF5001`) and duplicate
-  operationIds (`OF5002`) are reported as warnings.
+- **Lints** (`lints_strict`). Dangling `#/components/...` references
+  (`OF5001`), duplicate operationIds (`OF5002`), security requirements that
+  name an undefined scheme (`OF5005`) and path placeholders without a path
+  parameter or the reverse (`OF5006`) are reported as warnings. Fixtures that
+  relied on schemes defined elsewhere now get `OF5005` (`dsl_security`,
+  `route_defaults`, `fragment_extend`, `readme_dsl`, …). With
+  `strict_lints(true)` (CLI `--strict`) components that nothing outside
+  `components` reaches (`OF5003`) and operations and schemas without a
+  description (`OF5004`) are reported too.
+
+### Roots, generics and Rust attributes
+- **A missing root is generated from `Cargo.toml`** (`package_root`). When no
+  source defines `openapi` and `info`, the root is built from the package name,
+  version, description, license and homepage or repository (note `OF0004`).
+  0.1 failed with `NoRootFound`. Build scripts use the running package by
+  default, the CLI reads `Cargo.toml` in the working directory. A root in the
+  sources always wins; an `info` block without `openapi` is completed.
+  *Action:* `Generator::without_package()` restores the 0.1 error.
+- **Generic types are instantiated where they are used** (`auto_generics`,
+  `struct_generic_params`). `struct Page<T>` without `@openapi<T>` is a
+  template: `Page<User>` as a field, body or return type becomes `Page_User`.
+  0.1 emitted `Page` once with dangling `$T` references; an unused generic type
+  is no longer emitted at all.
+- **`#[deprecated]`** on structs, enums, fields, variants and handlers sets
+  `deprecated: true` on the schema or operation (`rust_attributes`).
+- **New directives** (`rust_attributes`): `@openapi skip` leaves out an item,
+  field or variant; `@example value` adds a YAML value (or plain text) to the
+  `examples` of a type, field or variant. Variants also accept `@openapi`
+  overrides; 0.1 ignored them.
+- **Variables** (`variables`). Every `CARGO_PKG_*` variable Cargo sets for
+  build scripts is predefined, `{{env:NAME}}` reads the environment (unset:
+  warning `OF3009`, the placeholder stays), and `[variables]` in the
+  configuration or `--var NAME=VALUE` define more. Placeholders also work in
+  type overrides and `@example` lines.
+
+### Command line
+- `--check` writes nothing and exits with status 1 when an output is missing or
+  out of date; `--deny-warnings` turns warnings into errors; `--strict` enables
+  the strict lints; `--message-format json` prints one JSON object per finding.
 
 ### YAML
 The YAML library changed from `serde_yaml_ng` to `serde-saphyr` (ADR 0009). The

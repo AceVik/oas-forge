@@ -8,7 +8,9 @@ input_file: tests/corpus/cases/fragment_extend/case.toml
     "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
   },
   "description": "Fragments: @extend structural merge in manual blocks, with conflict",
-  "diagnostics": [],
+  "diagnostics": [
+    "warning[OF5005]: security scheme `oidc` is required but not defined in `components.securitySchemes`"
+  ],
   "fragments": {
     "document": {
       "components": {

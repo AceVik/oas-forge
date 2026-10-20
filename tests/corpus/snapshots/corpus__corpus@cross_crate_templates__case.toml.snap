@@ -8,7 +8,9 @@ input_file: tests/corpus/cases/cross_crate_templates/case.toml
     "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
   },
   "description": "Cross-crate: consuming x-oas-forge-templates/fragments from an included fragments file",
-  "diagnostics": [],
+  "diagnostics": [
+    "warning[OF5006]: `{id}` of `/invoices/{id}` has no path parameter"
+  ],
   "fragments": {
     "document": {
       "components": {

@@ -127,6 +127,8 @@ codes! {
     FileTooLarge = "OF0002", Error;
     /// A file that is also an output was not read as input.
     OutputNotRead = "OF0003", Note;
+    /// The root document was generated from package metadata.
+    GeneratedRoot = "OF0004", Note;
 
     /// An `@openapi` override is not valid YAML.
     InvalidOverride = "OF1001", Warning;
@@ -176,6 +178,8 @@ codes! {
     UnresolvedReference = "OF3007", Warning;
     /// Imported templates use an unknown wire format version.
     UnknownTemplateFormat = "OF3008", Warning;
+    /// A `{{env:NAME}}` placeholder names an unset environment variable.
+    UnknownVariable = "OF3009", Warning;
 
     /// Two documents set the same value differently.
     MergeConflict = "OF4001", Warning;
@@ -184,6 +188,14 @@ codes! {
     DanglingReference = "OF5001", Warning;
     /// Two operations share an operationId.
     DuplicateOperationId = "OF5002", Warning;
+    /// A component is defined but never referenced (strict lints).
+    UnusedComponent = "OF5003", Warning;
+    /// An operation or schema has no description (strict lints).
+    MissingDescription = "OF5004", Warning;
+    /// A security requirement names a scheme that is not defined.
+    UndefinedSecurityScheme = "OF5005", Warning;
+    /// A path placeholder and the path parameters of an operation disagree.
+    PathParameterMismatch = "OF5006", Warning;
 
     /// A construct has no equivalent in the target version and was approximated.
     LossyLowering = "OF6001", Note;
@@ -258,6 +270,24 @@ impl Diagnostic {
     /// Whether this finding fails generation.
     pub fn is_error(&self) -> bool {
         self.severity == Severity::Error
+    }
+
+    /// The finding as a JSON object (`severity`, `code`, `message` and, when
+    /// known, `file`, `line`, `column`), e.g. for `--message-format json`.
+    pub fn to_json(&self) -> serde_json::Value {
+        let mut value = serde_json::json!({
+            "severity": self.severity.to_string(),
+            "code": self.code.as_str(),
+            "message": self.message,
+        });
+        if let Some(location) = &self.location {
+            value["file"] = serde_json::json!(location.file().display().to_string());
+            value["line"] = serde_json::json!(location.line());
+            if let Some(column) = location.column() {
+                value["column"] = serde_json::json!(column);
+            }
+        }
+        value
     }
 }
 

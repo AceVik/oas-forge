@@ -59,7 +59,7 @@ mod request_body {
     #[test]
     fn custom_generics_stay_raw_for_the_monomorphizer() {
         assert_eq!(body_schema("$Page<User>"), json!({ "$ref": "$Page<User>" }));
-        assert_eq!(body_schema("Page<User>"), json!({ "$ref": "Page<User>" }));
+        assert_eq!(body_schema("Page<User>"), json!({ "$ref": "$Page<User>" }));
     }
 
     #[test]

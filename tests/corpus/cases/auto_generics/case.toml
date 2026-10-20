@@ -1,0 +1,1 @@
+description = "Generics: generic structs and enums are instantiated where they are used, without @openapi<T>"

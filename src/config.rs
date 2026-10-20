@@ -48,6 +48,14 @@ pub struct Config {
     /// UserId = { type = "string", format = "uuid" }
     /// ```
     pub types: Option<BTreeMap<String, Value>>,
+    /// Values of `{{NAME}}` placeholders, as with
+    /// [`Generator::var`](crate::Generator::var):
+    ///
+    /// ```toml
+    /// [variables]
+    /// API_URL = "https://api.example.com"
+    /// ```
+    pub variables: Option<BTreeMap<String, String>>,
 }
 
 /// The `Cargo.toml` subset that carries `[package.metadata.oas-forge]`.
@@ -120,7 +128,8 @@ impl Config {
     }
 
     /// Overlays `other` on `self`: every field that is set in `other`
-    /// replaces the value in `self`; `types` are merged by name.
+    /// replaces the value in `self`; `types` and `variables` are merged by
+    /// name.
     pub fn merge(&mut self, other: Config) {
         let Config {
             input,
@@ -134,9 +143,15 @@ impl Config {
             output_swagger2,
             output_asyncapi,
             types,
+            variables,
         } = other;
         if let Some(types) = types {
             self.types.get_or_insert_with(BTreeMap::new).extend(types);
+        }
+        if let Some(variables) = variables {
+            self.variables
+                .get_or_insert_with(BTreeMap::new)
+                .extend(variables);
         }
         overlay(&mut self.input, input);
         overlay(&mut self.include, include);

@@ -1,0 +1,100 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/lints_strict/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  "/users/{id}":
+    get:
+      summary: Gets a user.
+      operationId: get_user
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      security:
+      - bearer: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  "/teams/{team}":
+    get:
+      operationId: get_user
+      parameters:
+      - name: team
+        in: path
+        required: true
+        schema:
+          type: string
+      security:
+      - api_key: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Undescribed"
+  "/orgs/{org}":
+    get:
+      summary: Path parameter mismatch.
+      parameters:
+      - name: organization
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: Nothing
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  responses:
+    Orphan:
+      description: Never used
+  schemas:
+    Lonely:
+      type: object
+      properties:
+        next:
+          anyOf:
+          - $ref: "#/components/schemas/Lonely"
+          - type: "null"
+    Undescribed:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      required:
+      - id
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      required:
+      - id
+      description: Described and used.

@@ -339,3 +339,21 @@ fn unsupported_structure_is_reported() {
         );
     }
 }
+
+#[test]
+fn a_license_identifier_that_repeats_the_name_is_dropped_silently() {
+    let license =
+        |text: &str| format!("openapi: 3.1.0\ninfo: {{ title: T, version: '1', license: {text} }}");
+    let (document, messages) =
+        swagger(&[("root.yaml", &license("{ name: MIT, identifier: MIT }"))]);
+    assert_eq!(document["info"]["license"], json!({ "name": "MIT" }));
+    assert!(messages.is_empty(), "{messages:?}");
+    let (_, messages) = swagger(&[(
+        "root.yaml",
+        &license("{ name: MIT License, identifier: MIT }"),
+    )]);
+    assert!(
+        messages.iter().any(|m| m.contains("`license.identifier`")),
+        "{messages:?}"
+    );
+}

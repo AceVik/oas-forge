@@ -236,4 +236,36 @@ mod type_mappings {
             json!({ "type": "string", "format": "uuid" })
         );
     }
+
+    #[test]
+    fn variables_are_read_merged_and_used() {
+        let mut config =
+            Config::from_toml_str("[variables]\nSTAGE = \"dev\"\nREGION = \"eu\"").unwrap();
+        config.merge(Config::from_toml_str("[variables]\nSTAGE = \"prod\"").unwrap());
+        let variables = config.variables.clone().unwrap();
+        assert_eq!(variables["STAGE"], "prod");
+        assert_eq!(variables["REGION"], "eu");
+
+        let project = Project::new();
+        project.file(
+            "src/root.rs",
+            "/// @openapi\n/// openapi: 3.1.0\n/// info: { title: '{{STAGE}}-{{REGION}}', version: '1' }\nfn root() {}",
+        );
+        config.input = Some(vec![project.path("src")]);
+        let spec = Generator::new()
+            .var("REGION", "us")
+            .with_config(config)
+            .build()
+            .unwrap();
+        assert_eq!(
+            spec.document()["info"]["title"],
+            "prod-eu",
+            "the config wins over earlier values"
+        );
+    }
+
+    #[test]
+    fn variables_must_be_strings() {
+        assert!(Config::from_toml_str("[variables]\nN = 1").is_err());
+    }
 }
