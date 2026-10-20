@@ -5,21 +5,34 @@ input_file: tests/corpus/cases/dsl_rejected_routes/case.toml
 ---
 {
   "description": "Route DSL: routes that are rejected (missing/unused path params, no path)",
+  "diagnostics": [
+    "error[OF2002]: path parameter `id` of `/items/{id}` has no definition (use `{id: Type}` or `@path-param`) (<case>/src/lib.rs:7)",
+    "error[OF2003]: path parameter `id` is not used in `/items` (<case>/src/lib.rs:10)",
+    "error[OF2001]: `@route` needs a method and a path (<case>/src/lib.rs:14)"
+  ],
   "fragments": {
-    "error": "YAML error in <case>/src/lib.rs:7: found character that cannot start any token at line 1 column 2, while scanning for the next token\nContext:\n    07 |  @route GET /items/{id}"
+    "document": {},
+    "lints": []
   },
   "full": {
-    "error": "YAML error in <case>/src/lib.rs:7: found character that cannot start any token at line 1 column 2, while scanning for the next token\nContext:\n    07 |  @route GET /items/{id}"
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": [
+      ": value is not valid under any of the schemas listed in the 'anyOf' keyword"
+    ]
   },
-  "known_bug": "Rejected routes leak their raw DSL text into the document",
-  "log": [
-    "ERROR: Missing definition for path parameter 'id' in route '/items/{id}'. Skipping route.",
-    "ERROR: Declared path parameter 'id' is unused in route '/items'. Skipping route."
-  ],
   "paths": {
-    "error": "YAML error in <case>/src/lib.rs:7: found character that cannot start any token at line 1 column 2, while scanning for the next token\nContext:\n    07 |  @route GET /items/{id}"
+    "document": {},
+    "lints": []
   },
   "schemas": {
-    "error": "YAML error in <case>/src/lib.rs:7: found character that cannot start any token at line 1 column 2, while scanning for the next token\nContext:\n    07 |  @route GET /items/{id}"
+    "document": {},
+    "lints": []
   }
 }

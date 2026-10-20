@@ -1,2 +1,1 @@
 description = "Route DSL: raw YAML operation fields mixed into a route"
-known_bug = "YAML parameters replace the DSL parameters instead of being merged"

@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
 ---
 {
   "description": "Route DSL: @return with refs, unit, inline schemas, wrappers",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -252,7 +253,6 @@ input_file: tests/corpus/cases/dsl_responses/case.toml
     ]
   },
   "known_bug": "Json<T> wrappers become a raw unresolved $ref",
-  "log": [],
   "paths": {
     "document": {
       "/items/{id}": {

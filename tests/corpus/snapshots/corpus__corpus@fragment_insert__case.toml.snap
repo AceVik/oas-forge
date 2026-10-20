@@ -5,9 +5,14 @@ input_file: tests/corpus/cases/fragment_insert/case.toml
 ---
 {
   "description": "Fragments: @insert with/without args, in DSL and manual blocks, unknown fragment fallback",
+  "diagnostics": [
+    "warning[OF3003]: fragment `Error` expects 1 argument(s), got 0 (<case>/src/lib.rs:24)",
+    "warning[OF5001]: `$ref: #/components/parameters/ExternalParam` points to a component that does not exist"
+  ],
   "fragments": {
     "document": {
       "components": {
+        "x-oas-forge-format": 1,
         "x-oas-forge-fragments": {
           "Error": {
             "body": "description: Error {{code}}",
@@ -159,10 +164,6 @@ input_file: tests/corpus/cases/fragment_insert/case.toml
     ],
     "validation": []
   },
-  "known_bug": "Missing fragment arguments leave the {{code}} placeholder in the output",
-  "log": [
-    "WARN: Generating empty schemas file."
-  ],
   "paths": {
     "document": {
       "/list": {

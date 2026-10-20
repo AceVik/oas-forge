@@ -4,16 +4,18 @@ use oas_forge_cli::{Cli, run};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let cli = Cli::parse();
 
     println!("{} Starting oas-forge...", "INFO:".blue().bold());
     match run(&cli, std::path::Path::new(".")) {
-        Ok(outputs) => {
+        Ok(outcome) => {
+            for diagnostic in &outcome.diagnostics {
+                eprintln!("{} {diagnostic}", "WARNING:".yellow().bold());
+            }
             println!(
                 "{} Successfully generated OpenAPI definition(s) at {:?}",
                 "SUCCESS:".green().bold(),
-                outputs
+                outcome.outputs
             );
             ExitCode::SUCCESS
         }

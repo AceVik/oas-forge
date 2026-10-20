@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/struct_renamed_reference/case.toml
 ---
 {
   "description": "Structs: a field referencing a struct renamed via serde",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -12,7 +13,7 @@ input_file: tests/corpus/cases/struct_renamed_reference/case.toml
           "User": {
             "properties": {
               "profile": {
-                "$ref": "$Profile"
+                "$ref": "#/components/schemas/UserProfile"
               }
             },
             "required": [
@@ -34,9 +35,7 @@ input_file: tests/corpus/cases/struct_renamed_reference/case.toml
         }
       }
     },
-    "lints": [
-      "/components/schemas/User/properties/profile/$ref: unresolved $ref `$Profile`"
-    ]
+    "lints": []
   },
   "full": {
     "document": {
@@ -45,7 +44,7 @@ input_file: tests/corpus/cases/struct_renamed_reference/case.toml
           "User": {
             "properties": {
               "profile": {
-                "$ref": "$Profile"
+                "$ref": "#/components/schemas/UserProfile"
               }
             },
             "required": [
@@ -72,15 +71,9 @@ input_file: tests/corpus/cases/struct_renamed_reference/case.toml
       },
       "openapi": "3.1.0"
     },
-    "lints": [
-      "/components/schemas/User/properties/profile/$ref: unresolved $ref `$Profile`"
-    ],
+    "lints": [],
     "validation": []
   },
-  "known_bug": "Fields referencing a renamed struct still point to the Rust name ($Profile)",
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []
@@ -90,7 +83,7 @@ input_file: tests/corpus/cases/struct_renamed_reference/case.toml
       "User": {
         "properties": {
           "profile": {
-            "$ref": "$Profile"
+            "$ref": "#/components/schemas/UserProfile"
           }
         },
         "required": [
@@ -110,8 +103,6 @@ input_file: tests/corpus/cases/struct_renamed_reference/case.toml
         "type": "object"
       }
     },
-    "lints": [
-      "/User/properties/profile/$ref: unresolved $ref `$Profile`"
-    ]
+    "lints": []
   }
 }

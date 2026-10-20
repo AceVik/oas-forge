@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/unicode_docs/case.toml
 ---
 {
   "description": "Unicode: non-ASCII doc comments around references",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -63,7 +64,7 @@ input_file: tests/corpus/cases/unicode_docs/case.toml
                 "description": "Gefunden ✓"
               }
             },
-            "summary": "Größe abfragen – liefert \"#/components/schemas/Kunde\"",
+            "summary": "Größe abfragen – liefert $Kunde",
             "tags": []
           }
         }
@@ -134,7 +135,7 @@ input_file: tests/corpus/cases/unicode_docs/case.toml
                 "description": "Gefunden ✓"
               }
             },
-            "summary": "Größe abfragen – liefert \"#/components/schemas/Kunde\"",
+            "summary": "Größe abfragen – liefert $Kunde",
             "tags": []
           }
         }
@@ -143,7 +144,6 @@ input_file: tests/corpus/cases/unicode_docs/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [],
   "paths": {
     "document": {
       "/kunden/{id}": {
@@ -173,7 +173,7 @@ input_file: tests/corpus/cases/unicode_docs/case.toml
               "description": "Gefunden ✓"
             }
           },
-          "summary": "Größe abfragen – liefert \"#/components/schemas/Kunde\"",
+          "summary": "Größe abfragen – liefert $Kunde",
           "tags": []
         }
       }

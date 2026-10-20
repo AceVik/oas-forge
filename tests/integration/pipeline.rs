@@ -304,17 +304,18 @@ fn health() {}
             .generate();
 
         match result {
-            Err(error @ Error::SourceMapped { .. }) => {
+            Err(error @ Error::Yaml { .. }) => {
+                // The location points at the YAML text, not at the `@openapi` header.
                 let message = error.to_string();
                 assert!(
                     message.starts_with(&format!(
-                        "YAML error in {}:3: an OpenAPI snippet must be a mapping at the top level, found a string",
+                        "YAML error in {}:4: an OpenAPI snippet must be a mapping at the top level, found a string",
                         project.path("src/lib.rs").display()
                     )),
                     "{message}"
                 );
                 assert!(
-                    message.ends_with("    03 | This endpoint is documented elsewhere."),
+                    message.ends_with("    04 | This endpoint is documented elsewhere."),
                     "{message}"
                 );
             }

@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/dsl_security/case.toml
 ---
 {
   "description": "Route DSL: @security with and without scopes",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "paths": {
@@ -77,9 +78,6 @@ input_file: tests/corpus/cases/dsl_security/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [
-    "WARN: Generating empty schemas file."
-  ],
   "paths": {
     "document": {
       "/secure": {

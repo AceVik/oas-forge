@@ -1,2 +1,2 @@
 description = "README: Route DSL examples (basic, inline params, flexible params, responses, body, security, raw YAML)"
-known_bug = "The '# comment' line becomes the summary; the duplicated description key is accepted"
+known_bug = "The # comment line becomes the summary; the documented example repeats the description key, so its embedded YAML is rejected (OF2005)"

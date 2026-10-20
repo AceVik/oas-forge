@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/oas-forge.svg)](https://crates.io/crates/oas-forge)
 [![Docs.rs](https://docs.rs/oas-forge/badge.svg)](https://docs.rs/oas-forge)
-[![License](https://img.shields.io/crates/l/oas-forge.svg)](LICENSE)
+[![License](https://img.shields.io/crates/l/oas-forge.svg)](https://github.com/AceVik/oas-forge/blob/main/LICENSE)
 [![Build Status](https://github.com/AceVik/oas-forge/actions/workflows/release.yml/badge.svg)](https://github.com/AceVik/oas-forge/actions)
 [![Latest Release](https://img.shields.io/github/v/release/AceVik/oas-forge)](https://github.com/AceVik/oas-forge/releases/latest)
 
@@ -852,4 +852,4 @@ async fn serve_ui() -> impl IntoResponse {
 
 ## 📜 License
 
-This project is licensed under the [MIT license](LICENSE).
+This project is licensed under the [MIT license](https://github.com/AceVik/oas-forge/blob/main/LICENSE).

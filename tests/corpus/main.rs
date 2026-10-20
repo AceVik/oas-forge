@@ -1,6 +1,7 @@
-//! Black-box corpus: every case under `cases/<name>/` is run through the public
-//! `Generator` once per output strategy. The canonical result (documents,
-//! errors, log warnings, spec validation and lints) is snapshotted with `insta`.
+//! Black-box corpus: every case under `cases/<name>/` is built once with the
+//! public `Generator` and rendered with every output strategy. The canonical
+//! result (documents, fatal error, diagnostics, spec validation and lints) is
+//! snapshotted with `insta`.
 //!
 //! The corpus is the behavioural safety net for refactoring: a snapshot may only
 //! change on purpose. Review changes with `cargo insta review`.
@@ -18,10 +19,10 @@
 mod common;
 
 use common::spec;
-use oas_forge::Generator;
+use oas_forge::output::{Format, OutputKind};
+use oas_forge::{Generator, Spec};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -41,30 +42,15 @@ fn default_inputs() -> Vec<String> {
     vec!["src".to_string()]
 }
 
-#[derive(Clone, Copy)]
-enum Strategy {
-    Full,
-    Schemas,
-    Paths,
-    Fragments,
-}
-
-impl Strategy {
-    const ALL: [Self; 4] = [Self::Full, Self::Schemas, Self::Paths, Self::Fragments];
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::Full => "full",
-            Self::Schemas => "schemas",
-            Self::Paths => "paths",
-            Self::Fragments => "fragments",
-        }
-    }
-}
+const STRATEGIES: [(OutputKind, &str); 4] = [
+    (OutputKind::Full, "full"),
+    (OutputKind::Schemas, "schemas"),
+    (OutputKind::Paths, "paths"),
+    (OutputKind::Fragments, "fragments"),
+];
 
 #[test]
 fn corpus() {
-    capture::install();
     insta::glob!("cases/*/case.toml", |path| {
         let snapshot = run_case(path);
         insta::assert_json_snapshot!(snapshot);
@@ -82,28 +68,30 @@ fn run_case(case_file: &Path) -> Value {
         result.insert("known_bug".into(), json!(bug));
     }
 
-    let mut log = Vec::<String>::new();
-    for strategy in Strategy::ALL {
-        let out = tempfile::tempdir().unwrap();
-        let (outcome, messages) =
-            capture::during(|| generate(&dir, &case, strategy, &out.path().join("out.json")));
-        for message in messages {
-            let message = normalize(&message, &dir, out.path());
-            if !log.contains(&message) {
-                log.push(message);
+    match build(&dir, &case) {
+        Ok(spec) => {
+            let diagnostics: Vec<String> = spec
+                .diagnostics()
+                .iter()
+                .map(|d| normalize(&d.to_string(), &dir))
+                .collect();
+            result.insert("diagnostics".into(), json!(diagnostics));
+            for (kind, name) in STRATEGIES {
+                let entry = match spec.render(kind) {
+                    Ok(doc) => describe(kind, round_trip(doc)),
+                    Err(error) => json!({ "error": normalize(&error.to_string(), &dir) }),
+                };
+                result.insert(name.into(), entry);
             }
         }
-        let entry = match outcome {
-            Ok(doc) => describe(strategy, doc),
-            Err(error) => json!({ "error": normalize(&error, &dir, out.path()) }),
-        };
-        result.insert(strategy.name().into(), entry);
+        Err(error) => {
+            result.insert("error".into(), json!(normalize(&error.to_string(), &dir)));
+        }
     }
-    result.insert("log".into(), json!(log));
     redact(canonical(Value::Object(result)))
 }
 
-fn generate(dir: &Path, case: &Case, strategy: Strategy, out: &Path) -> Result<Value, String> {
+fn build(dir: &Path, case: &Case) -> oas_forge::Result<Spec> {
     let mut generator = Generator::new();
     for input in &case.inputs {
         generator = generator.input(dir.join(input));
@@ -111,26 +99,27 @@ fn generate(dir: &Path, case: &Case, strategy: Strategy, out: &Path) -> Result<V
     for include in &case.includes {
         generator = generator.include(dir.join(include));
     }
-    generator = match strategy {
-        Strategy::Full => generator.output(out),
-        Strategy::Schemas => generator.output_schemas(out),
-        Strategy::Paths => generator.output_paths(out),
-        Strategy::Fragments => generator.output_fragments(out),
-    };
-    generator.generate().map_err(|e| e.to_string())?;
-    let text = std::fs::read_to_string(out).map_err(|e| e.to_string())?;
-    serde_json::from_str(&text).map_err(|e| format!("output is not JSON: {e}"))
+    generator.build()
+}
+
+/// Every output goes through both file formats; both must preserve the document.
+fn round_trip(doc: Value) -> Value {
+    let from_json: Value = serde_json::from_str(&Format::Json.render(&doc)).unwrap();
+    let from_yaml = common::yaml(&Format::Yaml.render(&doc));
+    assert_eq!(from_json, doc, "JSON output changes the document");
+    assert_eq!(from_yaml, doc, "YAML output changes the document");
+    doc
 }
 
 /// Attaches spec validation (full documents) and lints to a generated output.
-fn describe(strategy: Strategy, doc: Value) -> Value {
-    let known: Option<BTreeSet<String>> = match strategy {
-        Strategy::Full | Strategy::Fragments => Some(spec::component_schemas(&doc)),
-        Strategy::Schemas => doc.as_object().map(|m| m.keys().cloned().collect()),
-        Strategy::Paths => None,
+fn describe(kind: OutputKind, doc: Value) -> Value {
+    let known: Option<BTreeSet<String>> = match kind {
+        OutputKind::Schemas => doc.as_object().map(|m| m.keys().cloned().collect()),
+        OutputKind::Paths => None,
+        _ => Some(spec::component_schemas(&doc)),
     };
     let mut entry = Map::new();
-    if let Strategy::Full = strategy {
+    if kind == OutputKind::Full {
         entry.insert("validation".into(), json!(spec::validate(&doc)));
     }
     entry.insert("lints".into(), json!(spec::lint(&doc, known.as_ref())));
@@ -139,12 +128,10 @@ fn describe(strategy: Strategy, doc: Value) -> Value {
 }
 
 /// Replaces machine-specific paths so snapshots are portable.
-fn normalize(message: &str, case_dir: &Path, out_dir: &Path) -> String {
+fn normalize(message: &str, case_dir: &Path) -> String {
     let mut text = message.replace('\\', "/");
-    for (path, placeholder) in [(out_dir, "<out>"), (case_dir, "<case>")] {
-        for variant in path_variants(path) {
-            text = text.replace(&variant, placeholder);
-        }
+    for variant in path_variants(case_dir) {
+        text = text.replace(&variant, "<case>");
     }
     text
 }
@@ -186,49 +173,5 @@ fn redact(value: Value) -> Value {
         Value::Array(items) => Value::Array(items.into_iter().map(redact).collect()),
         Value::Object(map) => Value::Object(map.into_iter().map(|(k, v)| (k, redact(v))).collect()),
         other => other,
-    }
-}
-
-/// Captures `log` warnings and errors emitted on the current thread.
-mod capture {
-    use super::RefCell;
-    use log::{Level, Log, Metadata, Record};
-
-    thread_local! {
-        static MESSAGES: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
-    }
-
-    struct Capture;
-
-    impl Log for Capture {
-        fn enabled(&self, metadata: &Metadata) -> bool {
-            metadata.level() <= Level::Warn
-        }
-
-        fn log(&self, record: &Record) {
-            if self.enabled(record.metadata()) {
-                MESSAGES.with(|m| {
-                    if let Some(messages) = m.borrow_mut().as_mut() {
-                        messages.push(format!("{}: {}", record.level(), record.args()));
-                    }
-                });
-            }
-        }
-
-        fn flush(&self) {}
-    }
-
-    pub fn install() {
-        static LOGGER: Capture = Capture;
-        if log::set_logger(&LOGGER).is_ok() {
-            log::set_max_level(log::LevelFilter::Warn);
-        }
-    }
-
-    pub fn during<T>(f: impl FnOnce() -> T) -> (T, Vec<String>) {
-        MESSAGES.with(|m| *m.borrow_mut() = Some(Vec::new()));
-        let result = f();
-        let messages = MESSAGES.with(|m| m.borrow_mut().take().unwrap_or_default());
-        (result, messages)
     }
 }

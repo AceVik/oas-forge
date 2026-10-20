@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/dsl_module_tags/case.toml
 ---
 {
   "description": "Route DSL: module tags applied to DSL routes",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "paths": {
@@ -17,12 +18,16 @@ input_file: tests/corpus/cases/dsl_module_tags/case.toml
                 "description": "ok"
               }
             },
-            "tags": []
+            "tags": [
+              "Admin"
+            ]
           }
         }
       },
       "tags": [
-        "Admin"
+        {
+          "name": "Admin"
+        }
       ]
     },
     "lints": []
@@ -44,23 +49,21 @@ input_file: tests/corpus/cases/dsl_module_tags/case.toml
                 "description": "ok"
               }
             },
-            "tags": []
+            "tags": [
+              "Admin"
+            ]
           }
         }
       },
       "tags": [
-        "Admin"
+        {
+          "name": "Admin"
+        }
       ]
     },
     "lints": [],
-    "validation": [
-      "/tags/0: value is not of type \"object\""
-    ]
+    "validation": []
   },
-  "known_bug": "Module tags are not applied to @route handlers; the module block leaks a string tag list",
-  "log": [
-    "WARN: Generating empty schemas file."
-  ],
   "paths": {
     "document": {
       "/admin/stats": {
@@ -72,7 +75,9 @@ input_file: tests/corpus/cases/dsl_module_tags/case.toml
               "description": "ok"
             }
           },
-          "tags": []
+          "tags": [
+            "Admin"
+          ]
         }
       }
     },

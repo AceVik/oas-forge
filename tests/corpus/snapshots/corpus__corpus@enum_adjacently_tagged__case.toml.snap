@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/enum_adjacently_tagged/case.toml
 ---
 {
   "description": "Enums: adjacently tagged (serde tag + content)",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -255,9 +256,6 @@ input_file: tests/corpus/cases/enum_adjacently_tagged/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

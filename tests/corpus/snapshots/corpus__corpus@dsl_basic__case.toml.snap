@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/dsl_basic/case.toml
 ---
 {
   "description": "Route DSL: summary, multi-paragraph description, tags, operationId",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -26,7 +27,7 @@ input_file: tests/corpus/cases/dsl_basic/case.toml
       "paths": {
         "/users": {
           "get": {
-            "description": "Returns all users, paginated.\nSecond paragraph with **Markdown**.",
+            "description": "Returns all users, paginated.\n\nSecond paragraph with **Markdown**.",
             "operationId": "list_users",
             "parameters": [],
             "responses": {
@@ -81,7 +82,7 @@ input_file: tests/corpus/cases/dsl_basic/case.toml
       "paths": {
         "/users": {
           "get": {
-            "description": "Returns all users, paginated.\nSecond paragraph with **Markdown**.",
+            "description": "Returns all users, paginated.\n\nSecond paragraph with **Markdown**.",
             "operationId": "list_users",
             "parameters": [],
             "responses": {
@@ -111,12 +112,11 @@ input_file: tests/corpus/cases/dsl_basic/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [],
   "paths": {
     "document": {
       "/users": {
         "get": {
-          "description": "Returns all users, paginated.\nSecond paragraph with **Markdown**.",
+          "description": "Returns all users, paginated.\n\nSecond paragraph with **Markdown**.",
           "operationId": "list_users",
           "parameters": [],
           "responses": {

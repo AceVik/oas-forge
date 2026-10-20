@@ -5,18 +5,202 @@ input_file: tests/corpus/cases/readme_fragments/case.toml
 ---
 {
   "description": "README: 'Fragments & Mixins' definition example with separator comments",
+  "diagnostics": [],
   "fragments": {
-    "error": "YAML error in <case>/src/api.rs:7: could not find expected ':' at line 14 column 9, while scanning a simple key at line 13 column 9\nContext:\n    07 | paths:\n    08 |   /users:\n    09 |     get:\n    10 |       parameters:\n    11 |         # Inserts the list items directly here"
+    "document": {
+      "components": {
+        "x-oas-forge-format": 1,
+        "x-oas-forge-fragments": {
+          "PaginationParams": {
+            "body": "- name: page\n  in: query\n  description: Page number\n  schema: { type: integer, default: 1 }\n- name: limit\n  in: query\n  schema: { type: integer, default: 10 }",
+            "params": []
+          },
+          "Secured": {
+            "body": "security:\n  - oidcAuth: [ {{role}} ]\nresponses:\n  '401':\n    description: Unauthorized\n  '403':\n    description: Forbidden - Requires {{role}} role",
+            "params": [
+              "role"
+            ]
+          }
+        }
+      },
+      "paths": {
+        "/admin/dashboard": {
+          "get": {
+            "responses": {
+              "200": {
+                "description": "OK"
+              },
+              "401": {
+                "description": "Unauthorized"
+              },
+              "403": {
+                "description": "Forbidden - Requires admin role"
+              }
+            },
+            "security": [
+              {
+                "oidcAuth": [
+                  "admin"
+                ]
+              }
+            ],
+            "summary": "Admin Area"
+          }
+        },
+        "/users": {
+          "get": {
+            "parameters": [
+              {
+                "description": "Page number",
+                "in": "query",
+                "name": "page",
+                "schema": {
+                  "default": 1,
+                  "type": "integer"
+                }
+              },
+              {
+                "in": "query",
+                "name": "limit",
+                "schema": {
+                  "default": 10,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "OK"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": []
   },
   "full": {
-    "error": "YAML error in <case>/src/api.rs:7: could not find expected ':' at line 14 column 9, while scanning a simple key at line 13 column 9\nContext:\n    07 | paths:\n    08 |   /users:\n    09 |     get:\n    10 |       parameters:\n    11 |         # Inserts the list items directly here"
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/admin/dashboard": {
+          "get": {
+            "responses": {
+              "200": {
+                "description": "OK"
+              },
+              "401": {
+                "description": "Unauthorized"
+              },
+              "403": {
+                "description": "Forbidden - Requires admin role"
+              }
+            },
+            "security": [
+              {
+                "oidcAuth": [
+                  "admin"
+                ]
+              }
+            ],
+            "summary": "Admin Area"
+          }
+        },
+        "/users": {
+          "get": {
+            "parameters": [
+              {
+                "description": "Page number",
+                "in": "query",
+                "name": "page",
+                "schema": {
+                  "default": 1,
+                  "type": "integer"
+                }
+              },
+              {
+                "in": "query",
+                "name": "limit",
+                "schema": {
+                  "default": 10,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "OK"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
   },
-  "known_bug": "Separator lines are appended to the previous fragment body, which breaks generation",
-  "log": [],
   "paths": {
-    "error": "YAML error in <case>/src/api.rs:7: could not find expected ':' at line 14 column 9, while scanning a simple key at line 13 column 9\nContext:\n    07 | paths:\n    08 |   /users:\n    09 |     get:\n    10 |       parameters:\n    11 |         # Inserts the list items directly here"
+    "document": {
+      "/admin/dashboard": {
+        "get": {
+          "responses": {
+            "200": {
+              "description": "OK"
+            },
+            "401": {
+              "description": "Unauthorized"
+            },
+            "403": {
+              "description": "Forbidden - Requires admin role"
+            }
+          },
+          "security": [
+            {
+              "oidcAuth": [
+                "admin"
+              ]
+            }
+          ],
+          "summary": "Admin Area"
+        }
+      },
+      "/users": {
+        "get": {
+          "parameters": [
+            {
+              "description": "Page number",
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "default": 1,
+                "type": "integer"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "default": 10,
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK"
+            }
+          }
+        }
+      }
+    },
+    "lints": []
   },
   "schemas": {
-    "error": "YAML error in <case>/src/api.rs:7: could not find expected ':' at line 14 column 9, while scanning a simple key at line 13 column 9\nContext:\n    07 | paths:\n    08 |   /users:\n    09 |     get:\n    10 |       parameters:\n    11 |         # Inserts the list items directly here"
+    "document": {},
+    "lints": []
   }
 }

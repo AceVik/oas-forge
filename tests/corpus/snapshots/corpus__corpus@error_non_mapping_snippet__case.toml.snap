@@ -5,17 +5,5 @@ input_file: tests/corpus/cases/error_non_mapping_snippet/case.toml
 ---
 {
   "description": "Errors: an @openapi block that is plain text",
-  "fragments": {
-    "error": "YAML error in <case>/src/lib.rs:8: an OpenAPI snippet must be a mapping at the top level, found a string\nContext:\n    08 | This endpoint is documented elsewhere."
-  },
-  "full": {
-    "error": "YAML error in <case>/src/lib.rs:8: an OpenAPI snippet must be a mapping at the top level, found a string\nContext:\n    08 | This endpoint is documented elsewhere."
-  },
-  "log": [],
-  "paths": {
-    "error": "YAML error in <case>/src/lib.rs:8: an OpenAPI snippet must be a mapping at the top level, found a string\nContext:\n    08 | This endpoint is documented elsewhere."
-  },
-  "schemas": {
-    "error": "YAML error in <case>/src/lib.rs:8: an OpenAPI snippet must be a mapping at the top level, found a string\nContext:\n    08 | This endpoint is documented elsewhere."
-  }
+  "error": "YAML error in <case>/src/lib.rs:9: an OpenAPI snippet must be a mapping at the top level, found a string\nContext:\n    09 | This endpoint is documented elsewhere."
 }

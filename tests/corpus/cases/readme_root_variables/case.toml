@@ -1,2 +1,1 @@
 description = "README: root with an unquoted {{CARGO_PKG_VERSION}} and $$OIDC_URL runtime placeholder"
-known_bug = "The unquoted version placeholder does not survive YAML re-serialization"

@@ -1,9 +1,13 @@
-use crate::common::{lines, operation, route};
-use oas_forge::dsl::parse_route_dsl;
+//! `src/dsl/`: the route DSL.
+
+use crate::common::{codes, here, lines, operation, route, try_route};
+use oas_forge::diagnostics::{Code, Diagnostics, Location, Severity};
+use oas_forge::dsl::{self, RouteSource};
 use serde_json::{Value, json};
 
-fn parse(src: &[&str]) -> Option<String> {
-    parse_route_dsl(&lines(src), "op")
+/// Compiles `src` and returns the codes of the findings.
+fn findings(src: &[&str]) -> Vec<Code> {
+    codes(&try_route(src).1)
 }
 
 fn params(op: &Value) -> &Vec<Value> {
@@ -25,14 +29,43 @@ mod detection {
     use super::*;
 
     #[test]
-    fn returns_none_without_route_directive() {
-        assert!(parse(&["Just docs", "@tag Users"]).is_none());
-        assert!(parse(&[]).is_none());
+    fn route_blocks_are_recognized_by_the_directive() {
+        assert!(dsl::is_route(&lines(&["Docs", "  @route GET /x"])));
+        assert!(!dsl::is_route(&lines(&["Just docs", "@tag Users"])));
+        assert!(!dsl::is_route(&[]));
     }
 
     #[test]
-    fn returns_none_when_route_lacks_path() {
-        assert!(parse(&["@route GET"]).is_none());
+    fn blocks_without_route_are_rejected() {
+        for src in [&["Just docs", "@tag Users"][..], &[]] {
+            let (document, diagnostics) = try_route(src);
+            assert!(document.is_none());
+            assert_eq!(codes(&diagnostics), [Code::InvalidRoute]);
+            assert!(diagnostics.has_errors());
+        }
+    }
+
+    #[test]
+    fn a_route_without_path_is_rejected_once_at_its_line() {
+        let mut diagnostics = Diagnostics::new();
+        let lines = lines(&["Docs", "@route GET"]);
+        let location = Location::new("api.rs", 10);
+        let compiled = dsl::compile(
+            RouteSource {
+                lines: &lines,
+                line_numbers: &[10, 11],
+                operation_id: None,
+                default_tags: &[],
+                location: &location,
+            },
+            &mut diagnostics,
+        );
+        assert!(compiled.is_none());
+        assert_eq!(codes(&diagnostics), [Code::InvalidRoute]);
+        assert_eq!(
+            diagnostics.iter().next().unwrap().location(),
+            Some(&Location::new("api.rs", 11))
+        );
     }
 
     #[test]
@@ -56,9 +89,69 @@ mod detection {
     }
 
     #[test]
-    fn output_has_no_yaml_document_marker() {
-        let yaml = parse(&["@route GET /ping"]).unwrap();
-        assert!(yaml.starts_with("paths:"), "got: {yaml}");
+    fn compiled_routes_name_their_path_and_method() {
+        let lines = lines(&["@route PATCH /items/{id: u32}"]);
+        let compiled = dsl::compile(
+            RouteSource {
+                lines: &lines,
+                line_numbers: &[],
+                operation_id: Some("op"),
+                default_tags: &[],
+                location: &here(),
+            },
+            &mut Diagnostics::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            (compiled.path.as_str(), compiled.method.as_str()),
+            ("/items/{id}", "patch")
+        );
+        assert!(compiled.document["paths"]["/items/{id}"]["patch"].is_object());
+    }
+
+    #[test]
+    fn routes_without_function_get_a_stable_operation_id() {
+        // Regression: virtual routes were named after their line number.
+        let mut diagnostics = Diagnostics::new();
+        let lines = lines(&["@route GET /legacy/{id}/proxy-v2", "@path-param id: u32"]);
+        let compiled = dsl::compile(
+            RouteSource {
+                lines: &lines,
+                line_numbers: &[],
+                operation_id: None,
+                default_tags: &[],
+                location: &here(),
+            },
+            &mut diagnostics,
+        )
+        .unwrap();
+        assert_eq!(
+            compiled.document["paths"]["/legacy/{id}/proxy-v2"]["get"]["operationId"],
+            "get_legacy_id_proxy_v2"
+        );
+    }
+
+    #[test]
+    fn default_tags_apply_unless_the_route_has_its_own() {
+        let defaults = vec!["Module".to_string()];
+        for (src, expected) in [
+            (&["@route GET /x"][..], json!(["Module"])),
+            (&["@route GET /x", "@tag Own"][..], json!(["Own"])),
+        ] {
+            let lines = lines(src);
+            let compiled = dsl::compile(
+                RouteSource {
+                    lines: &lines,
+                    line_numbers: &[],
+                    operation_id: Some("op"),
+                    default_tags: &defaults,
+                    location: &here(),
+                },
+                &mut Diagnostics::new(),
+            )
+            .unwrap();
+            assert_eq!(compiled.document["paths"]["/x"]["get"]["tags"], expected);
+        }
     }
 }
 
@@ -99,10 +192,30 @@ mod documentation {
     }
 
     #[test]
-    fn unknown_directives_are_ignored() {
-        let op = operation(&["@route GET /x", "@deprecated", "Summary"], "/x", "get");
+    fn description_keeps_paragraphs() {
+        let op = operation(
+            &[
+                "Summary",
+                "First",
+                "paragraph.",
+                "",
+                "Second.",
+                "@route GET /x",
+            ],
+            "/x",
+            "get",
+        );
+        assert_eq!(op["description"], "First\nparagraph.\n\nSecond.");
+    }
+
+    #[test]
+    fn unknown_directives_are_reported_and_ignored() {
+        let (document, diagnostics) = try_route(&["@route GET /x", "@frobnicate", "Summary"]);
+        let op = &document.unwrap()["paths"]["/x"]["get"];
         assert_eq!(op["summary"], "Summary");
-        assert!(op.get("deprecated").is_none());
+        assert!(op.get("frobnicate").is_none());
+        assert_eq!(codes(&diagnostics), [Code::UnknownDirective]);
+        assert!(!diagnostics.has_errors());
     }
 }
 
@@ -189,12 +302,16 @@ mod path_params {
 
     #[test]
     fn undeclared_placeholder_rejects_the_route() {
-        assert!(parse(&["@route GET /items/{id}"]).is_none());
+        let (document, diagnostics) = try_route(&["@route GET /items/{id}"]);
+        assert!(document.is_none());
+        assert_eq!(codes(&diagnostics), [Code::UndeclaredPathParam]);
     }
 
     #[test]
     fn declared_but_unused_param_rejects_the_route() {
-        assert!(parse(&["@route GET /items", "@path-param id: u32"]).is_none());
+        let (document, diagnostics) = try_route(&["@route GET /items", "@path-param id: u32"]);
+        assert!(document.is_none());
+        assert_eq!(codes(&diagnostics), [Code::UnusedPathParam]);
     }
 }
 
@@ -344,9 +461,28 @@ mod params {
     }
 
     #[test]
-    fn param_without_colon_is_ignored() {
+    fn param_without_colon_is_reported_and_ignored() {
         let op = operation(&["@route GET /x", "@query-param q String"], "/x", "get");
         assert!(params(&op).is_empty());
+        assert_eq!(
+            findings(&["@route GET /x", "@query-param q String"]),
+            [Code::InvalidDirective]
+        );
+    }
+
+    #[test]
+    fn quoted_values_keep_their_spaces() {
+        let op = operation(
+            &[
+                "@route GET /x",
+                "@query-param q: String example=\"two words\" \"A  spaced description\"",
+            ],
+            "/x",
+            "get",
+        );
+        let q = param(&op, "q");
+        assert_eq!(q["example"], "two words");
+        assert_eq!(q["description"], "A  spaced description");
     }
 }
 
@@ -550,8 +686,12 @@ mod responses {
     }
 
     #[test]
-    fn return_without_colon_is_ignored() {
+    fn return_without_colon_is_reported_and_ignored() {
         assert_eq!(responses(&["@return 200 User"]), json!({}));
+        assert_eq!(
+            findings(&["@route GET /x", "@return 200 User"]),
+            [Code::InvalidDirective]
+        );
     }
 }
 
@@ -681,20 +821,50 @@ mod yaml_overrides {
     }
 
     #[test]
-    fn yaml_arrays_replace_dsl_parameters() {
+    fn yaml_parameters_are_merged_by_name_and_location() {
+        // Changed in 0.2: YAML `parameters` no longer replace the DSL ones.
         let op = operation(
             &[
                 "@route GET /x",
                 "@query-param dsl: String",
+                "@query-param both: u32",
                 "parameters:",
                 "  - name: yaml",
                 "    in: query",
+                "  - name: both",
+                "    in: query",
+                "    description: from YAML",
             ],
             "/x",
             "get",
         );
         let names: Vec<_> = params(&op).iter().map(|p| p["name"].clone()).collect();
-        assert_eq!(names, [json!("yaml")]);
+        assert_eq!(names, [json!("dsl"), json!("both"), json!("yaml")]);
+        assert_eq!(param(&op, "both")["description"], "from YAML");
+        assert_eq!(param(&op, "both")["schema"]["format"], "int32");
+    }
+
+    #[test]
+    fn yaml_wins_conflicts_with_a_note() {
+        let (document, diagnostics) = try_route(&[
+            "@route GET /x",
+            "@return 200: String \"DSL\"",
+            "responses:",
+            "  '200': { description: YAML }",
+        ]);
+        assert_eq!(
+            document.unwrap()["paths"]["/x"]["get"]["responses"]["200"]["description"],
+            "YAML"
+        );
+        let note = diagnostics.iter().next().unwrap();
+        assert_eq!(
+            (note.code(), note.severity()),
+            (Code::MergeConflict, Severity::Note)
+        );
+        assert!(
+            note.message().contains("/responses/200/description"),
+            "{note}"
+        );
     }
 
     #[test]
@@ -715,18 +885,134 @@ mod yaml_overrides {
     }
 
     #[test]
-    fn invalid_override_yaml_is_ignored() {
-        let op = operation(
-            &["@route GET /x", "@return 200: User", "responses: [unclosed"],
-            "/x",
-            "get",
-        );
+    fn invalid_override_yaml_is_reported_and_ignored() {
+        let src = ["@route GET /x", "@return 200: User", "responses: [unclosed"];
+        let op = operation(&src, "/x", "get");
         assert!(op["responses"]["200"].is_object());
+        assert_eq!(findings(&src), [Code::InvalidRouteYaml]);
     }
 
     #[test]
     fn unknown_keys_are_treated_as_documentation() {
         let op = operation(&["@route GET /x", "foo: bar"], "/x", "get");
         assert_eq!(op["summary"], "foo: bar");
+    }
+
+    #[test]
+    fn extension_keys_start_an_override_block() {
+        let op = operation(
+            &["@route GET /x", "x-codeSamples:", "  - lang: sh"],
+            "/x",
+            "get",
+        );
+        assert_eq!(op["x-codeSamples"], json!([{ "lang": "sh" }]));
+        assert!(op.get("summary").is_none());
+    }
+
+    #[test]
+    fn blank_lines_inside_a_block_are_kept() {
+        let op = operation(
+            &[
+                "@route GET /x",
+                "responses:",
+                "  '200':",
+                "",
+                "    description: |",
+                "      a",
+                "",
+                "      b",
+            ],
+            "/x",
+            "get",
+        );
+        assert_eq!(op["responses"]["200"]["description"], "a\n\nb");
+    }
+}
+
+mod scopes {
+    use super::*;
+
+    #[test]
+    fn path_scope_targets_the_path_item() {
+        let doc = route(&[
+            "@route GET /x",
+            "@openapi path",
+            "servers: [{ url: 'https://edge' }]",
+            "summary: Shared",
+        ]);
+        let item = &doc["paths"]["/x"];
+        assert_eq!(item["servers"][0]["url"], "https://edge");
+        assert_eq!(item["summary"], "Shared");
+        assert!(item["get"].get("servers").is_none());
+    }
+
+    #[test]
+    fn document_scope_targets_the_document() {
+        let doc = route(&[
+            "@route GET /x",
+            "@openapi document",
+            "components:",
+            "  responses:",
+            "    NotFound: { description: Missing }",
+            "@openapi",
+            "deprecated: true",
+        ]);
+        assert_eq!(
+            doc["components"]["responses"]["NotFound"]["description"],
+            "Missing"
+        );
+        assert_eq!(doc["paths"]["/x"]["get"]["deprecated"], true);
+    }
+
+    #[test]
+    fn operation_scope_accepts_any_operation_field() {
+        let op = operation(
+            &[
+                "@route GET /x",
+                "@openapi operation",
+                "deprecated: true",
+                "summary: S",
+            ],
+            "/x",
+            "get",
+        );
+        assert_eq!(op["deprecated"], true);
+        assert_eq!(op["summary"], "S");
+    }
+
+    #[test]
+    fn unknown_scopes_fall_back_to_the_operation() {
+        let src = ["@route GET /x", "@openapi everywhere", "deprecated: true"];
+        assert_eq!(operation(&src, "/x", "get")["deprecated"], true);
+        assert_eq!(findings(&src), [Code::InvalidDirective]);
+    }
+
+    #[test]
+    fn non_mapping_blocks_are_reported_and_ignored() {
+        // Found by the property tests: a scalar replaced the whole operation.
+        for src in [
+            &["@route GET /x", "@openapi", "0"][..],
+            &["@route GET /x", "@openapi path", "- a"][..],
+            &["@route GET /x", "@openapi document", "text"][..],
+        ] {
+            let (document, diagnostics) = try_route(src);
+            assert_eq!(document.unwrap(), route(&["@route GET /x"]), "{src:?}");
+            assert_eq!(codes(&diagnostics), [Code::InvalidRouteYaml], "{src:?}");
+        }
+    }
+
+    #[test]
+    fn empty_and_null_blocks_change_nothing() {
+        let plain = route(&["@route GET /x"]);
+        assert_eq!(
+            route(&[
+                "@route GET /x",
+                "@openapi path",
+                "",
+                "@openapi document",
+                "~"
+            ]),
+            plain
+        );
     }
 }

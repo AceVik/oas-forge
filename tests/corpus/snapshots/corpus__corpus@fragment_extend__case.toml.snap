@@ -5,9 +5,11 @@ input_file: tests/corpus/cases/fragment_extend/case.toml
 ---
 {
   "description": "Fragments: @extend structural merge in manual blocks, with conflict",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
+        "x-oas-forge-format": 1,
         "x-oas-forge-fragments": {
           "Secured": {
             "body": "security:\n  - oidc: [{{role}}]\nsummary: From fragment\nresponses:\n  '401':\n    description: Unauthorized",
@@ -35,7 +37,7 @@ input_file: tests/corpus/cases/fragment_extend/case.toml
                 ]
               }
             ],
-            "summary": "From fragment"
+            "summary": "Local summary"
           }
         }
       }
@@ -67,7 +69,7 @@ input_file: tests/corpus/cases/fragment_extend/case.toml
                 ]
               }
             ],
-            "summary": "From fragment"
+            "summary": "Local summary"
           }
         }
       }
@@ -75,10 +77,6 @@ input_file: tests/corpus/cases/fragment_extend/case.toml
     "lints": [],
     "validation": []
   },
-  "known_bug": "On conflict the fragment value wins over the local value",
-  "log": [
-    "WARN: Generating empty schemas file."
-  ],
   "paths": {
     "document": {
       "/admin": {
@@ -98,7 +96,7 @@ input_file: tests/corpus/cases/fragment_extend/case.toml
               ]
             }
           ],
-          "summary": "From fragment"
+          "summary": "Local summary"
         }
       }
     },

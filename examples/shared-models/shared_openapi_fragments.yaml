@@ -1,22 +1,23 @@
 components:
   x-oas-forge-templates:
     Paginated:
+      params:
+      - T
       body: |
+        type: object
         properties:
           items:
+            type: array
             items:
               $ref: $T
-            type: array
-          page:
-            format: int64
-            type: integer
           total:
-            format: int64
             type: integer
+            format: int64
+          page:
+            type: integer
+            format: int64
         required:
         - items
         - total
         - page
-        type: object
-      params:
-      - T
+  x-oas-forge-format: 1

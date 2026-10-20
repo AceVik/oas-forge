@@ -5,17 +5,5 @@ input_file: tests/corpus/cases/error_invalid_rust/case.toml
 ---
 {
   "description": "Errors: a file that is not valid Rust",
-  "fragments": {
-    "error": "Syntactic parsing error in file \"<case>/src/lib.rs\": cannot parse string into token stream"
-  },
-  "full": {
-    "error": "Syntactic parsing error in file \"<case>/src/lib.rs\": cannot parse string into token stream"
-  },
-  "log": [],
-  "paths": {
-    "error": "Syntactic parsing error in file \"<case>/src/lib.rs\": cannot parse string into token stream"
-  },
-  "schemas": {
-    "error": "Syntactic parsing error in file \"<case>/src/lib.rs\": cannot parse string into token stream"
-  }
+  "error": "Rust syntax error in <case>/src/lib.rs:1:12: cannot parse string into token stream"
 }

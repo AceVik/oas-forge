@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/struct_validation/case.toml
 ---
 {
   "description": "Structs: validator attributes",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -180,9 +181,6 @@ input_file: tests/corpus/cases/struct_validation/case.toml
     "validation": []
   },
   "known_bug": "Negative/float ranges, exclusive bounds, equal, contains, required and regex(path) are ignored; length on Vec emits minLength",
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

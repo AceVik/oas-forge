@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
 ---
 {
   "description": "Route DSL: raw YAML operation fields mixed into a route",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "paths": {
@@ -12,6 +13,14 @@ input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
           "get": {
             "operationId": "mixed",
             "parameters": [
+              {
+                "in": "query",
+                "name": "dsl",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
               {
                 "in": "query",
                 "name": "yaml",
@@ -82,6 +91,14 @@ input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
             "parameters": [
               {
                 "in": "query",
+                "name": "dsl",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "in": "query",
                 "name": "yaml",
                 "schema": {
                   "type": "string"
@@ -137,16 +154,20 @@ input_file: tests/corpus/cases/dsl_yaml_overrides/case.toml
     "lints": [],
     "validation": []
   },
-  "known_bug": "YAML parameters replace the DSL parameters instead of being merged",
-  "log": [
-    "WARN: Generating empty schemas file."
-  ],
   "paths": {
     "document": {
       "/mixed": {
         "get": {
           "operationId": "mixed",
           "parameters": [
+            {
+              "in": "query",
+              "name": "dsl",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
             {
               "in": "query",
               "name": "yaml",

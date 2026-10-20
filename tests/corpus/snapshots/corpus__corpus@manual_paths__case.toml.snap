@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/manual_paths/case.toml
 ---
 {
   "description": "Manual mode: @openapi YAML blocks on functions (with leading doc text)",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "paths": {
@@ -45,9 +46,6 @@ input_file: tests/corpus/cases/manual_paths/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [
-    "WARN: Generating empty schemas file."
-  ],
   "paths": {
     "document": {
       "/health": {

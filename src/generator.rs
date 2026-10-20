@@ -1,0 +1,680 @@
+//! The generator: configuration, the pipeline run and its result.
+
+use super::config::Config;
+use super::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
+use super::dsl::{self, RouteSource};
+use super::error::{Error, Result};
+use super::extract::{self, Item};
+use super::lint;
+use super::merge::{Policy, merge};
+use super::output::{self, Format, OutputKind};
+use super::source::{DEFAULT_MAX_FILE_SIZE, DiscoverOptions, SourceFile, SourceKind, SourceSet};
+use super::template::generics::Instantiator;
+use super::template::lexical::{self, EXTEND_KEY, Variables};
+use super::template::refs::{self, KnownSchemas};
+use super::template::{Blueprint, Fragment, Registry, extend};
+use super::yaml;
+use serde_json::{Map, Value, json};
+use std::path::PathBuf;
+
+/// Builds OpenAPI documents from Rust sources.
+///
+/// ```no_run
+/// oas_forge::Generator::new()
+///     .input("src")
+///     .output("openapi.yaml")
+///     .generate()
+///     .expect("OpenAPI generation failed");
+/// ```
+#[derive(Debug, Clone)]
+pub struct Generator {
+    inputs: Vec<PathBuf>,
+    includes: Vec<PathBuf>,
+    outputs: Vec<(OutputKind, PathBuf)>,
+    variables: Variables,
+    deny_warnings: bool,
+    max_file_size: u64,
+    cargo_directives: bool,
+}
+
+impl Default for Generator {
+    fn default() -> Self {
+        let mut variables = Variables::new();
+        variables.insert(
+            "CARGO_PKG_VERSION".into(),
+            std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into()),
+        );
+        Self {
+            inputs: Vec::new(),
+            includes: Vec::new(),
+            outputs: Vec::new(),
+            variables,
+            deny_warnings: false,
+            max_file_size: DEFAULT_MAX_FILE_SIZE,
+            cargo_directives: false,
+        }
+    }
+}
+
+impl Generator {
+    /// A generator without inputs and outputs.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Adds the inputs and outputs of `config`.
+    pub fn with_config(mut self, config: Config) -> Self {
+        let Config {
+            input,
+            include,
+            output,
+            output_schemas,
+            output_paths,
+            output_fragments,
+            ..
+        } = config;
+        self.inputs.extend(input.unwrap_or_default());
+        self.includes.extend(include.unwrap_or_default());
+        for (kind, paths) in [
+            (OutputKind::Full, output),
+            (OutputKind::Schemas, output_schemas),
+            (OutputKind::Paths, output_paths),
+            (OutputKind::Fragments, output_fragments),
+        ] {
+            self.outputs
+                .extend(paths.unwrap_or_default().into_iter().map(|p| (kind, p)));
+        }
+        self
+    }
+
+    /// Adds a directory that is scanned recursively.
+    pub fn input(mut self, path: impl Into<PathBuf>) -> Self {
+        self.inputs.push(path.into());
+        self
+    }
+
+    /// Adds a single YAML/JSON file.
+    pub fn include(mut self, path: impl Into<PathBuf>) -> Self {
+        self.includes.push(path.into());
+        self
+    }
+
+    /// Writes the full specification to `path`.
+    pub fn output(self, path: impl Into<PathBuf>) -> Self {
+        self.output_as(OutputKind::Full, path)
+    }
+
+    /// Writes only `components.schemas` to `path`.
+    pub fn output_schemas(self, path: impl Into<PathBuf>) -> Self {
+        self.output_as(OutputKind::Schemas, path)
+    }
+
+    /// Writes only `paths` to `path`.
+    pub fn output_paths(self, path: impl Into<PathBuf>) -> Self {
+        self.output_as(OutputKind::Paths, path)
+    }
+
+    /// Writes the headless specification for other crates to `path`.
+    pub fn output_fragments(self, path: impl Into<PathBuf>) -> Self {
+        self.output_as(OutputKind::Fragments, path)
+    }
+
+    /// Writes the output strategy `kind` to `path`.
+    pub fn output_as(mut self, kind: OutputKind, path: impl Into<PathBuf>) -> Self {
+        self.outputs.push((kind, path.into()));
+        self
+    }
+
+    /// Sets the value of a `{{name}}` placeholder.
+    pub fn var(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.variables.insert(name.into(), value.into());
+        self
+    }
+
+    /// Treats warnings as errors.
+    pub fn deny_warnings(mut self, deny: bool) -> Self {
+        self.deny_warnings = deny;
+        self
+    }
+
+    /// Sets the size limit per input file in bytes.
+    pub fn max_file_size(mut self, bytes: u64) -> Self {
+        self.max_file_size = bytes;
+        self
+    }
+
+    /// In build scripts: print `cargo:warning=` for diagnostics and
+    /// `cargo:rerun-if-changed=` for every input when generating.
+    pub fn emit_cargo_directives(mut self, emit: bool) -> Self {
+        self.cargo_directives = emit;
+        self
+    }
+
+    /// Runs the pipeline without writing files.
+    ///
+    /// # Errors
+    /// Fatal problems (unreadable inputs, invalid Rust, invalid YAML, multiple
+    /// roots). Error-level diagnostics are returned in the [`Spec`].
+    pub fn build(&self) -> Result<Spec> {
+        let mut diagnostics = Diagnostics::new();
+        let options = DiscoverOptions::default()
+            .with_exclude(self.outputs.iter().map(|(_, p)| p.clone()).collect())
+            .with_max_file_size(self.max_file_size);
+        let sources =
+            SourceSet::discover(&self.inputs, &self.includes, &options, &mut diagnostics)?;
+        let (document, registry) = run(&sources, &self.variables, &mut diagnostics)?;
+        if self.deny_warnings {
+            diagnostics.deny_warnings();
+        }
+        Ok(Spec {
+            document,
+            registry,
+            outputs: self.outputs.clone(),
+            diagnostics,
+            watched: sources.watched().to_vec(),
+        })
+    }
+
+    /// Runs the pipeline and writes every configured output.
+    ///
+    /// # Errors
+    /// [`Error::NoOutput`] without outputs, any [`Generator::build`] error,
+    /// [`Error::Diagnostics`] when a diagnostic has error severity, and
+    /// [`Error::NoRootFound`] for a full output without root document.
+    pub fn generate(&self) -> Result<()> {
+        if self.outputs.is_empty() {
+            return Err(Error::NoOutput);
+        }
+        let spec = self.build()?;
+        if self.cargo_directives {
+            spec.print_cargo_directives();
+        }
+        if spec.diagnostics.has_errors() {
+            return Err(Error::Diagnostics(spec.diagnostics.into_vec()));
+        }
+        spec.write()?;
+        Ok(())
+    }
+}
+
+/// The result of a pipeline run.
+#[derive(Debug, Clone)]
+pub struct Spec {
+    document: Value,
+    registry: Registry,
+    outputs: Vec<(OutputKind, PathBuf)>,
+    diagnostics: Diagnostics,
+    watched: Vec<PathBuf>,
+}
+
+impl Spec {
+    /// The merged document (it has no root when none was defined).
+    pub fn document(&self) -> &Value {
+        &self.document
+    }
+
+    /// The templates and fragments known to this run.
+    pub fn registry(&self) -> &Registry {
+        &self.registry
+    }
+
+    /// Every finding of the run.
+    pub fn diagnostics(&self) -> &Diagnostics {
+        &self.diagnostics
+    }
+
+    /// Inputs whose changes affect the result.
+    pub fn watched(&self) -> &[PathBuf] {
+        &self.watched
+    }
+
+    /// The value an output strategy receives.
+    ///
+    /// # Errors
+    /// [`Error::NoRootFound`] for [`OutputKind::Full`] without root document.
+    pub fn render(&self, kind: OutputKind) -> Result<Value> {
+        output::render(kind, &self.document, &self.registry)
+    }
+
+    /// Writes every configured output (skipping files whose content is
+    /// unchanged) and returns the configured paths.
+    ///
+    /// # Errors
+    /// [`Error::NoRootFound`] or [`Error::Io`].
+    pub fn write(&self) -> Result<Vec<PathBuf>> {
+        let mut rendered = Vec::new();
+        for (kind, path) in &self.outputs {
+            let value = self.render(*kind)?;
+            rendered.push((path, Format::of(path).render(&value)));
+        }
+        for (path, text) in &rendered {
+            output::write_if_changed(path, text)?;
+        }
+        Ok(rendered.into_iter().map(|(p, _)| p.clone()).collect())
+    }
+
+    /// Prints diagnostics as `cargo:warning=` and the inputs as
+    /// `cargo:rerun-if-changed=` (for build scripts).
+    pub fn print_cargo_directives(&self) {
+        for path in &self.watched {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+        for diagnostic in &self.diagnostics {
+            if diagnostic.severity() != Severity::Note {
+                println!("cargo:warning={diagnostic}");
+            }
+        }
+    }
+}
+
+/// A parsed document and where it came from.
+struct Snippet {
+    value: Value,
+    location: Location,
+}
+
+/// A piece of text that still has to go through the lexical stage.
+enum Pending {
+    Document {
+        text: String,
+        location: Location,
+        tags: Vec<String>,
+    },
+    NamedSchema {
+        name: String,
+        text: String,
+        location: Location,
+    },
+    Route(extract::RouteItem),
+    File {
+        text: String,
+        location: Location,
+    },
+}
+
+/// Runs every stage on `sources`; returns the merged document and registry.
+pub(crate) fn run(
+    sources: &SourceSet,
+    variables: &Variables,
+    diagnostics: &mut Diagnostics,
+) -> Result<(Value, Registry)> {
+    let mut registry = Registry::new();
+    let mut known = KnownSchemas::default();
+    let mut snippets: Vec<Snippet> = Vec::new();
+    let mut pending: Vec<(usize, Pending)> = Vec::new();
+
+    // Pass 1: extraction and template registration.
+    for file in sources.files() {
+        match file.kind() {
+            SourceKind::Rust => {
+                for item in extract::extract(file, diagnostics)? {
+                    register(
+                        item,
+                        &mut registry,
+                        &mut known,
+                        &mut snippets,
+                        &mut pending,
+                        diagnostics,
+                    );
+                }
+            }
+            SourceKind::Yaml | SourceKind::Json => {
+                let location = file.location(1);
+                if let Ok(mut value) = yaml::parse(file.text()) {
+                    registry.import(&mut value, &location, &mut Diagnostics::new());
+                    known.collect_from(&value);
+                }
+                pending.push((
+                    snippets.len(),
+                    Pending::File {
+                        text: file.text().to_string(),
+                        location,
+                    },
+                ));
+            }
+        }
+    }
+
+    // Pass 2: lexical expansion, parsing, `@extend`, DSL.
+    let mut ordered: Vec<(usize, Snippet)> = snippets
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| (i * 2, s))
+        .collect();
+    for (position, item) in pending {
+        if let Some(snippet) = materialize(item, &registry, variables, diagnostics)? {
+            known.collect_from(&snippet.value);
+            ordered.push((position * 2 + 1, snippet));
+        }
+    }
+    ordered.sort_by_key(|(position, _)| *position);
+    let mut snippets: Vec<Snippet> = ordered.into_iter().map(|(_, s)| s).collect();
+
+    // Pass 3: generic instantiation.
+    let mut instantiator = Instantiator::new(&registry);
+    for snippet in &mut snippets {
+        instantiator.apply(&mut snippet.value, &snippet.location, diagnostics);
+    }
+    let concrete = instantiator.into_concrete();
+    for name in concrete.keys() {
+        known.insert(name.clone());
+    }
+
+    // Pass 4: smart references.
+    for snippet in &mut snippets {
+        refs::resolve(
+            &mut snippet.value,
+            &known,
+            &registry,
+            &snippet.location,
+            diagnostics,
+        );
+    }
+    let mut generated = Vec::new();
+    for (name, (mut body, location)) in concrete {
+        refs::resolve(&mut body, &known, &registry, &location, diagnostics);
+        generated.push(Snippet {
+            value: json!({ "components": { "schemas": { name: body } } }),
+            location,
+        });
+    }
+
+    // Pass 5: merge.
+    let mut document = merge_all(snippets, generated, diagnostics)?;
+    refs::unescape(&mut document);
+    output::strip_transport(&mut document);
+    normalize(&mut document);
+    lint::check(&document, diagnostics);
+    Ok((document, registry))
+}
+
+fn register(
+    item: Item,
+    registry: &mut Registry,
+    known: &mut KnownSchemas,
+    snippets: &mut Vec<Snippet>,
+    pending: &mut Vec<(usize, Pending)>,
+    diagnostics: &mut Diagnostics,
+) {
+    match item {
+        Item::Schema(schema) => {
+            if known.contains(&schema.name) {
+                diagnostics.push(
+                    Diagnostic::new(
+                        Code::DuplicateSchema,
+                        format!(
+                            "schema `{}` is defined more than once; the definitions are merged",
+                            schema.name
+                        ),
+                    )
+                    .at(schema.location.clone()),
+                );
+            }
+            known.insert(schema.name.clone());
+            registry.add_alias(&schema.rust_name, &schema.name);
+            snippets.push(Snippet {
+                value: json!({ "components": { "schemas": { schema.name: schema.schema } } }),
+                location: schema.location,
+            });
+        }
+        Item::Blueprint(blueprint) => {
+            registry.add_alias(&blueprint.rust_name, &blueprint.name);
+            registry.add_blueprint(
+                blueprint.name,
+                Blueprint {
+                    params: blueprint.params,
+                    schema: blueprint.schema,
+                },
+            );
+        }
+        Item::Fragment(fragment) => registry.add_fragment(
+            fragment.name,
+            Fragment {
+                params: fragment.params,
+                body: fragment.body,
+            },
+        ),
+        Item::Document(document) => pending.push((
+            snippets.len(),
+            Pending::Document {
+                text: document.text,
+                location: document.location,
+                tags: document.tags,
+            },
+        )),
+        Item::NamedSchema(named) => {
+            known.insert(named.name.clone());
+            pending.push((
+                snippets.len(),
+                Pending::NamedSchema {
+                    name: named.name,
+                    text: named.text,
+                    location: named.location,
+                },
+            ));
+        }
+        Item::Route(route) => pending.push((snippets.len(), Pending::Route(route))),
+    }
+}
+
+/// Lexical expansion and parsing of one pending text.
+fn materialize(
+    pending: Pending,
+    registry: &Registry,
+    variables: &Variables,
+    diagnostics: &mut Diagnostics,
+) -> Result<Option<Snippet>> {
+    match pending {
+        Pending::Document {
+            text,
+            location,
+            tags,
+        } => {
+            let Some(mut value) = parse_text(&text, registry, variables, &location, diagnostics)?
+            else {
+                return Ok(None);
+            };
+            apply_tags(&mut value, &tags);
+            Ok(Some(Snippet { value, location }))
+        }
+        Pending::NamedSchema {
+            name,
+            text,
+            location,
+        } => {
+            let Some(value) = parse_any(&text, registry, variables, &location, diagnostics)? else {
+                return Ok(None);
+            };
+            Ok(Some(Snippet {
+                value: json!({ "components": { "schemas": { name: value } } }),
+                location,
+            }))
+        }
+        Pending::File { text, location } => {
+            let Some(mut value) = parse_text(&text, registry, variables, &location, diagnostics)?
+            else {
+                return Ok(None);
+            };
+            output::strip_transport(&mut value);
+            Ok(Some(Snippet { value, location }))
+        }
+        Pending::Route(route) => {
+            let text = route.lines.join("\n");
+            let expanded =
+                lexical::expand(&text, registry, variables, &route.location, diagnostics);
+            let lines: Vec<String> = expanded.lines().map(str::to_string).collect();
+            let compiled = dsl::compile(
+                RouteSource {
+                    lines: &lines,
+                    line_numbers: &route.line_numbers,
+                    operation_id: route.operation_id.as_deref(),
+                    default_tags: &route.tags,
+                    location: &route.location,
+                },
+                diagnostics,
+            );
+            let Some(compiled) = compiled else {
+                return Ok(None);
+            };
+            let mut value = compiled.document;
+            extend::apply(&mut value, registry, &route.location, diagnostics);
+            Ok(Some(Snippet {
+                value,
+                location: route.location,
+            }))
+        }
+    }
+}
+
+/// Expands and parses a document text; it must be a mapping (or empty).
+fn parse_text(
+    text: &str,
+    registry: &Registry,
+    variables: &Variables,
+    location: &Location,
+    diagnostics: &mut Diagnostics,
+) -> Result<Option<Value>> {
+    let Some(value) = parse_any(text, registry, variables, location, diagnostics)? else {
+        return Ok(None);
+    };
+    let found = match &value {
+        Value::Object(_) => return Ok(Some(value)),
+        Value::Bool(_) => "a boolean",
+        Value::Number(_) => "a number",
+        Value::String(_) => "a string",
+        _ => "a sequence",
+    };
+    Err(Error::Yaml {
+        location: location.clone(),
+        message: format!("an OpenAPI snippet must be a mapping at the top level, found {found}"),
+        context: context(text, location),
+    })
+}
+
+/// Expands and parses any YAML value; `None` for empty documents.
+fn parse_any(
+    text: &str,
+    registry: &Registry,
+    variables: &Variables,
+    location: &Location,
+    diagnostics: &mut Diagnostics,
+) -> Result<Option<Value>> {
+    let expanded = lexical::expand(text, registry, variables, location, diagnostics);
+    let mut value = yaml::parse(&expanded).map_err(|e| Error::Yaml {
+        location: location.clone(),
+        message: e.message,
+        context: context(&expanded, location),
+    })?;
+    if value.is_null() {
+        return Ok(None);
+    }
+    extend::apply(&mut value, registry, location, diagnostics);
+    Ok(Some(value))
+}
+
+fn context(text: &str, location: &Location) -> String {
+    text.lines()
+        .take(5)
+        .enumerate()
+        .map(|(i, line)| format!("    {:02} | {line}", location.line() + i))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+const METHODS: &[&str] = &[
+    "get", "put", "post", "delete", "options", "head", "patch", "trace", "query",
+];
+
+/// Module tags for operations of a document that have no tags.
+fn apply_tags(document: &mut Value, tags: &[String]) {
+    if tags.is_empty() {
+        return;
+    }
+    let Some(paths) = document.get_mut("paths").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for item in paths.values_mut().filter_map(Value::as_object_mut) {
+        for (method, operation) in item.iter_mut() {
+            let Some(operation) = operation.as_object_mut() else {
+                continue;
+            };
+            if METHODS.contains(&method.as_str()) && !operation.contains_key("tags") {
+                let mut with_tags = Map::with_capacity(operation.len() + 1);
+                with_tags.insert("tags".into(), json!(tags));
+                with_tags.extend(std::mem::take(operation));
+                *operation = with_tags;
+            }
+        }
+    }
+}
+
+/// Merges all snippets onto the root document (exactly one root allowed).
+fn merge_all(
+    snippets: Vec<Snippet>,
+    generated: Vec<Snippet>,
+    diagnostics: &mut Diagnostics,
+) -> Result<Value> {
+    let roots: Vec<Location> = snippets
+        .iter()
+        .filter(|s| output::is_root(&s.value))
+        .map(|s| s.location.clone())
+        .collect();
+    if roots.len() > 1 {
+        return Err(Error::MultipleRootsFound { locations: roots });
+    }
+    let (root, others): (Vec<Snippet>, Vec<Snippet>) = snippets
+        .into_iter()
+        .partition(|s| output::is_root(&s.value));
+    let mut document = root
+        .into_iter()
+        .next()
+        .map_or_else(|| Value::Object(Map::new()), |s| s.value);
+    for snippet in others.into_iter().chain(generated) {
+        for pointer in merge(&mut document, snippet.value, Policy::Document) {
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::MergeConflict,
+                    format!("the value at `{pointer}` is set differently by several annotations; the later one wins"),
+                )
+                .at(snippet.location.clone()),
+            );
+        }
+    }
+    Ok(document)
+}
+
+/// Final clean-ups of the merged document.
+fn normalize(document: &mut Value) {
+    // `tags: [A, B]` declared on modules: tag objects are required at the top level.
+    if let Some(Value::Array(tags)) = document.get_mut("tags") {
+        for tag in tags.iter_mut() {
+            if let Value::String(name) = tag {
+                *tag = json!({ "name": name });
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        tags.retain(|t| seen.insert(t.get("name").map(Value::to_string).unwrap_or_default()));
+    }
+    remove_extend_markers(document);
+}
+
+fn remove_extend_markers(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            map.retain(|k, _| !k.starts_with(EXTEND_KEY));
+            map.values_mut().for_each(remove_extend_markers);
+        }
+        Value::Array(items) => items.iter_mut().for_each(remove_extend_markers),
+        _ => {}
+    }
+}
+
+/// Runs the pipeline on in-memory sources (for tests and tools).
+pub fn generate_from_sources(
+    files: Vec<SourceFile>,
+    variables: &Variables,
+) -> Result<(Value, Diagnostics)> {
+    let mut diagnostics = Diagnostics::new();
+    let (document, _) = run(&SourceSet::from_files(files), variables, &mut diagnostics)?;
+    Ok((document, diagnostics))
+}

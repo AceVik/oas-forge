@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
 ---
 {
   "description": "README: template schemas with generics (PaginatedResponse<T>)",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -58,9 +59,10 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
             "type": "object"
           }
         },
+        "x-oas-forge-format": 1,
         "x-oas-forge-templates": {
           "PaginatedResponse": {
-            "body": "description: Paginated response wrapper.\nproperties:\n  data:\n    items:\n      $ref: $T\n    type: array\n  limit:\n    example: 10\n    format: int32\n    maximum: 1000\n    minimum: 1\n    type: integer\n  page:\n    example: 1\n    format: int32\n    minimum: 1\n    type: integer\n  total_count:\n    example: 100\n    format: int32\n    type: integer\nrequired:\n- total_count\n- page\n- limit\n- data\ntype: object\n",
+            "body": "type: object\nproperties:\n  total_count:\n    type: integer\n    format: int32\n    example: 100\n  page:\n    type: integer\n    format: int32\n    example: 1\n    minimum: 1\n  limit:\n    type: integer\n    format: int32\n    example: 10\n    minimum: 1\n    maximum: 1000\n  data:\n    type: array\n    items:\n      $ref: $T\nrequired:\n- total_count\n- page\n- limit\n- data\ndescription: Paginated response wrapper.\n",
             "params": [
               "T"
             ]
@@ -175,7 +177,6 @@ input_file: tests/corpus/cases/readme_blueprints/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [],
   "paths": {
     "document": {
       "/users": {

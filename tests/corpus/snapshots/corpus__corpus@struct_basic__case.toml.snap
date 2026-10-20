@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/struct_basic/case.toml
 ---
 {
   "description": "Structs: scalars, Option, collections, maps, nested references, doc comments",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -157,9 +158,6 @@ input_file: tests/corpus/cases/struct_basic/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

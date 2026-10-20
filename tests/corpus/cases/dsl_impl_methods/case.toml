@@ -1,2 +1,1 @@
 description = "Route DSL: @route on impl methods"
-known_bug = "@route on impl methods is ignored"

@@ -5,9 +5,11 @@ input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
 ---
 {
   "description": "Route DSL: @extend inside a route block",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
+        "x-oas-forge-format": 1,
         "x-oas-forge-fragments": {
           "Secured": {
             "body": "security:\n  - oidc: [{{role}}]\nresponses:\n  '401':\n    description: Unauthorized",
@@ -25,9 +27,18 @@ input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
             "responses": {
               "200": {
                 "description": "ok"
+              },
+              "401": {
+                "description": "Unauthorized"
               }
             },
-            "summary": "x-openapi-extend: 'Secured(\"admin\")'",
+            "security": [
+              {
+                "oidc": [
+                  "admin"
+                ]
+              }
+            ],
             "tags": []
           }
         }
@@ -50,9 +61,18 @@ input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
             "responses": {
               "200": {
                 "description": "ok"
+              },
+              "401": {
+                "description": "Unauthorized"
               }
             },
-            "summary": "x-openapi-extend: 'Secured(\"admin\")'",
+            "security": [
+              {
+                "oidc": [
+                  "admin"
+                ]
+              }
+            ],
             "tags": []
           }
         }
@@ -61,10 +81,6 @@ input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
     "lints": [],
     "validation": []
   },
-  "known_bug": "@extend is never merged inside a route",
-  "log": [
-    "WARN: Generating empty schemas file."
-  ],
   "paths": {
     "document": {
       "/admin": {
@@ -74,9 +90,18 @@ input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
           "responses": {
             "200": {
               "description": "ok"
+            },
+            "401": {
+              "description": "Unauthorized"
             }
           },
-          "summary": "x-openapi-extend: 'Secured(\"admin\")'",
+          "security": [
+            {
+              "oidc": [
+                "admin"
+              ]
+            }
+          ],
           "tags": []
         }
       }

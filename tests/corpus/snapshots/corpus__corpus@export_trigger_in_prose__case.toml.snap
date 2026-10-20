@@ -5,45 +5,13 @@ input_file: tests/corpus/cases/export_trigger_in_prose/case.toml
 ---
 {
   "description": "Export: a doc comment that only mentions @openapi in prose",
+  "diagnostics": [],
   "fragments": {
-    "document": {
-      "components": {
-        "schemas": {
-          "Internal": {
-            "description": "Internal type; deliberately has no @openapi directive.",
-            "properties": {
-              "secret": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "secret"
-            ],
-            "type": "object"
-          }
-        }
-      }
-    },
+    "document": {},
     "lints": []
   },
   "full": {
     "document": {
-      "components": {
-        "schemas": {
-          "Internal": {
-            "description": "Internal type; deliberately has no @openapi directive.",
-            "properties": {
-              "secret": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "secret"
-            ],
-            "type": "object"
-          }
-        }
-      },
       "info": {
         "title": "Corpus",
         "version": "1.0.0"
@@ -51,31 +19,16 @@ input_file: tests/corpus/cases/export_trigger_in_prose/case.toml
       "openapi": "3.1.0"
     },
     "lints": [],
-    "validation": []
+    "validation": [
+      ": value is not valid under any of the schemas listed in the 'anyOf' keyword"
+    ]
   },
-  "known_bug": "Any doc line containing the text @openapi exports the item",
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []
   },
   "schemas": {
-    "document": {
-      "Internal": {
-        "description": "Internal type; deliberately has no @openapi directive.",
-        "properties": {
-          "secret": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "secret"
-        ],
-        "type": "object"
-      }
-    },
+    "document": {},
     "lints": []
   }
 }

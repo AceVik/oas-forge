@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/cross_crate_templates/case.toml
 ---
 {
   "description": "Cross-crate: consuming x-oas-forge-templates/fragments from an included fragments file",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -40,6 +41,7 @@ input_file: tests/corpus/cases/cross_crate_templates/case.toml
             "type": "object"
           }
         },
+        "x-oas-forge-format": 1,
         "x-oas-forge-fragments": {
           "Problem": {
             "body": "description: Problem {{status}}",
@@ -165,7 +167,6 @@ input_file: tests/corpus/cases/cross_crate_templates/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [],
   "paths": {
     "document": {
       "/invoices": {

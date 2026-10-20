@@ -5,6 +5,19 @@ input_file: tests/corpus/cases/type_mapping/case.toml
 ---
 {
   "description": "Type mapping table: primitives, std and ecosystem types",
+  "diagnostics": [
+    "warning[OF3007]: `$i128` does not name a known schema (<case>/src/lib.rs:7)",
+    "warning[OF3007]: `$u128` does not name a known schema (<case>/src/lib.rs:7)",
+    "warning[OF3007]: `$OffsetDateTime` does not name a known schema (<case>/src/lib.rs:7)",
+    "warning[OF3007]: `$BTreeSet` does not name a known schema (<case>/src/lib.rs:7)",
+    "warning[OF3007]: `$VecDeque` does not name a known schema (<case>/src/lib.rs:7)",
+    "warning[OF3007]: `$IndexMap` does not name a known schema (<case>/src/lib.rs:7)",
+    "warning[OF3007]: `$NonZeroU32` does not name a known schema (<case>/src/lib.rs:7)",
+    "warning[OF3007]: `$IpAddr` does not name a known schema (<case>/src/lib.rs:7)",
+    "warning[OF3007]: `$Ipv4Addr` does not name a known schema (<case>/src/lib.rs:7)",
+    "warning[OF3007]: `$Duration` does not name a known schema (<case>/src/lib.rs:7)",
+    "warning[OF3007]: `$PathBuf` does not name a known schema (<case>/src/lib.rs:7)"
+  ],
   "fragments": {
     "document": {
       "components": {
@@ -600,9 +613,6 @@ input_file: tests/corpus/cases/type_mapping/case.toml
     "validation": []
   },
   "known_bug": "Many std/ecosystem types become dangling refs; u32 is int32; no minimum on unsigned types; tuples become objects",
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

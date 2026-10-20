@@ -27,13 +27,8 @@ mod validation {
             .generate()
             .unwrap_err();
 
-        match error {
-            Error::Io(e) => {
-                assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
-                assert!(e.to_string().contains("At least one output path"));
-            }
-            other => panic!("expected InvalidInput, got {other:?}"),
-        }
+        assert!(matches!(error, Error::NoOutput), "{error:?}");
+        assert!(error.to_string().contains("At least one output path"));
     }
 
     #[test]
@@ -64,11 +59,9 @@ mod validation {
                 .generate();
 
             match result {
-                Err(Error::SourceMapped {
-                    file: path, line, ..
-                }) => {
-                    assert_eq!(path, project.path(file));
-                    assert_eq!(line, 1);
+                Err(Error::Yaml { location, .. }) => {
+                    assert_eq!(location.file(), project.path(file));
+                    assert_eq!(location.line(), 1);
                 }
                 other => panic!("expected a located error for {file}, got {other:?}"),
             }
@@ -98,7 +91,7 @@ mod validation {
             .output(project.path("taken"))
             .generate();
 
-        assert!(matches!(result, Err(Error::Io(_))));
+        assert!(matches!(result, Err(Error::Io { .. })));
     }
 }
 
@@ -338,7 +331,7 @@ mod unusual_documents {
             .input(project.path("src"))
             .output("")
             .generate();
-        assert!(matches!(result, Err(Error::Io(_))));
+        assert!(matches!(result, Err(Error::Io { .. })));
     }
 }
 

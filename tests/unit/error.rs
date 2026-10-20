@@ -1,89 +1,81 @@
-use oas_forge::error::{Error, Result};
+use oas_forge::diagnostics::{Code, Diagnostic, Location};
+use oas_forge::error::Error;
 use std::error::Error as _;
 use std::path::PathBuf;
 
-fn yaml_error() -> serde_yaml_ng::Error {
-    serde_yaml_ng::from_str::<serde_yaml_ng::Value>("a: : b").unwrap_err()
-}
-
 #[test]
-fn conversions_from_library_errors() {
-    fn io() -> Result<()> {
-        Err(std::io::Error::other("disk full"))?
-    }
-    fn yaml() -> Result<()> {
-        Err(yaml_error())?
-    }
-    fn json() -> Result<()> {
-        Err(serde_json::from_str::<serde_json::Value>("{").unwrap_err())?
-    }
-    fn toml() -> Result<()> {
-        Err(toml::from_str::<toml::Value>("= 1").unwrap_err())?
-    }
-
-    assert!(matches!(io(), Err(Error::Io(_))));
-    assert!(matches!(yaml(), Err(Error::Yaml(_))));
-    assert!(matches!(json(), Err(Error::Json(_))));
-    assert!(matches!(toml(), Err(Error::Toml(_))));
-}
-
-#[test]
-fn messages_name_the_failure() {
-    let io = Error::from(std::io::Error::other("disk full"));
-    assert_eq!(io.to_string(), "IO error: disk full");
+fn messages_name_the_problem_and_its_location() {
+    let io = Error::Io {
+        path: PathBuf::from("out/spec.yaml"),
+        source: std::io::Error::other("disk full"),
+    };
+    assert_eq!(io.to_string(), "IO error at out/spec.yaml: disk full");
     assert!(io.source().is_some());
 
-    assert!(
-        Error::from(yaml_error())
-            .to_string()
-            .starts_with("YAML parsing error: ")
+    let config = Error::Config {
+        file: PathBuf::from("openapi.toml"),
+        message: "bad".into(),
+    };
+    assert_eq!(
+        config.to_string(),
+        "Invalid configuration in openapi.toml: bad"
+    );
+    assert!(config.source().is_none());
+
+    let parse = Error::Parse {
+        location: Location::new("src/lib.rs", 3).with_column(7),
+        message: "expected `;`".into(),
+    };
+    assert_eq!(
+        parse.to_string(),
+        "Rust syntax error in src/lib.rs:3:7: expected `;`"
     );
 
+    let yaml = Error::Yaml {
+        location: Location::new("src/api.rs", 12),
+        message: "mapping values are not allowed".into(),
+        context: "    12 | a: : b".into(),
+    };
+    assert_eq!(
+        yaml.to_string(),
+        "YAML error in src/api.rs:12: mapping values are not allowed\nContext:\n    12 | a: : b"
+    );
+}
+
+#[test]
+fn validation_errors() {
     assert!(
         Error::NoRootFound
             .to_string()
             .contains("must contain 'openapi' and 'info'")
     );
-    assert!(
-        Error::MultipleRootsFound
-            .to_string()
-            .contains("Multiple Root")
-    );
     assert_eq!(
         Error::NoFilesFound.to_string(),
         "Empty input: No files found in the specified directories."
     );
-}
-
-#[test]
-fn parse_error_names_the_file() {
-    let source = syn::parse_str::<syn::File>("fn {").unwrap_err();
-    let error = Error::Parse {
-        file: PathBuf::from("src/lib.rs"),
-        source,
-    };
     assert!(
-        error
+        Error::NoOutput
             .to_string()
-            .starts_with("Syntactic parsing error in file \"src/lib.rs\": ")
+            .contains("At least one output path")
+    );
+
+    let roots = Error::MultipleRootsFound {
+        locations: vec![Location::new("a.rs", 1), Location::new("b.rs", 2)],
+    };
+    assert_eq!(
+        roots.to_string(),
+        "Validation failed: Multiple Root OpenAPI definitions found. Only one definition can be the Root.\n  root defined at a.rs:1\n  root defined at b.rs:2"
     );
 }
 
 #[test]
-fn source_mapped_error_shows_location_and_context() {
-    let error = Error::SourceMapped {
-        file: PathBuf::from("src/api.rs"),
-        line: 12,
-        source: yaml_error(),
-        context: "    12 | a: : b".to_string(),
-    };
-    let message = error.to_string();
-    assert!(
-        message.starts_with("YAML error in src/api.rs:12: "),
-        "{message}"
-    );
-    assert!(
-        message.ends_with("\nContext:\n    12 | a: : b"),
-        "{message}"
+fn diagnostics_error_lists_only_errors() {
+    let error = Error::Diagnostics(vec![
+        Diagnostic::new(Code::InvalidRoute, "no path").at(Location::new("a.rs", 4)),
+        Diagnostic::new(Code::UnknownFragment, "just a warning"),
+    ]);
+    assert_eq!(
+        error.to_string(),
+        "Generation failed with 1 error(s):\n  error[OF2001]: no path (a.rs:4)"
     );
 }

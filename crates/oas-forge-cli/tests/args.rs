@@ -118,7 +118,7 @@ fn run_returns_every_written_file() {
     let out = project.path("out.yaml").display().to_string();
     let paths_out = project.path("paths.yaml").display().to_string();
 
-    let written = run(
+    let outcome = run(
         &parse(&[
             "oas-forge",
             "-i",
@@ -133,8 +133,9 @@ fn run_returns_every_written_file() {
     .unwrap();
 
     assert_eq!(
-        written,
+        outcome.outputs,
         vec![PathBuf::from(&out), PathBuf::from(&paths_out)]
     );
+    assert!(outcome.diagnostics.is_empty(), "{:?}", outcome.diagnostics);
     assert_eq!(project.read_yaml("out.yaml")["info"]["title"], "Test API");
 }

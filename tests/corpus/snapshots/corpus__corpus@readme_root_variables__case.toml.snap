@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/readme_root_variables/case.toml
 ---
 {
   "description": "README: root with an unquoted {{CARGO_PKG_VERSION}} and $$OIDC_URL runtime placeholder",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -40,11 +41,6 @@ input_file: tests/corpus/cases/readme_root_variables/case.toml
     "lints": [],
     "validation": []
   },
-  "known_bug": "The unquoted version placeholder does not survive YAML re-serialization",
-  "log": [
-    "WARN: Generating empty schemas file.",
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

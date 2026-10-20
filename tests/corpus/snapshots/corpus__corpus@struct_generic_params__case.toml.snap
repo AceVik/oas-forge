@@ -5,6 +5,9 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
 ---
 {
   "description": "Structs: generic structs used without an @openapi<T> blueprint",
+  "diagnostics": [
+    "warning[OF3007]: `$T` does not name a known schema (<case>/src/lib.rs:7)"
+  ],
   "fragments": {
     "document": {
       "components": {
@@ -118,9 +121,6 @@ input_file: tests/corpus/cases/struct_generic_params/case.toml
     "validation": []
   },
   "known_bug": "Generic structs without @openapi<T> leave $T and $Envelope unresolved",
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

@@ -5,12 +5,25 @@ input_file: tests/corpus/cases/dsl_virtual_routes/case.toml
 ---
 {
   "description": "Route DSL: virtual routes in file-level docs",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "paths": {
+        "/legacy/one": {
+          "get": {
+            "operationId": "get_legacy_one",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "One"
+              }
+            },
+            "tags": []
+          }
+        },
         "/legacy/proxy": {
           "get": {
-            "operationId": "virtual_route_3",
+            "operationId": "get_legacy_proxy",
             "parameters": [],
             "responses": {
               "200": {
@@ -24,15 +37,13 @@ input_file: tests/corpus/cases/dsl_virtual_routes/case.toml
         },
         "/legacy/two": {
           "get": {
-            "description": "info:\n  title: Corpus\n  version: 1.0.0",
-            "operationId": "virtual_route_1",
+            "operationId": "get_legacy_two",
             "parameters": [],
             "responses": {
               "200": {
                 "description": "Two"
               }
             },
-            "summary": "openapi: 3.1.0",
             "tags": []
           }
         }
@@ -41,17 +52,73 @@ input_file: tests/corpus/cases/dsl_virtual_routes/case.toml
     "lints": []
   },
   "full": {
-    "error": "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields."
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/legacy/one": {
+          "get": {
+            "operationId": "get_legacy_one",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "One"
+              }
+            },
+            "tags": []
+          }
+        },
+        "/legacy/proxy": {
+          "get": {
+            "operationId": "get_legacy_proxy",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "Proxy Response"
+              }
+            },
+            "tags": [
+              "Legacy"
+            ]
+          }
+        },
+        "/legacy/two": {
+          "get": {
+            "operationId": "get_legacy_two",
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "Two"
+              }
+            },
+            "tags": []
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
   },
-  "known_bug": "The root block swallows the following routes; multiple virtual routes in one block collapse into one",
-  "log": [
-    "WARN: Generating empty schemas file."
-  ],
   "paths": {
     "document": {
+      "/legacy/one": {
+        "get": {
+          "operationId": "get_legacy_one",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "One"
+            }
+          },
+          "tags": []
+        }
+      },
       "/legacy/proxy": {
         "get": {
-          "operationId": "virtual_route_3",
+          "operationId": "get_legacy_proxy",
           "parameters": [],
           "responses": {
             "200": {
@@ -65,15 +132,13 @@ input_file: tests/corpus/cases/dsl_virtual_routes/case.toml
       },
       "/legacy/two": {
         "get": {
-          "description": "info:\n  title: Corpus\n  version: 1.0.0",
-          "operationId": "virtual_route_1",
+          "operationId": "get_legacy_two",
           "parameters": [],
           "responses": {
             "200": {
               "description": "Two"
             }
           },
-          "summary": "openapi: 3.1.0",
           "tags": []
         }
       }

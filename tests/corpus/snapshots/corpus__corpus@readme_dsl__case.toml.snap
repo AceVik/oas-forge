@@ -5,6 +5,9 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
 ---
 {
   "description": "README: Route DSL examples (basic, inline params, flexible params, responses, body, security, raw YAML)",
+  "diagnostics": [
+    "warning[OF2005]: embedded OpenAPI YAML is invalid and was ignored: externalDocs: duplicate entry with key \"description\" at line 8 column 4 (<case>/src/lib.rs:41)"
+  ],
   "fragments": {
     "document": {
       "components": {
@@ -47,9 +50,10 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
             "type": "object"
           }
         },
+        "x-oas-forge-format": 1,
         "x-oas-forge-templates": {
           "Page": {
-            "body": "properties:\n  data:\n    items:\n      $ref: $T\n    type: array\nrequired:\n- data\ntype: object\n",
+            "body": "type: object\nproperties:\n  data:\n    type: array\n    items:\n      $ref: $T\nrequired:\n- data\n",
             "params": [
               "T"
             ]
@@ -59,20 +63,8 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
       "paths": {
         "/complex": {
           "get": {
-            "externalDocs": {
-              "description": "More info",
-              "url": "https://example.com/docs"
-            },
             "operationId": "complex_handler",
-            "parameters": [
-              {
-                "in": "query",
-                "name": "raw_param",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            ],
+            "parameters": [],
             "responses": {},
             "summary": "# You can inject raw parameters alongside DSL",
             "tags": [
@@ -290,20 +282,8 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
       "paths": {
         "/complex": {
           "get": {
-            "externalDocs": {
-              "description": "More info",
-              "url": "https://example.com/docs"
-            },
             "operationId": "complex_handler",
-            "parameters": [
-              {
-                "in": "query",
-                "name": "raw_param",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            ],
+            "parameters": [],
             "responses": {},
             "summary": "# You can inject raw parameters alongside DSL",
             "tags": [
@@ -482,26 +462,13 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
       "/paths/~1users~1{id}/get/responses: value has less than 1 property"
     ]
   },
-  "known_bug": "The '# comment' line becomes the summary; the duplicated description key is accepted",
-  "log": [],
+  "known_bug": "The # comment line becomes the summary; the documented example repeats the description key, so its embedded YAML is rejected (OF2005)",
   "paths": {
     "document": {
       "/complex": {
         "get": {
-          "externalDocs": {
-            "description": "More info",
-            "url": "https://example.com/docs"
-          },
           "operationId": "complex_handler",
-          "parameters": [
-            {
-              "in": "query",
-              "name": "raw_param",
-              "schema": {
-                "type": "string"
-              }
-            }
-          ],
+          "parameters": [],
           "responses": {},
           "summary": "# You can inject raw parameters alongside DSL",
           "tags": [

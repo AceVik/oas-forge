@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/static_files/case.toml
 ---
 {
   "description": "Static files: YAML/YML/JSON files inside input dirs, schema names usable as smart refs",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -96,7 +97,6 @@ input_file: tests/corpus/cases/static_files/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [],
   "paths": {
     "document": {
       "/price": {

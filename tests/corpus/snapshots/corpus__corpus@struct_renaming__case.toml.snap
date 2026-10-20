@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/struct_renaming/case.toml
 ---
 {
   "description": "Structs: serde rename/rename_all and @openapi rename/rename-all precedence",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -113,9 +114,6 @@ input_file: tests/corpus/cases/struct_renaming/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

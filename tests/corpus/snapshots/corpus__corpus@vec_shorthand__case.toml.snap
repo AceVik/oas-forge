@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/vec_shorthand/case.toml
 ---
 {
   "description": "Macros: $Vec<T> shorthand in manual blocks",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -93,7 +94,6 @@ input_file: tests/corpus/cases/vec_shorthand/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [],
   "paths": {
     "document": {
       "/tags": {

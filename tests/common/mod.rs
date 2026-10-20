@@ -1,4 +1,4 @@
-//! Helpers shared by all test suites (`unit`, `integration`, `cli`, `property`).
+//! Helpers shared by all test suites (`unit`, `integration`, `corpus`, `property`).
 //!
 //! Each suite pulls this file in via `#[path = "../common/mod.rs"] mod common;`,
 //! so not every helper is used by every suite.
@@ -6,92 +6,130 @@
 
 pub mod spec;
 
-use oas_forge::scanner::Snippet;
-use oas_forge::visitor::{ExtractedItem, OpenApiVisitor};
+use oas_forge::diagnostics::{Code, Diagnostics, Location};
+use oas_forge::dsl::{self, RouteSource};
+use oas_forge::extract::{self, Item};
+use oas_forge::generator::generate_from_sources;
+use oas_forge::source::{SourceFile, SourceKind};
+use oas_forge::template::Variables;
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
-use syn::visit::Visit;
 use tempfile::TempDir;
-
-/// Routes `log` output into the test harness. Without a logger, `log` skips
-/// evaluating message arguments, so call this in tests that hit logging paths.
-pub fn init_logging() {
-    let _ = env_logger::builder()
-        .is_test(true)
-        .filter_level(log::LevelFilter::Trace)
-        .try_init();
-}
 
 /// Parses YAML (or JSON) text into a `serde_json::Value` for structural assertions.
 pub fn yaml(text: &str) -> Value {
     serde_yaml_ng::from_str(text).unwrap_or_else(|e| panic!("invalid YAML ({e}):\n{text}"))
 }
 
-/// Builds a snippet as if it was extracted from line 1 of `test.rs`.
-pub fn snippet(content: &str) -> Snippet {
-    Snippet {
-        content: content.to_string(),
-        file_path: PathBuf::from("test.rs"),
-        line_number: 1,
-        operation_id: None,
-    }
+/// The location used for in-memory test sources.
+pub fn here() -> Location {
+    Location::new("test.rs", 1)
 }
 
-/// Runs the visitor over a complete Rust source file and returns the extracted items.
-pub fn extract(code: &str) -> Vec<ExtractedItem> {
-    let file: syn::File = syn::parse_str(code).expect("test source must be valid Rust");
-    let mut visitor = OpenApiVisitor::default();
-    visitor.visit_file(&file);
-    visitor.items
+/// Extracts the annotations of a Rust source text (panics on invalid Rust).
+pub fn extract(code: &str) -> Vec<Item> {
+    extract_with_diagnostics(code).0
 }
 
-/// Returns the raw content of the schema item called `name`.
-pub fn schema_content<'a>(items: &'a [ExtractedItem], name: &str) -> &'a str {
+/// Extracts the annotations of a Rust source text and returns the findings.
+pub fn extract_with_diagnostics(code: &str) -> (Vec<Item>, Diagnostics) {
+    let mut diagnostics = Diagnostics::new();
+    let items = extract::extract_str(Path::new("test.rs"), code, &mut diagnostics)
+        .unwrap_or_else(|e| panic!("test source must be valid Rust: {e}"));
+    (items, diagnostics)
+}
+
+/// The schema of the schema item (or named YAML schema) called `name`.
+pub fn schema(items: &[Item], name: &str) -> Value {
     items
         .iter()
         .find_map(|item| match item {
-            ExtractedItem::Schema {
-                name: Some(n),
-                content,
-                ..
-            } if n == name => Some(content.as_str()),
+            Item::Schema(s) if s.name == name => Some(s.schema.clone()),
+            Item::NamedSchema(s) if s.name == name => Some(yaml(&s.text)),
             _ => None,
         })
         .unwrap_or_else(|| panic!("no schema named `{name}` in {items:#?}"))
 }
 
-/// Returns `components.schemas.<name>` of the schema item called `name`.
-pub fn schema(items: &[ExtractedItem], name: &str) -> Value {
-    yaml(schema_content(items, name))["components"]["schemas"][name].clone()
-}
-
-/// Names of all named schema items, in extraction order.
-pub fn schema_names(items: &[ExtractedItem]) -> Vec<String> {
+/// Names of all schema items (reflected and named YAML), in extraction order.
+pub fn schema_names(items: &[Item]) -> Vec<String> {
     items
         .iter()
         .filter_map(|item| match item {
-            ExtractedItem::Schema { name: Some(n), .. } => Some(n.clone()),
+            Item::Schema(s) => Some(s.name.clone()),
+            Item::NamedSchema(s) => Some(s.name.clone()),
             _ => None,
         })
         .collect()
 }
 
-/// Converts string slices into the owned lines `parse_route_dsl` expects.
+/// The texts of all free YAML document items.
+pub fn documents(items: &[Item]) -> Vec<String> {
+    items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Document(d) => Some(d.text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Converts string slices into owned lines.
 pub fn lines(src: &[&str]) -> Vec<String> {
     src.iter().map(|l| l.to_string()).collect()
 }
 
-/// Compiles route DSL lines (operation id `op`) and parses the generated YAML.
-pub fn route(src: &[&str]) -> Value {
-    let generated = oas_forge::dsl::parse_route_dsl(&lines(src), "op")
-        .unwrap_or_else(|| panic!("route DSL was rejected: {src:#?}"));
-    yaml(&generated)
+/// Compiles route DSL lines (operation id `op`); returns the document or
+/// `None` together with the findings.
+pub fn try_route(src: &[&str]) -> (Option<Value>, Diagnostics) {
+    let mut diagnostics = Diagnostics::new();
+    let lines = lines(src);
+    let location = here();
+    let compiled = dsl::compile(
+        RouteSource {
+            lines: &lines,
+            line_numbers: &[],
+            operation_id: Some("op"),
+            default_tags: &[],
+            location: &location,
+        },
+        &mut diagnostics,
+    );
+    (compiled.map(|c| c.document), diagnostics)
 }
 
-/// Compiles route DSL lines and returns the single operation at `paths.<path>.<method>`.
+/// Compiles route DSL lines (operation id `op`) and returns the document.
+pub fn route(src: &[&str]) -> Value {
+    let (document, diagnostics) = try_route(src);
+    document.unwrap_or_else(|| panic!("route DSL was rejected: {src:#?}\n{diagnostics:#?}"))
+}
+
+/// Compiles route DSL lines and returns the operation at `paths.<path>.<method>`.
 pub fn operation(src: &[&str], path: &str, method: &str) -> Value {
     route(src)["paths"][path][method].clone()
+}
+
+/// Runs the whole pipeline on in-memory sources (`name`, `content`).
+pub fn pipeline(files: &[(&str, &str)]) -> (Value, Diagnostics) {
+    try_pipeline(files).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// Runs the whole pipeline on in-memory sources and returns fatal errors.
+pub fn try_pipeline(files: &[(&str, &str)]) -> oas_forge::Result<(Value, Diagnostics)> {
+    let sources = files
+        .iter()
+        .map(|(name, code)| {
+            let kind = SourceKind::of(Path::new(name)).expect("supported extension");
+            SourceFile::new(*name, kind, *code)
+        })
+        .collect();
+    generate_from_sources(sources, &Variables::new())
+}
+
+/// Codes of the findings, in order.
+pub fn codes(diagnostics: &Diagnostics) -> Vec<Code> {
+    diagnostics.iter().map(|d| d.code()).collect()
 }
 
 /// A throw-away project directory for tests that touch the file system.

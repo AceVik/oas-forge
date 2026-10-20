@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/dsl_request_body/case.toml
 ---
 {
   "description": "Route DSL: @body with refs, std generics, custom generics and media types",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -51,9 +52,10 @@ input_file: tests/corpus/cases/dsl_request_body/case.toml
             "type": "object"
           }
         },
+        "x-oas-forge-format": 1,
         "x-oas-forge-templates": {
           "Page": {
-            "body": "properties:\n  items:\n    items:\n      $ref: $T\n    type: array\n  total:\n    format: int64\n    type: integer\nrequired:\n- total\ntype: object\n",
+            "body": "type: object\nproperties:\n  total:\n    type: integer\n    format: int64\n  items:\n    type: array\n    items:\n      $ref: $T\nrequired:\n- total\n",
             "params": [
               "T"
             ]
@@ -387,7 +389,6 @@ input_file: tests/corpus/cases/dsl_request_body/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [],
   "paths": {
     "document": {
       "/bulk": {

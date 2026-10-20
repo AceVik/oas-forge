@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
 ---
 {
   "description": "README: schema extraction example (virtual type, alias, enum, struct)",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -163,9 +164,6 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

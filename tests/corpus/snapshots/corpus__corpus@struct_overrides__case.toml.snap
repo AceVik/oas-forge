@@ -5,6 +5,9 @@ input_file: tests/corpus/cases/struct_overrides/case.toml
 ---
 {
   "description": "Structs: @openapi YAML overrides on structs and fields (inline, multi-line, invalid)",
+  "diagnostics": [
+    "warning[OF1001]: `@openapi` override of field `broken` is not valid YAML: did not find expected ',' or ']' at line 2 column 1, while parsing a flow sequence at line 1 column 9 (<case>/src/lib.rs:19)"
+  ],
   "fragments": {
     "document": {
       "components": {
@@ -105,10 +108,6 @@ input_file: tests/corpus/cases/struct_overrides/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [
-    "WARN: Failed to parse @openapi override for field 'broken': did not find expected ',' or ']' at line 2 column 1, while parsing a flow sequence at line 1 column 9",
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

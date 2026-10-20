@@ -5,6 +5,10 @@ input_file: tests/corpus/cases/blueprint_generics/case.toml
 ---
 {
   "description": "Generics: blueprints with nesting, multiple params, missing blueprint and empty args",
+  "diagnostics": [
+    "warning[OF3004]: `$Missing<…>`: no blueprint named `Missing` (<case>/src/lib.rs:38)",
+    "warning[OF3007]: `$Missing_User` does not name a known schema (<case>/src/lib.rs:38)"
+  ],
   "fragments": {
     "document": {
       "components": {
@@ -113,15 +117,16 @@ input_file: tests/corpus/cases/blueprint_generics/case.toml
             "type": "object"
           }
         },
+        "x-oas-forge-format": 1,
         "x-oas-forge-templates": {
           "Page": {
-            "body": "description: Paginated response wrapper.\nproperties:\n  data:\n    items:\n      $ref: $T\n    type: array\n  total:\n    example: 100\n    format: int32\n    type: integer\nrequired:\n- total\n- data\ntype: object\n",
+            "body": "type: object\nproperties:\n  total:\n    type: integer\n    format: int32\n    example: 100\n  data:\n    type: array\n    items:\n      $ref: $T\nrequired:\n- total\n- data\ndescription: Paginated response wrapper.\n",
             "params": [
               "T"
             ]
           },
           "Pair": {
-            "body": "properties:\n  left:\n    $ref: $A\n  right:\n    $ref: $B\n  tag:\n    type: string\nrequired:\n- tag\ntype: object\n",
+            "body": "type: object\nproperties:\n  tag:\n    type: string\n  left:\n    $ref: $A\n  right:\n    $ref: $B\nrequired:\n- tag\n",
             "params": [
               "A",
               "B"
@@ -368,10 +373,6 @@ input_file: tests/corpus/cases/blueprint_generics/case.toml
     ],
     "validation": []
   },
-  "known_bug": "Missing blueprints leave dangling refs; the Page data field keeps an unresolved $T",
-  "log": [
-    "WARN: Blueprint Missing not found"
-  ],
   "paths": {
     "document": {
       "/pairs": {

@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/enum_tagged_field_renaming/case.toml
 ---
 {
   "description": "Enums: rename_all vs rename_all_fields vs variant rename_all",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -143,9 +144,6 @@ input_file: tests/corpus/cases/enum_tagged_field_renaming/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

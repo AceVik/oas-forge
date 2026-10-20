@@ -1,2 +1,1 @@
 description = "Route DSL: routes that are rejected (missing/unused path params, no path)"
-known_bug = "Rejected routes leak their raw DSL text into the document"

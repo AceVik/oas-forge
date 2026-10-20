@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/struct_tuple_and_unit/case.toml
 ---
 {
   "description": "Structs: tuple, newtype and unit structs (incl. virtual types via overrides)",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -62,9 +63,6 @@ input_file: tests/corpus/cases/struct_tuple_and_unit/case.toml
     "validation": []
   },
   "known_bug": "Tuple and newtype structs become plain objects",
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

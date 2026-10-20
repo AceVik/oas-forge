@@ -1,2 +1,1 @@
 description = "Route DSL: @body and @return with the $Vec<T> shorthand"
-known_bug = "@body $Vec<T> is split into a bogus type and media type"

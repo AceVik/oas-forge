@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/enum_untagged/case.toml
 ---
 {
   "description": "Enums: serde untagged",
+  "diagnostics": [],
   "fragments": {
     "document": {},
     "lints": []
@@ -23,10 +24,6 @@ input_file: tests/corpus/cases/enum_untagged/case.toml
     ]
   },
   "known_bug": "Untagged enums produce an empty string enum",
-  "log": [
-    "WARN: Generating empty schemas file.",
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

@@ -1,2 +1,1 @@
 description = "Export: a doc comment that only mentions @openapi in prose"
-known_bug = "Any doc line containing the text @openapi exports the item"

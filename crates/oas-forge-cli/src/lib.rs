@@ -5,7 +5,7 @@
 //! spawning a process.
 
 use clap::Parser;
-use oas_forge::{Generator, config::Config};
+use oas_forge::{Config, Diagnostic, Error, Generator, Severity};
 use std::path::{Path, PathBuf};
 
 /// Command-line arguments of `oas-forge`.
@@ -47,7 +47,7 @@ impl Cli {
     /// Precedence from low to high: `Cargo.toml` metadata, `openapi.toml`,
     /// the file given with `--config`, command-line flags. When no output of
     /// any kind is configured, the full specification goes to `openapi.yaml`.
-    pub fn resolve_config(&self, dir: &Path) -> oas_forge::error::Result<Config> {
+    pub fn resolve_config(&self, dir: &Path) -> oas_forge::Result<Config> {
         let mut config = Config::load_from(dir)?;
         if let Some(file) = &self.config {
             config.merge(Config::from_file(dir.join(file))?);
@@ -71,10 +71,33 @@ impl Cli {
     }
 }
 
-/// Generates every configured output and returns the written files.
-pub fn run(cli: &Cli, dir: &Path) -> oas_forge::error::Result<Vec<PathBuf>> {
+/// What a successful run produced.
+#[derive(Debug, Clone)]
+pub struct Outcome {
+    /// Every configured output file.
+    pub outputs: Vec<PathBuf>,
+    /// Warnings and notes of the run.
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Generates every configured output.
+///
+/// # Errors
+/// Any generator error; [`Error::Diagnostics`] when a diagnostic has error severity.
+pub fn run(cli: &Cli, dir: &Path) -> oas_forge::Result<Outcome> {
     let config = cli.resolve_config(dir)?;
-    let outputs: Vec<PathBuf> = config.outputs().cloned().collect();
-    Generator::new().with_config(config).generate()?;
-    Ok(outputs)
+    let spec = Generator::new().with_config(config).build()?;
+    if spec.diagnostics().has_errors() {
+        return Err(Error::Diagnostics(spec.diagnostics().clone().into_vec()));
+    }
+    let outputs = spec.write()?;
+    Ok(Outcome {
+        outputs,
+        diagnostics: spec
+            .diagnostics()
+            .iter()
+            .filter(|d| d.severity() != Severity::Note)
+            .cloned()
+            .collect(),
+    })
 }

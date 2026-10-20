@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/struct_serde_attributes/case.toml
 ---
 {
   "description": "Structs: serde skip/flatten/default/alias/transparent/deny_unknown_fields/raw identifiers",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -152,9 +153,6 @@ input_file: tests/corpus/cases/struct_serde_attributes/case.toml
     "validation": []
   },
   "known_bug": "skip, flatten, default, deny_unknown_fields, transparent and raw identifiers are ignored",
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

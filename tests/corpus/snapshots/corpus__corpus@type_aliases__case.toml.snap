@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/type_aliases/case.toml
 ---
 {
   "description": "Type aliases: exported with and without @openapi, docs and overrides",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -95,9 +96,6 @@ input_file: tests/corpus/cases/type_aliases/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

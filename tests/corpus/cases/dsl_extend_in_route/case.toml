@@ -1,2 +1,1 @@
 description = "Route DSL: @extend inside a route block"
-known_bug = "@extend is never merged inside a route"

@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/readme_manual_axum/case.toml
 ---
 {
   "description": "README: manual mode and the axum spec-serving example",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "paths": {
@@ -109,9 +110,6 @@ input_file: tests/corpus/cases/readme_manual_axum/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [
-    "WARN: Generating empty schemas file."
-  ],
   "paths": {
     "document": {
       "/docs/openapi.yaml": {

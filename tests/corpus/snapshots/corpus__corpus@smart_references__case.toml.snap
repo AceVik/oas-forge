@@ -5,6 +5,9 @@ input_file: tests/corpus/cases/smart_references/case.toml
 ---
 {
   "description": "Smart references: known/unknown names, quoted, inside text, escaped",
+  "diagnostics": [
+    "warning[OF3007]: `$Unknown` does not name a known schema (<case>/src/lib.rs:13)"
+  ],
   "fragments": {
     "document": {
       "components": {
@@ -26,7 +29,7 @@ input_file: tests/corpus/cases/smart_references/case.toml
       "paths": {
         "/refs": {
           "get": {
-            "description": "Returns \"#/components/schemas/User\" objects and costs $5",
+            "description": "Returns $User objects and costs $5",
             "responses": {
               "200": {
                 "content": {
@@ -83,7 +86,7 @@ input_file: tests/corpus/cases/smart_references/case.toml
       "paths": {
         "/refs": {
           "get": {
-            "description": "Returns \"#/components/schemas/User\" objects and costs $5",
+            "description": "Returns $User objects and costs $5",
             "responses": {
               "200": {
                 "content": {
@@ -115,13 +118,11 @@ input_file: tests/corpus/cases/smart_references/case.toml
     ],
     "validation": []
   },
-  "known_bug": "Smart references are also replaced inside free text",
-  "log": [],
   "paths": {
     "document": {
       "/refs": {
         "get": {
-          "description": "Returns \"#/components/schemas/User\" objects and costs $5",
+          "description": "Returns $User objects and costs $5",
           "responses": {
             "200": {
               "content": {

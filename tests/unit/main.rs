@@ -6,14 +6,15 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+mod attrs;
 mod config;
-mod doc_parser;
+mod diagnostics;
 mod dsl;
 mod error;
-mod generics;
-mod index;
-mod merger;
-mod preprocessor;
-mod scanner;
-mod type_mapper;
-mod visitor;
+mod extract;
+mod generator;
+mod merge;
+mod output;
+mod schema;
+mod source;
+mod template;

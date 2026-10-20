@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/module_tags/case.toml
 ---
 {
   "description": "Modules: tags from module docs injected into manual path blocks",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "paths": {
@@ -75,9 +76,6 @@ input_file: tests/corpus/cases/module_tags/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [
-    "WARN: Generating empty schemas file."
-  ],
   "paths": {
     "document": {
       "/deep": {

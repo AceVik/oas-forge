@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/enum_internally_tagged/case.toml
 ---
 {
   "description": "Enums: internally tagged (serde tag) with struct, unit and newtype variants",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -250,9 +251,6 @@ input_file: tests/corpus/cases/enum_internally_tagged/case.toml
     "validation": []
   },
   "known_bug": "Newtype variants lose the fields of their inner struct",
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []

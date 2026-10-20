@@ -5,6 +5,7 @@ input_file: tests/corpus/cases/enum_string/case.toml
 ---
 {
   "description": "Enums: unit variants as string enum with serde/@openapi renaming",
+  "diagnostics": [],
   "fragments": {
     "document": {
       "components": {
@@ -65,9 +66,6 @@ input_file: tests/corpus/cases/enum_string/case.toml
     "lints": [],
     "validation": []
   },
-  "log": [
-    "WARN: Generating empty paths file."
-  ],
   "paths": {
     "document": {},
     "lints": []
