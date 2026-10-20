@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="600" viewBox="0 0 1280 600" role="img" aria-labelledby="title desc">
+  <title id="title">How oas-forge works</title>
+  <desc id="desc">Rust types and handlers with doc comments go into oas-forge, run from build.rs or the CLI. It extracts the types with their serde, validator and garde attributes, compiles the route DSL, infers handler signatures, resolves templates and generics, merges, lints and lowers the result, and writes OpenAPI 3.2, 3.1 and 3.0, Swagger 2.0, JSON Schema and AsyncAPI 3 documents.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#141e36"/>
+    </linearGradient>
+    <linearGradient id="fire" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ea580c"/>
+      <stop offset="1" stop-color="#fbbf24"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#fbbf24"/>
+    </marker>
+  </defs>
+
+  <rect width="1280" height="600" rx="24" fill="url(#bg)"/>
+
+  <g font-family="'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif">
+    <!-- Column titles -->
+    <text x="40" y="58" font-size="15" font-weight="700" fill="#94a3b8" letter-spacing="2">1 · YOUR CRATE</text>
+    <text x="500" y="58" font-size="15" font-weight="700" fill="#94a3b8" letter-spacing="2">2 · AT BUILD TIME</text>
+    <text x="864" y="58" font-size="15" font-weight="700" fill="#94a3b8" letter-spacing="2">3 · DOCUMENTS</text>
+
+    <!-- 1: source code -->
+    <rect x="40" y="76" width="400" height="440" rx="16" fill="#0f172a" stroke="#1e293b" stroke-width="2"/>
+    <circle cx="64" cy="98" r="6" fill="#ef4444" fill-opacity="0.7"/>
+    <circle cx="84" cy="98" r="6" fill="#f59e0b" fill-opacity="0.7"/>
+    <circle cx="104" cy="98" r="6" fill="#22c55e" fill-opacity="0.7"/>
+    <text x="420" y="103" text-anchor="end" font-size="14" fill="#64748b">src/lib.rs</text>
+    <g font-family="SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="16">
+      <text x="62" y="146" fill="#64748b">/// A user account.</text>
+      <text x="62" y="172"><tspan fill="#64748b">/// </tspan><tspan fill="#fbbf24" font-weight="700">@openapi</tspan></text>
+      <text x="62" y="198" fill="#c084fc">#[derive(Serialize)]</text>
+      <text x="62" y="224"><tspan fill="#c084fc">#[serde(rename_all = </tspan><tspan fill="#86efac">"camelCase"</tspan><tspan fill="#c084fc">)]</tspan></text>
+      <text x="62" y="250"><tspan fill="#f472b6">pub struct </tspan><tspan fill="#67e8f9">User</tspan><tspan fill="#e2e8f0"> { … }</tspan></text>
+      <text x="62" y="298" fill="#64748b">/// Get a user</text>
+      <text x="62" y="324"><tspan fill="#64748b">/// </tspan><tspan fill="#fbbf24" font-weight="700">@route</tspan><tspan fill="#e2e8f0"> GET /users/{id}</tspan></text>
+      <text x="62" y="350"><tspan fill="#64748b">/// </tspan><tspan fill="#fbbf24" font-weight="700">@problem</tspan><tspan fill="#e2e8f0"> 404 </tspan><tspan fill="#86efac">"Not found"</tspan></text>
+      <text x="62" y="376"><tspan fill="#f472b6">async fn </tspan><tspan fill="#93c5fd">get_user</tspan><tspan fill="#e2e8f0">(</tspan></text>
+      <text x="100" y="402"><tspan fill="#e2e8f0">Path(id): </tspan><tspan fill="#67e8f9">Path</tspan><tspan fill="#e2e8f0">&lt;</tspan><tspan fill="#67e8f9">u64</tspan><tspan fill="#e2e8f0">&gt;,</tspan></text>
+      <text x="62" y="428"><tspan fill="#e2e8f0">) -&gt; </tspan><tspan fill="#67e8f9">Json</tspan><tspan fill="#e2e8f0">&lt;</tspan><tspan fill="#67e8f9">User</tspan><tspan fill="#e2e8f0">&gt; { … }</tspan></text>
+    </g>
+    <text x="62" y="490" font-size="15" fill="#94a3b8">serde · validator · garde · axum · actix-web</text>
+
+    <!-- arrow 1 -->
+    <path d="M448 296 H490" stroke="#fbbf24" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+
+    <!-- 2: engine -->
+    <rect x="500" y="76" width="320" height="440" rx="16" fill="#1c1917" stroke="url(#fire)" stroke-width="2"/>
+    <text x="660" y="124" text-anchor="middle" font-size="30" font-weight="700" fill="#ffffff">oas-forge</text>
+    <text x="660" y="150" text-anchor="middle" font-size="15" fill="#fdba74">build.rs · CLI · library</text>
+    <g font-size="16" fill="#f8fafc">
+      <g transform="translate(524 172)">
+        <rect width="272" height="40" rx="10" fill="#f97316" fill-opacity="0.12" stroke="#f97316" stroke-opacity="0.35"/>
+        <text x="16" y="26">Find sources, parse with syn</text>
+      </g>
+      <g transform="translate(524 222)">
+        <rect width="272" height="40" rx="10" fill="#f97316" fill-opacity="0.12" stroke="#f97316" stroke-opacity="0.35"/>
+        <text x="16" y="26">Types as serde writes them</text>
+      </g>
+      <g transform="translate(524 272)">
+        <rect width="272" height="40" rx="10" fill="#f97316" fill-opacity="0.12" stroke="#f97316" stroke-opacity="0.35"/>
+        <text x="16" y="26">Route DSL · handler inference</text>
+      </g>
+      <g transform="translate(524 322)">
+        <rect width="272" height="40" rx="10" fill="#f97316" fill-opacity="0.12" stroke="#f97316" stroke-opacity="0.35"/>
+        <text x="16" y="26">Fragments · generics · refs</text>
+      </g>
+      <g transform="translate(524 372)">
+        <rect width="272" height="40" rx="10" fill="#f97316" fill-opacity="0.12" stroke="#f97316" stroke-opacity="0.35"/>
+        <text x="16" y="26">Merge · lint · lower per target</text>
+      </g>
+    </g>
+    <text x="660" y="452" text-anchor="middle" font-size="15" fill="#a8a29e">deterministic · diagnostics with codes</text>
+    <text x="660" y="476" text-anchor="middle" font-size="15" fill="#a8a29e">no macros · nothing at runtime</text>
+
+    <!-- arrow 2 -->
+    <path d="M828 296 H854" stroke="#fbbf24" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+
+    <!-- 3: outputs -->
+    <g font-size="17">
+      <g transform="translate(864 76)">
+        <rect width="376" height="76" rx="14" fill="#0f172a" stroke="#f97316" stroke-opacity="0.55" stroke-width="2"/>
+        <text x="20" y="33" font-family="SFMono-Regular, Menlo, Consolas, monospace" fill="#ffffff">openapi.yaml</text>
+        <text x="20" y="58" font-size="15" fill="#fdba74">OpenAPI 3.2 · 3.1 · 3.0</text>
+      </g>
+      <g transform="translate(864 168)">
+        <rect width="376" height="76" rx="14" fill="#0f172a" stroke="#f97316" stroke-opacity="0.35" stroke-width="2"/>
+        <text x="20" y="33" font-family="SFMono-Regular, Menlo, Consolas, monospace" fill="#ffffff">openapi-3.0.json</text>
+        <text x="20" y="58" font-size="15" fill="#fdba74">OpenAPI 3.0.3 export</text>
+      </g>
+      <g transform="translate(864 260)">
+        <rect width="376" height="76" rx="14" fill="#0f172a" stroke="#38bdf8" stroke-opacity="0.5" stroke-width="2"/>
+        <text x="20" y="33" font-family="SFMono-Regular, Menlo, Consolas, monospace" fill="#ffffff">swagger.json</text>
+        <text x="20" y="58" font-size="15" fill="#7dd3fc">Swagger 2.0 export</text>
+      </g>
+      <g transform="translate(864 352)">
+        <rect width="376" height="76" rx="14" fill="#0f172a" stroke="#a78bfa" stroke-opacity="0.5" stroke-width="2"/>
+        <text x="20" y="33" font-family="SFMono-Regular, Menlo, Consolas, monospace" fill="#ffffff">schemas.json</text>
+        <text x="20" y="58" font-size="15" fill="#c4b5fd">JSON Schema 2020-12 bundle</text>
+      </g>
+      <g transform="translate(864 444)">
+        <rect width="376" height="72" rx="14" fill="#0f172a" stroke="#34d399" stroke-opacity="0.5" stroke-width="2"/>
+        <text x="20" y="31" font-family="SFMono-Regular, Menlo, Consolas, monospace" fill="#ffffff">asyncapi.yaml</text>
+        <text x="20" y="55" font-size="15" fill="#6ee7b7">AsyncAPI 3 for event channels</text>
+      </g>
+    </g>
+
+    <!-- footer -->
+    <line x1="40" y1="546" x2="1240" y2="546" stroke="#1e293b" stroke-width="2"/>
+    <text x="640" y="578" text-anchor="middle" font-size="17" fill="#94a3b8">Ready for Swagger UI · Redoc · Scalar · client generators · contract tests · API gateways</text>
+  </g>
+</svg>

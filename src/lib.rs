@@ -1,51 +1,30 @@
-//! Compile-time OpenAPI for Rust.
+// The README is the front page on GitHub, crates.io and docs.rs; its Rust
+// examples run as doctests. The library overview follows it.
+#![doc = include_str!("../README.md")]
 //!
-//! `oas-forge` reads Rust source code and its doc comments, typically from a
-//! build script, and writes an OpenAPI document: no macros, nothing at
-//! runtime. Schemas describe exactly what serde writes, including `rename`,
-//! `flatten`, `skip` and all four enum representations, plus the constraints
-//! of the `validator` and `garde` crates. Operations come from a compact route
-//! DSL that accepts embedded OpenAPI YAML, or from plain YAML.
+//! # The library
+//!
+//! [`Generator`] is the entry point: configure inputs and outputs, then call
+//! [`Generator::generate`] (build and write) or [`Generator::build`], which
+//! returns a [`Spec`] with the documents in memory, every [`Diagnostic`] and
+//! [`Spec::check`] for CI. [`Config`] loads the same settings from
+//! `openapi.toml` or `[package.metadata.oas-forge]`, and [`Package`] the root
+//! document from `Cargo.toml`.
 //!
 //! ```no_run
-//! // In `fn main` of build.rs:
-//! oas_forge::Generator::new()
+//! let spec = oas_forge::Generator::new()
 //!     .input("src")
 //!     .output("openapi.yaml")
-//!     // `cargo:rerun-if-changed` for every input, findings as warnings.
-//!     .emit_cargo_directives(true)
-//!     .generate()
-//!     .expect("OpenAPI generation failed");
-//! ```
-//!
-//! ```
-//! /// A user account.
-//! /// @openapi
-//! #[derive(serde::Serialize)]
-//! #[serde(rename_all = "camelCase")]
-//! pub struct User {
-//!     pub id: u64,
-//!     /// Shown to other users.
-//!     pub display_name: Option<String>,
+//!     .output_as(oas_forge::OutputKind::Swagger20, "swagger.json")
+//!     .build()?;
+//! for diagnostic in spec.diagnostics() {
+//!     eprintln!("{diagnostic}");
 //! }
-//!
-//! /// Get a user
-//! /// @route GET /users/{id: u64 "The user id"}
-//! /// @return 200: $User
-//! /// @problem 404 "No such user"
-//! pub async fn get_user() {}
+//! spec.write()?;
+//! # Ok::<(), oas_forge::Error>(())
 //! ```
 //!
-//! # Outputs
-//!
-//! One run can write the full OpenAPI document (3.2, 3.1 or 3.0, following the
-//! `openapi` version of the root), parts of it, an OpenAPI 3.0 or Swagger 2.0
-//! export, a JSON Schema bundle of the component schemas and an AsyncAPI 3
-//! document; see [`OutputKind`]. Files are written atomically and only when
-//! their content changes. [`Spec::check`] tells CI whether the committed files
-//! are up to date.
-//!
-//! # Pipeline
+//! ## Pipeline
 //!
 //! [`Generator`] runs these stages; each has its own module with a stable
 //! API, so tools can use a single stage on its own:
@@ -58,19 +37,12 @@
 //! 5. [`merge`]: merge every snippet into one document under explicit
 //!    policies.
 //! 6. [`schema`] and [`output`]: lower the schemas for the target version
-//!    and render the outputs.
+//!    and render the outputs ([`OutputKind`], [`Format`]).
 //!
-//! Problems are reported as [`Diagnostic`]s with a stable [`Code`] and a
-//! source [`Location`]; only problems that make the result unusable are
-//! [`Error`]s.
-//!
-//! # Guide
-//!
-//! The [guide](https://github.com/AceVik/oas-forge/tree/main/docs) covers
-//! every annotation, the route DSL, the compatibility tables for serde,
-//! validator and garde, the outputs and all diagnostic codes. The
-//! [migration guide](https://github.com/AceVik/oas-forge/blob/main/docs/migration-0.2.md)
-//! lists the changes since 0.1.
+//! Problems are reported as [`Diagnostic`]s with a stable [`Code`], a
+//! [`Severity`] and a source [`Location`]; only problems that make the result
+//! unusable are [`Error`]s. Files are written atomically and only when their
+//! content changes.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, rustdoc::broken_intra_doc_links)]
@@ -86,6 +58,8 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
+// The README shows complete build scripts, `fn main` included.
+#![allow(clippy::needless_doctest_main)]
 
 pub mod attrs;
 pub mod config;
