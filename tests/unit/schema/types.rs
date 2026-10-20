@@ -416,6 +416,11 @@ mod table {
             &["models::Pair<u8, Vec<User>>"],
             json!({ "$ref": "$Pair<$u8, $Vec<$User>>" }),
         );
+        // Other arguments are written as Rust types.
+        assert_all(
+            &["Page<(u8, User)>"],
+            json!({ "$ref": "$Page<(u8, User)>" }),
+        );
         // Only `Map<String, Value>` is taken for `serde_json::Map`.
         assert_all(
             &["Map<String, User>"],

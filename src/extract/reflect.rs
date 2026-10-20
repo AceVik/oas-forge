@@ -456,18 +456,14 @@ impl<'a> Reflector<'a> {
                     // single field; serde writes other tuple structs as
                     // arrays of their members, even when all but one are
                     // skipped.
+                    let newtype =
+                        members.len() == 1 && (fields.unnamed.len() == 1 || serde.transparent);
                     match members.pop() {
-                        Some(single)
-                            if members.is_empty()
-                                && (fields.unnamed.len() == 1 || serde.transparent) =>
-                        {
-                            single
-                        }
-                        Some(last) => {
-                            members.push(last);
+                        Some(single) if newtype => single,
+                        last => {
+                            members.extend(last);
                             tuple(members)
                         }
-                        None => tuple(members),
                     }
                 }
                 _ => {
@@ -875,7 +871,11 @@ impl<'a> Reflector<'a> {
                     properties.insert(key.to_string(), inner);
                     required.push(json!(key));
                 }
-                (None, Content::Struct(Value::Object(mut inner))) => {
+                (None, Content::Struct(mut inner)) => {
+                    let mut inner: Map<String, Value> = inner
+                        .as_object_mut()
+                        .map(std::mem::take)
+                        .unwrap_or_default();
                     if let Some(Value::Object(props)) = inner.remove("properties") {
                         properties.extend(props);
                     }
@@ -891,7 +891,6 @@ impl<'a> Reflector<'a> {
                         }
                     }
                 }
-                (None, Content::Struct(_)) => {}
                 // Internally tagged newtype variants carry the fields of a
                 // struct or map next to the tag.
                 (None, Content::Newtype(inner)) if is_object_like(&inner) => all_of.push(inner),

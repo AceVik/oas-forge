@@ -975,7 +975,7 @@ mod serde_repr {
             /// @openapi
             #[derive(Serialize_repr, Deserialize_repr)]
             #[repr(i16)]
-            pub enum Status { A = 1, B, C = -3, D, E = 0x10 }
+            pub enum Status { A = 1, B, C = -3, D, E = 0x10, F = (20) }
             /// @openapi
             #[cfg_attr(feature = "serde", derive(serde_repr::Serialize_repr))]
             #[repr(u8)]
@@ -984,7 +984,7 @@ mod serde_repr {
         );
         assert_eq!(
             schema(&items, "Status"),
-            json!({ "type": "integer", "enum": [1, 2, -3, -2, 16], "description": "Status codes." })
+            json!({ "type": "integer", "enum": [1, 2, -3, -2, 16, 20], "description": "Status codes." })
         );
         assert_eq!(
             schema(&items, "Implicit"),
