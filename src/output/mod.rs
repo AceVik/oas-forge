@@ -18,6 +18,34 @@ use serde_json::{Map, Value};
 use std::path::Path;
 
 /// What part of the merged document an output receives.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::{Generator, OutputKind};
+/// use serde_json::json;
+///
+/// let src = tempfile::tempdir()?;
+/// std::fs::write(
+///     src.path().join("lib.rs"),
+///     "/// @openapi\npub struct Tag { pub name: String }\n",
+/// )?;
+/// let spec = Generator::new().input(src.path()).without_package().build()?;
+///
+/// assert_eq!(
+///     spec.render(OutputKind::Schemas)?,
+///     json!({
+///         "Tag": {
+///             "type": "object",
+///             "properties": { "name": { "type": "string" } },
+///             "required": ["name"]
+///         }
+///     })
+/// );
+/// // The full document needs a root (`openapi` and `info`).
+/// assert!(spec.render(OutputKind::Full).is_err());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum OutputKind {
@@ -42,6 +70,16 @@ pub enum OutputKind {
 }
 
 /// File format, chosen by the file extension (`.json` → JSON, otherwise YAML).
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::Format;
+/// use serde_json::json;
+///
+/// let text = Format::Json.render(&json!({ "openapi": "3.1.0" }));
+/// assert_eq!(text, "{\n  \"openapi\": \"3.1.0\"\n}\n");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Format {
@@ -53,6 +91,17 @@ pub enum Format {
 
 impl Format {
     /// The format for `path`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Format;
+    /// use std::path::Path;
+    ///
+    /// assert_eq!(Format::of(Path::new("openapi.json")), Format::Json);
+    /// assert_eq!(Format::of(Path::new("openapi.yaml")), Format::Yaml);
+    /// assert_eq!(Format::of(Path::new("openapi")), Format::Yaml);
+    /// ```
     pub fn of(path: &Path) -> Self {
         match path.extension().and_then(|e| e.to_str()) {
             Some("json") => Self::Json,
@@ -61,6 +110,23 @@ impl Format {
     }
 
     /// Serializes `value` in this format (always ending with a newline).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Format;
+    /// use serde_json::json;
+    ///
+    /// let document = json!({
+    ///     "openapi": "3.1.0",
+    ///     "info": { "title": "Shop", "version": "1.0" },
+    ///     "paths": {}
+    /// });
+    /// assert_eq!(
+    ///     Format::Yaml.render(&document),
+    ///     "openapi: \"3.1.0\"\ninfo:\n  title: Shop\n  version: \"1.0\"\npaths: {}\n"
+    /// );
+    /// ```
     pub fn render(self, value: &Value) -> String {
         match self {
             Self::Json => {

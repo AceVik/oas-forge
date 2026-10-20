@@ -25,6 +25,10 @@ use std::path::{Path, PathBuf};
 
 /// Builds OpenAPI documents from Rust sources.
 ///
+/// # Examples
+///
+/// In a build script, with paths relative to the package root:
+///
 /// ```no_run
 /// oas_forge::Generator::new()
 ///     .input("src")
@@ -34,16 +38,29 @@ use std::path::{Path, PathBuf};
 /// ```
 #[derive(Debug, Clone)]
 pub struct Generator {
+    /// Directories scanned recursively, in the order they were added.
     inputs: Vec<PathBuf>,
+    /// Single YAML/JSON files, read after the directories.
     includes: Vec<PathBuf>,
+    /// Output strategies and their files, in the order they were added.
     outputs: Vec<(OutputKind, PathBuf)>,
+    /// Values of `{{NAME}}` placeholders, `CARGO_PKG_*` included.
     variables: Variables,
+    /// Whether warnings are raised to errors after the run.
     deny_warnings: bool,
+    /// The size limit per input file in bytes.
     max_file_size: u64,
+    /// Whether [`Generator::generate`] prints cargo directives.
     cargo_directives: bool,
+    /// The built-in type table plus the custom mappings.
     types: TypeMapper,
+    /// Whether `@route` blocks are completed from handler signatures.
     infer: bool,
+    /// The package a root document is generated from when the sources
+    /// define none; `None` never generates one.
     package: Option<Package>,
+    /// Whether the strict lints (unused components, missing descriptions)
+    /// run.
     strict_lints: bool,
     /// Configuration files the settings were read from (watched by Cargo).
     config_files: Vec<PathBuf>,
@@ -96,12 +113,48 @@ impl Default for Generator {
 
 impl Generator {
     /// A generator without inputs and outputs.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Error, Generator};
+    ///
+    /// // Without an output there is nothing to do.
+    /// assert!(matches!(Generator::new().generate(), Err(Error::NoOutput)));
+    /// ```
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Adds the inputs and outputs of `config`; the files it was read from
     /// are watched like inputs ([`Spec::watched`]).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Config, Generator};
+    /// use serde_json::json;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct User { pub id: UserId }\n")?;
+    /// let config = Config::from_toml_str(
+    ///     r#"
+    ///     [types]
+    ///     UserId = { type = "string", format = "uuid" }
+    ///     "#,
+    /// )?;
+    ///
+    /// let spec = Generator::new()
+    ///     .with_config(config)
+    ///     .input(src.path())
+    ///     .without_package()
+    ///     .build()?;
+    /// assert_eq!(
+    ///     spec.document()["components"]["schemas"]["User"]["properties"]["id"],
+    ///     json!({ "type": "string", "format": "uuid" })
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn with_config(mut self, config: Config) -> Self {
         for file in config.files() {
             if !self.config_files.contains(file) {
@@ -145,66 +198,303 @@ impl Generator {
         self
     }
 
-    /// Adds a directory that is scanned recursively.
+    /// Adds a directory that is scanned recursively for Rust (`.rs`), YAML
+    /// (`.yaml`, `.yml`) and JSON (`.json`) files; other files are ignored.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    /// std::fs::write(src.path().join("notes.txt"), "not an input")?;
+    ///
+    /// let spec = Generator::new().input(src.path()).without_package().build()?;
+    /// assert_eq!(spec.document()["components"]["schemas"]["Tag"]["type"], "object");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn input(mut self, path: impl Into<PathBuf>) -> Self {
         self.inputs.push(path.into());
         self
     }
 
-    /// Adds a single YAML/JSON file.
+    /// Adds a single YAML/JSON file. A missing file is reported
+    /// ([`Code::MissingInclude`]) and skipped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// let root = dir.path().join("root.yaml");
+    /// std::fs::write(&root, "openapi: 3.1.0\ninfo:\n  title: Shop\n  version: 1.0.0\n")?;
+    ///
+    /// let spec = Generator::new().include(&root).build()?;
+    /// assert_eq!(spec.document()["info"]["title"], "Shop");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn include(mut self, path: impl Into<PathBuf>) -> Self {
         self.includes.push(path.into());
         self
     }
 
-    /// Writes the full specification to `path`.
+    /// Writes the full specification to `path`, as JSON for `.json` and as
+    /// YAML otherwise ([`Format::of`]).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Generator, Package};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    /// let out = tempfile::tempdir()?;
+    /// let path = out.path().join("openapi.yaml");
+    ///
+    /// Generator::new()
+    ///     .input(src.path())
+    ///     .package(Package::new("shop", "1.0.0"))
+    ///     .output(&path)
+    ///     .generate()?;
+    /// let text = std::fs::read_to_string(&path)?;
+    /// assert!(text.starts_with("openapi: \"3.1.1\"\ninfo:\n  title: shop\n"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn output(self, path: impl Into<PathBuf>) -> Self {
         self.output_as(OutputKind::Full, path)
     }
 
     /// Writes only `components.schemas` to `path`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    /// let out = tempfile::tempdir()?;
+    /// let path = out.path().join("schemas.json");
+    ///
+    /// Generator::new().input(src.path()).output_schemas(&path).generate()?;
+    /// let schemas: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+    /// assert_eq!(schemas["Tag"]["type"], "object");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn output_schemas(self, path: impl Into<PathBuf>) -> Self {
         self.output_as(OutputKind::Schemas, path)
     }
 
     /// Writes only `paths` to `path`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     src.path().join("lib.rs"),
+    ///     "/// List tags\n/// @route GET /tags\n/// @return 200: Vec<String>\npub async fn list_tags() {}\n",
+    /// )?;
+    /// let out = tempfile::tempdir()?;
+    /// let path = out.path().join("paths.json");
+    ///
+    /// Generator::new().input(src.path()).output_paths(&path).generate()?;
+    /// let paths: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+    /// assert_eq!(paths["/tags"]["get"]["operationId"], "list_tags");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn output_paths(self, path: impl Into<PathBuf>) -> Self {
         self.output_as(OutputKind::Paths, path)
     }
 
-    /// Writes the headless specification for other crates to `path`.
+    /// Writes the headless specification for other crates to `path`: no
+    /// `openapi`, `info` or `servers`, but the templates of this crate
+    /// ([`OutputKind::Fragments`]).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Generator, Package};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    /// let out = tempfile::tempdir()?;
+    /// let path = out.path().join("fragments.json");
+    ///
+    /// Generator::new()
+    ///     .input(src.path())
+    ///     .package(Package::new("shop", "1.0.0"))
+    ///     .output_fragments(&path)
+    ///     .generate()?;
+    /// let fragments: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+    /// assert!(fragments.get("openapi").is_none());
+    /// assert_eq!(fragments["components"]["schemas"]["Tag"]["type"], "object");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn output_fragments(self, path: impl Into<PathBuf>) -> Self {
         self.output_as(OutputKind::Fragments, path)
     }
 
     /// Writes the component schemas as a JSON Schema 2020-12 bundle to `path`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    /// let out = tempfile::tempdir()?;
+    /// let path = out.path().join("schemas.schema.json");
+    ///
+    /// Generator::new().input(src.path()).output_json_schema(&path).generate()?;
+    /// let bundle: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+    /// assert_eq!(bundle["$schema"], "https://json-schema.org/draft/2020-12/schema");
+    /// assert_eq!(bundle["$defs"]["Tag"]["type"], "object");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn output_json_schema(self, path: impl Into<PathBuf>) -> Self {
         self.output_as(OutputKind::JsonSchema, path)
     }
 
     /// Writes the specification lowered to OpenAPI 3.0.3 to `path`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Generator, Package};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    /// let out = tempfile::tempdir()?;
+    /// let path = out.path().join("openapi-3.0.json");
+    ///
+    /// Generator::new()
+    ///     .input(src.path())
+    ///     .package(Package::new("shop", "1.0.0"))
+    ///     .output_openapi_30(&path)
+    ///     .generate()?;
+    /// let document: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+    /// assert_eq!(document["openapi"], "3.0.3");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn output_openapi_30(self, path: impl Into<PathBuf>) -> Self {
         self.output_as(OutputKind::OpenApi30, path)
     }
 
     /// Writes the specification converted to Swagger 2.0 to `path`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Generator, Package};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    /// let out = tempfile::tempdir()?;
+    /// let path = out.path().join("swagger.json");
+    ///
+    /// Generator::new()
+    ///     .input(src.path())
+    ///     .package(Package::new("shop", "1.0.0"))
+    ///     .output_swagger2(&path)
+    ///     .generate()?;
+    /// let document: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+    /// assert_eq!(document["swagger"], "2.0");
+    /// assert_eq!(document["definitions"]["Tag"]["type"], "object");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn output_swagger2(self, path: impl Into<PathBuf>) -> Self {
         self.output_as(OutputKind::Swagger20, path)
     }
 
     /// Writes the AsyncAPI document (from `@asyncapi` and `@channel` blocks)
     /// to `path`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     src.path().join("lib.rs"),
+    ///     r#"
+    /// //! @asyncapi
+    /// //! asyncapi: 3.0.0
+    /// //! info:
+    /// //!   title: Events
+    /// //!   version: 1.0.0
+    ///
+    /// /// Tag changes
+    /// /// @channel tags/changed
+    /// /// @send TagChanged: { type: object }
+    /// pub fn publish_tag_change() {}
+    /// "#,
+    /// )?;
+    /// let out = tempfile::tempdir()?;
+    /// let path = out.path().join("asyncapi.json");
+    ///
+    /// Generator::new().input(src.path()).output_asyncapi(&path).generate()?;
+    /// let document: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+    /// assert_eq!(document["channels"]["tags_changed"]["address"], "tags/changed");
+    /// assert_eq!(document["operations"]["publish_tag_change"]["action"], "send");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn output_asyncapi(self, path: impl Into<PathBuf>) -> Self {
         self.output_as(OutputKind::AsyncApi, path)
     }
 
     /// Writes the output strategy `kind` to `path`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Generator, OutputKind};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    /// let out = tempfile::tempdir()?;
+    /// let path = out.path().join("schemas.yaml");
+    ///
+    /// Generator::new()
+    ///     .input(src.path())
+    ///     .output_as(OutputKind::Schemas, &path)
+    ///     .generate()?;
+    /// assert!(std::fs::read_to_string(&path)?.starts_with("Tag:\n  type: object\n"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn output_as(mut self, kind: OutputKind, path: impl Into<PathBuf>) -> Self {
         self.outputs.push((kind, path.into()));
         self
     }
 
-    /// Sets the value of a `{{name}}` placeholder.
+    /// Sets the value of a `{{name}}` placeholder; a later value for the
+    /// same name wins.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// let root = dir.path().join("root.yaml");
+    /// std::fs::write(
+    ///     &root,
+    ///     "openapi: 3.1.0\ninfo:\n  title: Shop\n  version: 1.0.0\nservers:\n  - url: \"{{API_URL}}\"\n",
+    /// )?;
+    ///
+    /// let spec = Generator::new()
+    ///     .include(&root)
+    ///     .var("API_URL", "https://api.example.com")
+    ///     .build()?;
+    /// assert_eq!(spec.document()["servers"][0]["url"], "https://api.example.com");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn var(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.variables.insert(name.into(), value.into());
         self
@@ -213,9 +503,24 @@ impl Generator {
     /// Documents the Rust type `name` (or path `my_crate::Name`) with `schema`
     /// instead of the built-in mapping or a `$ref`.
     ///
+    /// # Examples
+    ///
     /// ```
-    /// let generator = oas_forge::Generator::new()
-    ///     .map_type("UserId", serde_json::json!({ "type": "string", "format": "uuid" }));
+    /// use serde_json::json;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct User { pub id: UserId }\n")?;
+    ///
+    /// let spec = oas_forge::Generator::new()
+    ///     .map_type("UserId", json!({ "type": "string", "format": "uuid" }))
+    ///     .input(src.path())
+    ///     .without_package()
+    ///     .build()?;
+    /// assert_eq!(
+    ///     spec.document()["components"]["schemas"]["User"]["properties"]["id"],
+    ///     json!({ "type": "string", "format": "uuid" })
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn map_type(mut self, name: impl Into<String>, schema: Value) -> Self {
         self.types = self.types.with_type(name, schema);
@@ -225,6 +530,40 @@ impl Generator {
     /// Fills gaps of `@route` blocks from the handler signature (axum and
     /// actix-web extractors such as `Path<T>`, `Query<T>`, `Json<T>`); on by
     /// default. A single route opts out with `@no-infer`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    /// use serde_json::json;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     src.path().join("lib.rs"),
+    ///     r#"
+    /// /// Get a tag
+    /// /// @route GET /tags/{name}
+    /// pub async fn get_tag(Path(name): Path<String>) -> Json<String> { todo!() }
+    /// "#,
+    /// )?;
+    ///
+    /// let spec = Generator::new().input(src.path()).without_package().build()?;
+    /// let operation = &spec.document()["paths"]["/tags/{name}"]["get"];
+    /// assert_eq!(operation["parameters"][0]["schema"], json!({ "type": "string" }));
+    /// assert_eq!(
+    ///     operation["responses"]["200"]["content"]["application/json"]["schema"],
+    ///     json!({ "type": "string" })
+    /// );
+    ///
+    /// // Without inference the path parameter has no definition: an error.
+    /// let spec = Generator::new()
+    ///     .input(src.path())
+    ///     .without_package()
+    ///     .infer_signatures(false)
+    ///     .build()?;
+    /// assert!(spec.diagnostics().has_errors());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn infer_signatures(mut self, infer: bool) -> Self {
         self.infer = infer;
         self
@@ -234,6 +573,26 @@ impl Generator {
     /// and for the `{{CARGO_PKG_*}}` variables ([`Package::variables`]);
     /// [`Generator::var`] calls after this one win. In a build script the
     /// running package is used by default.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Generator, Package};
+    /// use serde_json::json;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    ///
+    /// let spec = Generator::new()
+    ///     .input(src.path())
+    ///     .package(Package::new("shop", "1.0.0"))
+    ///     .build()?;
+    /// assert_eq!(spec.document()["openapi"], "3.1.1");
+    /// assert_eq!(spec.document()["info"], json!({ "title": "shop", "version": "1.0.0" }));
+    /// let first = spec.diagnostics().iter().next().map(|d| d.code());
+    /// assert_eq!(first, Some(Code::GeneratedRoot));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn package(mut self, package: Package) -> Self {
         self.variables.extend(
             package
@@ -246,6 +605,21 @@ impl Generator {
     }
 
     /// Never generates a root document from package metadata.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Generator, OutputKind};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    ///
+    /// let spec = Generator::new().input(src.path()).without_package().build()?;
+    /// assert!(spec.document().get("openapi").is_none());
+    /// // The full document needs a root.
+    /// assert!(spec.render(OutputKind::Full).is_err());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn without_package(mut self) -> Self {
         self.package = None;
         self
@@ -253,18 +627,80 @@ impl Generator {
 
     /// Also reports unused components and operations or schemas without
     /// description.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Generator};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    ///
+    /// let spec = Generator::new()
+    ///     .input(src.path())
+    ///     .without_package()
+    ///     .strict_lints(true)
+    ///     .build()?;
+    /// let codes: Vec<Code> = spec.diagnostics().iter().map(|d| d.code()).collect();
+    /// assert_eq!(codes, [Code::UnusedComponent, Code::MissingDescription]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn strict_lints(mut self, strict: bool) -> Self {
         self.strict_lints = strict;
         self
     }
 
     /// Treats warnings as errors.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     src.path().join("lib.rs"),
+    ///     "/// List tags\n/// @route GET /tags\n/// @return 200: $Missing\npub async fn list_tags() {}\n",
+    /// )?;
+    ///
+    /// let lenient = Generator::new().input(src.path()).without_package().build()?;
+    /// assert!(!lenient.diagnostics().is_empty());
+    /// assert!(!lenient.diagnostics().has_errors());
+    ///
+    /// let strict = Generator::new()
+    ///     .input(src.path())
+    ///     .without_package()
+    ///     .deny_warnings(true)
+    ///     .build()?;
+    /// assert!(strict.diagnostics().has_errors());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn deny_warnings(mut self, deny: bool) -> Self {
         self.deny_warnings = deny;
         self
     }
 
-    /// Sets the size limit per input file in bytes.
+    /// Sets the size limit per input file in bytes (default 16 MiB). A
+    /// larger file is skipped with an error ([`Code::FileTooLarge`]).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Generator};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    ///
+    /// let spec = Generator::new()
+    ///     .input(src.path())
+    ///     .without_package()
+    ///     .max_file_size(16)
+    ///     .build()?;
+    /// let finding = spec.diagnostics().iter().next().expect("the file is too large");
+    /// assert_eq!(finding.code(), Code::FileTooLarge);
+    /// assert!(finding.is_error());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn max_file_size(mut self, bytes: u64) -> Self {
         self.max_file_size = bytes;
         self
@@ -272,6 +708,18 @@ impl Generator {
 
     /// In build scripts: print `cargo:warning=` for diagnostics and
     /// `cargo:rerun-if-changed=` for every input when generating.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// // build.rs
+    /// oas_forge::Generator::new()
+    ///     .input("src")
+    ///     .output("openapi.yaml")
+    ///     .emit_cargo_directives(true)
+    ///     .generate()?;
+    /// # Ok::<(), oas_forge::Error>(())
+    /// ```
     pub fn emit_cargo_directives(mut self, emit: bool) -> Self {
         self.cargo_directives = emit;
         self
@@ -282,6 +730,38 @@ impl Generator {
     /// # Errors
     /// Fatal problems (unreadable inputs, invalid Rust, invalid YAML, multiple
     /// roots). Error-level diagnostics are returned in the [`Spec`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    /// use serde_json::json;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     src.path().join("lib.rs"),
+    ///     r#"
+    /// /// A tag.
+    /// /// @openapi
+    /// pub struct Tag { pub name: String }
+    ///
+    /// /// List tags
+    /// /// @route GET /tags
+    /// /// @return 200: Vec<$Tag>
+    /// pub async fn list_tags() {}
+    /// "#,
+    /// )?;
+    ///
+    /// let spec = Generator::new().input(src.path()).without_package().build()?;
+    /// let operation = &spec.document()["paths"]["/tags"]["get"];
+    /// assert_eq!(operation["summary"], "List tags");
+    /// assert_eq!(
+    ///     operation["responses"]["200"]["content"]["application/json"]["schema"],
+    ///     json!({ "type": "array", "items": { "$ref": "#/components/schemas/Tag" } })
+    /// );
+    /// assert!(spec.diagnostics().is_empty());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn build(&self) -> Result<Spec> {
         let mut diagnostics = Diagnostics::new();
         let options = DiscoverOptions::default()
@@ -344,6 +824,33 @@ impl Generator {
     /// [`Error::NoOutput`] without outputs, any [`Generator::build`] error,
     /// [`Error::Diagnostics`] when a diagnostic has error severity, and
     /// [`Error::NoRootFound`] for a full output without root document.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Error, Generator, Package};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    /// let out = tempfile::tempdir()?;
+    /// let path = out.path().join("openapi.json");
+    /// let generator = Generator::new()
+    ///     .input(src.path())
+    ///     .package(Package::new("shop", "1.0.0"))
+    ///     .output(&path);
+    ///
+    /// generator.generate()?;
+    /// let document: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+    /// assert_eq!(document["info"]["title"], "shop");
+    ///
+    /// // A route without a definition for its path parameter fails the run.
+    /// std::fs::write(
+    ///     src.path().join("broken.rs"),
+    ///     "/// @route GET /tags/{id}\npub async fn get_tag() {}\n",
+    /// )?;
+    /// assert!(matches!(generator.generate(), Err(Error::Diagnostics(_))));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn generate(&self) -> Result<()> {
         if self.outputs.is_empty() {
             return Err(Error::NoOutput);
@@ -361,52 +868,193 @@ impl Generator {
 }
 
 /// The result of a pipeline run.
+///
+/// It holds the documents in memory: inspect them, render any output kind
+/// or write the configured outputs.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::{Generator, OutputKind, Package};
+///
+/// let src = tempfile::tempdir()?;
+/// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+/// let out = tempfile::tempdir()?;
+///
+/// let spec = Generator::new()
+///     .input(src.path())
+///     .package(Package::new("shop", "1.0.0"))
+///     .output(out.path().join("openapi.yaml"))
+///     .build()?;
+/// for diagnostic in spec.diagnostics() {
+///     eprintln!("{diagnostic}");
+/// }
+/// assert_eq!(spec.render(OutputKind::Schemas)?["Tag"]["type"], "object");
+/// spec.write()?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone)]
 pub struct Spec {
+    /// The merged document in the dialect of its root.
     document: Value,
-    /// `None` when equal to `document`.
+    /// The merged document before version-specific lowering; `None` when
+    /// equal to `document`.
     canonical: Option<Value>,
+    /// Top-level keys that only the root generated from the package defines.
     generated_keys: Vec<String>,
+    /// The merged AsyncAPI document; an empty object without `@asyncapi`
+    /// and `@channel` blocks.
     asyncapi: Value,
+    /// The templates and fragments of the run.
     registry: Registry,
+    /// The configured outputs, in the order they were added.
     outputs: Vec<(OutputKind, PathBuf)>,
+    /// Every finding, those of rendering the configured outputs included.
     diagnostics: Diagnostics,
+    /// Inputs and configuration files, for `cargo:rerun-if-changed`.
     watched: Vec<PathBuf>,
+    /// Environment variables read with `{{env:NAME}}`, sorted and unique.
     watched_env: Vec<String>,
+    /// Each configured output kind, rendered once by [`Generator::build`].
     rendered: BTreeMap<OutputKind, Value>,
 }
 
 impl Spec {
     /// The merged document (it has no root when none was defined).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    ///
+    /// let spec = Generator::new().input(src.path()).without_package().build()?;
+    /// assert_eq!(spec.document()["components"]["schemas"]["Tag"]["type"], "object");
+    /// assert!(spec.document().get("info").is_none());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn document(&self) -> &Value {
         &self.document
     }
 
     /// The templates and fragments known to this run.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     src.path().join("lib.rs"),
+    ///     r#"
+    /// /// @openapi-fragment Paging(max)
+    /// /// - name: limit
+    /// ///   in: query
+    /// ///   schema: { type: integer, maximum: {{max}} }
+    /// fn paging() {}
+    /// "#,
+    /// )?;
+    ///
+    /// let spec = Generator::new().input(src.path()).without_package().build()?;
+    /// let paging = spec.registry().fragment("Paging").expect("a fragment");
+    /// assert_eq!(paging.params, ["max"]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn registry(&self) -> &Registry {
         &self.registry
     }
 
     /// Every finding of the run.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Generator};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     src.path().join("lib.rs"),
+    ///     "/// List tags\n/// @route GET /tags\n/// @return 200: $Missing\npub async fn list_tags() {}\n",
+    /// )?;
+    ///
+    /// let spec = Generator::new().input(src.path()).without_package().build()?;
+    /// let codes: Vec<Code> = spec.diagnostics().iter().map(|d| d.code()).collect();
+    /// assert_eq!(codes, [Code::UnresolvedReference, Code::DanglingReference]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn diagnostics(&self) -> &Diagnostics {
         &self.diagnostics
     }
 
     /// Inputs and configuration files ([`Config::files`]) whose changes
     /// affect the result.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    ///
+    /// let spec = Generator::new().input(src.path()).without_package().build()?;
+    /// assert_eq!(spec.watched(), [src.path()]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn watched(&self) -> &[PathBuf] {
         &self.watched
     }
 
     /// Environment variables the inputs read with `{{env:NAME}}`, sorted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     src.path().join("servers.yaml"),
+    ///     "servers:\n  - url: https://{{env:SHOP_API_HOST}}\n",
+    /// )?;
+    ///
+    /// let spec = Generator::new().input(src.path()).without_package().build()?;
+    /// assert_eq!(spec.watched_env(), ["SHOP_API_HOST"]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn watched_env(&self) -> &[String] {
         &self.watched_env
     }
 
-    /// The value an output strategy receives.
+    /// The value an output strategy receives; any kind can be rendered,
+    /// configured as an output or not.
     ///
     /// # Errors
-    /// [`Error::NoRootFound`] for [`OutputKind::Full`] without root document.
+    /// [`Error::NoRootFound`] for [`OutputKind::Full`],
+    /// [`OutputKind::OpenApi30`] and [`OutputKind::Swagger20`] without root
+    /// document, [`Error::NoAsyncApiRoot`] for [`OutputKind::AsyncApi`]
+    /// without AsyncAPI root.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Generator, OutputKind, Package};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    ///
+    /// let spec = Generator::new()
+    ///     .input(src.path())
+    ///     .package(Package::new("shop", "1.0.0"))
+    ///     .build()?;
+    /// let swagger = spec.render(OutputKind::Swagger20)?;
+    /// assert_eq!(swagger["swagger"], "2.0");
+    /// assert_eq!(swagger["definitions"]["Tag"]["type"], "object");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn render(&self, kind: OutputKind) -> Result<Value> {
         if let Some(value) = self.rendered.get(&kind) {
             return Ok(value.clone());
@@ -418,7 +1066,31 @@ impl Spec {
     /// (e.g. constructs an OpenAPI 3.0 export approximates).
     ///
     /// # Errors
-    /// [`Error::NoRootFound`] for outputs that need a root document.
+    /// As [`Spec::render`]: [`Error::NoRootFound`] or
+    /// [`Error::NoAsyncApiRoot`] for outputs that need a root document.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Generator, OutputKind, Package};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     src.path().join("lib.rs"),
+    ///     "/// @openapi\n#[serde(untagged)]\npub enum Id { Number(u64), Text(String) }\n",
+    /// )?;
+    /// let spec = Generator::new()
+    ///     .input(src.path())
+    ///     .package(Package::new("shop", "1.0.0"))
+    ///     .build()?;
+    ///
+    /// // Swagger 2.0 has no `anyOf`.
+    /// let (swagger, findings) = spec.render_with_diagnostics(OutputKind::Swagger20)?;
+    /// assert!(swagger["definitions"]["Id"]["x-anyOf"].is_array());
+    /// let codes: Vec<Code> = findings.iter().map(|d| d.code()).collect();
+    /// assert_eq!(codes, [Code::LossyLowering]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn render_with_diagnostics(&self, kind: OutputKind) -> Result<(Value, Diagnostics)> {
         let input = output::RenderInput {
             document: &self.document,
@@ -436,7 +1108,25 @@ impl Spec {
     /// unchanged) and returns the configured paths.
     ///
     /// # Errors
-    /// [`Error::NoRootFound`] or [`Error::Io`].
+    /// [`Error::NoRootFound`] or [`Error::NoAsyncApiRoot`] when an output
+    /// cannot be rendered (then nothing is written), [`Error::Io`] when a
+    /// file cannot be written.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    /// let out = tempfile::tempdir()?;
+    /// let path = out.path().join("schemas.yaml");
+    ///
+    /// let spec = Generator::new().input(src.path()).output_schemas(&path).build()?;
+    /// assert_eq!(spec.write()?, [path.clone()]);
+    /// assert!(path.is_file());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn write(&self) -> Result<Vec<PathBuf>> {
         let mut rendered = Vec::new();
         for (kind, path) in &self.outputs {
@@ -456,6 +1146,23 @@ impl Spec {
     /// # Errors
     /// [`Error::NoRootFound`] or [`Error::NoAsyncApiRoot`] for outputs that
     /// cannot be rendered.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    /// let out = tempfile::tempdir()?;
+    /// let path = out.path().join("schemas.yaml");
+    ///
+    /// let spec = Generator::new().input(src.path()).output_schemas(&path).build()?;
+    /// assert_eq!(spec.check()?, [path.clone()]); // not written yet
+    /// spec.write()?;
+    /// assert!(spec.check()?.is_empty());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn check(&self) -> Result<Vec<PathBuf>> {
         let mut outdated = Vec::new();
         for (kind, path) in &self.outputs {
@@ -477,6 +1184,19 @@ impl Spec {
 
     /// Prints the [cargo directives](Spec::write_cargo_directives) of a
     /// build script to standard output.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// // build.rs: generate, but let Cargo decide when to run again.
+    /// let spec = oas_forge::Generator::new()
+    ///     .input("src")
+    ///     .output("openapi.yaml")
+    ///     .build()?;
+    /// spec.print_cargo_directives();
+    /// spec.write()?;
+    /// # Ok::<(), oas_forge::Error>(())
+    /// ```
     pub fn print_cargo_directives(&self) {
         // Cargo reads the directives from standard output; nothing to do if
         // it is closed.
@@ -489,6 +1209,24 @@ impl Spec {
     ///
     /// # Errors
     /// Errors of `out`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(src.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+    ///
+    /// let spec = Generator::new().input(src.path()).without_package().build()?;
+    /// let mut out = Vec::new();
+    /// spec.write_cargo_directives(&mut out)?;
+    /// assert_eq!(
+    ///     String::from_utf8(out)?,
+    ///     format!("cargo:rerun-if-changed={}\n", src.path().display())
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn write_cargo_directives(&self, out: &mut impl std::io::Write) -> std::io::Result<()> {
         for path in &self.watched {
             writeln!(out, "cargo:rerun-if-changed={}", path.display())?;
@@ -507,13 +1245,16 @@ impl Spec {
 
 /// A parsed document and where it came from.
 struct Snippet {
+    /// The parsed value, merged into the document.
     value: Value,
+    /// Where the annotation or file starts; findings point here.
     location: Location,
     /// Part of the AsyncAPI document instead of the OpenAPI document.
     asyncapi: bool,
 }
 
 impl Snippet {
+    /// A snippet of the OpenAPI document.
     fn openapi(value: Value, location: Location) -> Self {
         Self {
             value,
@@ -525,35 +1266,57 @@ impl Snippet {
 
 /// A piece of text that still has to go through the lexical stage.
 enum Pending {
+    /// A free `@openapi` block.
     Document {
+        /// The YAML text before expansion.
         text: String,
+        /// Where the text starts.
         location: Location,
+        /// Tags of the enclosing modules, for operations without tags.
         tags: Vec<String>,
     },
+    /// A schema written as YAML (`@openapi-type Name`).
     NamedSchema {
+        /// The schema name.
         name: String,
+        /// The YAML text before expansion.
         text: String,
+        /// Where the text starts.
         location: Location,
     },
+    /// A `@route` or `@webhook` block, compiled after expansion.
     Route(Box<extract::RouteItem>),
+    /// A YAML or JSON input file.
     File {
+        /// The file content.
         text: String,
+        /// Line 1 of the file.
         location: Location,
     },
+    /// A free `@asyncapi` block.
     AsyncApi {
+        /// The YAML text before expansion.
         text: String,
+        /// Where the text starts.
         location: Location,
     },
+    /// A `@channel` block, compiled after expansion.
     Channel(Box<extract::ChannelItem>),
 }
 
 /// The settings of a pipeline run.
 #[derive(Clone, Copy)]
 pub(crate) struct Settings<'a> {
+    /// Values of `{{NAME}}` placeholders.
     pub(crate) variables: &'a Variables,
+    /// How Rust types map to schemas.
     pub(crate) types: &'a TypeMapper,
+    /// Whether `@route` blocks are completed from handler signatures.
     pub(crate) infer: bool,
+    /// The package a root document is generated from when the sources
+    /// define none.
     pub(crate) package: Option<&'a Package>,
+    /// Whether the strict lints run.
     pub(crate) strict_lints: bool,
 }
 
@@ -751,9 +1514,11 @@ pub(crate) struct Documents {
 /// What pass 1 collects.
 #[derive(Default)]
 struct Collected {
+    /// Fragments, blueprints and the schema names of renamed Rust types.
     registry: Registry,
     /// Regular expression constants by name.
     patterns: BTreeMap<String, String>,
+    /// The schema names smart references may resolve to.
     known: KnownSchemas,
     /// Snippets that are complete after extraction (reflected schemas).
     snippets: Vec<Snippet>,
@@ -763,6 +1528,9 @@ struct Collected {
 }
 
 impl Collected {
+    /// Files `item` by stage: reflected schemas become snippets, templates
+    /// and patterns are registered, and texts wait in `pending` until every
+    /// template is known. A schema name defined twice is reported.
     fn register(&mut self, item: Item, diagnostics: &mut Diagnostics) {
         let Self {
             registry,
@@ -1192,6 +1960,8 @@ fn merge_tags(tags: Vec<Value>, diagnostics: &mut Diagnostics) -> Vec<Value> {
     merged
 }
 
+/// Removes `@extend` marker keys (prefix [`EXTEND_KEY`]) that no stage
+/// resolved, at any depth, so they never reach an output.
 fn remove_extend_markers(value: &mut Value) {
     match value {
         Value::Object(map) => {
@@ -1203,7 +1973,47 @@ fn remove_extend_markers(value: &mut Value) {
     }
 }
 
-/// Runs the pipeline on in-memory sources (for tests and tools).
+/// Runs the pipeline on in-memory sources (for tests and tools), with the
+/// built-in type table, signature inference and no package root. Returns
+/// the merged document, in the dialect of its root, and every finding.
+///
+/// # Errors
+/// [`Error::Parse`] for a Rust source that is not valid Rust,
+/// [`Error::Yaml`] for an invalid YAML or JSON snippet and
+/// [`Error::MultipleRootsFound`] when several snippets declare `openapi` and
+/// `info`.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::generator::generate_from_sources;
+/// use oas_forge::source::{SourceFile, SourceKind};
+/// use oas_forge::template::Variables;
+/// use serde_json::json;
+///
+/// let source = SourceFile::new(
+///     "src/lib.rs",
+///     SourceKind::Rust,
+///     "/// @openapi\npub struct Tag { pub name: String }\n",
+/// );
+/// let (document, diagnostics) = generate_from_sources(vec![source], &Variables::new())?;
+/// assert_eq!(
+///     document,
+///     json!({
+///         "components": {
+///             "schemas": {
+///                 "Tag": {
+///                     "type": "object",
+///                     "properties": { "name": { "type": "string" } },
+///                     "required": ["name"]
+///                 }
+///             }
+///         }
+///     })
+/// );
+/// assert!(diagnostics.is_empty());
+/// # Ok::<(), oas_forge::Error>(())
+/// ```
 pub fn generate_from_sources(
     files: Vec<SourceFile>,
     variables: &Variables,

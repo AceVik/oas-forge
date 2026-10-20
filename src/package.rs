@@ -13,6 +13,29 @@ use std::path::{Path, PathBuf};
 pub const ROOT_VERSION: &str = "3.1.1";
 
 /// Package metadata (the `[package]` section of `Cargo.toml`).
+///
+/// # Examples
+///
+/// A package passed to the generator provides the root document when the
+/// sources have none:
+///
+/// ```
+/// use oas_forge::{Generator, OutputKind, Package};
+///
+/// let dir = tempfile::tempdir()?;
+/// std::fs::write(
+///     dir.path().join("lib.rs"),
+///     "/// @openapi\npub struct Product { pub id: u64 }\n",
+/// )?;
+/// let mut package = Package::new("shop", "1.0.0");
+/// package.description = Some("The shop API".into());
+///
+/// let spec = Generator::new().input(dir.path()).package(package).build()?;
+/// let document = spec.render(OutputKind::Full)?;
+/// assert_eq!(document["info"]["title"], "shop");
+/// assert_eq!(document["info"]["description"], "The shop API");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Package {
@@ -32,6 +55,14 @@ pub struct Package {
 
 impl Package {
     /// A package with a name and a version.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let package = oas_forge::Package::new("shop", "1.0.0");
+    /// assert_eq!(package.name, "shop");
+    /// assert_eq!(package.description, None);
+    /// ```
     pub fn new(name: impl Into<String>, version: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -42,11 +73,34 @@ impl Package {
 
     /// The package of the build script that is running: Cargo sets
     /// `OUT_DIR` and `CARGO_PKG_*` for build scripts. `None` elsewhere.
+    ///
+    /// [`Generator::new`](crate::Generator::new) already uses it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// if let Some(package) = oas_forge::Package::from_build_env() {
+    ///     // Only in a build script.
+    ///     assert!(!package.name.is_empty());
+    /// }
+    /// ```
     pub fn from_build_env() -> Option<Self> {
         std::env::var_os("OUT_DIR").and_then(|_| Self::from_env())
     }
 
     /// The package described by the `CARGO_PKG_*` environment variables.
+    /// `None` without `CARGO_PKG_NAME`; a missing version is `0.0.0`, and
+    /// empty variables count as unset.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Package;
+    ///
+    /// // Cargo sets the variables for build scripts, `cargo run` and `cargo test`.
+    /// let package = Package::from_env().unwrap_or_else(|| Package::new("shop", "1.0.0"));
+    /// assert!(!package.version.is_empty());
+    /// ```
     pub fn from_env() -> Option<Self> {
         let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
         Some(Self {
@@ -64,7 +118,47 @@ impl Package {
     /// it. `None` for a manifest without `[package]` (a virtual workspace).
     ///
     /// # Errors
-    /// [`Error::Config`] when the manifest cannot be read or parsed.
+    /// [`Error::Config`] when the manifest cannot be read or parsed, or its
+    /// `[package]` has no `name`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Package;
+    ///
+    /// let workspace = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     workspace.path().join("Cargo.toml"),
+    ///     r#"
+    ///     [workspace]
+    ///     members = ["api"]
+    ///
+    ///     [workspace.package]
+    ///     version = "2.1.0"
+    ///     license = "MIT"
+    ///     "#,
+    /// )?;
+    /// std::fs::create_dir(workspace.path().join("api"))?;
+    /// let manifest = workspace.path().join("api/Cargo.toml");
+    /// std::fs::write(
+    ///     &manifest,
+    ///     r#"
+    ///     [package]
+    ///     name = "api"
+    ///     version.workspace = true
+    ///     license.workspace = true
+    ///     "#,
+    /// )?;
+    ///
+    /// let package = Package::from_manifest(&manifest)?.expect("a [package] section");
+    /// assert_eq!(package.name, "api");
+    /// assert_eq!(package.version, "2.1.0");
+    /// assert_eq!(package.license.as_deref(), Some("MIT"));
+    ///
+    /// // The workspace manifest itself has no package.
+    /// assert_eq!(Package::from_manifest(workspace.path().join("Cargo.toml"))?, None);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn from_manifest(path: impl AsRef<Path>) -> Result<Option<Self>> {
         let path = path.as_ref();
         let manifest = read_manifest(path)?;
@@ -98,6 +192,17 @@ impl Package {
 
     /// The `CARGO_PKG_*` variables Cargo sets for this package; like Cargo,
     /// unset fields are empty strings.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let package = oas_forge::Package::new("shop", "1.4.2-beta.1");
+    /// let variables = package.variables();
+    /// assert!(variables.contains(&("CARGO_PKG_NAME", "shop".to_string())));
+    /// assert!(variables.contains(&("CARGO_PKG_VERSION_MINOR", "4".to_string())));
+    /// assert!(variables.contains(&("CARGO_PKG_VERSION_PATCH", "2".to_string())));
+    /// assert!(variables.contains(&("CARGO_PKG_LICENSE", String::new())));
+    /// ```
     pub fn variables(&self) -> Vec<(&'static str, String)> {
         let mut parts = self.version.split(['.', '-', '+']);
         let mut part = || parts.next().unwrap_or_default().to_string();
@@ -116,7 +221,31 @@ impl Package {
         ]
     }
 
-    /// The root document: `openapi`, `info` and `externalDocs`.
+    /// The root document: `openapi` ([`ROOT_VERSION`]), `info` and, from
+    /// `homepage` or else `repository`, `externalDocs`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use serde_json::json;
+    ///
+    /// let mut package = oas_forge::Package::new("shop", "1.0.0");
+    /// package.license = Some("MIT".into());
+    /// package.repository = Some("https://example.com/shop".into());
+    ///
+    /// assert_eq!(
+    ///     package.root_document(),
+    ///     json!({
+    ///         "openapi": "3.1.1",
+    ///         "info": {
+    ///             "title": "shop",
+    ///             "version": "1.0.0",
+    ///             "license": { "name": "MIT", "identifier": "MIT" }
+    ///         },
+    ///         "externalDocs": { "url": "https://example.com/shop" }
+    ///     })
+    /// );
+    /// ```
     pub fn root_document(&self) -> Value {
         let mut info = Map::new();
         info.insert("title".into(), json!(self.name));
@@ -140,6 +269,7 @@ impl Package {
     }
 }
 
+/// Reads and parses a `Cargo.toml`; failures are an [`Error::Config`].
 fn read_manifest(path: &Path) -> Result<toml::Table> {
     let text = std::fs::read_to_string(path).map_err(|e| Error::config(path, e.to_string()))?;
     toml::from_str(&text).map_err(|e| Error::config(path, e.to_string()))

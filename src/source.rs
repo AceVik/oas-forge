@@ -14,6 +14,16 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_MAX_FILE_SIZE: u64 = 16 * 1024 * 1024;
 
 /// The kind of an input file, decided by its extension.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::source::SourceKind;
+/// use std::path::Path;
+///
+/// assert_eq!(SourceKind::of(Path::new("src/api.rs")), Some(SourceKind::Rust));
+/// assert_eq!(SourceKind::of(Path::new("openapi/root.yml")), Some(SourceKind::Yaml));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum SourceKind {
@@ -27,6 +37,17 @@ pub enum SourceKind {
 
 impl SourceKind {
     /// The kind of `path`, or `None` for files that are not read.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::source::SourceKind;
+    /// use std::path::Path;
+    ///
+    /// assert_eq!(SourceKind::of(Path::new("components.json")), Some(SourceKind::Json));
+    /// assert_eq!(SourceKind::of(Path::new("README.md")), None);
+    /// assert_eq!(SourceKind::of(Path::new("Makefile")), None);
+    /// ```
     pub fn of(path: &Path) -> Option<Self> {
         match path.extension()?.to_str()? {
             "rs" => Some(Self::Rust),
@@ -38,15 +59,38 @@ impl SourceKind {
 }
 
 /// One input file and its content.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::source::{SourceFile, SourceKind};
+///
+/// let file = SourceFile::new("api/root.yaml", SourceKind::Yaml, "openapi: 3.1.0\n");
+/// assert_eq!(file.kind(), SourceKind::Yaml);
+/// assert_eq!(file.location(1).to_string(), "api/root.yaml:1");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFile {
+    /// The path as found or given; findings show it as is.
     path: PathBuf,
+    /// How the content is read.
     kind: SourceKind,
+    /// The whole content (UTF-8).
     text: String,
 }
 
 impl SourceFile {
-    /// An in-memory source, e.g. for tests or generated code.
+    /// An in-memory source, e.g. for tests or generated code. `kind` is not
+    /// checked against the extension of `path`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::source::{SourceFile, SourceKind};
+    ///
+    /// let file = SourceFile::new("generated.rs", SourceKind::Rust, "pub struct Tag;");
+    /// assert_eq!(file.text(), "pub struct Tag;");
+    /// ```
     pub fn new(path: impl Into<PathBuf>, kind: SourceKind, text: impl Into<String>) -> Self {
         Self {
             path: path.into(),
@@ -56,27 +100,77 @@ impl SourceFile {
     }
 
     /// The path the file was read from.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::source::{SourceFile, SourceKind};
+    /// use std::path::Path;
+    ///
+    /// let file = SourceFile::new("src/lib.rs", SourceKind::Rust, "");
+    /// assert_eq!(file.path(), Path::new("src/lib.rs"));
+    /// ```
     pub fn path(&self) -> &Path {
         &self.path
     }
 
     /// The kind of file.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::source::{SourceFile, SourceKind};
+    ///
+    /// let file = SourceFile::new("schemas.json", SourceKind::Json, "{}");
+    /// assert_eq!(file.kind(), SourceKind::Json);
+    /// ```
     pub fn kind(&self) -> SourceKind {
         self.kind
     }
 
     /// The file content.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::source::{SourceFile, SourceKind};
+    ///
+    /// let file = SourceFile::new("root.yaml", SourceKind::Yaml, "openapi: 3.1.0\n");
+    /// assert_eq!(file.text().lines().count(), 1);
+    /// ```
     pub fn text(&self) -> &str {
         &self.text
     }
 
     /// The location of `line` (1-based) in this file.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Location;
+    /// use oas_forge::source::{SourceFile, SourceKind};
+    ///
+    /// let file = SourceFile::new("src/lib.rs", SourceKind::Rust, "");
+    /// assert_eq!(file.location(7), Location::new("src/lib.rs", 7));
+    /// ```
     pub fn location(&self, line: usize) -> Location {
         Location::new(&self.path, line)
     }
 }
 
 /// Options of [`SourceSet::discover`].
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::source::DiscoverOptions;
+/// use std::path::PathBuf;
+///
+/// let options = DiscoverOptions::default()
+///     .with_exclude(vec![PathBuf::from("openapi.yaml")])
+///     .with_max_file_size(1024 * 1024);
+/// assert_eq!(options.max_file_size, 1024 * 1024);
+/// ```
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct DiscoverOptions {
@@ -96,13 +190,52 @@ impl Default for DiscoverOptions {
 }
 
 impl DiscoverOptions {
-    /// Sets the files that must not be read.
+    /// Sets the files that must not be read (a skipped file is reported as
+    /// [`Code::OutputNotRead`]).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Code;
+    /// use oas_forge::diagnostics::Diagnostics;
+    /// use oas_forge::source::{DiscoverOptions, SourceSet};
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// std::fs::write(dir.path().join("lib.rs"), "pub struct Tag;")?;
+    /// std::fs::write(dir.path().join("openapi.yaml"), "openapi: 3.1.0")?;
+    ///
+    /// let options = DiscoverOptions::default().with_exclude(vec![dir.path().join("openapi.yaml")]);
+    /// let mut diagnostics = Diagnostics::new();
+    /// let set = SourceSet::discover(&[dir.path().to_path_buf()], &[], &options, &mut diagnostics)?;
+    /// assert_eq!(set.files().len(), 1);
+    /// assert_eq!(diagnostics.iter().next().map(|d| d.code()), Some(Code::OutputNotRead));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn with_exclude(mut self, exclude: Vec<PathBuf>) -> Self {
         self.exclude = exclude;
         self
     }
 
-    /// Sets the size limit per file in bytes.
+    /// Sets the size limit per file in bytes; a larger file is skipped with
+    /// an error ([`Code::FileTooLarge`]).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Code;
+    /// use oas_forge::diagnostics::Diagnostics;
+    /// use oas_forge::source::{DiscoverOptions, SourceSet};
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// std::fs::write(dir.path().join("lib.rs"), "pub struct Tag { pub name: String }")?;
+    ///
+    /// let options = DiscoverOptions::default().with_max_file_size(8);
+    /// let mut diagnostics = Diagnostics::new();
+    /// let set = SourceSet::discover(&[dir.path().to_path_buf()], &[], &options, &mut diagnostics)?;
+    /// assert!(set.files().is_empty());
+    /// assert_eq!(diagnostics.iter().next().map(|d| d.code()), Some(Code::FileTooLarge));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn with_max_file_size(mut self, bytes: u64) -> Self {
         self.max_file_size = bytes;
         self
@@ -110,14 +243,41 @@ impl DiscoverOptions {
 }
 
 /// All input files of a run, in processing order.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::source::{SourceFile, SourceKind, SourceSet};
+///
+/// let set = SourceSet::from_files(vec![
+///     SourceFile::new("b.rs", SourceKind::Rust, ""),
+///     SourceFile::new("a.yaml", SourceKind::Yaml, ""),
+/// ]);
+/// let paths: Vec<_> = set.files().iter().map(|f| f.path().to_path_buf()).collect();
+/// assert_eq!(paths, ["b.rs", "a.yaml"].map(std::path::PathBuf::from));
+/// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SourceSet {
+    /// The files in processing order; each file at most once.
     files: Vec<SourceFile>,
+    /// The input directories and the existing include files (for in-memory
+    /// sets, the file paths), for `cargo:rerun-if-changed`.
     watched: Vec<PathBuf>,
 }
 
 impl SourceSet {
     /// A set of in-memory sources (processed in the given order).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::source::{SourceFile, SourceKind, SourceSet};
+    /// use std::path::Path;
+    ///
+    /// let set = SourceSet::from_files(vec![SourceFile::new("lib.rs", SourceKind::Rust, "")]);
+    /// assert_eq!(set.files().len(), 1);
+    /// assert_eq!(set.watched(), [Path::new("lib.rs")]);
+    /// ```
     pub fn from_files(files: Vec<SourceFile>) -> Self {
         let watched = files.iter().map(|f| f.path.clone()).collect();
         Self { files, watched }
@@ -131,6 +291,32 @@ impl SourceSet {
     /// # Errors
     /// [`Error::Io`] when an input directory cannot be walked or a file cannot
     /// be read, [`Error::NoFilesFound`] when there is no file at all.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::Diagnostics;
+    /// use oas_forge::source::{DiscoverOptions, SourceKind, SourceSet};
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// std::fs::create_dir(dir.path().join("api"))?;
+    /// std::fs::write(dir.path().join("lib.rs"), "pub struct Tag;")?;
+    /// std::fs::write(dir.path().join("api/root.yaml"), "openapi: 3.1.0")?;
+    /// std::fs::write(dir.path().join("README.md"), "# Shop")?;
+    ///
+    /// let mut diagnostics = Diagnostics::new();
+    /// let set = SourceSet::discover(
+    ///     &[dir.path().to_path_buf()],
+    ///     &[],
+    ///     &DiscoverOptions::default(),
+    ///     &mut diagnostics,
+    /// )?;
+    /// let kinds: Vec<SourceKind> = set.files().iter().map(|f| f.kind()).collect();
+    /// // Sorted by path: `api/root.yaml` before `lib.rs`; `README.md` is not read.
+    /// assert_eq!(kinds, [SourceKind::Yaml, SourceKind::Rust]);
+    /// assert!(diagnostics.is_empty());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn discover(
         inputs: &[PathBuf],
         includes: &[PathBuf],
@@ -225,12 +411,43 @@ impl SourceSet {
     }
 
     /// The files in processing order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::source::{SourceFile, SourceKind, SourceSet};
+    ///
+    /// let set = SourceSet::from_files(vec![SourceFile::new("lib.rs", SourceKind::Rust, "pub struct Tag;")]);
+    /// assert_eq!(set.files()[0].text(), "pub struct Tag;");
+    /// ```
     pub fn files(&self) -> &[SourceFile] {
         &self.files
     }
 
     /// Directories and files whose changes affect the result
     /// (for `cargo:rerun-if-changed`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::Diagnostics;
+    /// use oas_forge::source::{DiscoverOptions, SourceSet};
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// std::fs::write(dir.path().join("lib.rs"), "pub struct Tag;")?;
+    /// let missing = dir.path().join("missing.yaml");
+    ///
+    /// let mut diagnostics = Diagnostics::new();
+    /// let set = SourceSet::discover(
+    ///     &[dir.path().to_path_buf()],
+    ///     &[missing],
+    ///     &DiscoverOptions::default(),
+    ///     &mut diagnostics,
+    /// )?;
+    /// // The directory itself, not each file; missing includes are not watched.
+    /// assert_eq!(set.watched(), [dir.path()]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn watched(&self) -> &[PathBuf] {
         &self.watched
     }

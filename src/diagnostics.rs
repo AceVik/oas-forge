@@ -9,15 +9,36 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// A position in an input file (1-based line, optional 1-based column).
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::Location;
+///
+/// let location = Location::new("src/lib.rs", 12).with_column(5);
+/// assert_eq!(location.to_string(), "src/lib.rs:12:5");
+/// assert_eq!(location.offset(2).to_string(), "src/lib.rs:14");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Location {
+    /// The file, as given (not canonicalized).
     file: PathBuf,
+    /// The 1-based line.
     line: usize,
+    /// The 1-based column; `None` when only the line is known.
     column: Option<usize>,
 }
 
 impl Location {
     /// A location at `line` (1-based) of `file`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let location = oas_forge::Location::new("src/lib.rs", 3);
+    /// assert_eq!(location.line(), 3);
+    /// assert_eq!(location.column(), None);
+    /// ```
     pub fn new(file: impl Into<PathBuf>, line: usize) -> Self {
         Self {
             file: file.into(),
@@ -27,12 +48,29 @@ impl Location {
     }
 
     /// The same location with a 1-based column.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let location = oas_forge::Location::new("src/lib.rs", 3).with_column(8);
+    /// assert_eq!(location.column(), Some(8));
+    /// ```
     pub fn with_column(mut self, column: usize) -> Self {
         self.column = Some(column);
         self
     }
 
-    /// The location `offset` lines further down.
+    /// The location `offset` lines further down, without a column; e.g. a
+    /// line inside a block that starts at `self`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Location;
+    ///
+    /// let block = Location::new("src/lib.rs", 10).with_column(1);
+    /// assert_eq!(block.offset(3), Location::new("src/lib.rs", 13));
+    /// ```
     pub fn offset(&self, offset: usize) -> Self {
         Self {
             file: self.file.clone(),
@@ -42,16 +80,40 @@ impl Location {
     }
 
     /// The file.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let location = oas_forge::Location::new("src/lib.rs", 3);
+    /// assert_eq!(location.file(), Path::new("src/lib.rs"));
+    /// ```
     pub fn file(&self) -> &Path {
         &self.file
     }
 
     /// The 1-based line.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// assert_eq!(oas_forge::Location::new("src/lib.rs", 3).line(), 3);
+    /// ```
     pub fn line(&self) -> usize {
         self.line
     }
 
     /// The 1-based column, if known.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Location;
+    ///
+    /// assert_eq!(Location::new("src/lib.rs", 3).column(), None);
+    /// assert_eq!(Location::new("src/lib.rs", 3).with_column(7).column(), Some(7));
+    /// ```
     pub fn column(&self) -> Option<usize> {
         self.column
     }
@@ -68,6 +130,18 @@ impl fmt::Display for Location {
 }
 
 /// How serious a finding is.
+///
+/// Ordered from the most to the least serious, so `Error < Warning`.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::{Code, Severity};
+///
+/// assert_eq!(Code::DanglingReference.default_severity(), Severity::Warning);
+/// assert_eq!(Severity::Warning.to_string(), "warning");
+/// assert!(Severity::Error < Severity::Note);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum Severity {
@@ -89,6 +163,9 @@ impl fmt::Display for Severity {
     }
 }
 
+/// Declares [`Code`] from `Variant = "OFxxxx", Severity;` entries: the enum,
+/// [`Code::ALL`] and the tables behind [`Code::as_str`] and
+/// [`Code::default_severity`], so each code is defined in one place.
 macro_rules! codes {
     ($( $(#[$doc:meta])* $variant:ident = $code:literal, $severity:ident; )*) => {
         /// Stable identifier of a kind of finding.
@@ -97,6 +174,17 @@ macro_rules! codes {
         /// `OF1xxx` extraction and attributes, `OF2xxx` route DSL, `OF3xxx`
         /// templates, generics and references, `OF4xxx` merging, `OF5xxx` lints,
         /// `OF6xxx` output.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use oas_forge::{Code, Severity};
+        ///
+        /// let code = Code::UnresolvedReference;
+        /// assert_eq!(code.to_string(), "OF3007");
+        /// assert_eq!(code.default_severity(), Severity::Warning);
+        /// assert!(Code::ALL.contains(&code));
+        /// ```
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[non_exhaustive]
         pub enum Code {
@@ -108,11 +196,26 @@ macro_rules! codes {
             pub const ALL: &'static [Code] = &[$(Code::$variant,)*];
 
             /// The code as written in messages, e.g. `OF2001`.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// assert_eq!(oas_forge::Code::InvalidRoute.as_str(), "OF2001");
+            /// ```
             pub fn as_str(self) -> &'static str {
                 match self { $( Self::$variant => $code, )* }
             }
 
             /// The severity findings of this code have unless configured otherwise.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// use oas_forge::{Code, Severity};
+            ///
+            /// assert_eq!(Code::InvalidRoute.default_severity(), Severity::Error);
+            /// assert_eq!(Code::LossyLowering.default_severity(), Severity::Note);
+            /// ```
             pub fn default_severity(self) -> Severity {
                 match self { $( Self::$variant => Severity::$severity, )* }
             }
@@ -220,16 +323,44 @@ impl fmt::Display for Code {
 }
 
 /// One finding of a generator run.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::{Code, Diagnostic, Location};
+///
+/// let diagnostic = Diagnostic::new(Code::DanglingReference, "`#/components/schemas/User` does not exist")
+///     .at(Location::new("src/api.rs", 7));
+/// assert_eq!(
+///     diagnostic.to_string(),
+///     "warning[OF5001]: `#/components/schemas/User` does not exist (src/api.rs:7)"
+/// );
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
+    /// What kind of finding this is.
     code: Code,
+    /// The default of `code` unless raised or lowered
+    /// ([`Diagnostic::with_severity`], [`Diagnostics::deny_warnings`]).
     severity: Severity,
+    /// The human-readable message.
     message: String,
+    /// The annotation that caused the finding, if known.
     location: Option<Location>,
 }
 
 impl Diagnostic {
     /// A finding with the default severity of `code`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Severity};
+    ///
+    /// let diagnostic = Diagnostic::new(Code::InvalidRoute, "`@route` needs a method and a path");
+    /// assert_eq!(diagnostic.severity(), Severity::Error);
+    /// assert_eq!(diagnostic.location(), None);
+    /// ```
     pub fn new(code: Code, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -240,50 +371,149 @@ impl Diagnostic {
     }
 
     /// The same finding attached to `location`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Location};
+    ///
+    /// let diagnostic = Diagnostic::new(Code::UnknownDirective, "unknown directive `@foo`")
+    ///     .at(Location::new("src/api.rs", 4));
+    /// assert_eq!(diagnostic.location(), Some(&Location::new("src/api.rs", 4)));
+    /// ```
     pub fn at(mut self, location: Location) -> Self {
         self.location = Some(location);
         self
     }
 
-    /// The same finding attached to `location`, if any.
+    /// The same finding attached to `location`, if any; `None` removes a
+    /// location.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Location};
+    ///
+    /// let known: Option<&Location> = None;
+    /// let diagnostic = Diagnostic::new(Code::MergeConflict, "conflict").at_opt(known);
+    /// assert_eq!(diagnostic.location(), None);
+    /// ```
     pub fn at_opt(mut self, location: Option<&Location>) -> Self {
         self.location = location.cloned();
         self
     }
 
     /// The same finding with another severity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Severity};
+    ///
+    /// let diagnostic = Diagnostic::new(Code::UnusedComponent, "`Legacy` is never used")
+    ///     .with_severity(Severity::Note);
+    /// assert!(!diagnostic.is_error());
+    /// assert_eq!(diagnostic.severity(), Severity::Note);
+    /// ```
     pub fn with_severity(mut self, severity: Severity) -> Self {
         self.severity = severity;
         self
     }
 
     /// The stable code.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic};
+    ///
+    /// let diagnostic = Diagnostic::new(Code::DuplicateOperationId, "`getUser` is used twice");
+    /// assert_eq!(diagnostic.code(), Code::DuplicateOperationId);
+    /// ```
     pub fn code(&self) -> Code {
         self.code
     }
 
     /// The severity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Severity};
+    ///
+    /// let diagnostic = Diagnostic::new(Code::GeneratedRoot, "root generated from the package");
+    /// assert_eq!(diagnostic.severity(), Severity::Note);
+    /// ```
     pub fn severity(&self) -> Severity {
         self.severity
     }
 
     /// The human-readable message.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic};
+    ///
+    /// let diagnostic = Diagnostic::new(Code::MissingInclude, "include file api.yaml does not exist");
+    /// assert_eq!(diagnostic.message(), "include file api.yaml does not exist");
+    /// ```
     pub fn message(&self) -> &str {
         &self.message
     }
 
     /// Where the finding was caused, if known.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Location};
+    ///
+    /// let diagnostic = Diagnostic::new(Code::FileTooLarge, "file is too large")
+    ///     .at(Location::new("src/generated.rs", 1));
+    /// assert_eq!(diagnostic.location().map(Location::line), Some(1));
+    /// ```
     pub fn location(&self) -> Option<&Location> {
         self.location.as_ref()
     }
 
     /// Whether this finding fails generation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic};
+    ///
+    /// assert!(Diagnostic::new(Code::UndeclaredPathParam, "`{id}` is not declared").is_error());
+    /// assert!(!Diagnostic::new(Code::MergeConflict, "`/info/title` differs").is_error());
+    /// ```
     pub fn is_error(&self) -> bool {
         self.severity == Severity::Error
     }
 
     /// The finding as a JSON object (`severity`, `code`, `message` and, when
     /// known, `file`, `line`, `column`), e.g. for `--message-format json`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Location};
+    /// use serde_json::json;
+    ///
+    /// let diagnostic = Diagnostic::new(Code::UnresolvedReference, "`$Usr` is not a known schema")
+    ///     .at(Location::new("src/api.rs", 9).with_column(14));
+    /// assert_eq!(
+    ///     diagnostic.to_json(),
+    ///     json!({
+    ///         "severity": "warning",
+    ///         "code": "OF3007",
+    ///         "message": "`$Usr` is not a known schema",
+    ///         "file": "src/api.rs",
+    ///         "line": 9,
+    ///         "column": 14
+    ///     })
+    /// );
+    /// ```
     pub fn to_json(&self) -> serde_json::Value {
         let mut value = serde_json::Map::new();
         value.insert(
@@ -317,43 +547,139 @@ impl fmt::Display for Diagnostic {
 }
 
 /// An ordered collection of findings.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::{Code, Diagnostic, Diagnostics};
+///
+/// let mut diagnostics = Diagnostics::new();
+/// diagnostics.push(Diagnostic::new(Code::MergeConflict, "`/info/title` differs"));
+/// diagnostics.push(Diagnostic::new(Code::InvalidRoute, "`@route` has no path"));
+///
+/// let codes: Vec<&str> = diagnostics.iter().map(|d| d.code().as_str()).collect();
+/// assert_eq!(codes, ["OF4001", "OF2001"]);
+/// assert!(diagnostics.has_errors());
+/// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Diagnostics {
+    /// The findings in the order they were reported.
     items: Vec<Diagnostic>,
 }
 
 impl Diagnostics {
     /// An empty collection.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let diagnostics = oas_forge::Diagnostics::new();
+    /// assert!(diagnostics.is_empty());
+    /// assert!(!diagnostics.has_errors());
+    /// ```
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Adds a finding.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Diagnostics};
+    ///
+    /// let mut diagnostics = Diagnostics::new();
+    /// diagnostics.push(Diagnostic::new(Code::UnknownFragment, "no fragment `Paging`"));
+    /// assert_eq!(diagnostics.len(), 1);
+    /// ```
     pub fn push(&mut self, diagnostic: Diagnostic) {
         self.items.push(diagnostic);
     }
 
     /// The findings in the order they were reported.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Diagnostics, Severity};
+    ///
+    /// let mut diagnostics = Diagnostics::new();
+    /// diagnostics.push(Diagnostic::new(Code::GeneratedRoot, "root generated"));
+    /// diagnostics.push(Diagnostic::new(Code::DanglingReference, "dangling `$ref`"));
+    ///
+    /// let warnings = diagnostics.iter().filter(|d| d.severity() == Severity::Warning);
+    /// assert_eq!(warnings.count(), 1);
+    /// ```
     pub fn iter(&self) -> std::slice::Iter<'_, Diagnostic> {
         self.items.iter()
     }
 
     /// The number of findings.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Diagnostics};
+    ///
+    /// let mut diagnostics = Diagnostics::new();
+    /// diagnostics.extend([
+    ///     Diagnostic::new(Code::MergeConflict, "`/info/title` differs"),
+    ///     Diagnostic::new(Code::MergeConflict, "`/info/version` differs"),
+    /// ]);
+    /// assert_eq!(diagnostics.len(), 2);
+    /// ```
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
     /// Whether there are no findings.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Diagnostics};
+    ///
+    /// let mut diagnostics = Diagnostics::new();
+    /// assert!(diagnostics.is_empty());
+    /// diagnostics.push(Diagnostic::new(Code::GeneratedRoot, "root generated"));
+    /// assert!(!diagnostics.is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
     /// Whether any finding fails generation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Diagnostics};
+    ///
+    /// let mut diagnostics = Diagnostics::new();
+    /// diagnostics.push(Diagnostic::new(Code::DanglingReference, "dangling `$ref`"));
+    /// assert!(!diagnostics.has_errors());
+    /// diagnostics.push(Diagnostic::new(Code::UnusedPathParam, "`id` is not in the path"));
+    /// assert!(diagnostics.has_errors());
+    /// ```
     pub fn has_errors(&self) -> bool {
         self.items.iter().any(Diagnostic::is_error)
     }
 
-    /// Raises every warning to an error (`deny_warnings`).
+    /// Raises every warning to an error (`deny_warnings`); notes stay notes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Diagnostics, Severity};
+    ///
+    /// let mut diagnostics = Diagnostics::new();
+    /// diagnostics.push(Diagnostic::new(Code::DanglingReference, "dangling `$ref`"));
+    /// diagnostics.push(Diagnostic::new(Code::GeneratedRoot, "root generated"));
+    /// diagnostics.deny_warnings();
+    ///
+    /// let severities: Vec<Severity> = diagnostics.iter().map(|d| d.severity()).collect();
+    /// assert_eq!(severities, [Severity::Error, Severity::Note]);
+    /// ```
     pub fn deny_warnings(&mut self) {
         for item in &mut self.items {
             if item.severity == Severity::Warning {
@@ -363,6 +689,17 @@ impl Diagnostics {
     }
 
     /// The findings as a vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Code, Diagnostic, Diagnostics};
+    ///
+    /// let mut diagnostics = Diagnostics::new();
+    /// diagnostics.push(Diagnostic::new(Code::GeneratedRoot, "root generated"));
+    /// let findings: Vec<Diagnostic> = diagnostics.into_vec();
+    /// assert_eq!(findings[0].code(), Code::GeneratedRoot);
+    /// ```
     pub fn into_vec(self) -> Vec<Diagnostic> {
         self.items
     }

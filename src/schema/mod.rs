@@ -17,6 +17,23 @@ use serde_json::{Value, json};
 ///   gets a `null` entry),
 /// - references and composed schemas become `{"anyOf": [schema, {"type": "null"}]}`,
 /// - schemas that already accept `null`, and the empty schema, are unchanged.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::schema::nullable;
+/// use serde_json::json;
+///
+/// assert_eq!(nullable(json!({ "type": "string" })), json!({ "type": ["string", "null"] }));
+/// assert_eq!(
+///     nullable(json!({ "type": "string", "enum": ["a", "b"] })),
+///     json!({ "type": ["string", "null"], "enum": ["a", "b", null] })
+/// );
+/// assert_eq!(
+///     nullable(json!({ "$ref": "#/components/schemas/User" })),
+///     json!({ "anyOf": [{ "$ref": "#/components/schemas/User" }, { "type": "null" }] })
+/// );
+/// ```
 pub fn nullable(schema: Value) -> Value {
     let Value::Object(mut map) = schema else {
         return schema;
@@ -42,6 +59,8 @@ pub fn nullable(schema: Value) -> Value {
     Value::Object(map)
 }
 
+/// Whether the schema already accepts `null`: a `null` type (alone or in a
+/// type list) or a `{"type": "null"}` alternative in `anyOf`.
 fn accepts_null(map: &serde_json::Map<String, Value>) -> bool {
     match map.get("type") {
         Some(Value::String(t)) => t == "null",
@@ -57,6 +76,22 @@ fn accepts_null(map: &serde_json::Map<String, Value>) -> bool {
 
 /// The inverse of [`nullable`]: `schema` without accepting `null`
 /// (parameters cannot be `null`).
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::schema::strip_null;
+/// use serde_json::json;
+///
+/// assert_eq!(strip_null(json!({ "type": ["integer", "null"] })), json!({ "type": "integer" }));
+/// assert_eq!(
+///     strip_null(json!({
+///         "anyOf": [{ "$ref": "#/components/schemas/User" }, { "type": "null" }],
+///         "description": "The owner"
+///     })),
+///     json!({ "$ref": "#/components/schemas/User", "description": "The owner" })
+/// );
+/// ```
 pub fn strip_null(schema: Value) -> Value {
     let Value::Object(mut map) = schema else {
         return schema;

@@ -16,6 +16,25 @@ use std::path::{Path, PathBuf};
 /// Every field is optional; `None` means "not configured here", so layers can
 /// be combined with [`Config::merge`]. TOML keys use the field names, e.g.
 /// `output_schemas = ["schemas.yaml"]`.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::{Config, Generator};
+///
+/// let config = Config::from_toml_str(
+///     r#"
+///     input = ["src"]
+///     output = ["openapi.yaml", "openapi.json"]
+///
+///     [variables]
+///     API_URL = "https://api.example.com"
+///     "#,
+/// )?;
+/// assert_eq!(config.outputs().count(), 2);
+/// let generator = Generator::new().with_config(config);
+/// # Ok::<(), oas_forge::Error>(())
+/// ```
 #[derive(Debug, Deserialize, Default, Clone, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
@@ -64,16 +83,21 @@ pub struct Config {
 /// The `Cargo.toml` subset that carries `[package.metadata.oas-forge]`.
 #[derive(Deserialize)]
 struct CargoManifest {
+    /// `[package]`; `None` in a virtual workspace manifest.
     package: Option<CargoPackage>,
 }
 
+/// The `[package]` table, reduced to its `metadata`.
 #[derive(Deserialize)]
 struct CargoPackage {
+    /// `[package.metadata]`, the table Cargo leaves to tools.
     metadata: Option<CargoMetadata>,
 }
 
+/// `[package.metadata]`, reduced to the table of this tool.
 #[derive(Deserialize)]
 struct CargoMetadata {
+    /// `[package.metadata.oas-forge]`, in the format of `openapi.toml`.
     #[serde(rename = "oas-forge")]
     oas_forge: Option<Config>,
 }
@@ -83,6 +107,25 @@ impl Config {
     ///
     /// In a build script the current directory is the package root, so this
     /// reads the package's own `Cargo.toml` and `openapi.toml`.
+    ///
+    /// # Errors
+    /// [`Error::Config`] when one of the files exists but cannot be read or
+    /// parsed.
+    ///
+    /// # Examples
+    ///
+    /// A build script that takes all settings from the package's
+    /// configuration:
+    ///
+    /// ```no_run
+    /// // build.rs
+    /// let config = oas_forge::Config::load()?;
+    /// oas_forge::Generator::new()
+    ///     .with_config(config)
+    ///     .emit_cargo_directives(true)
+    ///     .generate()?;
+    /// # Ok::<(), oas_forge::Error>(())
+    /// ```
     pub fn load() -> Result<Self> {
         Self::load_from(".")
     }
@@ -90,8 +133,40 @@ impl Config {
     /// Loads `[package.metadata.oas-forge]` from `dir/Cargo.toml` and then
     /// `dir/openapi.toml`; settings in `openapi.toml` win.
     ///
-    /// Missing files are skipped. Files that exist but cannot be read or
-    /// parsed are an [`Error::Config`].
+    /// Missing files are skipped, so a directory without either file yields
+    /// [`Config::default`].
+    ///
+    /// # Errors
+    /// [`Error::Config`] when a file exists but cannot be read or parsed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Config;
+    /// use std::path::PathBuf;
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     dir.path().join("Cargo.toml"),
+    ///     r#"
+    ///     [package]
+    ///     name = "shop"
+    ///     version = "1.0.0"
+    ///
+    ///     [package.metadata.oas-forge]
+    ///     input = ["src"]
+    ///     output = ["openapi.yaml"]
+    ///     "#,
+    /// )?;
+    /// std::fs::write(dir.path().join("openapi.toml"), r#"output = ["api.json"]"#)?;
+    ///
+    /// let config = Config::load_from(dir.path())?;
+    /// assert_eq!(config.input, Some(vec![PathBuf::from("src")]));
+    /// // `openapi.toml` wins over `Cargo.toml`.
+    /// assert_eq!(config.output, Some(vec![PathBuf::from("api.json")]));
+    /// assert_eq!(config.files().len(), 2);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn load_from(dir: impl AsRef<Path>) -> Result<Self> {
         let dir = dir.as_ref();
         let mut config = Self::default();
@@ -118,6 +193,25 @@ impl Config {
     }
 
     /// Reads a configuration file in the `openapi.toml` format.
+    ///
+    /// # Errors
+    /// [`Error::Config`] when the file cannot be read or parsed (unknown keys
+    /// included).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Config;
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// let path = dir.path().join("ci.toml");
+    /// std::fs::write(&path, r#"output_swagger2 = ["swagger.json"]"#)?;
+    ///
+    /// let config = Config::from_file(&path)?;
+    /// assert_eq!(config.outputs().count(), 1);
+    /// assert_eq!(config.files(), [path]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let mut config: Self =
@@ -130,18 +224,81 @@ impl Config {
     /// `[package.metadata.oas-forge]`, `openapi.toml`, a `--config` file), so
     /// a build script can rerun when they change
     /// ([`Generator::with_config`](crate::Generator::with_config) watches them).
+    /// Empty for a configuration parsed from a string.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Config;
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// std::fs::write(dir.path().join("openapi.toml"), r#"input = ["src"]"#)?;
+    ///
+    /// let config = Config::load_from(dir.path())?;
+    /// assert_eq!(config.files(), [dir.path().join("openapi.toml")]);
+    /// assert!(Config::from_toml_str(r#"input = ["src"]"#)?.files().is_empty());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn files(&self) -> &[PathBuf] {
         &self.files
     }
 
     /// Parses a configuration in the `openapi.toml` format.
+    ///
+    /// # Errors
+    /// [`Error::Config`] (with the file name `<inline>`) when `text` is not
+    /// valid TOML or has a key that is not a [`Config`] field.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Config, Error};
+    /// use std::path::PathBuf;
+    ///
+    /// let config = Config::from_toml_str(r#"output_paths = ["paths.yaml"]"#)?;
+    /// assert_eq!(config.output_paths, Some(vec![PathBuf::from("paths.yaml")]));
+    /// assert_eq!(config.output, None);
+    ///
+    /// // Unknown keys are errors (the key is `output`).
+    /// let unknown = Config::from_toml_str(r#"outputs = ["openapi.yaml"]"#);
+    /// assert!(matches!(unknown, Err(Error::Config { .. })));
+    /// # Ok::<(), oas_forge::Error>(())
+    /// ```
     pub fn from_toml_str(text: &str) -> Result<Self> {
         toml::from_str(text).map_err(|e| Error::config(Path::new("<inline>"), e.to_string()))
     }
 
     /// Overlays `other` on `self`: every field that is set in `other`
     /// replaces the value in `self`; `types` and `variables` are merged by
-    /// name.
+    /// name. The [files](Config::files) of both are kept.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Config;
+    /// use std::path::PathBuf;
+    ///
+    /// let mut config = Config::from_toml_str(
+    ///     r#"
+    ///     input = ["src"]
+    ///     output = ["openapi.yaml"]
+    ///     variables = { HOST = "localhost", PORT = "8080" }
+    ///     "#,
+    /// )?;
+    /// config.merge(Config::from_toml_str(
+    ///     r#"
+    ///     output = ["openapi.json"]
+    ///     variables = { HOST = "api.example.com" }
+    ///     "#,
+    /// )?);
+    ///
+    /// assert_eq!(config.input, Some(vec![PathBuf::from("src")]));
+    /// assert_eq!(config.output, Some(vec![PathBuf::from("openapi.json")]));
+    /// let variables = config.variables.unwrap_or_default();
+    /// assert_eq!(variables["HOST"], "api.example.com");
+    /// assert_eq!(variables["PORT"], "8080");
+    /// # Ok::<(), oas_forge::Error>(())
+    /// ```
     pub fn merge(&mut self, other: Config) {
         let Config {
             input,
@@ -183,7 +340,25 @@ impl Config {
         overlay(&mut self.output_asyncapi, output_asyncapi);
     }
 
-    /// Every configured output file, across all output strategies.
+    /// Every configured output file, across all output strategies (in the
+    /// order of the [`Config`] fields).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Config;
+    /// use std::path::Path;
+    ///
+    /// let config = Config::from_toml_str(
+    ///     r#"
+    ///     output = ["openapi.yaml"]
+    ///     output_swagger2 = ["swagger.json"]
+    ///     "#,
+    /// )?;
+    /// let outputs: Vec<_> = config.outputs().collect();
+    /// assert_eq!(outputs, [Path::new("openapi.yaml"), Path::new("swagger.json")]);
+    /// # Ok::<(), oas_forge::Error>(())
+    /// ```
     pub fn outputs(&self) -> impl Iterator<Item = &PathBuf> {
         [
             &self.output,
@@ -201,12 +376,14 @@ impl Config {
     }
 }
 
+/// Replaces `target` with `value` when `value` is set.
 fn overlay<T>(target: &mut Option<T>, value: Option<T>) {
     if value.is_some() {
         *target = value;
     }
 }
 
+/// Reads a configuration file; failures are an [`Error::Config`] for `path`.
 fn read(path: &Path) -> Result<String> {
     std::fs::read_to_string(path).map_err(|e| Error::config(path, e.to_string()))
 }

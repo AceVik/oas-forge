@@ -46,6 +46,8 @@
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, rustdoc::broken_intra_doc_links)]
+// Every fallible public function says when it fails.
+#![deny(clippy::missing_errors_doc)]
 // No panics on user input (AGENTS.md, rule 1): no unchecked indexing or
 // slicing, no `unwrap`. `expect` is reserved for invariants, with the reason.
 #![deny(

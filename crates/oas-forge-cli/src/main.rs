@@ -1,6 +1,7 @@
 //! The `oas-forge` binary.
 
 #![forbid(unsafe_code)]
+#![deny(clippy::missing_errors_doc)]
 #![deny(
     clippy::indexing_slicing,
     clippy::string_slice,

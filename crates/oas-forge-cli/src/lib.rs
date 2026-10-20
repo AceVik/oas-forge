@@ -5,7 +5,7 @@
 //! spawning a process.
 
 #![forbid(unsafe_code)]
-#![deny(missing_docs)]
+#![deny(missing_docs, clippy::missing_errors_doc)]
 #![deny(
     clippy::indexing_slicing,
     clippy::string_slice,
@@ -114,6 +114,28 @@ impl Cli {
     /// Precedence from low to high: `Cargo.toml` metadata, `openapi.toml`,
     /// the file given with `--config`, command-line flags. When no output of
     /// any kind is configured, the full specification goes to `openapi.yaml`.
+    ///
+    /// # Errors
+    /// [`Error::Config`] when a configuration file exists but cannot be read
+    /// or parsed, or the `--config` file is missing.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use clap::Parser;
+    /// use oas_forge_cli::Cli;
+    /// use std::path::PathBuf;
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// std::fs::write(dir.path().join("openapi.toml"), r#"input = ["src"]"#)?;
+    ///
+    /// let cli = Cli::parse_from(["oas-forge", "--output-schemas", "schemas.yaml"]);
+    /// let config = cli.resolve_config(dir.path())?;
+    /// assert_eq!(config.input, Some(vec![PathBuf::from("src")]));
+    /// // An explicit output: no default `openapi.yaml`.
+    /// assert_eq!(config.output, None);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn resolve_config(&self, dir: &Path) -> oas_forge::Result<Config> {
         let mut config = Config::load_from(dir)?;
         if let Some(file) = &self.config {
@@ -126,6 +148,8 @@ impl Cli {
         Ok(config)
     }
 
+    /// The settings given as command-line flags, as the top configuration
+    /// layer; flags that are not given stay `None`.
     fn flags(&self) -> Config {
         let mut flags = Config::default();
         flags.input = self.input.clone();
@@ -159,8 +183,31 @@ pub struct Outcome {
 
 /// Generates every configured output.
 ///
+/// Paths in `cli` and in the configuration files are used as given, so
+/// relative paths are relative to the current directory.
+///
 /// # Errors
 /// Any generator error; [`Error::Diagnostics`] when a diagnostic has error severity.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge_cli::{Cli, run};
+///
+/// let dir = tempfile::tempdir()?;
+/// std::fs::write(dir.path().join("lib.rs"), "/// @openapi\npub struct Tag { pub name: String }\n")?;
+/// let schemas = dir.path().join("schemas.yaml");
+///
+/// let cli = Cli {
+///     input: Some(vec![dir.path().to_path_buf()]),
+///     output_schemas: Some(vec![schemas.clone()]),
+///     ..Cli::default()
+/// };
+/// let outcome = run(&cli, dir.path())?;
+/// assert_eq!(outcome.outputs, [schemas.clone()]);
+/// assert!(std::fs::read_to_string(&schemas)?.starts_with("Tag:\n"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn run(cli: &Cli, dir: &Path) -> oas_forge::Result<Outcome> {
     let config = cli.resolve_config(dir)?;
     // The package comes first, so configured variables override its

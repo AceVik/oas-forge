@@ -8,6 +8,17 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// Why a generator run failed.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::{Error, Generator};
+///
+/// // Without an output the run fails before any input is read.
+/// let error = Generator::new().input("src").generate().unwrap_err();
+/// assert!(matches!(error, Error::NoOutput));
+/// assert!(error.to_string().starts_with("At least one output path"));
+/// ```
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
@@ -59,6 +70,7 @@ pub enum Error {
 }
 
 impl Error {
+    /// An [`Error::Io`] for `path`.
     pub(crate) fn io(path: &Path, source: std::io::Error) -> Self {
         Self::Io {
             path: path.to_path_buf(),
@@ -66,6 +78,7 @@ impl Error {
         }
     }
 
+    /// An [`Error::Config`] for `file`.
     pub(crate) fn config(file: &Path, message: impl Into<String>) -> Self {
         Self::Config {
             file: file.to_path_buf(),

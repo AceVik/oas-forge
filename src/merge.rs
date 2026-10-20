@@ -4,6 +4,20 @@ use serde_json::{Map, Value};
 use std::collections::HashSet;
 
 /// How two values are combined.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::merge::{Policy, merge};
+/// use serde_json::json;
+///
+/// // `@extend`: local values win, the fragment fills gaps.
+/// let mut local = json!({ "description": "Local", "tags": ["a"] });
+/// let fragment = json!({ "description": "From the fragment", "deprecated": true, "tags": ["b"] });
+/// let conflicts = merge(&mut local, fragment, Policy::Extend);
+/// assert_eq!(local, json!({ "description": "Local", "tags": ["a", "b"], "deprecated": true }));
+/// assert!(conflicts.is_empty());
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Policy {
@@ -27,12 +41,45 @@ const POSITIONAL: &[&str] = &["prefixItems", "allOf", "oneOf", "anyOf"];
 
 /// Merges `source` into `target` and returns the JSON pointers of
 /// conflicting values (always empty for [`Policy::Extend`] and [`Policy::Override`]).
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::merge::{Policy, merge};
+/// use serde_json::json;
+///
+/// let mut document = json!({
+///     "info": { "title": "Shop", "version": "1.0.0" },
+///     "tags": [{ "name": "orders" }]
+/// });
+/// let conflicts = merge(
+///     &mut document,
+///     json!({
+///         "info": { "title": "Store" },
+///         "tags": [{ "name": "orders" }, { "name": "users" }]
+///     }),
+///     Policy::Document,
+/// );
+/// assert_eq!(conflicts, ["/info/title"]);
+/// assert_eq!(
+///     document,
+///     json!({
+///         "info": { "title": "Store", "version": "1.0.0" },
+///         "tags": [{ "name": "orders" }, { "name": "users" }]
+///     })
+/// );
+/// ```
 pub fn merge(target: &mut Value, source: Value, policy: Policy) -> Vec<String> {
     let mut conflicts = Vec::new();
     merge_at(target, source, policy, &mut String::new(), &mut conflicts);
     conflicts
 }
 
+/// Merges `source` into `target`, which sits at the JSON pointer `pointer`:
+/// maps key by key, arrays by `policy` (replaced for [`Policy::Override`],
+/// [`POSITIONAL`] arrays kept or replaced as a whole, operation `parameters`
+/// matched by identity, others appended without duplicates) and differing scalars by
+/// `policy`. Conflicts are recorded as pointers.
 fn merge_at(
     target: &mut Value,
     source: Value,
@@ -74,6 +121,8 @@ fn merge_at(
     }
 }
 
+/// Merges the map `source` into `target`: new keys are appended, existing
+/// ones merged with `pointer` extended by the escaped key (RFC 6901).
 fn merge_maps(
     target: &mut Map<String, Value>,
     source: Map<String, Value>,
@@ -97,6 +146,8 @@ fn merge_maps(
     }
 }
 
+/// Appends the items of `source` that `target` does not contain yet
+/// (compared by their JSON text), in order.
 fn append_unique(target: &mut Vec<Value>, source: Vec<Value>) {
     let mut seen: HashSet<String> = target.iter().map(Value::to_string).collect();
     for item in source {
