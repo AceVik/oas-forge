@@ -273,6 +273,10 @@ impl Extractor<'_> {
     /// Handles the doc comment of a function or method: a route or free blocks.
     fn function(&mut self, attrs: &[syn::Attribute], sig: &syn::Signature, line: usize) {
         let lines = doc_lines(attrs);
+        // Most functions carry no directive: skip them before copying lines.
+        if !lines.iter().any(|l| l.trimmed().starts_with('@')) {
+            return;
+        }
         let texts: Vec<String> = lines.iter().map(|l| l.text.clone()).collect();
         if dsl::is_channel(&texts) {
             self.items.push(Item::Channel(ChannelItem {

@@ -481,9 +481,6 @@ fn kind(schema: &Value) -> Kind {
 }
 
 fn apply_rule(rule: &Rule, schema: &mut Value) {
-    if !schema.is_object() {
-        return;
-    }
     let kind = kind(schema);
     let Value::Object(map) = schema else { return };
     match rule {

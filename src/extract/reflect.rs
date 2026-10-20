@@ -432,15 +432,12 @@ impl<'a> Reflector<'a> {
             schema
         } else {
             match &item.fields {
-                syn::Fields::Named(fields) if serde.transparent => {
-                    let field = fields
-                        .named
-                        .iter()
-                        .find(|f| !SerdeAttrs::parse(&f.attrs).is_skipped());
-                    field
-                        .and_then(|f| self.unnamed_field(f))
-                        .unwrap_or_else(|| json!({}))
-                }
+                // The one field that is not skipped.
+                syn::Fields::Named(fields) if serde.transparent => fields
+                    .named
+                    .iter()
+                    .find_map(|f| self.unnamed_field(f))
+                    .unwrap_or_else(|| json!({})),
                 syn::Fields::Named(fields) if !fields.named.is_empty() => {
                     let mut schema = self.object(fields, naming.rename_all, serde, false);
                     if let Some(tag) = &serde.tag {

@@ -262,6 +262,9 @@ pub(super) fn file_blocks(
 }
 
 fn is_header(trimmed: &str) -> bool {
+    if !trimmed.starts_with('@') {
+        return false;
+    }
     let line = [trimmed.to_string()];
     is_block_header(trimmed) || dsl::is_route(&line) || dsl::is_channel(&line)
 }
