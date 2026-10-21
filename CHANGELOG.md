@@ -117,6 +117,17 @@ worked in 0.1 keeps working unless the
   `skip_serializing_if = "Option::is_none"` is optional and not nullable.
 - Responses are sorted by status; several lines for one status are one
   response whose descriptions are combined.
+- Lint findings (`OF5xxx`) carry the file and line of the part they concern,
+  which changes their `cargo:warning` and `--message-format json` lines.
+- `cargo:rerun-if-changed` also covers the package manifest and missing
+  include paths (through their nearest existing directory).
+- Exports: lowering below 3.2 also cleans components and callbacks;
+  `contentEncoding: base64` becomes `format: byte` and binary
+  `contentMediaType` `format: binary` in 3.0 and Swagger 2.0 (a binary
+  multipart part is a Swagger `file` parameter); AsyncAPI message headers
+  are lowered like payloads.
+- Regex constants for `regex(path = …)` resolve by path; constants of the
+  same name with different patterns are reported (`OF1011`).
 - `Error` is `#[non_exhaustive]` and carries locations instead of foreign
   error types.
 
