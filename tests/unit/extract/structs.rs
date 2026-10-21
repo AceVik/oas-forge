@@ -1858,3 +1858,13 @@ mod serde_direction {
         assert_eq!(s["properties"]["d"]["required"], json!(["secs", "nanos"]));
     }
 }
+
+#[test]
+fn a_lifted_required_keeps_the_order_of_the_other_keys() {
+    let items = extract(
+        "/// @openapi\npub struct S {\n    /// @openapi\n    /// required: true\n    /// minLength: 1\n    /// maxLength: 2\n    pub a: Option<String>,\n}",
+    );
+    let a = &schema(&items, "S")["properties"]["a"];
+    let keys: Vec<&String> = a.as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["type", "minLength", "maxLength"]);
+}

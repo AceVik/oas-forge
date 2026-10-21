@@ -163,10 +163,9 @@ impl<'a> Reflector<'a> {
     /// Keeps the `@openapi-fragment` and `@openapi document` blocks of an
     /// item's doc comment (`attrs`) and of its `members` (fields, variants
     /// and the fields of variants) for [`Self::take_fragments`], in source
-    /// order. Every member
-    /// is read, also of items that are not exported or not reflected field
-    /// by field (`into`, `transparent`, tuple structs); nothing else of their
-    /// docs is checked here.
+    /// order. Every member is read, also of items that are not exported or
+    /// not reflected field by field (`into`, `transparent`, tuple structs);
+    /// nothing else of their docs is checked here.
     fn fragments<'m>(
         &mut self,
         attrs: &'m [syn::Attribute],
@@ -471,7 +470,7 @@ impl<'a> Reflector<'a> {
                 .and_then(|overrides| match overrides.get("required") {
                     Some(Value::Bool(required)) => {
                         let required = *required;
-                        overrides.remove("required");
+                        overrides.shift_remove("required");
                         Some(required)
                     }
                     _ => None,
