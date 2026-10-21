@@ -227,7 +227,7 @@ mod prose {
     #[test]
     fn yaml_after_a_blank_line_stays_yaml() {
         let items = extract(
-            "/// @openapi\n/// tags:\n///   - name: x\n///\n///     description: |\n///       Text\n///\n///       more.\n///\n/// # a comment\n/// - not: top\n///\n/// {\"x-a\": 1}\n/// [1]\n/// \"quoted key\": 1\n/// x-b: 2\n/// x-c:\npub fn docs() {}",
+            "/// @openapi\n/// tags:\n///   - name: x\n///\n///     description: |\n///       Text\n///\n///       more.\n///\n/// # a comment\n/// - not: top\n///\n/// {\"x-a\": 1\n///\n/// }\n/// [1]\n/// \"quoted key\": 1\n/// x-b: 2\n/// x-c:\npub fn docs() {}",
         );
         let documents = document_items(&items);
         assert_eq!(documents.len(), 1);
@@ -236,6 +236,14 @@ mod prose {
             "{}",
             documents[0].text
         );
+    }
+
+    #[test]
+    fn a_markdown_bullet_after_a_blank_line_is_prose() {
+        let items = extract(
+            "/// @openapi\n/// tags: [{ name: x }]\n///\n/// * a note: for developers\npub fn docs() {}",
+        );
+        assert_eq!(document_items(&items)[0].text, "tags: [{ name: x }]");
     }
 
     #[test]
