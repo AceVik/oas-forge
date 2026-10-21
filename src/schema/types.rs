@@ -439,6 +439,9 @@ pub struct TypeMapper {
     /// written in (`crate`, `module`, …): names written in Rust resolve to
     /// the component names of the documented types they mean.
     names: Option<(Arc<NameTable>, Vec<String>)>,
+    /// The type parameters of the item being reflected (`T` of `Page<T>`):
+    /// placeholders, never documented types.
+    params: BTreeSet<String>,
 }
 
 /// Names of the built-in table that a crate may also give its own types
@@ -606,12 +609,20 @@ impl TypeMapper {
         names.qualified(scope, name).map(str::to_string)
     }
 
+    /// This mapper for an item with the type parameters `params`.
+    pub(crate) fn with_params(&self, params: BTreeSet<String>) -> Self {
+        let mut mapper = self.clone();
+        mapper.params = params;
+        mapper
+    }
+
     /// What the Rust type written as `path` means in the module of this
-    /// mapper (unknown without a name table).
+    /// mapper (unknown without a name table, and for a type parameter).
     fn resolve(&self, path: &[String]) -> Resolved {
-        match &self.names {
-            Some((names, scope)) => names.resolve(scope, path),
-            None => Resolved::Unknown,
+        match (&self.names, path) {
+            (_, [name]) if self.params.contains(name) => Resolved::Unknown,
+            (Some((names, scope)), _) => names.resolve(scope, path),
+            (None, _) => Resolved::Unknown,
         }
     }
 

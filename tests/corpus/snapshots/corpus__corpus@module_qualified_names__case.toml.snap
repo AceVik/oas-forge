@@ -5,14 +5,66 @@ input_file: tests/corpus/cases/module_qualified_names/case.toml
 ---
 {
   "asyncapi": {
-    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+    "document": {
+      "asyncapi": "3.0.0",
+      "channels": {
+        "pool_status": {
+          "address": "pool/status",
+          "messages": {
+            "StatusChanged": {
+              "$ref": "#/components/messages/StatusChanged"
+            }
+          }
+        }
+      },
+      "components": {
+        "messages": {
+          "StatusChanged": {
+            "name": "StatusChanged",
+            "payload": {
+              "$ref": "#/components/schemas/baylee_catalog.model.Status"
+            }
+          }
+        },
+        "schemas": {
+          "baylee_catalog.model.Status": {
+            "description": "Whether a printing is sold.",
+            "enum": [
+              "Sold",
+              "Retired"
+            ],
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Gateway events",
+        "version": "1.0.0"
+      },
+      "operations": {
+        "status_changes": {
+          "action": "send",
+          "channel": {
+            "$ref": "#/channels/pool_status"
+          },
+          "messages": [
+            {
+              "$ref": "#/channels/pool_status/messages/StatusChanged"
+            }
+          ],
+          "summary": "The catalog's status changed"
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
   },
   "description": "Rust type references resolve by module path and `use` across crates; colliding names are qualified",
   "diagnostics": [
     "warning[OF1004]: schema `Status` is defined by several types (`baylee_cardtext::Status`, `baylee_catalog::model::Status`); this one is named `baylee_cardtext.Status`; give them distinct names with `@openapi rename` (<case>/cardtext/src/lib.rs:9)",
     "warning[OF1004]: schema `Status` is defined by several types (`baylee_cardtext::Status`, `baylee_catalog::model::Status`); this one is named `baylee_catalog.model.Status`; give them distinct names with `@openapi rename` (<case>/catalog/src/model.rs:9)",
-    "warning[OF3014]: `Status` may be any of the documented types `baylee_cardtext::Status`, `baylee_catalog::model::Status`; write its path or import it with `use` (<case>/gw/src/lib.rs:15)",
-    "warning[OF3014]: `Note` is `gateway::Note` here, which is not documented; document it with `@openapi` (<case>/gw/src/lib.rs:15)"
+    "warning[OF3014]: `Status` may be any of the documented types `baylee_cardtext::Status`, `baylee_catalog::model::Status`; write its path or import it with `use` (<case>/gw/src/lib.rs:21)",
+    "warning[OF3014]: `Note` is `gateway::Note` here, which is not documented; document it with `@openapi` (<case>/gw/src/lib.rs:21)"
   ],
   "fragments": {
     "document": {

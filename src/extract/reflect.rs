@@ -160,12 +160,17 @@ impl<'a> Reflector<'a> {
     }
 
     /// Maps the types of the item at `line` in its module: names of Rust
-    /// types resolve to the documented types they mean there.
-    fn enter(&mut self, line: usize) {
+    /// types resolve to the documented types they mean there, except the
+    /// item's type parameters (`generics`).
+    fn enter(&mut self, line: usize, generics: &syn::Generics) {
         if let Some(names) = self.names
             && let Some(scope) = names.scope_at(self.path, line)
         {
-            let scoped = self.types.scoped(names, scope);
+            let params = generics
+                .type_params()
+                .map(|p| p.ident.unraw().to_string())
+                .collect();
+            let scoped = self.types.scoped(names, scope).with_params(params);
             self.types = Cow::Owned(scoped);
         }
     }
@@ -589,7 +594,7 @@ impl<'a> Reflector<'a> {
 
     /// Reflects a struct with an `@openapi` directive.
     pub(super) fn structure(&mut self, item: &syn::ItemStruct) -> Vec<Item> {
-        self.enter(line_of(item.span()));
+        self.enter(line_of(item.span()), &item.generics);
         self.fragments(&item.attrs, item.fields.iter().map(|f| &f.attrs[..]));
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Container);
@@ -694,7 +699,7 @@ impl<'a> Reflector<'a> {
     /// alias is a blueprint); without it, or with `@openapi skip`, it is a
     /// transparent [`Item::Alias`] that stands for its target.
     pub(super) fn alias(&mut self, item: &syn::ItemType) -> Option<Item> {
-        self.enter(line_of(item.span()));
+        self.enter(line_of(item.span()), &item.generics);
         self.fragments(&item.attrs, []);
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Container);
@@ -729,7 +734,7 @@ impl<'a> Reflector<'a> {
 
     /// Reflects an enum with an `@openapi` directive.
     pub(super) fn enumeration(&mut self, item: &syn::ItemEnum) -> Vec<Item> {
-        self.enter(line_of(item.span()));
+        self.enter(line_of(item.span()), &item.generics);
         let members = item.variants.iter().flat_map(|variant| {
             std::iter::once(&variant.attrs[..]).chain(variant.fields.iter().map(|f| &f.attrs[..]))
         });

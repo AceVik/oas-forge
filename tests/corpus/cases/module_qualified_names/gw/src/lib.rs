@@ -3,6 +3,12 @@
 //! info:
 //!   title: Gateway
 //!   version: 1.0.0
+//!
+//! @asyncapi
+//! asyncapi: 3.0.0
+//! info:
+//!   title: Gateway events
+//!   version: 1.0.0
 
 mod routes;
 

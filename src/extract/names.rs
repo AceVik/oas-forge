@@ -113,7 +113,7 @@ impl NameTable {
         let mut crates = BTreeMap::new();
         for (path, _) in files {
             let module = file_module(path, &mut crates);
-            table.files.insert(path.to_path_buf(), (module, Vec::new()));
+            table.files.insert(normalize(path), (module, Vec::new()));
         }
         // `#[path = "…"] mod name;` puts a file under the declaring module.
         for (path, file) in files {
@@ -141,7 +141,7 @@ impl NameTable {
             };
             let mut inline = Vec::new();
             table.collect(&file.items, &module, path, &[], &mut inline);
-            if let Some(entry) = table.files.get_mut(*path) {
+            if let Some(entry) = table.files.get_mut(&normalize(path)) {
                 entry.1 = inline;
             }
         }
@@ -160,13 +160,15 @@ impl NameTable {
 
     /// The module path of `file`.
     fn module_of(&self, file: &Path) -> Option<Segments> {
-        self.files.get(file).map(|(module, _)| module.clone())
+        self.files
+            .get(&normalize(file))
+            .map(|(module, _)| module.clone())
     }
 
     /// The module path at `line` of `file`: the file's module and the inline
     /// modules around the line. `None` for files the table does not know.
     pub(crate) fn scope_at(&self, file: &Path, line: usize) -> Option<Vec<String>> {
-        let (module, inline) = self.files.get(file)?;
+        let (module, inline) = self.files.get(&normalize(file))?;
         let mut scope = module.clone();
         // The innermost inline module that contains the line (the longest).
         if let Some((path, _, _)) = inline

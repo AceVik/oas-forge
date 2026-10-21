@@ -7,3 +7,8 @@ use crate::Pool;
 /// @return 201: TextPrinting
 /// @return 202: $Printing "By component name"
 pub async fn pool() {}
+
+/// The catalog's status changed
+/// @channel pool/status
+/// @send StatusChanged: baylee_catalog::Status
+pub fn status_changes() {}

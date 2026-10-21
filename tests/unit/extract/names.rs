@@ -392,3 +392,45 @@ fn handler_signatures_expand_the_struct_of_their_module() {
     let parameters = &document["paths"]["/search"]["get"]["parameters"];
     assert_eq!(parameters[0]["name"], "age");
 }
+
+#[test]
+fn type_parameters_are_no_documented_types() {
+    let (document, diagnostics) = pipeline(&[
+        (
+            "item.rs",
+            "/// @openapi rename \"Article\"\npub struct Item { pub id: u64 }",
+        ),
+        (
+            "page.rs",
+            "/// @openapi\npub struct Page<Item> { pub items: Vec<Item> }\n/// @openapi\npub struct User { pub id: u64 }\n/// @openapi\npub struct Users { pub page: Page<User> }\n/// @openapi\n#[serde(tag = \"kind\")]\npub enum Event<Item> { Added { item: Item } }\n/// @openapi\npub struct Log { pub event: Event<User> }",
+        ),
+    ]);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let schemas = &document["components"]["schemas"];
+    assert_eq!(
+        schemas["Page_User"]["properties"]["items"]["items"],
+        reference("User")
+    );
+    assert_eq!(
+        schemas["EventAdded_User"]["properties"]["item"],
+        reference("User")
+    );
+}
+
+#[test]
+fn inputs_given_with_dots_find_their_modules() {
+    let project = Project::new();
+    project
+        .file("src/lib.rs", &format!("{ROOT}#[path = \"gen/types.rs\"]\nmod api;\nmod other;\n/// @openapi\npub struct Holder {{ pub a: api::User }}"))
+        .file("src/gen/types.rs", "/// @openapi\npub struct User { pub id: u64 }")
+        .file("src/other.rs", "/// @openapi\npub struct User { pub name: String }");
+    let input = project.root().join(".").join("src");
+    let spec = Generator::new()
+        .input(input)
+        .without_package()
+        .build()
+        .unwrap();
+    let holder = &spec.document()["components"]["schemas"]["Holder"]["properties"];
+    let name = holder["a"]["$ref"].as_str().unwrap();
+    assert!(name.ends_with(".api.User"), "{name}");
+}
