@@ -1906,3 +1906,14 @@ mod fenced_overrides {
         );
     }
 }
+
+#[test]
+fn document_blocks_on_types_keep_the_indentation_of_their_yaml() {
+    let items = extract(
+        "/// @openapi document\n/// x-first: 1\n/// x-second:\n///   nested: 2\n/// @openapi\npub struct User { pub id: u64 }",
+    );
+    assert_eq!(
+        crate::extract::document_items(&items)[0].text,
+        "x-first: 1\nx-second:\n  nested: 2"
+    );
+}
