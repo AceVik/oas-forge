@@ -337,3 +337,15 @@ fn a_fenced_section_takes_exactly_its_lines() {
         ["x-a: 1\n{ x-b: 2 }\n\n@scope a\n@scope b", "x-next: 1"]
     );
 }
+
+#[test]
+fn the_lines_of_a_fence_are_read_once_and_sections_follow_it() {
+    let items = crate::common::extract(
+        "/// @openapi\n/// ```json\n/// { \"paths\": { \"/a\": {} } }\n/// ```\n/// @openapi\n/// x-b: 1\nfn f() {}",
+    );
+    let texts: Vec<&str> = document_items(&items)
+        .iter()
+        .map(|d| d.text.as_str())
+        .collect();
+    assert_eq!(texts, ["{ \"paths\": { \"/a\": {} } }", "x-b: 1"]);
+}
