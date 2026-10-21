@@ -1129,12 +1129,7 @@ impl Compiler<'_, '_> {
         if b.security.is_none() {
             b.security = defaults.security;
         }
-        self.default_responses(
-            &mut b,
-            defaults.responses,
-            defaults.explained,
-            &defaults.stated,
-        );
+        self.default_responses(&mut b, defaults.responses, defaults.explained);
         describe_responses(&mut b.responses, &b.explained);
         for (key, value) in defaults.operation {
             b.operation.entry(key).or_insert(value);
@@ -1429,29 +1424,26 @@ impl Compiler<'_, '_> {
     }
 
     /// Adds the responses of the module defaults to the block's. A status
-    /// code the block has too keeps one response: with the same content (or
-    /// where one of them only adds headers) the defaults fill gaps and their
-    /// descriptions come first; with a different content the block's response
-    /// wins and a note says so.
+    /// code the block has too keeps one response: the defaults add their
+    /// media types and headers, and their descriptions come first; when both
+    /// give one media type a different schema, the block's response wins and
+    /// a note says so.
     fn default_responses(
         &mut self,
         b: &mut Builder,
         responses: Map<String, Value>,
         mut explained: BTreeMap<String, Vec<String>>,
-        stated: &BTreeMap<String, Option<usize>>,
     ) {
         for (code, response) in responses {
             let outer = explained.remove(&code).unwrap_or_default();
             if let Some(own) = b.responses.get_mut(&code) {
-                let differs =
-                    stated.contains_key(&code) && own.get("content") != response.get("content");
-                if let Some(index) = b.stated.get(&code).filter(|_| differs) {
-                    let location = self.location(*index);
+                if contents_conflict(own.get("content"), response.get("content")) {
+                    let location = self.location(b.stated.get(&code).copied().flatten());
                     self.diagnostics.push(
                         Diagnostic::new(
                             Code::MergeConflict,
                             format!(
-                                "response `{code}` replaces the one of the module defaults, whose content differs"
+                                "response `{code}` replaces the one of the module defaults, which has another schema for one of its media types"
                             ),
                         )
                         .with_severity(Severity::Note)
@@ -1745,6 +1737,16 @@ fn add_response(b: &mut Builder, response: responses::Response, index: Option<us
     }
 }
 
+/// Whether two `content` maps of responses give one media type different
+/// contents.
+fn contents_conflict(one: Option<&Value>, other: Option<&Value>) -> bool {
+    let (Some(Value::Object(one)), Some(Value::Object(other))) = (one, other) else {
+        return false;
+    };
+    one.iter()
+        .any(|(media, entry)| other.get(media).is_some_and(|o| o != entry))
+}
+
 /// Sets the description of each response from the descriptions written for
 /// it (see [`combined_description`]); without any, it keeps the reason
 /// phrase.
@@ -1783,9 +1785,10 @@ fn combined_description(descriptions: &[String]) -> Option<String> {
     }
 }
 
-/// Embedded YAML that describes a response of the DSL without another
-/// content adds its description to the DSL's instead of replacing it; YAML
-/// with another content is merged as usual (it wins, with a note).
+/// Embedded YAML that describes a response of the DSL adds its description
+/// to the DSL's instead of replacing it, unless it gives one of the DSL's
+/// media types another content: then it is merged as usual (it wins, with a
+/// note).
 fn add_yaml_descriptions(
     value: &mut Value,
     operation: &mut Value,
@@ -1802,9 +1805,7 @@ fn add_yaml_descriptions(
         else {
             continue;
         };
-        let other_content = response
-            .get("content")
-            .is_some_and(|content| Some(content) != dsl.get("content"));
+        let other_content = contents_conflict(response.get("content"), dsl.get("content"));
         let Some(Value::String(description)) = response.get("description").cloned() else {
             continue;
         };

@@ -602,19 +602,14 @@ mod merged_responses {
     }
 
     #[test]
-    fn a_different_content_in_the_block_wins_with_a_note() {
+    fn another_schema_for_a_media_type_in_the_block_wins_with_a_note() {
         let (responses, diagnostics) = compiled(
             &[
                 "@route GET /x",
                 "@tag Decks",
                 "@return 404: String \"No such deck\"",
-                "@return 204:",
             ],
-            &[
-                "@route-defaults",
-                "@return 404: $ErrorBody \"Missing\"",
-                "@return 204: $ErrorBody \"Body\"",
-            ],
+            &["@route-defaults", "@return 404: $ErrorBody \"Missing\""],
         );
         assert_eq!(
             responses["404"],
@@ -623,29 +618,58 @@ mod merged_responses {
                 "content": { "application/json": { "schema": { "type": "string" } } },
             })
         );
-        assert_eq!(responses["204"], json!({ "description": "No Content" }));
         let found: Vec<(Code, Severity, Location)> = diagnostics
             .iter()
             .map(|d| (d.code(), d.severity(), d.location().unwrap().clone()))
             .collect();
         assert_eq!(
             found,
-            [
-                (
-                    Code::MergeConflict,
-                    Severity::Note,
-                    Location::new("test.rs", 12)
-                ),
-                (
-                    Code::MergeConflict,
-                    Severity::Note,
-                    Location::new("test.rs", 13)
-                ),
-            ]
+            [(
+                Code::MergeConflict,
+                Severity::Note,
+                Location::new("test.rs", 12)
+            )]
         );
         assert!(
             diagnostics.iter().any(|d| d.message().contains("`404`")),
             "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn other_media_types_add_up_with_their_descriptions() {
+        // In the block, and between the defaults and the block; a response
+        // without content takes the content of the other.
+        let (responses, diagnostics) = compiled(
+            &[
+                "@route GET /x",
+                "@return 413: $ErrorBody \"a\"",
+                "@return 413: String text/plain \"b\"",
+                "@return 415: String text/plain \"Own\"",
+                "@return 204:",
+            ],
+            &[
+                "@route-defaults",
+                "@return 415: $ErrorBody \"From the module\"",
+                "@return 204: $ErrorBody \"Body\"",
+            ],
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let both = json!({
+            "application/json": { "schema": { "$ref": "$ErrorBody" } },
+            "text/plain": { "schema": { "type": "string" } },
+        });
+        assert_eq!(
+            responses["413"],
+            json!({ "description": "- a\n- b", "content": both })
+        );
+        assert_eq!(
+            responses["415"],
+            json!({ "description": "- From the module\n- Own", "content": both })
+        );
+        assert_eq!(
+            responses["204"],
+            json!({ "description": "Body", "content": error_body() })
         );
     }
 
@@ -671,6 +695,29 @@ mod merged_responses {
     }
 
     #[test]
+    fn embedded_yaml_with_another_media_type_adds_it() {
+        let (responses, diagnostics) = compiled(
+            &[
+                "@route GET /x",
+                "@return 403: $ErrorBody \"A\"",
+                "responses:",
+                "  '403': { description: B, content: { text/plain: { schema: { type: string } } } }",
+            ],
+            &[],
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(responses["403"]["description"], "- A\n- B");
+        assert_eq!(
+            responses["403"]["content"]["text/plain"],
+            json!({ "schema": { "type": "string" } })
+        );
+        assert_eq!(
+            responses["403"]["content"]["application/json"],
+            error_body()["application/json"]
+        );
+    }
+
+    #[test]
     fn embedded_yaml_with_another_content_wins_as_before() {
         let (responses, diagnostics) = compiled(
             &[
@@ -679,18 +726,11 @@ mod merged_responses {
                 "responses:",
                 "  '403':",
                 "    description: C",
-                "    content: { text/plain: { schema: { type: string } } }",
+                "    content: { application/json: { schema: { type: string } } }",
             ],
             &[],
         );
         assert_eq!(responses["403"]["description"], "C");
-        let mut media: Vec<&String> = responses["403"]["content"]
-            .as_object()
-            .unwrap()
-            .keys()
-            .collect();
-        media.sort();
-        assert_eq!(media, ["application/json", "text/plain"]);
         assert_eq!(
             codes_and_severities(&diagnostics),
             [(Code::MergeConflict, Severity::Note)]

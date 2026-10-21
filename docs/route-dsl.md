@@ -225,7 +225,7 @@ body is required unless it is `optional` or an `Option<T>`.
   YAML) add their media types, and their descriptions are combined in
   source order (module defaults first), without repeats: one stays as it
   is, several become a Markdown list. A line without description adds
-  none.
+  none. A later line with another schema for a media type replaces it.
 
   ```text
   @insert SessionRefusals              ← @return 403: $Error "The account is banned"
@@ -277,9 +277,10 @@ pub async fn upload_avatar() {}
 The YAML is merged with what the directives produced: parameters by name and
 location, responses by status code, everything else key by key. When both
 set the same value differently, the YAML wins and a note is reported at the
-YAML line that sets it. The description of a response without another
-`content` is the exception: it is combined with the descriptions of the
-directives (see [responses](#responses)). YAML that is not a mapping is reported (`OF2005`)
+YAML line that sets it. The description of a response is the exception: it
+is combined with the descriptions of the directives (see
+[responses](#responses)), unless the YAML gives one of their media types
+another content. YAML that is not a mapping is reported (`OF2005`)
 and ignored.
 
 ## Webhooks
@@ -345,9 +346,10 @@ prefix is the prefix itself (`/tenants/{tenant}`, without trailing slash);
 other paths keep a trailing slash they are written with. Parameters, responses
 and other directives are added to each route unless the route sets the same
 itself: the route's tags and security win. A response for a status the route
-has too is combined with the route's (descriptions of the defaults first,
-see [responses](#responses)) when it has the same content; with a different
-content the route's response wins and a note (`OF4001`) says so. Likewise, the `@tag`
+has too is combined with the route's (media types add up, descriptions of
+the defaults first, see [responses](#responses)); when both give one media
+type a different schema, the route's response wins and a note (`OF4001`)
+says so. Likewise, the `@tag`
 and `@security` lines of an inner module replace those of the outer modules
 (in the example, `invoice` is tagged `Billing` only); within one module,
 several lines add up. Webhooks get no path parameters from the defaults.
