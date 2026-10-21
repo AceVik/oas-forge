@@ -47,7 +47,8 @@ input_file: tests/corpus/cases/guide_schemas/case.toml
             "required": [
               "id",
               "displayName",
-              "role"
+              "role",
+              "nick"
             ],
             "type": "object"
           },
@@ -73,7 +74,8 @@ input_file: tests/corpus/cases/guide_schemas/case.toml
               }
             },
             "required": [
-              "items"
+              "items",
+              "next"
             ],
             "type": "object"
           },
@@ -89,7 +91,7 @@ input_file: tests/corpus/cases/guide_schemas/case.toml
         "x-oas-forge-format": 1,
         "x-oas-forge-templates": {
           "Page": {
-            "body": "type: object\nproperties:\n  items:\n    type: array\n    items:\n      $ref: $T\n  next:\n    type:\n    - string\n    - \"null\"\nrequired:\n- items\ndescription: One page of results.\n",
+            "body": "type: object\nproperties:\n  items:\n    type: array\n    items:\n      $ref: $T\n  next:\n    type:\n    - string\n    - \"null\"\nrequired:\n- items\n- next\ndescription: One page of results.\n",
             "params": [
               "T"
             ]
@@ -157,7 +159,8 @@ input_file: tests/corpus/cases/guide_schemas/case.toml
             "required": [
               "id",
               "displayName",
-              "role"
+              "role",
+              "nick"
             ],
             "type": "object"
           },
@@ -183,7 +186,8 @@ input_file: tests/corpus/cases/guide_schemas/case.toml
               }
             },
             "required": [
-              "items"
+              "items",
+              "next"
             ],
             "type": "object"
           },
@@ -263,7 +267,8 @@ input_file: tests/corpus/cases/guide_schemas/case.toml
           "required": [
             "id",
             "displayName",
-            "role"
+            "role",
+            "nick"
           ],
           "type": "object"
         },
@@ -289,7 +294,8 @@ input_file: tests/corpus/cases/guide_schemas/case.toml
             }
           },
           "required": [
-            "items"
+            "items",
+            "next"
           ],
           "type": "object"
         },
@@ -341,7 +347,8 @@ input_file: tests/corpus/cases/guide_schemas/case.toml
             "required": [
               "id",
               "displayName",
-              "role"
+              "role",
+              "nick"
             ],
             "type": "object"
           },
@@ -365,7 +372,8 @@ input_file: tests/corpus/cases/guide_schemas/case.toml
               }
             },
             "required": [
-              "items"
+              "items",
+              "next"
             ],
             "type": "object"
           },
@@ -467,7 +475,8 @@ input_file: tests/corpus/cases/guide_schemas/case.toml
         "required": [
           "id",
           "displayName",
-          "role"
+          "role",
+          "nick"
         ],
         "type": "object"
       },
@@ -493,7 +502,8 @@ input_file: tests/corpus/cases/guide_schemas/case.toml
           }
         },
         "required": [
-          "items"
+          "items",
+          "next"
         ],
         "type": "object"
       },
@@ -541,7 +551,8 @@ input_file: tests/corpus/cases/guide_schemas/case.toml
           "required": [
             "id",
             "displayName",
-            "role"
+            "role",
+            "nick"
           ],
           "type": "object"
         },
@@ -565,7 +576,8 @@ input_file: tests/corpus/cases/guide_schemas/case.toml
             }
           },
           "required": [
-            "items"
+            "items",
+            "next"
           ],
           "type": "object"
         },

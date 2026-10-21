@@ -51,6 +51,9 @@ components:
       required:
       - email
       - name
+      - tags
+      - payment
+      - fax
       allOf:
       - $ref: "#/components/schemas/Address"
       description: A customer.

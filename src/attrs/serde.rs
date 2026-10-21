@@ -109,6 +109,13 @@ pub struct SerdeAttrs {
     pub into: Option<String>,
     /// `from = "Type"` / `try_from = "Type"` (containers deserialized from another type).
     pub from: Option<String>,
+    /// `skip_serializing_if = "Option::is_none"` (also with the `std` path or
+    /// a turbofish): `None` is left out instead of written as `null`.
+    pub skip_serializing_if_none: bool,
+    /// The container derives `Serialize` (also behind `cfg_attr`).
+    pub serialize: bool,
+    /// The container derives `Deserialize` (also behind `cfg_attr`).
+    pub deserialize: bool,
 }
 
 impl SerdeAttrs {
@@ -116,6 +123,19 @@ impl SerdeAttrs {
     /// later values win.
     pub(crate) fn parse(attrs: &[Attribute]) -> Self {
         let mut out = Self::default();
+        for derive in metas(attrs, "derive") {
+            match derive
+                .path()
+                .segments
+                .last()
+                .map(|s| s.ident.to_string())
+                .as_deref()
+            {
+                Some("Serialize") => out.serialize = true,
+                Some("Deserialize") => out.deserialize = true,
+                _ => {}
+            }
+        }
         for meta in metas(attrs, "serde") {
             let Some(key) = meta.path().get_ident().map(ToString::to_string) else {
                 continue;
@@ -177,7 +197,10 @@ impl SerdeAttrs {
             "tag" => self.tag = Some(value),
             "content" => self.content = Some(value),
             "default" => self.default = true,
-            "skip_serializing_if" => self.skip_serializing_if = true,
+            "skip_serializing_if" => {
+                self.skip_serializing_if = true;
+                self.skip_serializing_if_none = is_option_is_none(&value);
+            }
             "with" => {
                 self.with = Some(value);
                 self.custom_deserializer = true;
@@ -208,4 +231,21 @@ impl SerdeAttrs {
     pub fn is_skipped(&self) -> bool {
         self.skip || (self.skip_serializing && self.skip_deserializing)
     }
+}
+
+/// Whether `path` is `Option::is_none` (`std::option::Option::is_none`,
+/// `Option::<T>::is_none`, spaces allowed).
+fn is_option_is_none(path: &str) -> bool {
+    let path: String = path.chars().filter(|c| !c.is_whitespace()).collect();
+    let Some(option) = path.strip_suffix("::is_none") else {
+        return false;
+    };
+    // `Option::<T>`: the turbofish names no other type.
+    let option = option
+        .split_once("::<")
+        .map_or(option, |(option, _)| option);
+    matches!(
+        option,
+        "Option" | "std::option::Option" | "core::option::Option"
+    )
 }

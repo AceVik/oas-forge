@@ -81,7 +81,10 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
             },
             "required": [
               "email",
-              "name"
+              "name",
+              "tags",
+              "payment",
+              "fax"
             ],
             "type": "object"
           },
@@ -220,7 +223,10 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
             },
             "required": [
               "email",
-              "name"
+              "name",
+              "tags",
+              "payment",
+              "fax"
             ],
             "type": "object"
           },
@@ -364,7 +370,10 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
           },
           "required": [
             "email",
-            "name"
+            "name",
+            "tags",
+            "payment",
+            "fax"
           ],
           "type": "object"
         },
@@ -498,7 +507,10 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
             },
             "required": [
               "email",
-              "name"
+              "name",
+              "tags",
+              "payment",
+              "fax"
             ],
             "type": "object"
           },
@@ -646,7 +658,10 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
         },
         "required": [
           "email",
-          "name"
+          "name",
+          "tags",
+          "payment",
+          "fax"
         ],
         "type": "object"
       },
@@ -779,7 +794,10 @@ input_file: tests/corpus/cases/readme_schemas/case.toml
           },
           "required": [
             "email",
-            "name"
+            "name",
+            "tags",
+            "payment",
+            "fax"
           ],
           "type": "object"
         },

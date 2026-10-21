@@ -109,7 +109,8 @@ input_file: tests/corpus/cases/guide_asyncapi/case.toml
             },
             "required": [
               "type",
-              "id"
+              "id",
+              "reason"
             ],
             "type": "object"
           },
@@ -249,7 +250,8 @@ input_file: tests/corpus/cases/guide_asyncapi/case.toml
             },
             "required": [
               "type",
-              "id"
+              "id",
+              "reason"
             ],
             "type": "object"
           },
@@ -345,7 +347,8 @@ input_file: tests/corpus/cases/guide_asyncapi/case.toml
           },
           "required": [
             "type",
-            "id"
+            "id",
+            "reason"
           ],
           "type": "object"
         },
@@ -445,7 +448,8 @@ input_file: tests/corpus/cases/guide_asyncapi/case.toml
         },
         "required": [
           "type",
-          "id"
+          "id",
+          "reason"
         ],
         "type": "object"
       },

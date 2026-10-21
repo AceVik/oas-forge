@@ -1633,7 +1633,7 @@ mod nullable_overrides {
 
     fn field(docs: &str, ty: &str) -> serde_json::Value {
         let items = extract(&format!(
-            "/// @openapi\n#[derive(serde::Serialize)]\npub struct S {{\n{docs}\npub field: {ty},\n}}"
+            "/// @openapi\npub struct S {{\n{docs}\npub field: {ty},\n}}"
         ));
         schema(&items, "S")["properties"]["field"].clone()
     }
@@ -1728,5 +1728,133 @@ mod nullable_overrides {
             s["b"],
             json!({ "type": "string", "nullable": true, "enum": ["c", null] })
         );
+    }
+}
+
+/// Required and nullable fields follow the serde direction of the container.
+mod serde_direction {
+    use super::*;
+    use serde_json::Value;
+
+    /// The schema of `struct S` with `derives` and `body`.
+    fn struct_schema(header: &str, body: &str) -> Value {
+        let items = extract(&format!(
+            "/// @openapi\n{header}\npub struct S {{\n{body}\n}}"
+        ));
+        schema(&items, "S")
+    }
+
+    const FIELDS: &str = r#"
+        pub plain: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub skipped_none: Option<u8>,
+        #[serde(skip_serializing_if = "std::option::Option::is_none")]
+        pub std_none: Option<u8>,
+        #[serde(skip_serializing_if = "Option::<u8>::is_none")]
+        pub turbofish_none: Option<u8>,
+        #[serde(skip_serializing_if = "is_zero")]
+        pub other_check: Option<u8>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        pub list: Vec<u8>,
+        #[serde(default)]
+        pub defaulted: u8,
+        pub value: u8,
+    "#;
+
+    fn int() -> Value {
+        json!({ "type": "integer", "format": "int32", "minimum": 0, "maximum": 255 })
+    }
+
+    fn nullable_int() -> Value {
+        json!({ "type": ["integer", "null"], "format": "int32", "minimum": 0, "maximum": 255 })
+    }
+
+    #[test]
+    fn output_types_require_every_field_that_is_always_written() {
+        for header in [
+            "#[derive(Serialize)]",
+            "#[derive(Debug, serde::Serialize)]\n#[serde(default)]",
+            "#[cfg_attr(feature = \"api\", derive(Serialize))]",
+        ] {
+            let s = struct_schema(header, FIELDS);
+            assert_eq!(
+                s["required"],
+                json!(["plain", "defaulted", "value"]),
+                "{header}"
+            );
+            let properties = &s["properties"];
+            assert_eq!(properties["plain"], nullable_int(), "`null` is written");
+            for name in ["skipped_none", "std_none", "turbofish_none"] {
+                assert_eq!(properties[name], int(), "{name}: `None` is left out");
+            }
+            assert_eq!(properties["other_check"], nullable_int());
+        }
+    }
+
+    #[test]
+    fn input_and_unknown_types_keep_the_rules_of_both_directions() {
+        for header in [
+            "#[derive(Deserialize)]",
+            "#[derive(Serialize, Deserialize)]",
+            "#[derive(Serialize)]\n#[cfg_attr(test, derive(serde::Deserialize))]",
+            "",
+        ] {
+            let s = struct_schema(header, FIELDS);
+            assert_eq!(s["required"], json!(["value"]), "{header}");
+            assert_eq!(s["properties"]["skipped_none"], nullable_int(), "{header}");
+        }
+    }
+
+    #[test]
+    fn struct_variants_follow_their_enum() {
+        let items = extract(
+            "/// @openapi\n#[derive(Serialize)]\npub enum Event {\n    Moved { to: Option<u8>, #[serde(skip_serializing_if = \"Option::is_none\")] by: Option<u8> },\n}",
+        );
+        let moved = &schema(&items, "Event")["oneOf"][0]["properties"]["Moved"];
+        assert_eq!(moved["required"], json!(["to"]));
+        assert_eq!(moved["properties"]["by"], int());
+    }
+
+    #[test]
+    fn an_omitted_none_takes_no_null_into_an_enum() {
+        let s = struct_schema(
+            "#[derive(serde::Serialize)]",
+            "/// @openapi enum: [central, gateway]\n#[serde(skip_serializing_if = \"Option::is_none\")]\npub terms_required: Option<&'static str>,\n#[serde(skip_serializing_if = \"Option::is_none\")]\npub ban: Option<Ban>,",
+        );
+        assert_eq!(
+            s["properties"]["terms_required"],
+            json!({ "type": "string", "enum": ["central", "gateway"] })
+        );
+        assert_eq!(s["properties"]["ban"], json!({ "$ref": "$Ban" }));
+        assert!(s.get("required").is_none(), "{s}");
+    }
+
+    #[test]
+    fn a_required_override_moves_the_field_into_or_out_of_the_list() {
+        let s = struct_schema(
+            "#[derive(Deserialize)]",
+            "/// @openapi required: true\npub a: Option<u8>,\n/// @openapi\n/// required: false\n/// minimum: 1\npub b: u8,\n/// @openapi required: [x]\npub c: Inner,",
+        );
+        assert_eq!(s["required"], json!(["a", "c"]));
+        assert_eq!(s["properties"]["a"], nullable_int());
+        assert_eq!(s["properties"]["b"]["minimum"], 1);
+        assert!(s["properties"]["b"].get("required").is_none());
+        assert_eq!(
+            s["properties"]["c"],
+            json!({ "$ref": "$Inner", "required": ["x"] }),
+            "a list is a keyword of the property"
+        );
+    }
+
+    #[test]
+    fn a_required_override_on_a_built_in_name_is_lifted_everywhere() {
+        let (document, diagnostics) = crate::common::pipeline(&[(
+            "lib.rs",
+            "/// @openapi\n#[derive(Deserialize)]\npub struct S {\n    /// @openapi required: false\n    pub d: Duration,\n}",
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let s = &document["components"]["schemas"]["S"];
+        assert!(s.get("required").is_none(), "{s}");
+        assert_eq!(s["properties"]["d"]["required"], json!(["secs", "nanos"]));
     }
 }

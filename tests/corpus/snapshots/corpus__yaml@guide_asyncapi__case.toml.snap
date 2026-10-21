@@ -51,6 +51,7 @@ components:
       required:
       - type
       - id
+      - reason
     OrderEventPlaced:
       type: object
       properties:

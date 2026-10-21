@@ -177,7 +177,8 @@ impl Item {
 ///             "userId": { "type": "integer", "format": "int64", "minimum": 0 },
 ///             "nick": { "type": ["string", "null"] },
 ///         },
-///         "required": ["userId"],
+///         // Only serialized: serde always writes `nick`, maybe as `null`.
+///         "required": ["userId", "nick"],
 ///         "description": "A user.",
 ///     })
 /// );

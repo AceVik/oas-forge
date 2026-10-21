@@ -18,7 +18,7 @@ Attributes are also read inside `#[cfg_attr(…, serde(…))]`.
 | `untagged` | `anyOf` of the variants' content |
 | `transparent` | the schema of the single field |
 | `deny_unknown_fields` | `additionalProperties: false` (`unevaluatedProperties: false` with flattened fields); on an enum also for its struct variants |
-| `default` | every field is optional |
+| `default` | every field is optional (not in an output type, see below) |
 | `into = "T"`, `from = "T"`, `try_from = "T"` | the schema of `T` |
 | `bound`, `crate`, `remote`, `expecting`, `variant_identifier`, `field_identifier` | no effect on the format |
 
@@ -27,15 +27,22 @@ Attributes are also read inside `#[cfg_attr(…, serde(…))]`.
 | Attribute | Schema |
 | :--- | :--- |
 | `rename = "name"` | the property name |
-| `default`, `default = "path"` | not required |
+| `default`, `default = "path"` | not required (in an output type: no effect) |
 | `skip` | left out |
-| `skip_serializing` | `writeOnly: true` |
+| `skip_serializing` | `writeOnly: true`; in an output type also not required |
 | `skip_deserializing` | `readOnly: true` |
-| `skip_serializing_if = "…"` | not required |
+| `skip_serializing_if = "…"` | not required; `"Option::is_none"` in an output type: not required and not nullable (`None` is left out, never `null`) |
 | `flatten` | a struct joins with `allOf`; a map becomes `additionalProperties` (`unevaluatedProperties` next to flattened structs); an `Option` may be absent as a whole |
 | `with`, `serialize_with` | known modules change the type, see below; others keep the field's type |
 | `with`, `deserialize_with` | the field is required, also an `Option` (unless `default`) |
 | `alias`, `borrow`, `bound`, `getter` | no effect on the documented format |
+
+An output type derives `Serialize` but not `Deserialize` (also through
+`cfg_attr`); its schema describes what serde writes: every field that is
+not skipped is required, an `Option` without `skip_serializing_if` too
+(nullable, since serde writes `null`). Types that derive `Deserialize`, or
+whose derives are not visible, follow both directions as in the table.
+See [required and optional fields](schemas.md#required-and-optional-fields).
 
 Known `with` modules:
 

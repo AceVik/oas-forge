@@ -380,12 +380,20 @@ impl<'a> Reflector<'a> {
         }))
     }
 
-    /// Reflects one named field.
+    /// Reflects one named field of a struct or struct variant whose
+    /// container has the serde attributes `container`.
+    ///
+    /// In an output type (deriving `Serialize` but not `Deserialize`), a
+    /// field is required unless it is skipped, also an `Option` (then
+    /// `null` is written); `skip_serializing_if = "Option::is_none"` leaves
+    /// `None` out instead, so the value is not nullable. Other types follow
+    /// both directions: `Option`, `default` and `skip_serializing_if` make a
+    /// field optional. A `required: true|false` in the override decides.
     fn field(
         &mut self,
         field: &syn::Field,
         rule: Option<RenameRule>,
-        container_default: bool,
+        container: &SerdeAttrs,
     ) -> Field {
         let ident = field
             .ident
@@ -428,10 +436,12 @@ impl<'a> Reflector<'a> {
 
         let constraints = self.constraints(&field.attrs, line_of(field.span()));
         let forced = constraints.requires_value();
+        let output = container.serialize && !container.deserialize;
+        let omits_none = output && serde.skip_serializing_if_none;
         let mut schema = self.typed(&ty, |mapped| {
             let mut schema = with.clone().unwrap_or(mapped.schema);
             constraints.apply(&mut schema);
-            if mapped.nullable && !forced {
+            if mapped.nullable && !forced && !omits_none {
                 schema = nullable(schema);
             }
             if let Value::Object(map) = &mut schema {
@@ -444,13 +454,32 @@ impl<'a> Reflector<'a> {
             }
             schema
         });
-        self.finish(&mut schema, &naming, &format!("field `{ident}`"));
-        // A custom deserializer makes even an `Option` field mandatory: serde
-        // only fills in `None` for a missing field it deserializes itself.
-        let required = (mapped.required || forced || serde.custom_deserializer)
-            && !serde.default
-            && !container_default
-            && !serde.skip_serializing_if;
+        let mut annotations = self.annotations(&naming, &format!("field `{ident}`"));
+        // `required: true` in the override belongs to the object.
+        let lifted =
+            annotations
+                .overrides
+                .as_mut()
+                .and_then(|overrides| match overrides.get("required") {
+                    Some(Value::Bool(required)) => {
+                        let required = *required;
+                        overrides.remove("required");
+                        Some(required)
+                    }
+                    _ => None,
+                });
+        shadow::for_each(&mut schema, |schema| annotations.apply(schema));
+        let required = lifted.unwrap_or(if output {
+            !serde.skip_serializing_if && !serde.skip_serializing
+        } else {
+            // A custom deserializer makes even an `Option` field mandatory:
+            // serde only fills in `None` for a missing field it
+            // deserializes itself.
+            (mapped.required || forced || serde.custom_deserializer)
+                && !serde.default
+                && !container.default
+                && !serde.skip_serializing_if
+        });
         Field::Property {
             name,
             schema,
@@ -471,7 +500,7 @@ impl<'a> Reflector<'a> {
         let mut flattened = Vec::new();
         let mut additional = None;
         for f in &fields.named {
-            match self.field(f, rule, container.default) {
+            match self.field(f, rule, container) {
                 Field::Skip => {}
                 Field::Property {
                     name,
@@ -822,6 +851,8 @@ impl<'a> Reflector<'a> {
                 // The enum's `deny_unknown_fields` applies to its struct variants.
                 let mut attrs = naming.serde.clone();
                 attrs.deny_unknown_fields |= container.serde.deny_unknown_fields;
+                attrs.serialize = container.serde.serialize;
+                attrs.deserialize = container.serde.deserialize;
                 Content::Struct(self.object(fields, rule, &attrs, always_required))
             }
             syn::Fields::Unnamed(fields) => {

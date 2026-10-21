@@ -204,7 +204,20 @@ pub async fn members() {}
 
 ## Required and optional fields
 
-A field is required unless one of these applies:
+Which fields are required depends on the direction the type is used in,
+read from its `derive` (also behind `cfg_attr`).
+
+A type that derives `Serialize` but not `Deserialize` is an output type:
+the schema describes what serde writes. A field is written unless it is
+skipped, so it is required, also an `Option<T>` (serde writes `null`; the
+schema allows it). With `#[serde(skip_serializing_if = "Option::is_none")]`
+serde leaves `None` out instead: the field is optional and the schema is
+that of `T`, without `null`. Any other `skip_serializing_if` makes the field
+optional too, `#[serde(skip_serializing)]` as well. `#[serde(default)]` does
+not matter for output.
+
+Any other type (deriving `Deserialize`, both, or no visible derive) follows
+both directions. A field is required unless one of these applies:
 
 - its type is `Option<T>`; the schema then also allows `null`
   (`type: [T, "null"]` in 3.1, `nullable: true` in 3.0),
@@ -218,6 +231,10 @@ missing field instead of using `None`, unless the field has `default`.
 `#[validate(required)]` or `#[garde(required)]` on an `Option` makes it
 required and not nullable. `#[serde(skip_serializing)]` adds `writeOnly`,
 `#[serde(skip_deserializing)]` adds `readOnly`.
+
+`required: true` or `required: false` in the `@openapi` override of a field
+decides: the field joins or leaves the `required` list of its object (a
+`required` list in the override stays a keyword of the property).
 
 ## Enums
 
