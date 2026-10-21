@@ -19,6 +19,66 @@ use std::sync::LazyLock;
 /// Maximum nesting of instantiations (`$A<$B<$C<…>>>`).
 pub const MAX_DEPTH: usize = 16;
 
+/// Keywords whose value is a schema (also of media types and parameters).
+const SCHEMA_KEYS: &[&str] = &[
+    "items",
+    "not",
+    "additionalProperties",
+    "unevaluatedProperties",
+    "unevaluatedItems",
+    "contains",
+    "propertyNames",
+    "if",
+    "then",
+    "else",
+    "contentSchema",
+    "schema",
+    "itemSchema",
+];
+
+/// Keywords whose value is a list of schemas.
+const SCHEMA_LIST_KEYS: &[&str] = &["allOf", "anyOf", "oneOf", "prefixItems"];
+
+/// Keywords whose value maps names to schemas.
+const SCHEMA_MAP_KEYS: &[&str] = &[
+    "properties",
+    "patternProperties",
+    "$defs",
+    "dependentSchemas",
+];
+
+/// Keywords whose value is data, not schemas.
+const DATA_KEYS: &[&str] = &["example", "examples", "default", "enum", "const", "value"];
+
+/// Turns each whole `$Name` (or `$Page<User>`) string of `map` that stands
+/// where a schema is expected into `{"$ref": "$Name"}`.
+fn wrap_references(map: &mut Map<String, Value>) {
+    let wrap = |value: &mut Value| {
+        if let Value::String(text) = value
+            && text.starts_with('$')
+            && (reference_name(text).is_some() || GenericRef::parse(text).is_some())
+        {
+            let mut reference = Map::new();
+            reference.insert("$ref".into(), Value::String(std::mem::take(text)));
+            *value = Value::Object(reference);
+        }
+    };
+    for (key, value) in map.iter_mut() {
+        let key = key.as_str();
+        if SCHEMA_KEYS.contains(&key) {
+            wrap(value);
+        } else if SCHEMA_LIST_KEYS.contains(&key)
+            && let Value::Array(items) = value
+        {
+            items.iter_mut().for_each(wrap);
+        } else if SCHEMA_MAP_KEYS.contains(&key)
+            && let Value::Object(schemas) = value
+        {
+            schemas.values_mut().for_each(wrap);
+        }
+    }
+}
+
 /// A parsed generic reference.
 ///
 /// # Examples
@@ -267,6 +327,9 @@ pub struct Instantiator<'a> {
     known: &'a KnownSchemas,
     /// The type aliases being replaced, outermost first.
     aliasing: Vec<String>,
+    /// Whether the value being applied is data (`example`, `enum`, …),
+    /// where `$Name` is no schema.
+    in_data: bool,
 }
 
 impl<'a> Instantiator<'a> {
@@ -297,6 +360,7 @@ impl<'a> Instantiator<'a> {
             in_progress: Vec::new(),
             known: KnownSchemas::none(),
             aliasing: Vec::new(),
+            in_data: false,
         }
     }
 
@@ -333,6 +397,10 @@ impl<'a> Instantiator<'a> {
 
     /// Replaces generic references in `value`; reports problems at `location`.
     ///
+    /// A whole `$Name` or `$Page<User>` string where a schema is expected
+    /// (in `items`, `oneOf`, `properties`, a media type's `schema`, …; not in
+    /// data such as `example` or `enum`, nor in extensions) becomes
+    /// `{"$ref": …}` first.
     /// A `$ref` to a std container (`$Vec<User>`) is replaced by the inline
     /// schema and keeps its sibling keywords. A reference to an unknown
     /// blueprint becomes the concrete name, so a schema written by hand can
@@ -386,6 +454,9 @@ impl<'a> Instantiator<'a> {
                 }
             }
             Value::Object(map) => {
+                if !self.in_data {
+                    wrap_references(map);
+                }
                 // A type alias stands for its target (`$Owner`, `$Paged<User>`),
                 // resolved in the alias's file.
                 if let Some((alias, schema)) = self.alias(map, location, diagnostics) {
@@ -404,18 +475,34 @@ impl<'a> Instantiator<'a> {
                 if let Some(Value::Object(mut schema)) = inline {
                     map.remove("$ref");
                     for (key, mut child) in std::mem::take(map) {
-                        self.apply(&mut child, location, diagnostics);
+                        self.apply_child(&key, &mut child, location, diagnostics);
                         schema.insert(key, child);
                     }
                     *map = schema;
                     return;
                 }
-                for child in map.values_mut() {
-                    self.apply(child, location, diagnostics);
+                for (key, child) in map.iter_mut() {
+                    self.apply_child(key, child, location, diagnostics);
                 }
             }
             _ => {}
         }
+    }
+
+    /// [`Self::apply`] to the value of `key`; below a data keyword
+    /// (`example`, `enum`, …) or an extension (`x-…`) no `$Name` is a
+    /// schema.
+    fn apply_child(
+        &mut self,
+        key: &str,
+        child: &mut Value,
+        location: &Location,
+        diagnostics: &mut Diagnostics,
+    ) {
+        let outer = self.in_data;
+        self.in_data |= DATA_KEYS.contains(&key) || key.starts_with("x-");
+        self.apply(child, location, diagnostics);
+        self.in_data = outer;
     }
 
     /// The type alias that the `$ref` of `map` names (`$Owner`,
@@ -502,7 +589,7 @@ impl<'a> Instantiator<'a> {
     /// let mut registry = Registry::new();
     /// registry.add_blueprint(
     ///     "Page",
-    ///     Blueprint { params: vec!["T".into()], schema: json!({ "items": "$T" }) },
+    ///     Blueprint { params: vec!["T".into()], schema: json!({ "items": { "$ref": "$T" } }) },
     /// );
     /// let mut instantiator = Instantiator::new(&registry);
     /// let mut diagnostics = Diagnostics::new();
@@ -514,7 +601,10 @@ impl<'a> Instantiator<'a> {
     /// let concrete = instantiator.into_concrete();
     /// let names: Vec<&str> = concrete.keys().map(String::as_str).collect();
     /// assert_eq!(names, ["Page_Page_User", "Page_User"]);
-    /// assert_eq!(concrete["Page_Page_User"].0, json!({ "items": "$Page_User" }));
+    /// assert_eq!(
+    ///     concrete["Page_Page_User"].0,
+    ///     json!({ "items": { "$ref": "$Page_User" } })
+    /// );
     /// assert_eq!(concrete["Page_User"].1, Location::new("src/users.rs", 10));
     /// ```
     pub fn into_concrete(self) -> BTreeMap<String, (Value, Location)> {

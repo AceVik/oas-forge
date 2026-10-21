@@ -714,7 +714,10 @@ components:
         let document = spec.document();
         assert_eq!(
             document["components"]["schemas"],
-            json!({ "Shared": { "type": "object" }, "Page_Shared": { "items": "#/components/schemas/Shared" } })
+            json!({
+                "Shared": { "type": "object" },
+                "Page_Shared": { "items": { "$ref": "#/components/schemas/Shared" } }
+            })
         );
         assert_eq!(
             document["paths"]["/x"]["get"]["responses"]["500"]["description"],

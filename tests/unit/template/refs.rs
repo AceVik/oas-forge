@@ -189,3 +189,62 @@ fn documented_schemas_shadow_built_in_types() {
         json!([{ "$ref": "#/components/schemas/String" }, { "$ref": "#/components/schemas/Link" }])
     );
 }
+
+/// Whole `$Name` strings in schema positions end up as references, through
+/// the whole pipeline (the generics stage wraps them).
+mod schema_positions {
+    use crate::common::pipeline;
+    use serde_json::json;
+
+    #[test]
+    fn a_one_of_of_names_in_a_route_is_a_list_of_references() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            r#"
+            /// @openapi
+            pub struct ErrorBody { pub error: String }
+            /// @openapi
+            pub struct HostedUnavailable { pub retry: u32 }
+            /// @openapi
+            pub struct Page<T> { pub items: Vec<T> }
+            /// Join
+            /// @route POST /join
+            /// @return 409: { oneOf: [ $ErrorBody, $HostedUnavailable ] } "Cannot join"
+            /// @return 200: { type: object, properties: { page: $Page<ErrorBody>, name: $String } }
+            pub async fn join() {}
+            "#,
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let responses = &document["paths"]["/join"]["post"]["responses"];
+        assert_eq!(
+            responses["409"]["content"]["application/json"]["schema"]["oneOf"],
+            json!([
+                { "$ref": "#/components/schemas/ErrorBody" },
+                { "$ref": "#/components/schemas/HostedUnavailable" },
+            ])
+        );
+        let properties = &responses["200"]["content"]["application/json"]["schema"]["properties"];
+        assert_eq!(
+            properties["page"],
+            json!({ "$ref": "#/components/schemas/Page_ErrorBody" })
+        );
+        assert_eq!(properties["name"], json!({ "type": "string" }));
+    }
+
+    #[test]
+    fn a_discriminator_mapping_stays_a_pointer() {
+        let (document, _) = pipeline(&[(
+            "lib.rs",
+            "/// @openapi\npub struct Cat { pub a: u8 }\n/// @openapi-type Pet\n/// oneOf: [$Cat]\n/// discriminator: { propertyName: kind, mapping: { cat: $Cat } }\nfn _schemas() {}",
+        )]);
+        let pet = &document["components"]["schemas"]["Pet"];
+        assert_eq!(
+            pet["oneOf"],
+            json!([{ "$ref": "#/components/schemas/Cat" }])
+        );
+        assert_eq!(
+            pet["discriminator"]["mapping"]["cat"],
+            "#/components/schemas/Cat"
+        );
+    }
+}

@@ -389,6 +389,17 @@ In any YAML block, a value `$Name` is a reference to the schema `Name`:
 `$User` inside a sentence stays text. Write `\$` for a literal dollar sign at
 the start of a value.
 
+Where a schema is expected, `$Name` alone is the reference object: the
+items of `allOf`, `anyOf`, `oneOf` and `prefixItems`; the value of `items`,
+`not`, `additionalProperties`, `unevaluatedProperties`, `unevaluatedItems`,
+`contains`, `propertyNames`, `if`, `then`, `else` and `contentSchema`; the
+values of `properties`, `patternProperties`, `$defs` and
+`dependentSchemas`; and the `schema` or `itemSchema` of media types and
+parameters. So `/// @return 409: { oneOf: [$ErrorBody, $Conflict] }` is a
+`oneOf` of two references. Elsewhere (a `discriminator` mapping, examples,
+`enum` values, extensions) `$Name` is the pointer string
+`'#/components/schemas/Name'`.
+
 ## Validation constraints
 
 `#[validate(...)]` and `#[garde(...)]` add JSON Schema keywords; for example

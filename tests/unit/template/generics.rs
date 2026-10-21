@@ -172,7 +172,11 @@ mod instantiation {
             concrete["Envelope_User"],
             json!({ "data": { "$ref": "$Page_User" } })
         );
-        assert_eq!(concrete["Page_User"], json!({ "items": "$User" }));
+        assert_eq!(
+            concrete["Page_User"],
+            json!({ "items": { "$ref": "$User" } }),
+            "a name where a schema is expected is a reference"
+        );
     }
 
     #[test]
@@ -255,7 +259,7 @@ mod instantiation {
         let (_, concrete, diagnostics) = run(&reg, json!("$Tree<User>"));
         assert_eq!(
             concrete["Tree_User"],
-            json!({ "value": "$User", "children": { "items": "$Tree_User" } })
+            json!({ "value": "$User", "children": { "items": { "$ref": "$Tree_User" } } })
         );
         assert!(diagnostics.is_empty());
     }
@@ -383,7 +387,10 @@ mod std_containers {
             value,
             json!({ "type": "array", "items": { "$ref": "$Page_User" } })
         );
-        assert_eq!(concrete["Page_User"], json!({ "items": "$User" }));
+        assert_eq!(
+            concrete["Page_User"],
+            json!({ "items": { "$ref": "$User" } })
+        );
     }
 
     #[test]
@@ -392,5 +399,93 @@ mod std_containers {
         let (value, concrete, _) = run(&reg, json!({ "$ref": "$Vec<Tag>" }));
         assert_eq!(value, json!({ "$ref": "$Vec_Tag" }));
         assert_eq!(concrete["Vec_Tag"], json!({ "custom": "$Tag" }));
+    }
+}
+
+/// A whole `$Name` where a schema is expected is a reference.
+mod schema_positions {
+    use super::*;
+
+    #[test]
+    fn names_in_schema_positions_become_references() {
+        let reg = registry(&[("Page", &["T"], json!({ "items": "$T" }))]);
+        let (value, concrete, diagnostics) = run(
+            &reg,
+            json!({
+                "oneOf": ["$ErrorBody", "$HostedUnavailable"],
+                "allOf": ["$A"], "anyOf": ["$B"], "prefixItems": ["$C"],
+                "items": "$Page<User>",
+                "not": "$D", "additionalProperties": "$E", "unevaluatedProperties": "$F",
+                "contains": "$G", "propertyNames": "$H", "if": "$I", "then": "$J", "else": "$K",
+                "properties": { "owner": "$User" },
+                "patternProperties": { "^x": "$L" },
+                "$defs": { "M": "$M" },
+                "content": { "application/json": { "schema": "$N", "itemSchema": "$O" } },
+            }),
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let reference = |name: &str| json!({ "$ref": format!("${name}") });
+        assert_eq!(
+            value["oneOf"],
+            json!([reference("ErrorBody"), reference("HostedUnavailable")])
+        );
+        for (key, name) in [
+            ("not", "D"),
+            ("additionalProperties", "E"),
+            ("unevaluatedProperties", "F"),
+            ("contains", "G"),
+            ("propertyNames", "H"),
+            ("if", "I"),
+            ("then", "J"),
+            ("else", "K"),
+        ] {
+            assert_eq!(value[key], reference(name), "{key}");
+        }
+        assert_eq!(value["allOf"][0], reference("A"));
+        assert_eq!(value["anyOf"][0], reference("B"));
+        assert_eq!(value["prefixItems"][0], reference("C"));
+        assert_eq!(value["items"], reference("Page_User"), "instantiated");
+        assert_eq!(concrete["Page_User"], json!({ "items": reference("User") }));
+        assert_eq!(value["properties"]["owner"], reference("User"));
+        assert_eq!(value["patternProperties"]["^x"], reference("L"));
+        assert_eq!(value["$defs"]["M"], reference("M"));
+        let media = &value["content"]["application/json"];
+        assert_eq!(
+            (&media["schema"], &media["itemSchema"]),
+            (&reference("N"), &reference("O"))
+        );
+    }
+
+    #[test]
+    fn other_strings_keep_their_meaning() {
+        let reg = Registry::new();
+        let input = json!({
+            "description": "$User",
+            "$ref": "$User",
+            "enum": ["$User"],
+            "const": "$User",
+            "example": { "items": "$User" },
+            "examples": [{ "schema": "$User" }],
+            "default": { "not": "$User" },
+            "discriminator": { "mapping": { "user": "$User" } },
+            "x-extension": { "items": "$User" },
+            "items": "see $User",
+            "properties": { "name": "User" },
+        });
+        let (value, _, _) = run(&reg, input.clone());
+        assert_eq!(value, input);
+    }
+
+    #[test]
+    fn std_containers_and_built_in_types_follow() {
+        let reg = Registry::new();
+        let (value, _, _) = run(&reg, json!({ "items": "$Vec<User>", "not": "$String" }));
+        assert_eq!(
+            value,
+            json!({
+                "items": { "type": "array", "items": { "$ref": "$User" } },
+                "not": { "$ref": "$String" },
+            })
+        );
     }
 }
