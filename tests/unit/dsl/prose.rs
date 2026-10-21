@@ -59,6 +59,56 @@ fn without_directives_the_first_plain_line_is_the_summary() {
     );
 }
 
+/// A directive ends the YAML a field name started: a blank line inside that
+/// YAML does not make the prose after the directive a new paragraph.
+#[test]
+fn a_directive_ends_implicit_yaml_and_its_blank_line() {
+    let (summary, description) = text(&[
+        "Summary",
+        "First line.",
+        "@route GET /x",
+        "responses:",
+        "  '200': { description: OK }",
+        "",
+        "@tag Users",
+        "Second line.",
+    ]);
+    assert_eq!(summary, "Summary");
+    assert_eq!(description, "First line.\nSecond line.");
+}
+
+/// After a blank line, a quoted key (spaces allowed) continues the YAML.
+#[test]
+fn quoted_keys_continue_implicit_yaml_after_a_blank_line() {
+    let (operation, diagnostics) = compile_route(
+        &[
+            "@route GET /x",
+            "x-first: 1",
+            "",
+            "'x-rate limit': 10",
+            "",
+            "\"x-burst size\": 20",
+        ],
+        &[],
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    assert_eq!(operation["x-rate limit"], 10);
+    assert_eq!(operation["x-burst size"], 20);
+    assert!(operation.get("description").is_none(), "{operation:#}");
+}
+
+/// A line that only starts with a quote is no quoted key: prose.
+#[test]
+fn a_leading_quote_alone_is_prose_after_a_blank_line() {
+    for line in ["\"Quoted\" words: are prose.", "'Twas the night: before."] {
+        let (operation, diagnostics) =
+            compile_route(&["Summary", "@route GET /x", "x-first: 1", "", line], &[]);
+        assert!(diagnostics.is_empty(), "{line}: {diagnostics:#?}");
+        assert_eq!(operation["description"], line);
+        assert_eq!(operation["x-first"], 1);
+    }
+}
+
 #[test]
 fn description_replaces_the_free_text() {
     assert_eq!(

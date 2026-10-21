@@ -224,6 +224,14 @@ fn comments_hide_keywords_braces_and_stars() {
 }
 
 #[test]
+fn a_slash_alone_starts_no_comment() {
+    let text = "option (ratio) = 4 / 2;\nmessage Real {}\n";
+    assert!(problems(text).is_empty());
+    let (index, _) = index(&[("a.proto", text)]);
+    assert!(index.message("Real").is_some());
+}
+
+#[test]
 fn lines_count_inside_block_comments() {
     assert_eq!(
         problems("/* one\n   two\n*/\nmessage {\n"),

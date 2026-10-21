@@ -43,6 +43,15 @@ exclude_re = [
     # The class digit of a status code only orders the classes; an offset
     # (`+ b'0'` instead of `- b'0'`) keeps their order.
     "src/generator.rs:.*replace - with \\+ in status_rank",
+    # `crate`, `self` and `super` after other segments (`a::crate::B`) do
+    # not compile, and `self` in a `use` group is read before `step`: only
+    # the first segment of a path can be such a keyword.
+    "src/extract/names.rs:.*replace match guard at_start with true in step",
+    "src/extract/names.rs:.*replace && with \\|\\| in step",
+    "src/extract/names.rs:.*replace match guard at_start \\|\\| path.keywords with true in step",
+    # A one-character key cannot hold whitespace: whether `"` or `'` alone
+    # counts as quoted does not change the result.
+    "src/dsl/prose.rs:.*replace > with >= in continues_mapping",
     # The guard admits exactly the extractors the `match` after it reads; any
     # other `Option<T>` argument is ignored with or without unwrapping.
     "src/extract/signature.rs:.*replace match guard matches!\\( inner.name\\(\\), .* with true in infer",
