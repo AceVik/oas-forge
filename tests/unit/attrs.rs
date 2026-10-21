@@ -329,6 +329,10 @@ mod validator {
             json!({ "type": "integer", "format": "int64", "minimum": -5, "maximum": 5 })
         );
         assert_eq!(
+            field_schema("#[validate(range(min = 1))]", "i64"),
+            json!({ "type": "integer", "format": "int64", "minimum": 1 })
+        );
+        assert_eq!(
             field_schema("#[validate(range(min = 0.5, max = 1.5))]", "f64"),
             json!({ "type": "number", "format": "double", "minimum": 0.5, "maximum": 1.5 })
         );
@@ -539,6 +543,11 @@ mod garde {
             3
         );
         assert_eq!(
+            field_schema("#[garde(length(utf16, min = 3))]", "String")["minLength"],
+            2,
+            "two UTF-16 units at most per character"
+        );
+        assert_eq!(
             field_schema("#[garde(length(graphemes, min = 2, max = 9))]", "String"),
             json!({ "type": "string", "minLength": 2 })
         );
@@ -674,15 +683,17 @@ mod bounds {
     #[test]
     fn unusable_values_are_reported_with_the_reason() {
         let (_, diagnostics) = extract_with_diagnostics(
-            "/// @openapi\nstruct S {\n#[validate(length(min = 99999999999999999999), range(max = -99999999999999999999))]\na: String,\n#[garde(length(max = MAX), pattern(Regex::new(\"x\").unwrap()))]\nb: String,\n#[validate(length(max = (99999999999999999999)))]\nc: String,\n}",
+            "/// @openapi\nstruct S {\n#[validate(length(min = 99999999999999999999), range(max = -99999999999999999999))]\na: String,\n#[garde(length(max = MAX), pattern(Regex::new(\"x\").unwrap()))]\nb: String,\n#[validate(length(max = (99999999999999999999)))]\nc: String,\n#[validate(range(min = -(99999999999999999999)))]\nd: i64,\n}",
         );
-        assert_eq!(codes(&diagnostics), [Code::NonLiteralConstraint; 5]);
+        assert_eq!(codes(&diagnostics), [Code::NonLiteralConstraint; 6]);
         let messages: Vec<&str> = diagnostics.iter().map(|d| d.message()).collect();
         assert!(messages[0].contains("is out of range"), "{messages:?}");
         assert!(messages[1].contains("is out of range"), "{messages:?}");
         assert!(messages[2].contains("is not a literal"), "{messages:?}");
         assert!(messages[3].contains("`pattern` argument"), "{messages:?}");
         assert!(messages[4].contains("is out of range"), "{messages:?}");
+        // A negated expression, not a negative literal.
+        assert!(messages[5].contains("is out of range"), "{messages:?}");
     }
 }
 
@@ -820,6 +831,13 @@ mod serde_attribute {
                 .get("set-code")
                 .is_some()
         );
+    }
+
+    /// Only backticks around the whole argument are Markdown for the name.
+    #[test]
+    fn several_code_spans_keep_their_backticks() {
+        let items = extract("/// @openapi rename `A` or `B`\nstruct Printing { set_code: String }");
+        assert_eq!(crate::common::schema_names(&items), ["`A` or `B`"]);
     }
 
     #[test]

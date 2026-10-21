@@ -134,10 +134,11 @@ fn separator_lines_end_a_block() {
 
 #[test]
 fn short_or_mixed_lines_are_not_separators() {
-    let items = extract("//! @openapi\n//! a:\n//!   - x\n//! b: --\n//! c: '-=-'");
+    let items =
+        extract("//! @openapi\n//! a:\n//!   - x\n//! b: --\n//! c: '-=-'\n//! d: |\n//!   ...");
     assert_eq!(
         yaml(&document_items(&items)[0].text),
-        json!({ "a": ["x"], "b": "--", "c": "-=-" })
+        json!({ "a": ["x"], "b": "--", "c": "-=-", "d": "...\n" })
     );
 }
 
@@ -260,6 +261,43 @@ mod fenced_yaml {
     }
 
     #[test]
+    fn separators_and_headers_inside_the_fence_are_yaml() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            "//! @openapi\n//! ```yaml\n//! info:\n//!   description: |\n//!     Title\n//!     -----\n//!     @openapi in prose\n//! ```\n\nfn main() {}",
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            yaml(&document_items(&items)[0].text),
+            json!({ "info": { "description": "Title\n-----\n@openapi in prose\n" } })
+        );
+    }
+
+    #[test]
+    fn fences_after_scope_lines_and_asyncapi_headers_hold_separators_too() {
+        for source in [
+            "//! @openapi\n//! @scope public\n//! ```yaml\n//! info:\n//!   description: |\n//!     Title\n//!     -----\n//! ```\n\nfn main() {}",
+            "//! @asyncapi\n//! ```yaml\n//! info:\n//!   description: |\n//!     Title\n//!     -----\n//! ```\n\nfn main() {}",
+        ] {
+            let (items, diagnostics) = extract_with_diagnostics(source);
+            assert!(diagnostics.is_empty(), "{source}: {diagnostics:?}");
+            let text = match &items[..] {
+                [oas_forge::extract::Item::Document(document)]
+                | [oas_forge::extract::Item::AsyncApi(document)] => document.text.clone(),
+                other => panic!("{other:#?}"),
+            };
+            assert!(text.contains("    -----"), "{source}: {text}");
+        }
+    }
+
+    #[test]
+    fn a_fence_after_other_lines_is_no_yaml_fence() {
+        let (_, diagnostics) = extract_with_diagnostics(
+            "//! @openapi\n//! x-a: 1\n//! ```yaml\n//! -----\n//! ```\n\nfn main() {}",
+        );
+        assert_eq!(codes(&diagnostics), [Code::BlockSeparator]);
+    }
+
+    #[test]
     fn a_code_block_in_another_language_is_no_yaml_fence() {
         let items = extract("//! @openapi\n//! ```rust\n//! x-a: 1\n//! ```\n\nfn main() {}");
         // As before: the fences are part of the (invalid) YAML text.
@@ -284,4 +322,52 @@ fn scope_lines_around_a_fence_stay_in_the_block() {
         assert!(text.contains("openapi: 3.1.0"), "{source}: {text}");
         assert!(!text.contains("```"), "{source}: {text}");
     }
+}
+
+#[test]
+fn separator_like_lines_inside_a_yaml_fence_are_yaml() {
+    // After `@asyncapi`, and after `@scope` lines of the block.
+    let items = extract(
+        "//! @asyncapi\n//! ```yaml\n//! asyncapi: 3.0.0\n//! ###\n//! ```\n//!\n//! @openapi\n//! @scope a\n//! ```yaml\n//! x-a: 1\n//! ###\n//! ```\n\nfn main() {}",
+    );
+    let texts: Vec<String> = items
+        .iter()
+        .map(|item| match item {
+            oas_forge::extract::Item::AsyncApi(document)
+            | oas_forge::extract::Item::Document(document) => document.text.clone(),
+            other => panic!("{other:#?}"),
+        })
+        .collect();
+    assert_eq!(texts, ["asyncapi: 3.0.0\n###", "@scope a\n\nx-a: 1\n###"]);
+}
+
+#[test]
+fn a_fence_after_yaml_lines_is_no_yaml_fence() {
+    // As before: only right after the header is a fence YAML; elsewhere a
+    // separator-like line in it ends the block.
+    let (_, diagnostics) = extract_with_diagnostics(
+        "//! @openapi\n//! x-a: 1\n//! ```\n//! ###\n//! ```\n\nfn main() {}",
+    );
+    assert_eq!(codes(&diagnostics), [Code::BlockSeparator]);
+}
+
+#[test]
+fn lines_of_a_block_comment_count_from_its_start() {
+    let items = extract("#![allow(unused)]\n\n/*! @openapi\n x-a: 1\n x-b: 2\n*/\n\nfn main() {}");
+    let document = &document_items(&items)[0];
+    assert_eq!(document.text, "x-a: 1\nx-b: 2");
+    assert_eq!(document.location.line(), 4);
+}
+
+#[test]
+fn lines_of_a_block_comment_are_numbered_from_its_start() {
+    let items = extract("\n\n/*!\n@openapi-type Money\ntype: string\n*/\nfn main() {}");
+    let location = items
+        .iter()
+        .find_map(|item| match item {
+            oas_forge::extract::Item::NamedSchema(named) => Some(named.location.line()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(location, 5);
 }

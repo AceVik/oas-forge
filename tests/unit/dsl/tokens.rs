@@ -239,6 +239,21 @@ mod backticks {
     }
 
     #[test]
+    fn arguments_after_a_quoted_description_are_unticked_too() {
+        same(
+            &[
+                "@route GET /x",
+                "@query-param q: `String` \"Search `text`\" `required` `deprecated`",
+            ],
+            &[
+                "@route GET /x",
+                "@query-param q: String \"Search `text`\" required deprecated",
+            ],
+            (&[], &[]),
+        );
+    }
+
+    #[test]
     fn markdown_in_descriptions_and_text_directives_is_kept() {
         let op = op(&[
             "@route GET /x",
@@ -266,6 +281,18 @@ mod backticks {
             let (_, diagnostics) = try_route(&["@route GET /x", bad]);
             assert_eq!(diagnostics.len(), 1, "{bad}: {diagnostics:#?}");
         }
+        // A comma in a quoted enum item separates nothing.
+        let listed = op(&[
+            "@route GET /x",
+            "@query-param q: String enum=[`a`, \"b,c\"]",
+        ]);
+        assert_eq!(
+            listed["parameters"][0]["schema"]["enum"],
+            json!(["a", "b,c"])
+        );
+        // A flag value of two code spans keeps its backticks.
+        let spans = op(&["@route GET /x", "@query-param q: String example=`a`b`"]);
+        assert_eq!(spans["parameters"][0]["example"], "`a`b`");
     }
 
     #[test]
@@ -389,4 +416,29 @@ mod rustdoc_friendly {
             ])
         );
     }
+}
+
+#[test]
+fn backticks_after_a_quoted_description_are_unwrapped() {
+    // Flags may follow the description; the quote is closed by then.
+    let op = op(&[
+        "@route GET /x",
+        r#"@query-param q: String "Search \"all\"" `default=a` `deprecated`"#,
+    ]);
+    let param = &op["parameters"][0];
+    assert_eq!(param["description"], r#"Search "all""#);
+    assert_eq!(param["schema"]["default"], "a");
+    assert_eq!(param["deprecated"], true);
+}
+
+#[test]
+fn only_whole_items_and_values_lose_their_backticks() {
+    let op = op(&[
+        "@route GET /x",
+        r#"@query-param q: String enum=[`a`, "b,c"] default=`a`b`"#,
+    ]);
+    let schema = &op["parameters"][0]["schema"];
+    assert_eq!(schema["enum"], json!(["a", "b,c"]));
+    // Not one pair of backticks around the value: it stays as written.
+    assert_eq!(schema["default"], "`a`b`");
 }

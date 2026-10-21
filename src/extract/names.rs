@@ -4,17 +4,19 @@
 //!
 //! Every Rust file has a module path: the crate (the `[package] name` of the
 //! `Cargo.toml` next to its `src` directory, `-` read as `_`; else the name
-//! of that directory) and the modules below `src` (`#[path]` of top-level
-//! `mod` declarations honoured). A name written in a type position resolves
-//! in this order: a definition of the same module, an explicit `use`, glob
-//! imports, a written path (exact, then by its last segments), the one
-//! documented type of that name; several are ambiguous.
+//! of that directory, an unreadable manifest reported) and the modules
+//! below `src`, or the module whose `mod name;` declaration names the file
+//! (also through `#[path]`, as rustc resolves it). A name written in a type
+//! position resolves in this order: a definition of the same module, an
+//! explicit `use`, glob imports, a written path (exact, then by its last
+//! segments), the one documented type of that name; several are ambiguous.
 
 use crate::attrs::directives::{ItemDocs, ItemKind};
 use crate::attrs::serde::SerdeAttrs;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::docs::{doc_lines, line_of};
 use crate::package::Package;
+use crate::schema::TypeExpr;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 use syn::ext::IdentExt;
@@ -71,7 +73,10 @@ struct Documented {
     component: String,
     /// Where it is declared.
     location: Location,
-    /// Whether it is a template (generic types are not qualified).
+    /// Whether it is a template (a generic type, or `@openapi<T>`).
+    /// Templates and schemas are separate namespaces: a template `Page`
+    /// and a schema `Page` do not collide, and a name written with type
+    /// arguments means a template.
     generic: bool,
 }
 
@@ -90,6 +95,18 @@ pub(crate) enum Resolved {
     Unknown,
 }
 
+/// A transparent type alias whose target is an `Option`, followed through
+/// aliases of aliases.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OptionalAlias {
+    /// The module of the alias, where the names of its target are read.
+    pub(crate) scope: Vec<String>,
+    /// Its type parameters.
+    pub(crate) params: Vec<String>,
+    /// The type argument of the `Option`.
+    pub(crate) inner: TypeExpr,
+}
+
 /// The module paths of the scanned Rust files and their documented types.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct NameTable {
@@ -102,6 +119,9 @@ pub(crate) struct NameTable {
     documented: BTreeMap<Segments, Documented>,
     /// The full paths of the documented types, by Rust name.
     by_name: BTreeMap<String, Vec<Segments>>,
+    /// The type parameters and targets of the transparent type aliases (no
+    /// `@openapi`), by full path.
+    aliases: BTreeMap<Segments, (Vec<String>, TypeExpr)>,
 }
 
 impl NameTable {
@@ -112,27 +132,44 @@ impl NameTable {
         let mut table = Self::default();
         let mut crates = BTreeMap::new();
         for (path, _) in files {
-            let module = file_module(path, &mut crates);
+            let module = file_module(path, &mut crates, diagnostics);
             table.files.insert(normalize(path), (module, Vec::new()));
         }
-        // `#[path = "…"] mod name;` puts a file under the declaring module.
-        for (path, file) in files {
-            let Some(declaring) = table.module_of(path) else {
-                continue;
-            };
-            for item in &file.items {
-                if let syn::Item::Mod(declaration) = item
-                    && declaration.content.is_none()
-                    && let Some(target) = path_attribute(&declaration.attrs)
-                {
-                    let parent = path.parent().unwrap_or(Path::new(""));
-                    let target = normalize(&parent.join(target));
-                    let mut module = declaring.clone();
-                    module.push(declaration.ident.unraw().to_string());
-                    if let Some(entry) = table.files.get_mut(&target) {
+        // `mod name;` puts its file under the declaring module, as rustc
+        // finds it (`#[path]` honoured). A declaring file that moves moves
+        // the files it declares, so this repeats until nothing moves.
+        let mut by_path = BTreeSet::new();
+        for _ in 0..=MAX_DEPTH {
+            let mut moved = false;
+            for (path, file) in files {
+                let Some(module) = table.module_of(path) else {
+                    continue;
+                };
+                let parent = path.parent().unwrap_or(Path::new(""));
+                let dir = children_dir(path, by_path.contains(&normalize(path)));
+                let mut declared = Vec::new();
+                declared_files(&file.items, &module, &dir, parent, &mut declared);
+                for (candidates, module, attribute) in declared {
+                    let Some(target) = candidates
+                        .iter()
+                        .map(|candidate| normalize(candidate))
+                        .find(|candidate| table.files.contains_key(candidate))
+                    else {
+                        continue;
+                    };
+                    if attribute {
+                        moved |= by_path.insert(target.clone());
+                    }
+                    if let Some(entry) = table.files.get_mut(&target)
+                        && entry.0 != module
+                    {
                         entry.0 = module;
+                        moved = true;
                     }
                 }
+            }
+            if !moved {
+                break;
             }
         }
         for (path, file) in files {
@@ -206,6 +243,13 @@ impl NameTable {
                 syn::Item::Type(t) => {
                     self.define(module, &t.ident, Definition::Alias);
                     self.document(module, &t.ident, &t.attrs, &t.generics, file, t.span());
+                    let mut path = module.clone();
+                    path.push(t.ident.unraw().to_string());
+                    if !self.documented.contains_key(&path) {
+                        let params = t.generics.type_params().map(|p| p.ident.to_string());
+                        self.aliases
+                            .insert(path, (params.collect(), TypeExpr::from_syn(&t.ty)));
+                    }
                 }
                 syn::Item::Use(u) => {
                     let start = UsePath {
@@ -325,21 +369,21 @@ impl NameTable {
     }
 
     /// Gives the documented types whose component names collide their
-    /// qualified names and reports each.
+    /// qualified names and reports each; templates collide with templates,
+    /// schemas with schemas.
     fn qualify(&mut self, diagnostics: &mut Diagnostics) {
-        let mut claims: BTreeMap<String, Vec<Segments>> = BTreeMap::new();
+        let mut claims: BTreeMap<(bool, String), Vec<Segments>> = BTreeMap::new();
         for (path, documented) in &self.documented {
-            if !documented.generic {
-                claims
-                    .entry(documented.component.clone())
-                    .or_default()
-                    .push(path.clone());
-            }
+            claims
+                .entry((documented.generic, documented.component.clone()))
+                .or_default()
+                .push(path.clone());
         }
-        for (component, paths) in claims {
+        for ((generic, component), paths) in claims {
             if paths.len() < 2 {
                 continue;
             }
+            let kind = if generic { "template" } else { "schema" };
             let all: Vec<String> = paths
                 .iter()
                 .map(|p| format!("`{}`", p.join("::")))
@@ -353,7 +397,7 @@ impl NameTable {
                     Diagnostic::new(
                         Code::DuplicateSchema,
                         format!(
-                            "schema `{component}` is defined by several types ({}); this one is named `{}`; give them distinct names with `@openapi rename`",
+                            "{kind} `{component}` is defined by several types ({}); this one is named `{}`; give them distinct names with `@openapi rename`",
                             all.join(", "),
                             documented.component
                         ),
@@ -374,33 +418,34 @@ impl NameTable {
     }
 
     /// What the type written as `written` (path segments) in the module
-    /// `scope` means.
-    pub(crate) fn resolve(&self, scope: &[String], written: &[String]) -> Resolved {
+    /// `scope` means; `generic` when it is written with type arguments (it
+    /// then means a template).
+    pub(crate) fn resolve(&self, scope: &[String], written: &[String], generic: bool) -> Resolved {
         let Some(name) = written.last() else {
             return Resolved::Unknown;
         };
         let found = match written {
-            [_] => self.bare(scope, name),
-            _ => self.qualified_path(scope, written),
+            [_] => self.bare(scope, name, generic),
+            _ => self.qualified_path(scope, written, generic),
         };
-        found.unwrap_or_else(|| self.by_name(name))
+        found.unwrap_or_else(|| self.by_name(name, generic))
     }
 
     /// A name without path: defined in `scope`, imported or brought in by a
     /// glob import. `None` when `scope` says nothing about it.
-    fn bare(&self, scope: &[String], name: &str) -> Option<Resolved> {
+    fn bare(&self, scope: &[String], name: &str, generic: bool) -> Option<Resolved> {
         let module = self.modules.get(scope)?;
         let mut path = scope.to_vec();
         path.push(name.to_string());
         if let Some(definition) = module.defined.get(name) {
-            return Some(self.defined(&path, *definition));
+            return Some(self.defined(&path, *definition, generic));
         }
         if let Some(target) = module.uses.get(name) {
             let target = self.absolute(scope, target);
             return Some(
-                self.follow(&target, 0)
-                    .or_else(|| self.by_suffix(&target))
-                    .unwrap_or_else(|| self.by_name(name)),
+                self.follow(&target, 0, generic)
+                    .or_else(|| self.by_suffix(&target, generic))
+                    .unwrap_or_else(|| self.by_name(name, generic)),
             );
         }
         let mut found: BTreeSet<String> = BTreeSet::new();
@@ -408,7 +453,7 @@ impl NameTable {
         for glob in &module.globs {
             let mut candidate = self.absolute(scope, glob);
             candidate.push(name.to_string());
-            if let Some(Resolved::Component(component)) = self.follow(&candidate, 0)
+            if let Some(Resolved::Component(component)) = self.follow(&candidate, 0, generic)
                 && found.insert(component)
             {
                 paths.push(candidate.join("::"));
@@ -422,39 +467,48 @@ impl NameTable {
     }
 
     /// A written path (`baylee_cardtext::Printing`, `crate::model::Status`).
-    fn qualified_path(&self, scope: &[String], written: &[String]) -> Option<Resolved> {
-        let segments;
-        // A path that starts with an imported name (`use a::model; model::X`).
+    fn qualified_path(
+        &self,
+        scope: &[String],
+        written: &[String],
+        generic: bool,
+    ) -> Option<Resolved> {
+        let segments = self.written_path(scope, written);
+        self.follow(&segments, 0, generic)
+            .or_else(|| self.by_suffix(&segments, generic))
+    }
+
+    /// The absolute path of the path `written` in `scope`; it may start with
+    /// an imported name (`use a::model; model::X`), `crate`, `self` or
+    /// `super`.
+    fn written_path(&self, scope: &[String], written: &[String]) -> Segments {
         if let Some(first) = written.first()
             && let Some(target) = self.modules.get(scope).and_then(|m| m.uses.get(first))
         {
             let mut imported = self.absolute(scope, target);
             imported.extend(written.iter().skip(1).cloned());
-            segments = imported;
-        } else {
-            let start = UsePath {
-                segments: Vec::new(),
-                relative: true,
-                keywords: false,
-            };
-            let path = written
-                .iter()
-                .fold(start, |path, segment| step(scope, path, segment));
-            segments = self.absolute(scope, &path);
+            return imported;
         }
-        self.follow(&segments, 0)
-            .or_else(|| self.by_suffix(&segments))
+        let start = UsePath {
+            segments: Vec::new(),
+            relative: true,
+            keywords: false,
+        };
+        let path = written
+            .iter()
+            .fold(start, |path, segment| step(scope, path, segment));
+        self.absolute(scope, &path)
     }
 
-    /// The meaning of the type `path`, defined as `definition` in its module.
-    fn defined(&self, path: &Segments, definition: Definition) -> Resolved {
+    /// The meaning of the type `path`, defined as `definition` in its module;
+    /// `generic` for a name written with type arguments.
+    fn defined(&self, path: &Segments, definition: Definition, generic: bool) -> Resolved {
         if let Some(documented) = self.documented.get(path) {
             return Resolved::Component(documented.component.clone());
         }
         let others = path
             .last()
-            .and_then(|name| self.by_name.get(name))
-            .is_some_and(|paths| !paths.is_empty());
+            .is_some_and(|name| !self.named(name, generic).is_empty());
         match definition {
             // A transparent alias is replaced where the references are
             // resolved.
@@ -467,10 +521,14 @@ impl NameTable {
     /// The meaning of the absolute `path`: a documented type, a type of a
     /// scanned module, or what a `use` of its module re-exports. `None` when
     /// the scanned sources do not define it.
-    fn follow(&self, path: &Segments, depth: usize) -> Option<Resolved> {
-        if let Some(documented) = self.documented.get(path) {
-            return Some(Resolved::Component(documented.component.clone()));
-        }
+    fn follow(&self, path: &Segments, depth: usize, generic: bool) -> Option<Resolved> {
+        let (path, definition) = self.definition(path, depth)?;
+        Some(self.defined(&path, definition, generic))
+    }
+
+    /// The full path and kind of the definition that the absolute `path`
+    /// names, following `use` declarations of its module (re-exports).
+    fn definition(&self, path: &Segments, depth: usize) -> Option<(Segments, Definition)> {
         if depth >= MAX_DEPTH {
             return None;
         }
@@ -480,16 +538,91 @@ impl NameTable {
         if let Some(definition) = module.defined.get(name) {
             let mut path = parent.clone();
             path.push(name.clone());
-            return Some(self.defined(&path, *definition));
+            return Some((path, *definition));
         }
         if let Some(target) = module.uses.get(name) {
-            return self.follow(&self.absolute(&parent, target), depth + 1);
+            return self.definition(&self.absolute(&parent, target), depth + 1);
         }
         module.globs.iter().find_map(|glob| {
             let mut candidate = self.absolute(&parent, glob);
             candidate.push(name.clone());
-            self.follow(&candidate, depth + 1)
+            self.definition(&candidate, depth + 1)
         })
+    }
+
+    /// The transparent type alias that the type written as `written` in
+    /// `scope` means, when its target is an `Option` (directly or through
+    /// aliases of aliases): a field of that type is optional like one of
+    /// type `Option`.
+    pub(crate) fn optional_alias(
+        &self,
+        scope: &[String],
+        written: &[String],
+    ) -> Option<OptionalAlias> {
+        let mut scope = scope.to_vec();
+        let mut written = written.to_vec();
+        for _ in 0..MAX_DEPTH {
+            let path = self.local_definition(&scope, &written)?;
+            let (params, target) = self.aliases.get(&path)?;
+            let (_, module) = path.split_last()?;
+            let TypeExpr::Named {
+                path: target,
+                args,
+                smart: false,
+            } = target
+            else {
+                return None;
+            };
+            match args.as_slice() {
+                [inner] if is_option(target) => {
+                    return Some(OptionalAlias {
+                        scope: module.to_vec(),
+                        params: params.clone(),
+                        inner: inner.clone(),
+                    });
+                }
+                // `type B = A;`: the alias `A`, read in the module of `B`
+                // (an alias has no type parameters its target does not use).
+                [] => {
+                    scope = module.to_vec();
+                    written.clone_from(target);
+                }
+                _ => return None,
+            }
+        }
+        None
+    }
+
+    /// The full path of the definition that `written` names in `scope`:
+    /// one of the module, an explicit `use`, the one of the glob imports, or
+    /// a written path.
+    fn local_definition(&self, scope: &[String], written: &[String]) -> Option<Segments> {
+        let module = self.modules.get(scope)?;
+        if let [name] = written {
+            let mut path = scope.to_vec();
+            path.push(name.clone());
+            if module.defined.contains_key(name) {
+                return Some(path);
+            }
+            if let Some(target) = module.uses.get(name) {
+                return Some(self.definition(&self.absolute(scope, target), 0)?.0);
+            }
+            let found: BTreeSet<Segments> = module
+                .globs
+                .iter()
+                .filter_map(|glob| {
+                    let mut candidate = self.absolute(scope, glob);
+                    candidate.push(name.clone());
+                    Some(self.definition(&candidate, 0)?.0)
+                })
+                .collect();
+            let mut found = found.into_iter();
+            return match (found.next(), found.next()) {
+                (Some(path), None) => Some(path),
+                _ => None,
+            };
+        }
+        Some(self.definition(&self.written_path(scope, written), 0)?.0)
     }
 
     /// The scanned module `path` names, also through `use` declarations of
@@ -510,11 +643,13 @@ impl NameTable {
     /// The documented types whose full paths end with `path` (without its
     /// first segment when nothing matches it whole: a crate re-exporting
     /// the type from a module).
-    fn by_suffix(&self, path: &Segments) -> Option<Resolved> {
+    fn by_suffix(&self, path: &Segments, generic: bool) -> Option<Resolved> {
+        let kind = |documented: &Documented| documented.generic == generic;
         let ends_with = |suffix: &[String]| -> Vec<&Segments> {
             self.documented
-                .keys()
-                .filter(|full| full.ends_with(suffix))
+                .iter()
+                .filter(|(full, documented)| full.ends_with(suffix) && kind(documented))
+                .map(|(full, _)| full)
                 .collect()
         };
         let mut matches = ends_with(path);
@@ -524,17 +659,36 @@ impl NameTable {
             // `baylee_catalog::Printing` for `baylee_catalog::model::Printing`.
             matches = self
                 .documented
-                .keys()
-                .filter(|full| full.first() == Some(first) && full.last() == Some(name))
+                .iter()
+                .filter(|(full, documented)| {
+                    full.first() == Some(first) && full.last() == Some(name) && kind(documented)
+                })
+                .map(|(full, _)| full)
                 .collect();
         }
         self.unique(&matches)
     }
 
-    /// The one documented type named `name`, else ambiguous or unknown.
-    fn by_name(&self, name: &str) -> Resolved {
-        let paths: Vec<&Segments> = self.by_name.get(name).into_iter().flatten().collect();
-        self.unique(&paths).unwrap_or(Resolved::Unknown)
+    /// The one documented type named `name` (a template when `generic`),
+    /// else ambiguous or unknown.
+    fn by_name(&self, name: &str, generic: bool) -> Resolved {
+        self.unique(&self.named(name, generic))
+            .unwrap_or(Resolved::Unknown)
+    }
+
+    /// The full paths of the documented types named `name`: templates when
+    /// `generic`, else schemas.
+    fn named(&self, name: &str, generic: bool) -> Vec<&Segments> {
+        self.by_name
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter(|path| {
+                self.documented
+                    .get(*path)
+                    .is_some_and(|documented| documented.generic == generic)
+            })
+            .collect()
     }
 
     /// The component of the only path of `paths`; several are ambiguous,
@@ -566,6 +720,18 @@ impl NameTable {
             }
         }
         path.segments.clone()
+    }
+}
+
+/// Whether `path` names `Option` (`Option`, `std::option::Option`,
+/// `core::option::Option`).
+fn is_option(path: &[String]) -> bool {
+    match path {
+        [name] => name == "Option",
+        [krate, module, name] => {
+            matches!(krate.as_str(), "std" | "core") && module == "option" && name == "Option"
+        }
+        _ => false,
     }
 }
 
@@ -601,12 +767,71 @@ fn step(module: &[String], mut path: UsePath, segment: &str) -> UsePath {
     path
 }
 
+/// The files that the `mod name;` declarations of `items` (in `module`)
+/// may be, as rustc looks for them, with the module path each file gets and
+/// whether `#[path]` names it: `#[path = "…"]` relative to `path_dir`, else
+/// `name.rs` or `name/mod.rs` in `dir`. Inside an inline `mod` block both
+/// are relative to `dir` and the block's directory (its `#[path]`, else its
+/// name).
+fn declared_files(
+    items: &[syn::Item],
+    module: &Segments,
+    dir: &Path,
+    path_dir: &Path,
+    declared: &mut Vec<(Vec<PathBuf>, Segments, bool)>,
+) {
+    for item in items {
+        let syn::Item::Mod(declaration) = item else {
+            continue;
+        };
+        let name = declaration.ident.unraw().to_string();
+        let mut child = module.clone();
+        child.push(name.clone());
+        let path = path_attribute(&declaration.attrs);
+        match &declaration.content {
+            Some((_, content)) => {
+                let inner = dir.join(path.unwrap_or(name));
+                declared_files(content, &child, &inner, &inner, declared);
+            }
+            None => {
+                let attribute = path.is_some();
+                let candidates = match path {
+                    Some(path) => vec![path_dir.join(path)],
+                    None => vec![
+                        dir.join(format!("{name}.rs")),
+                        dir.join(&name).join("mod.rs"),
+                    ],
+                };
+                declared.push((candidates, child, attribute));
+            }
+        }
+    }
+}
+
+/// The directory of the files that `mod name;` declarations of the file
+/// `path` name: its own directory for `lib.rs`, `main.rs`, `mod.rs` and a
+/// file that `#[path]` names (`by_path`, which rustc reads like a
+/// `mod.rs`), else a directory of its name next to it (`src/a.rs` →
+/// `src/a`).
+fn children_dir(path: &Path, by_path: bool) -> PathBuf {
+    let parent = path.parent().unwrap_or(Path::new(""));
+    match path.file_stem().and_then(|stem| stem.to_str()) {
+        _ if by_path => parent.to_path_buf(),
+        Some("lib" | "main" | "mod") | None => parent.to_path_buf(),
+        Some(stem) => parent.join(stem),
+    }
+}
+
 /// The module path of the Rust file `path`: the crate name, then the
 /// modules below the last `src` directory (`mod.rs`, `lib.rs` and `main.rs`
 /// are their directory's module). Without `src`, the crate is the file's
 /// directory and the module the file's name. `crates` caches the crate
-/// names by directory.
-fn file_module(path: &Path, crates: &mut BTreeMap<PathBuf, String>) -> Segments {
+/// names by directory, so an unreadable manifest is reported once.
+fn file_module(
+    path: &Path,
+    crates: &mut BTreeMap<PathBuf, String>,
+    diagnostics: &mut Diagnostics,
+) -> Segments {
     let components: Vec<Component<'_>> = path.components().collect();
     let src = components
         .iter()
@@ -623,7 +848,7 @@ fn file_module(path: &Path, crates: &mut BTreeMap<PathBuf, String>) -> Segments 
     };
     let name = crates
         .entry(crate_dir.clone())
-        .or_insert_with(|| crate_name(&crate_dir))
+        .or_insert_with(|| crate_name(&crate_dir, diagnostics))
         .clone();
     let mut module = vec![name];
     let count = below.len();
@@ -647,21 +872,24 @@ fn file_module(path: &Path, crates: &mut BTreeMap<PathBuf, String>) -> Segments 
 /// The crate name of the crate in `dir`: the `[package] name` of its
 /// `Cargo.toml`, else the directory's name, else `crate`; as an identifier
 /// (`-` and other characters as `_`). An empty `dir` (an in-memory file) is
-/// not looked up.
-fn crate_name(dir: &Path) -> String {
-    let manifest = (!dir.as_os_str().is_empty())
-        .then(|| {
-            Package::from_manifest(dir.join("Cargo.toml"))
-                .ok()
-                .flatten()
-        })
-        .flatten();
-    let name = match manifest {
-        Some(package) => package.name,
-        None => dir
-            .file_name()
+/// not looked up. A manifest that exists but cannot be read, or has no
+/// `[package] name`, is reported ([`Code::UnreadableManifest`]).
+fn crate_name(dir: &Path, diagnostics: &mut Diagnostics) -> String {
+    let directory = || {
+        dir.file_name()
             .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "crate".to_string()),
+            .unwrap_or_else(|| "crate".to_string())
+    };
+    let manifest = dir.join("Cargo.toml");
+    let (name, unreadable) = if dir.as_os_str().is_empty() || !manifest.is_file() {
+        (directory(), None)
+    } else {
+        match Package::from_manifest(&manifest) {
+            Ok(Some(package)) => (package.name, None),
+            // A virtual workspace manifest names no crate.
+            Ok(None) => (directory(), None),
+            Err(error) => (directory(), Some(error)),
+        }
     };
     let mut name: String = name
         .chars()
@@ -675,6 +903,18 @@ fn crate_name(dir: &Path) -> String {
         .collect();
     if !name.starts_with(|c: char| c.is_alphabetic() || c == '_') {
         name.insert(0, '_');
+    }
+    if let Some(error) = unreadable {
+        // The first line names the file and the position of a TOML error.
+        let error = error.to_string();
+        let reason = error.lines().next().unwrap_or_default();
+        diagnostics.push(
+            Diagnostic::new(
+                Code::UnreadableManifest,
+                format!("{reason}; the crate is named `{name}` after its directory"),
+            )
+            .at(Location::new(&manifest, 1)),
+        );
     }
     name
 }

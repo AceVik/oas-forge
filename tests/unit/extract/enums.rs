@@ -830,6 +830,26 @@ mod generic_tagged {
     }
 
     #[test]
+    fn a_parameter_is_used_as_a_whole_name_also_inside_lists() {
+        let items = extract(
+            r#"
+            /// @openapi
+            #[serde(tag = "type")]
+            pub enum Event<T> { Named { tag: Tag, other: T_x }, Maybe { item: Option<T> } }
+            "#,
+        );
+        // `$Tag` and `$T_x` are other names; `Option<T>` is an `anyOf` list.
+        assert_eq!(
+            crate::extract::kinds(&items),
+            [
+                "schema:EventNamed",
+                "blueprint:EventMaybe",
+                "blueprint:Event"
+            ]
+        );
+    }
+
+    #[test]
     fn each_instance_has_its_own_variants() {
         let (document, diagnostics) = pipeline(&[(
             "lib.rs",
@@ -951,6 +971,38 @@ mod unit_variant_metadata {
                 "enum": ["Empty"],
                 "oneOf": [{ "const": "Empty", "deprecated": true }],
             })
+        );
+    }
+
+    #[test]
+    fn a_tuple_variant_with_skipped_members_stays_a_tuple() {
+        // Like tuple structs: serde writes the members that are left as an
+        // array, also when only one is left.
+        let items = extract(
+            "/// @openapi\n#[serde(untagged)]\npub enum E {\n  Pair(u8, #[serde(skip)] String),\n}",
+        );
+        assert_eq!(
+            schema(&items, "E")["anyOf"][0],
+            json!({
+                "type": "array",
+                "prefixItems": [{ "type": "integer", "format": "int32", "minimum": 0, "maximum": 255 }],
+                "items": false, "minItems": 1, "maxItems": 1,
+            })
+        );
+    }
+
+    #[test]
+    fn an_example_or_a_summary_alone_makes_const_alternatives() {
+        let items = extract(
+            "/// @openapi\npub enum A {\n  /// @example x\n  X,\n  Y,\n}\n/// @openapi\npub enum B {\n  /// @summary The x.\n  X,\n  Y,\n}",
+        );
+        assert_eq!(
+            schema(&items, "A")["oneOf"],
+            json!([{ "const": "X", "examples": ["x"] }, { "const": "Y" }])
+        );
+        assert_eq!(
+            schema(&items, "B")["oneOf"],
+            json!([{ "const": "X", "title": "The x." }, { "const": "Y" }])
         );
     }
 

@@ -150,3 +150,14 @@ fn either_kind_of_template_is_worth_exporting() {
     let names: Vec<&String> = blueprints.blueprints().map(|(name, _)| name).collect();
     assert_eq!(names, ["Page"]);
 }
+
+#[test]
+fn aliases_are_ambiguous_only_with_different_names() {
+    let mut registry = Registry::new();
+    registry.add_alias("UserDto", "User");
+    // The same schema name again, e.g. from a second pass over the type.
+    registry.add_alias("UserDto", "User");
+    assert_eq!(registry.alias("UserDto"), Some("User"));
+    registry.add_alias("UserDto", "Account");
+    assert_eq!(registry.alias("UserDto"), None);
+}

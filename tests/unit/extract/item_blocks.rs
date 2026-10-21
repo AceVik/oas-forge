@@ -319,3 +319,48 @@ fn fenced_yaml_on_functions_and_modules() {
     assert_eq!(document_items(&items)[0].text, "paths:\n  /health: {}");
     assert_eq!(fragment(&items, "Limits").body, "x-limit: 1");
 }
+
+#[test]
+fn a_fenced_section_takes_exactly_its_lines() {
+    // The body starts like a JSON block and two `@scope` lines follow the
+    // closing fence: none of these lines is read again, and the block after
+    // them is not skipped.
+    let items = crate::common::extract(
+        "/// @openapi\n/// ```yaml\n/// x-a: 1\n/// { x-b: 2 }\n/// ```\n/// @scope a\n/// @scope b\n/// @openapi\n/// x-next: 1\nfn f() {}",
+    );
+    let texts: Vec<String> = document_items(&items)
+        .iter()
+        .map(|d| d.text.clone())
+        .collect();
+    assert_eq!(
+        texts,
+        ["x-a: 1\n{ x-b: 2 }\n\n@scope a\n@scope b", "x-next: 1"]
+    );
+}
+
+#[test]
+fn the_lines_of_a_fence_are_read_once_and_sections_follow_it() {
+    let items = crate::common::extract(
+        "/// @openapi\n/// ```json\n/// { \"paths\": { \"/a\": {} } }\n/// ```\n/// @openapi\n/// x-b: 1\nfn f() {}",
+    );
+    let texts: Vec<&str> = document_items(&items)
+        .iter()
+        .map(|d| d.text.as_str())
+        .collect();
+    assert_eq!(texts, ["{ \"paths\": { \"/a\": {} } }", "x-b: 1"]);
+}
+
+#[test]
+fn scope_lines_after_a_fence_end_the_section_once() {
+    let items = crate::common::extract(
+        "/// @openapi\n/// ```json\n/// { \"paths\": { \"/a\": {} } }\n/// ```\n/// @scope public\n/// @scope admin\nfn f() {}",
+    );
+    let texts: Vec<&str> = document_items(&items)
+        .iter()
+        .map(|d| d.text.as_str())
+        .collect();
+    assert_eq!(
+        texts,
+        ["{ \"paths\": { \"/a\": {} } }\n\n@scope public\n@scope admin"]
+    );
+}

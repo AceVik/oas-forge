@@ -790,6 +790,35 @@ mod pipeline_stages {
         );
     }
 
+    /// Overrides of types are not expanded: an `@extend` marker written
+    /// there by hand (the generator's own key) is dropped at any depth.
+    #[test]
+    fn unresolved_extend_markers_never_reach_the_output() {
+        let (document, _) = pipeline(&[(
+            "lib.rs",
+            "//! @openapi-fragment Base\n//! x-base: 1\n\n/// @openapi\n/// x-oas-forge-extend-7: Base\n/// x-list: [{ x-oas-forge-extend-8: Base, x-kept: 1 }]\nstruct S { a: u8 }",
+        )]);
+        let s = &document["components"]["schemas"]["S"];
+        assert_eq!(s["x-list"], json!([{ "x-kept": 1 }]));
+        assert!(
+            !document.to_string().contains("x-oas-forge-extend"),
+            "{document:#}"
+        );
+    }
+
+    #[test]
+    fn a_document_between_later_schemas_keeps_its_place() {
+        // Two schemas, the document, then the third schema: it comes last.
+        let (document, _) = pipeline(&[(
+            "lib.rs",
+            "/// @openapi\nstruct A;\n/// @openapi\nstruct B;\n/// @openapi\n/// components: { schemas: { C: { description: Before } } }\nfn a() {}\n/// After.\n/// @openapi\nstruct C;",
+        )]);
+        assert_eq!(
+            document["components"]["schemas"]["C"]["description"],
+            "After."
+        );
+    }
+
     #[test]
     fn the_root_is_the_base_of_the_merge() {
         let (document, _) = pipeline(&[
