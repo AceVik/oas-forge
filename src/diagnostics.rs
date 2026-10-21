@@ -253,6 +253,8 @@ codes! {
     InvalidSchemaDirective = "OF1008", Warning;
     /// A variant of a `serde_repr` enum whose discriminant is not an integer literal.
     UnknownDiscriminant = "OF1009", Warning;
+    /// A type that cannot be documented (function pointer, trait object, `impl Trait`, macro).
+    UndocumentableType = "OF1010", Warning;
 
     /// A route is missing its method or path.
     InvalidRoute = "OF2001", Error;

@@ -1,5 +1,6 @@
 //! Rust type expressions and their JSON Schema.
 
+use crate::diagnostics::{Code, Diagnostic};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -204,6 +205,31 @@ impl TypeExpr {
     pub fn is_smart(&self) -> bool {
         matches!(self, Self::Named { smart: true, .. })
     }
+
+    /// The parts of the type that cannot be documented: function pointers,
+    /// trait objects, `impl Trait`, macros (their schema is `{}`). The
+    /// argument of `PhantomData`, which serializes as `null`, is not read.
+    pub(crate) fn undocumentable(&self) -> Vec<String> {
+        let mut parts = Vec::new();
+        self.collect_undocumentable(&mut parts);
+        parts
+    }
+
+    /// Adds the parts of [`Self::undocumentable`] to `parts`.
+    fn collect_undocumentable(&self, parts: &mut Vec<String>) {
+        match self {
+            Self::Named { .. } if self.name() == Some("PhantomData") => {}
+            Self::Named { args, .. } | Self::Tuple(args) => {
+                for arg in args {
+                    arg.collect_undocumentable(parts);
+                }
+            }
+            Self::Array { elem, .. } | Self::Slice(elem) | Self::Reference(elem) => {
+                elem.collect_undocumentable(parts);
+            }
+            Self::Other(text) => parts.push(text.clone()),
+        }
+    }
 }
 
 impl fmt::Display for TypeExpr {
@@ -247,9 +273,36 @@ impl fmt::Display for TypeExpr {
     }
 }
 
-/// The token text of `ty` (`fn (u8) -> u8`), kept in [`TypeExpr::Other`].
+/// The finding for `part` of a type that cannot be documented
+/// ([`TypeExpr::undocumentable`]).
+pub(crate) fn undocumentable(part: &str) -> Diagnostic {
+    Diagnostic::new(
+        Code::UndocumentableType,
+        format!(
+            "`{part}` cannot be documented (a function pointer, trait object, `impl Trait` or macro); its schema is `{{}}`"
+        ),
+    )
+}
+
+/// The token text of `ty` as it is usually written (`fn(&mut u8) -> u8`),
+/// kept in [`TypeExpr::Other`].
 fn quote_type(ty: &syn::Type) -> String {
-    quote::ToTokens::to_token_stream(ty).to_string()
+    let tokens = quote::ToTokens::to_token_stream(ty).to_string();
+    // Tokens are separated by spaces; only those inside paths, generics,
+    // parentheses and after `&`, `*` and `!` go.
+    let mut out = String::with_capacity(tokens.len());
+    let mut chars = tokens.chars().peekable();
+    while let Some(c) = chars.next() {
+        let tight = c == ' '
+            && (out.ends_with(['(', '[', '<', '&', ':', '!', '*'])
+                || chars.peek().is_some_and(|next| {
+                    [')', ']', '>', ',', '(', ':', '<', '!', ';'].contains(next)
+                }));
+        if !tight {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// Std containers and wrappers that are mapped structurally rather than
@@ -577,7 +630,11 @@ impl TypeMapper {
                 let name = ty.name().unwrap_or_default();
                 if *smart && !args.is_empty() && !is_container(name) {
                     // `$Page<User>`: kept for generic instantiation.
-                    return MappedType::required(json!({ "$ref": ty.to_string() }));
+                    return MappedType::required(if ty.undocumentable().is_empty() {
+                        json!({ "$ref": ty.to_string() })
+                    } else {
+                        json!({})
+                    });
                 }
                 self.map_named(path, args)
             }
@@ -793,6 +850,8 @@ impl TypeMapper {
             "SocketAddr" | "SocketAddrV4" | "SocketAddrV6" | "PathBuf" | "Path" => {
                 json!({ "type": "string" })
             }
+            // A function pointer or trait object as an argument has no name.
+            _ if args.iter().any(|arg| !arg.undocumentable().is_empty()) => json!({}),
             // `Page<User>`: a generic type, instantiated from its blueprint.
             _ if !args.is_empty() => {
                 let args: Vec<String> = args.iter().map(generic_arg).collect();
@@ -806,9 +865,11 @@ impl TypeMapper {
 
 /// A generic argument of a raw reference. Named types carry a `$`
 /// (`$Page<$T>`, `$Page<$Vec<$T>>`), so that the generics stage substitutes
-/// the type parameters of a blueprint also inside nested arguments.
+/// the type parameters of a blueprint also inside nested arguments; a
+/// reference is its target (`&str` is `$str`).
 fn generic_arg(ty: &TypeExpr) -> String {
     match ty {
+        TypeExpr::Reference(inner) => generic_arg(inner),
         TypeExpr::Named { path, args, .. } if args.is_empty() => format!("${}", path.join("::")),
         TypeExpr::Named { path, args, .. } => {
             let args: Vec<String> = args.iter().map(generic_arg).collect();

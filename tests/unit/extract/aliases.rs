@@ -540,4 +540,38 @@ mod transparent {
         assert_eq!(kinds(&items), ["alias:Listening"]);
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
+
+    #[test]
+    fn an_alias_that_cannot_be_documented_is_reported_where_used() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "main.rs",
+                "type Listening = axum::serve::TapIo<tokio::net::TcpListener, fn(&mut tokio::net::TcpStream)>;\ntype Clock = Arc<dyn Fn() -> OffsetDateTime + Send + Sync>;",
+            ),
+            (
+                "server.rs",
+                "/// @openapi\npub struct Server { pub listening: Listening, pub again: Option<Listening> }\n/// @openapi\npub struct Other { pub listening: Listening }",
+            ),
+        ]);
+        let schemas = &document["components"]["schemas"];
+        assert_eq!(schemas["Server"]["properties"]["listening"], json!({}));
+        assert_eq!(schemas["Other"]["properties"]["listening"], json!({}));
+        // Reported once, where the type is written; the unused `Clock` is not.
+        let findings: Vec<String> = diagnostics.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            findings,
+            [
+                "warning[OF1010]: `fn(&mut tokio::net::TcpStream)` cannot be documented (a function pointer, trait object, `impl Trait` or macro); its schema is `{}` (main.rs:1)"
+            ]
+        );
+    }
+
+    #[test]
+    fn an_exported_alias_that_cannot_be_documented_is_reported() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            "/// @openapi\npub type Handler = Box<dyn Fn(Request) -> Response>;",
+        );
+        assert_eq!(schema(&items, "Handler"), json!({}));
+        assert_eq!(codes(&diagnostics), [Code::UndocumentableType]);
+    }
 }

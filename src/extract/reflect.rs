@@ -14,7 +14,7 @@ use crate::attrs::validate::Constraints;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::docs::{doc_lines, line_of};
 use crate::merge::{Policy, merge};
-use crate::schema::types::{MappedType, TypeExpr, TypeMapper};
+use crate::schema::types::{MappedType, TypeExpr, TypeMapper, undocumentable};
 use crate::schema::{nullable, shadow};
 use crate::template::{Variables, lexical};
 use crate::yaml;
@@ -325,6 +325,15 @@ impl<'a> Reflector<'a> {
         })
     }
 
+    /// Reports the parts of `ty`, the type of a documented field at `line`,
+    /// that cannot be documented (their schema is `{}`).
+    fn report_undocumentable(&mut self, ty: &TypeExpr, line: usize) {
+        for part in ty.undocumentable() {
+            self.diagnostics
+                .push(undocumentable(&part).at(self.location(line)));
+        }
+    }
+
     /// The validation keywords of a field, reporting values that are not literals.
     fn constraints(&mut self, attrs: &[syn::Attribute], line: usize) -> Constraints {
         let (constraints, problems) = Constraints::parse(attrs);
@@ -347,9 +356,12 @@ impl<'a> Reflector<'a> {
         if serde.is_skipped() {
             return None;
         }
-        let constraints = self.constraints(&field.attrs, line_of(field.span()));
+        let line = line_of(field.span());
+        let constraints = self.constraints(&field.attrs, line);
         let with = serde.with.as_deref().and_then(with_module);
-        Some(self.typed(&TypeExpr::from_syn(&field.ty), |mapped| {
+        let ty = TypeExpr::from_syn(&field.ty);
+        self.report_undocumentable(&ty, line);
+        Some(self.typed(&ty, |mapped| {
             let mut schema = with.clone().unwrap_or(mapped.schema);
             constraints.apply(&mut schema);
             if mapped.nullable && !constraints.requires_value() {
@@ -379,6 +391,7 @@ impl<'a> Reflector<'a> {
         let name = Self::member_name(&naming, rule, RenameRule::apply_to_field);
 
         let ty = TypeExpr::from_syn(&field.ty);
+        self.report_undocumentable(&ty, line_of(field.span()));
         // Known `with` modules replace the type's schema.
         let with = serde.with.as_deref().and_then(with_module);
         let mapped = self.types.map(&ty);
@@ -602,15 +615,18 @@ impl<'a> Reflector<'a> {
         self.fragments(&item.attrs, []);
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Container);
-        let mut schema = self.typed(&TypeExpr::from_syn(&item.ty), MappedType::into_schema);
+        let ty = TypeExpr::from_syn(&item.ty);
+        let mut schema = self.typed(&ty, MappedType::into_schema);
         if !naming.docs.exported || naming.docs.skip {
             return Some(Item::Alias(AliasItem {
                 rust_name,
                 params: type_params(&item.generics).unwrap_or_default(),
                 schema,
+                undocumentable: ty.undocumentable(),
                 location: self.location(line_of(item.span())),
             }));
         }
+        self.report_undocumentable(&ty, line_of(item.span()));
         self.finish(&mut schema, &naming, &format!("type alias `{rust_name}`"));
         // `type Paged<T> = Page<T>` is a template like a generic struct, and
         // `@openapi<T>` declares one like on a struct.

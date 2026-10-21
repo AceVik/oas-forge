@@ -583,6 +583,7 @@ pub struct PatternItem {
 /// let source = r#"
 /// type Owner = User;
 /// type Paged<T> = Vec<T>;
+/// type Hook = Box<dyn Fn(u8)>;
 /// "#;
 /// let items = extract::extract_str(
 ///     Path::new("src/lib.rs"),
@@ -590,7 +591,7 @@ pub struct PatternItem {
 ///     Options::new(),
 ///     &mut Diagnostics::new(),
 /// )?;
-/// let [Item::Alias(owner), Item::Alias(paged)] = &items[..] else {
+/// let [Item::Alias(owner), Item::Alias(paged), Item::Alias(hook)] = &items[..] else {
 ///     return Err("no aliases".into());
 /// };
 /// assert_eq!(owner.rust_name, "Owner");
@@ -598,6 +599,8 @@ pub struct PatternItem {
 /// assert_eq!(paged.params, ["T"]);
 /// assert_eq!(paged.schema, json!({ "type": "array", "items": { "$ref": "$T" } }));
 /// assert_eq!(paged.location.line(), 3);
+/// // Reported only where `Hook` is used.
+/// assert_eq!(hook.undocumentable, ["dyn Fn(u8)"]);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -610,6 +613,10 @@ pub struct AliasItem {
     /// The schema of the target type; references to other types are
     /// `{"$ref": "$Name"}`.
     pub schema: Value,
+    /// The parts of the target that cannot be documented (function
+    /// pointers, trait objects, …); they are reported where the alias is
+    /// used.
+    pub undocumentable: Vec<String>,
     /// Where the alias is declared.
     pub location: Location,
 }

@@ -159,6 +159,8 @@ reported (`OF1006`). Several rules on one field must all hold: a second
 | `Json<T>`, `Form<T>` | `T` |
 | a documented type | `$ref: '#/components/schemas/Name'` |
 | a generic type (`Page<User>`) | a reference to the instance `Page_User` |
+| a type alias without `@openapi` | the schema of its target ([transparent aliases](schemas.md#type-aliases)) |
+| function pointers, `dyn Trait`, `impl Trait`, macros (also as a type argument: `TapIo<L, fn(&mut S)>`) | any value (`{}`), reported (`OF1010`) |
 
 Types that are ambiguous by name (`Date`, `Time`, `Duration`) are mapped by
 their path (`time::Date`, `jiff::civil::Date`); use the path or a

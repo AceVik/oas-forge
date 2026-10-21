@@ -1404,7 +1404,7 @@ mod builtin_names {
             pub retry: Option<Duration>,
             pub steps: Vec<Duration>,
             pub pair: (Uuid, Duration),
-            pub hooks: Vec<(fn(), Duration)>,
+            pub hooks: Vec<(serde_json::Value, Duration)>,
             pub std: std::time::Duration,
             pub value: Value,
             pub json: serde_json::Value,
@@ -1554,5 +1554,74 @@ mod builtin_names {
             spec.document()["components"]["schemas"]["Job"]["properties"]["id"],
             json!({ "type": "string", "format": "uuid" })
         );
+    }
+}
+
+mod undocumentable {
+    use super::*;
+
+    #[test]
+    fn fields_that_cannot_be_documented_are_empty_schemas_and_reported() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            r#"/// @openapi
+pub struct Hooks {
+    pub on_close: fn(&mut tokio::net::TcpStream),
+    pub listener: TapIo<TcpListener, fn(&mut TcpStream)>,
+    pub error: Box<dyn std::error::Error + Send>,
+    pub many: Vec<impl Fn()>,
+    pub made: my_type!(),
+    #[serde(skip)]
+    pub skipped: fn(),
+    pub marker: std::marker::PhantomData<fn() -> u8>,
+    pub fine: u8,
+}
+/// @openapi
+pub struct Callback(pub fn(u8) -> u8);
+"#,
+        );
+        let hooks = schema(&items, "Hooks");
+        for field in ["on_close", "listener", "error", "made"] {
+            assert_eq!(hooks["properties"][field], json!({}), "field `{field}`");
+        }
+        assert_eq!(
+            hooks["properties"]["many"],
+            json!({ "type": "array", "items": {} })
+        );
+        assert_eq!(hooks["properties"]["marker"], json!({ "type": "null" }));
+        assert_eq!(schema(&items, "Callback"), json!({}));
+        let findings: Vec<String> = diagnostics.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            findings,
+            [
+                "warning[OF1010]: `fn(&mut tokio::net::TcpStream)` cannot be documented (a function pointer, trait object, `impl Trait` or macro); its schema is `{}` (test.rs:3)",
+                "warning[OF1010]: `fn(&mut TcpStream)` cannot be documented (a function pointer, trait object, `impl Trait` or macro); its schema is `{}` (test.rs:4)",
+                "warning[OF1010]: `dyn std::error::Error + Send` cannot be documented (a function pointer, trait object, `impl Trait` or macro); its schema is `{}` (test.rs:5)",
+                "warning[OF1010]: `impl Fn()` cannot be documented (a function pointer, trait object, `impl Trait` or macro); its schema is `{}` (test.rs:6)",
+                "warning[OF1010]: `my_type!()` cannot be documented (a function pointer, trait object, `impl Trait` or macro); its schema is `{}` (test.rs:7)",
+                "warning[OF1010]: `fn(u8) -> u8` cannot be documented (a function pointer, trait object, `impl Trait` or macro); its schema is `{}` (test.rs:14)",
+            ]
+        );
+    }
+
+    #[test]
+    fn types_that_are_not_documented_report_nothing() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            "pub struct Plain { pub f: fn() }\n#[derive(Serialize)]\npub enum E { A(Box<dyn Fn()>) }",
+        );
+        assert!(items.is_empty(), "{items:?}");
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn variants_that_cannot_be_documented_are_reported() {
+        let (_, diagnostics) = extract_with_diagnostics(
+            "/// @openapi\npub enum Job {\n    Run(Box<dyn FnOnce()>),\n    Wait { until: fn() -> bool },\n}",
+        );
+        let lines: Vec<usize> = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::UndocumentableType)
+            .filter_map(|d| d.location().map(|l| l.line()))
+            .collect();
+        assert_eq!(lines, [3, 4]);
     }
 }

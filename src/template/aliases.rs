@@ -12,6 +12,7 @@ use super::refs::KnownSchemas;
 use super::registry::{Registry, Transparent};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::extract::AliasItem;
+use crate::schema::types::undocumentable;
 use serde_json::{Map, Value};
 
 /// The outcome of [`Lookup::find`].
@@ -99,11 +100,13 @@ impl<'a> Lookup<'a> {
             );
             return Found::Reported;
         }
-        if alias.params.len() == args {
-            Found::Alias(alias)
-        } else {
-            Found::Nothing
+        if alias.params.len() != args {
+            return Found::Nothing;
         }
+        for part in &alias.undocumentable {
+            push_once(diagnostics, undocumentable(part).at(alias.location.clone()));
+        }
+        Found::Alias(alias)
     }
 
     /// Whether `name` is the alias of the same name defined in the file of

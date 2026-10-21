@@ -274,6 +274,9 @@ pub struct Repo {
   is reported (`OF3013`); `type User = models::User;` is no cycle.
 - A built-in name written bare (`Duration`) means an alias of that name only
   in the file that defines it.
+- A target that cannot be documented (a function pointer, `dyn Trait`,
+  `impl Trait`) is reported (`OF1010`) where the alias is used, once, at the
+  alias; an unused alias is not.
 - The schema of the target replaces the reference, so an alias of an
   `Option` makes the value nullable but not the field optional, and an alias
   used as a type argument names the instance (`Page<Owner>` is `Page_Owner`).

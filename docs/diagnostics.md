@@ -41,6 +41,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF1007` | warning | A `regex(path = …)` or `pattern(…)` constant is not defined in the scanned code | Scan the file that defines it, or define it with a literal pattern |
 | `OF1008` | warning | An `@openapi` directive has an invalid argument: an unknown `rename-all` rule, `rename` without a name, text after `skip` | Fix the directive; the argument is ignored meanwhile |
 | `OF1009` | warning | A variant of a `serde_repr` enum has a discriminant that is not an integer literal; the values are not documented | Use literals, or describe the enum with an `@openapi` override |
+| `OF1010` | warning | A documented type uses a type that cannot be documented: a function pointer, `dyn Trait`, `impl Trait` or a macro, also through a type alias; its schema is `{}` | Skip the field (`#[serde(skip)]`), describe it with an `@openapi` override, or map the type with `map_type` |
 
 ## Route DSL (OF2xxx)
 

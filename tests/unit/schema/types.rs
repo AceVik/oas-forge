@@ -51,7 +51,7 @@ mod parsing {
             "(i32, String)"
         );
         assert_eq!(TypeExpr::parse("()").unwrap().to_string(), "()");
-        assert_eq!(TypeExpr::parse("fn()").unwrap().to_string(), "fn ()");
+        assert_eq!(TypeExpr::parse("fn()").unwrap().to_string(), "fn()");
         assert_eq!(TypeExpr::parse("&str").unwrap().name(), None);
         assert!(TypeExpr::parse("&str").unwrap().args().is_empty());
     }
@@ -489,5 +489,59 @@ mod generic_arguments {
         );
         assert!(schemas.get("Wrapper_T").is_none());
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+}
+
+mod undocumentable {
+    use super::*;
+
+    #[test]
+    fn their_text_reads_like_rust() {
+        for text in [
+            "fn(&mut tokio::net::TcpStream)",
+            "fn(u8) -> u8",
+            "dyn Fn() -> OffsetDateTime + Send + Sync",
+            "impl Into<String>",
+            "*const [u8]",
+            "&dyn Error",
+            "m!()",
+            "!",
+        ] {
+            let ty = TypeExpr::parse(text).unwrap_or_else(|| panic!("`{text}` is not a type"));
+            assert_eq!(ty.to_string(), text);
+        }
+    }
+
+    #[test]
+    fn they_never_reach_a_reference() {
+        let empty = json!({});
+        for text in [
+            "TapIo<tokio::net::TcpListener, fn(&mut tokio::net::TcpStream)>",
+            "Page<Box<dyn Fn()>>",
+            "Page<(u8, fn())>",
+            "Page<&dyn Error>",
+            "$Page<fn()>",
+            "Pair<u8, Vec<impl Trait>>",
+            "Box<dyn Error>",
+            "&dyn Fn()",
+            "m!()",
+        ] {
+            assert_eq!(schema(text), empty, "type `{text}`");
+        }
+        assert_eq!(schema("Vec<fn()>"), json!({ "type": "array", "items": {} }));
+        assert_eq!(
+            schema("Option<Box<dyn Fn()>>"),
+            json!({}),
+            "nullable `{{}}` is `{{}}`"
+        );
+    }
+
+    #[test]
+    fn references_as_type_arguments_are_their_target() {
+        assert_eq!(schema("Page<&'a str>"), json!({ "$ref": "$Page<$str>" }));
+        assert_eq!(
+            schema("Page<&mut Vec<User>>"),
+            json!({ "$ref": "$Page<$Vec<$User>>" })
+        );
     }
 }
