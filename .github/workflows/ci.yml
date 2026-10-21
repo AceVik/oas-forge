@@ -193,11 +193,68 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo test --release --locked --test property
 
-  mutants:
-    name: Mutation testing (changed code)
+  # Mutation testing of the code a pull request changes. The plan counts the
+  # mutants (a listing, no build) and spreads them over up to ten runners of
+  # about 30 mutants each, so a pull request waits minutes, not hours. More
+  # than 300 mutants (a release branch, a large refactoring) are reported
+  # and skipped: test those modules locally, as AGENTS.md describes.
+  mutants-plan:
+    name: Mutation testing (plan)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      total: ${{ steps.plan.outputs.total }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-mutants@27.1.0
+      - name: Mutants in the changed code
+        id: plan
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git diff "origin/${BASE_REF}...HEAD" > pr.diff
+          count="$(cargo mutants --list --package oas-forge --in-diff pr.diff | wc -l)"
+          per_runner=30
+          limit=300
+          if (( count == 0 )); then
+            echo "No mutants in the changed code."
+            total=0
+          elif (( count > limit )); then
+            echo "::warning title=Mutation testing skipped::$count mutants in the changed code, more than the $limit this job runs. Run cargo mutants on the changed modules locally (AGENTS.md)."
+            total=0
+          else
+            total=$(( (count + per_runner - 1) / per_runner ))
+            echo "$count mutants on $total runner(s)"
+          fi
+          echo "total=$total" >> "$GITHUB_OUTPUT"
+          echo "shards=$(jq -cn --argjson n "$total" '[range($n)]')" >> "$GITHUB_OUTPUT"
+
+  mutants:
+    name: Mutation testing (${{ matrix.shard }})
+    needs: mutants-plan
+    if: needs.mutants-plan.outputs.total != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.mutants-plan.outputs.shards) }}
+    env:
+      # Mutated builds link faster without debug information; the property
+      # tests run with few cases (the property job runs 20 000).
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      PROPTEST_CASES: "16"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -207,6 +264,9 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: mutants
+          save-if: ${{ matrix.shard == 0 }}
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-mutants@27.1.0,cargo-nextest@0.9.145
@@ -215,15 +275,26 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: git diff "origin/${BASE_REF}...HEAD" > pr.diff
       # Every mutant of changed code must be caught by a test, or listed with
-      # its reason in .cargo/mutants.toml.
-      - run: cargo mutants --package oas-forge --test-tool nextest --in-diff pr.diff --no-shuffle -j 2
+      # its reason in .cargo/mutants.toml. The test job already ran the
+      # unmutated tests, so there is no baseline run; the build directories
+      # start from a warm, incremental target directory.
+      - name: Mutants of this runner
+        shell: bash
         env:
           CI: "1"
           INSTA_UPDATE: "no"
+          SHARD: ${{ matrix.shard }}
+          TOTAL: ${{ needs.mutants-plan.outputs.total }}
+        run: |
+          export CARGO_INCREMENTAL=1
+          cargo build --tests --package oas-forge --locked
+          cargo mutants --package oas-forge --test-tool nextest --in-diff pr.diff \
+            --shard "$SHARD/$TOTAL" --sharding round-robin --baseline skip \
+            --copy-target true --timeout 300 --no-shuffle -j 2
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: mutants
+          name: mutants-${{ matrix.shard }}
           path: mutants.out
 
   semver:

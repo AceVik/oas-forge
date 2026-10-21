@@ -124,7 +124,8 @@ Helpers are in `tests/common/` (`extract`, `schema`, `route`, `pipeline`,
   run `cargo mutants` on the modules you change; every surviving mutant gets
   a test, or an entry with its reason in `.cargo/mutants.toml` when it cannot
   change behaviour. CI runs it on the code a pull request changes
-  (`--in-diff`).
+  (`--in-diff`, about 30 mutants per runner, at most 300); a larger diff is
+  skipped there with a warning and must be tested locally, module by module.
 
 ## Writing annotations (quick reference)
 
