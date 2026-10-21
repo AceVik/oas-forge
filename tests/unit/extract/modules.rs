@@ -283,3 +283,252 @@ fn only_lists_of_names_are_module_tags() {
         ]
     );
 }
+
+/// Modules in files of their own: `mod name;` declarations and `//!`
+/// defaults at the top of a file.
+mod file_modules {
+    use super::{document_items, routes};
+    use oas_forge::diagnostics::Diagnostics;
+    use oas_forge::extract::{self, Item, ModuleItem, Options};
+    use std::path::Path;
+
+    fn extract_at(path: &str, source: &str) -> Vec<Item> {
+        extract::extract_str(
+            Path::new(path),
+            source,
+            Options::new(),
+            &mut Diagnostics::new(),
+        )
+        .unwrap()
+    }
+
+    fn modules(items: &[Item]) -> Vec<&ModuleItem> {
+        items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Module(module) => Some(module),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The candidate files of every declaration, `/`-separated.
+    fn files(items: &[Item]) -> Vec<Vec<String>> {
+        modules(items)
+            .iter()
+            .map(|m| {
+                m.files
+                    .iter()
+                    .map(|f| f.to_string_lossy().replace('\\', "/"))
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn declarations_name_the_files_of_their_module() {
+        let items = extract_at(
+            "src/lib.rs",
+            "pub mod routes;\nmod r#type;\npub mod api {\n  pub mod v1;\n  #[path = \"legacy\"]\n  pub mod old {\n    mod x;\n  }\n}",
+        );
+        assert_eq!(
+            files(&items),
+            [
+                ["src/routes.rs", "src/routes/mod.rs"],
+                ["src/type.rs", "src/type/mod.rs"],
+                ["src/api/v1.rs", "src/api/v1/mod.rs"],
+                ["src/api/legacy/x.rs", "src/api/legacy/x/mod.rs"],
+            ]
+        );
+        let names: Vec<&str> = modules(&items).iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, ["routes", "type", "v1", "x"]);
+        assert_eq!(modules(&items)[2].location.line(), 4);
+        // `mod.rs` and `main.rs` hold their modules next to them, other
+        // files in a directory of their name.
+        assert_eq!(
+            files(&extract_at("src/routes/mod.rs", "mod decks;")),
+            [["src/routes/decks.rs", "src/routes/decks/mod.rs"]]
+        );
+        assert_eq!(
+            files(&extract_at("src/main.rs", "mod cli;")),
+            [["src/cli.rs", "src/cli/mod.rs"]]
+        );
+        assert_eq!(
+            files(&extract_at(
+                "src/routes/social.rs",
+                "mod feed;\nmod inner { mod deep; }"
+            )),
+            [
+                ["src/routes/social/feed.rs", "src/routes/social/feed/mod.rs"],
+                [
+                    "src/routes/social/inner/deep.rs",
+                    "src/routes/social/inner/deep/mod.rs"
+                ],
+            ]
+        );
+    }
+
+    #[test]
+    fn path_attributes_name_the_file() {
+        // Outside inline modules relative to the directory of the file;
+        // inside them like the module's own directory.
+        let items = extract_at(
+            "src/routes/social.rs",
+            "#[path = \"shared/feed.rs\"]\nmod feed;\nmod inner {\n  #[path = \"deep.rs\"]\n  mod deep;\n}\n#[path = \"../gen/./api.rs\"]\nmod api;\n#[doc = \"not a path\"]\n#[path(oops)]\nmod odd;",
+        );
+        assert_eq!(
+            files(&items),
+            [
+                vec!["src/routes/shared/feed.rs"],
+                vec!["src/routes/social/inner/deep.rs"],
+                vec!["src/gen/api.rs"],
+                vec!["src/routes/social/odd.rs", "src/routes/social/odd/mod.rs"],
+            ]
+        );
+        let items = extract_at("lib.rs", "#[path = \"../shared.rs\"]\nmod shared;");
+        assert_eq!(files(&items), [["../shared.rs"]]);
+    }
+
+    #[test]
+    fn declarations_carry_the_defaults_around_them() {
+        let items = extract_at(
+            "src/routes/mod.rs",
+            r#"//! Routes.
+//! @route-defaults
+//! @tag Routes
+
+/// @route-defaults
+/// @tag Decks
+pub mod decks;
+pub mod social;
+/// @route-defaults
+/// @prefix /admin
+pub mod admin {
+    pub mod users;
+}
+"#,
+        );
+        let chains: Vec<(Vec<String>, Vec<usize>)> = modules(&items)
+            .iter()
+            .map(|m| (m.defaults.clone(), m.default_line_numbers.clone()))
+            .collect();
+        let routes_defaults = ["@route-defaults", " @tag Routes"];
+        assert_eq!(
+            chains,
+            [
+                (
+                    [&routes_defaults[..], &["@route-defaults", " @tag Decks"]]
+                        .concat()
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                    vec![2, 3, 5, 6]
+                ),
+                (
+                    routes_defaults.iter().map(|s| s.to_string()).collect(),
+                    vec![2, 3]
+                ),
+                (
+                    [
+                        &routes_defaults[..],
+                        &["@route-defaults", " @prefix /admin"]
+                    ]
+                    .concat()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+                    vec![2, 3, 9, 10]
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn file_defaults_apply_to_every_route_of_the_file() {
+        let items = extract_at(
+            "src/routes/social.rs",
+            r#"//! Social routes.
+//! @route-defaults
+//! @prefix /social
+//!
+//! @route GET /virtual
+
+/// @route GET /devices
+pub async fn devices() {}
+
+mod inner {
+    /// @route-defaults
+    /// @tag Inner
+    mod deeper {
+        /// @route GET /deep
+        fn deep() {}
+    }
+}
+"#,
+        );
+        let chains: Vec<(Vec<String>, Vec<usize>)> = routes(&items)
+            .iter()
+            .map(|r| (r.defaults.clone(), r.default_line_numbers.clone()))
+            .collect();
+        let file = vec![
+            "@route-defaults".to_string(),
+            " @prefix /social".into(),
+            String::new(),
+        ];
+        assert_eq!(
+            chains,
+            [
+                (file.clone(), vec![2, 3, 4]),
+                (file.clone(), vec![2, 3, 4]),
+                (
+                    [
+                        file.clone(),
+                        vec!["@route-defaults".into(), " @tag Inner".into()]
+                    ]
+                    .concat(),
+                    vec![2, 3, 4, 11, 12]
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn file_defaults_end_at_a_separator_or_a_gap() {
+        let items = extract_at(
+            "api.rs",
+            "//! @route-defaults\n//! @tag A\n//! ---\n//! @tag Ignored\n\n/// @route GET /a\nfn a() {}",
+        );
+        assert_eq!(routes(&items)[0].defaults, ["@route-defaults", " @tag A"]);
+        let items = extract_at(
+            "api.rs",
+            "//! @route-defaults\n//! @tag A\n\n//! @tag Ignored\n\n/// @route GET /a\nfn a() {}",
+        );
+        assert_eq!(routes(&items)[0].defaults, ["@route-defaults", " @tag A"]);
+    }
+
+    #[test]
+    fn file_defaults_end_an_openapi_block() {
+        let items = extract_at(
+            "src/lib.rs",
+            "//! @openapi\n//! openapi: 3.1.0\n//! @route-defaults\n//! @tag Api\n//! x-team: core\n\n/// @route GET /a\nfn a() {}",
+        );
+        assert_eq!(document_items(&items)[0].text, "openapi: 3.1.0");
+        assert_eq!(
+            routes(&items)[0].defaults,
+            ["@route-defaults", " @tag Api", " x-team: core"]
+        );
+    }
+
+    #[test]
+    fn inner_docs_of_inline_modules_are_module_defaults() {
+        let items = extract_at(
+            "api.rs",
+            "mod api {\n    //! @route-defaults\n    //! @tag Api\n\n    /// @route GET /x\n    fn x() {}\n}",
+        );
+        assert_eq!(routes(&items)[0].defaults, ["@route-defaults", " @tag Api"]);
+        assert!(
+            modules(&items).is_empty(),
+            "an inline module is no declaration"
+        );
+    }
+}

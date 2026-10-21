@@ -17,7 +17,8 @@ use super::schema::TypeMapper;
 use super::source::SourceFile;
 use super::template::Variables;
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
 
@@ -85,6 +86,8 @@ pub enum Item {
     AsyncApi(DocumentItem),
     /// An AsyncAPI channel in the channel DSL (`@channel`).
     Channel(ChannelItem),
+    /// A module declared with `mod name;`, whose items are in another file.
+    Module(ModuleItem),
 }
 
 impl Item {
@@ -127,6 +130,7 @@ impl Item {
             Self::Pattern(i) => &i.location,
             Self::AsyncApi(i) => &i.location,
             Self::Channel(i) => &i.location,
+            Self::Module(i) => &i.location,
         }
     }
 }
@@ -467,6 +471,63 @@ pub struct ChannelItem {
     pub location: Location,
 }
 
+/// A module declared with `mod name;`: its items are in another file. The
+/// generator applies the module's `@route-defaults` to the routes of that
+/// file, and through its declarations in turn to the modules below it.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use std::path::{Path, PathBuf};
+///
+/// let source = r#"
+/// /// @route-defaults
+/// /// @tag Decks
+/// pub mod decks;
+/// "#;
+/// let items = extract::extract_str(
+///     Path::new("src/routes/mod.rs"),
+///     source,
+///     Options::new(),
+///     &mut Diagnostics::new(),
+/// )?;
+/// let Some(Item::Module(decks)) = items.first() else {
+///     return Err("no module".into());
+/// };
+/// assert_eq!(decks.name, "decks");
+/// assert_eq!(
+///     decks.files,
+///     [PathBuf::from("src/routes/decks.rs"), PathBuf::from("src/routes/decks/mod.rs")]
+/// );
+/// assert_eq!(decks.defaults, ["@route-defaults", " @tag Decks"]);
+/// assert_eq!(decks.default_line_numbers, [2, 3]);
+/// assert_eq!(decks.location.line(), 4);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ModuleItem {
+    /// The module's name.
+    pub name: String,
+    /// The files that can hold the module, as Rust looks for them:
+    /// `name.rs` and `name/mod.rs` in the directory of the declaring module,
+    /// or the file of a `#[path]` attribute. They extend the path of the
+    /// declaring file as given, without `.` and with `..` resolved where the
+    /// path allows.
+    pub files: Vec<PathBuf>,
+    /// The `@route-defaults` blocks that apply to the module, outermost
+    /// first: those of the declaring file (`//!`) and of the inline modules
+    /// around the declaration, then the declaration's own. Each starts with
+    /// its `@route-defaults` header.
+    pub defaults: Vec<String>,
+    /// Source line of each entry of `defaults` (in the declaring file).
+    pub default_line_numbers: Vec<usize>,
+    /// Where the declaration is (its `mod` keyword).
+    pub location: Location,
+}
+
 /// A regular expression constant.
 ///
 /// # Examples
@@ -751,6 +812,7 @@ pub fn extract_str(
         tags: Vec::new(),
         defaults: Vec::new(),
         default_line_numbers: Vec::new(),
+        inline: Vec::new(),
         diagnostics,
     };
     visitor.visit_file(&file);
@@ -773,6 +835,9 @@ struct Extractor<'a> {
     defaults: Vec<String>,
     /// The source line of each entry of `defaults` (1-based).
     default_line_numbers: Vec<usize>,
+    /// The directories of the inline modules around the current item: their
+    /// names, or their `#[path]` attributes.
+    inline: Vec<String>,
     /// Where findings go.
     diagnostics: &'a mut Diagnostics,
 }
@@ -835,11 +900,111 @@ impl Extractor<'_> {
         let items = blocks::item_blocks(self.path, lines, &self.tags, self.diagnostics);
         self.items.extend(items);
     }
+
+    /// Adds a `@route-defaults` block (`header` and the lines after it) to
+    /// the defaults of the items that follow; a block without lines adds
+    /// nothing.
+    fn push_defaults(&mut self, block: &[DocLine]) {
+        if let [header, rest @ ..] = block
+            && !rest.is_empty()
+        {
+            // The header separates the modules: inner defaults replace the
+            // tags and security of outer ones.
+            self.defaults.push("@route-defaults".to_string());
+            self.defaults.extend(rest.iter().map(|l| l.text.clone()));
+            self.default_line_numbers.push(header.line);
+            self.default_line_numbers
+                .extend(rest.iter().map(|l| l.line));
+        }
+    }
+
+    /// The files Rust looks for the module `name` in, declared here with the
+    /// `#[path]` attribute `path`, if any.
+    fn module_files(&self, name: &str, path: Option<&str>) -> Vec<PathBuf> {
+        let parent = self.path.parent().unwrap_or(Path::new(""));
+        let files = match path {
+            // Outside inline modules relative to the declaring file.
+            Some(path) if self.inline.is_empty() => vec![parent.join(path)],
+            Some(path) => vec![self.module_directory().join(path)],
+            None => {
+                let directory = self.module_directory();
+                vec![
+                    directory.join(format!("{name}.rs")),
+                    directory.join(name).join("mod.rs"),
+                ]
+            }
+        };
+        files.iter().map(|file| normalize_path(file)).collect()
+    }
+
+    /// The directory of the modules declared here: next to `mod.rs`,
+    /// `lib.rs` and `main.rs`, in a directory of the file's name for other
+    /// files, and below it one directory per inline module.
+    fn module_directory(&self) -> PathBuf {
+        let parent = self.path.parent().unwrap_or(Path::new(""));
+        let mod_rs = self
+            .path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| matches!(name, "mod.rs" | "lib.rs" | "main.rs"));
+        let mut directory = match self.path.file_stem() {
+            Some(stem) if !mod_rs => parent.join(stem),
+            _ => parent.to_path_buf(),
+        };
+        directory.extend(&self.inline);
+        directory
+    }
+}
+
+/// The value of a `#[path = "file"]` attribute.
+fn path_attribute(attrs: &[syn::Attribute]) -> Option<String> {
+    attrs.iter().find_map(|attr| match &attr.meta {
+        syn::Meta::NameValue(meta) if meta.path.is_ident("path") => match &meta.value {
+            syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(path),
+                ..
+            }) => Some(path.value()),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+/// `path` without `.` components and with `..` resolved against the
+/// component before it, where there is one; the file system is not read.
+pub(crate) fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir
+                if matches!(
+                    normalized.components().next_back(),
+                    Some(Component::Normal(_))
+                ) =>
+            {
+                normalized.pop();
+            }
+            other => normalized.push(other),
+        }
+    }
+    normalized
 }
 
 impl<'ast> Visit<'ast> for Extractor<'_> {
     fn visit_file(&mut self, file: &'ast syn::File) {
-        let items = blocks::file_blocks(self.path, &file.attrs, self.diagnostics);
+        let mut items = blocks::file_blocks(self.path, &file.attrs, self.diagnostics);
+        // `//! @route-defaults` applies to every route of the file,
+        // including the file-level ones.
+        self.push_defaults(blocks::file_route_defaults(&doc_lines(&file.attrs)));
+        for item in &mut items {
+            if let Item::Route(route) = item {
+                route.defaults.clone_from(&self.defaults);
+                route
+                    .default_line_numbers
+                    .clone_from(&self.default_line_numbers);
+            }
+        }
         self.items.extend(items);
         visit::visit_file(self, file);
     }
@@ -858,20 +1023,22 @@ impl<'ast> Visit<'ast> for Extractor<'_> {
         let lines = doc_lines(&item.attrs);
         let saved = (self.tags.len(), self.defaults.len());
         self.tags.extend(blocks::module_tags(&lines));
-        let defaults = blocks::route_defaults(&lines);
-        if let [header, rest @ ..] = defaults
-            && !rest.is_empty()
-        {
-            // The header separates the modules: inner defaults replace the
-            // tags and security of outer ones.
-            self.defaults.push("@route-defaults".to_string());
-            self.defaults.extend(rest.iter().map(|l| l.text.clone()));
-            self.default_line_numbers.push(header.line);
-            self.default_line_numbers
-                .extend(rest.iter().map(|l| l.line));
-        }
+        self.push_defaults(blocks::route_defaults(&lines));
         self.blocks(&lines);
+        let name = item.ident.unraw().to_string();
+        let path = path_attribute(&item.attrs);
+        if item.content.is_none() {
+            self.items.push(Item::Module(ModuleItem {
+                files: self.module_files(&name, path.as_deref()),
+                name: name.clone(),
+                defaults: self.defaults.clone(),
+                default_line_numbers: self.default_line_numbers.clone(),
+                location: self.location(line_of(item.mod_token.span)),
+            }));
+        }
+        self.inline.push(path.unwrap_or(name));
         visit::visit_item_mod(self, item);
+        self.inline.pop();
         self.tags.truncate(saved.0);
         self.defaults.truncate(saved.1);
         self.default_line_numbers.truncate(saved.1);

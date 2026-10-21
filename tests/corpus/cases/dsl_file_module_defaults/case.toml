@@ -1,0 +1,1 @@
+description = "Route defaults of modules in files of their own: `/// @route-defaults` on `mod name;`, `//! @route-defaults` at the top of a module file, nesting across files (also through a file without routes), inline modules inside module files and `#[path]`"

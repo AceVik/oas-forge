@@ -1369,6 +1369,7 @@ pub(crate) fn run(
         mut known,
         snippets,
         pending,
+        modules,
     } = collected;
 
     // Pass 2: lexical expansion, parsing, `@extend`, DSL.
@@ -1377,7 +1378,10 @@ pub(crate) fn run(
         .enumerate()
         .map(|(i, s)| (i * 2, s))
         .collect();
-    let mut defaults = DefaultsCache::new();
+    let mut defaults = RouteDefaults {
+        modules,
+        expanded: BTreeMap::new(),
+    };
     for (position, item) in pending {
         if let Some(snippet) = materialize(item, &registry, settings, &mut defaults, diagnostics)? {
             known.collect_from(&snippet.value);
@@ -1525,6 +1529,8 @@ struct Collected {
     /// Texts that are expanded once every template is known, with the
     /// position among `snippets` they belong to.
     pending: Vec<(usize, Pending)>,
+    /// `mod name;` declarations by the file of the module they declare.
+    modules: BTreeMap<PathBuf, Vec<extract::ModuleItem>>,
 }
 
 impl Collected {
@@ -1538,6 +1544,7 @@ impl Collected {
             known,
             snippets,
             pending,
+            modules,
         } = self;
         match item {
             Item::Schema(schema) => {
@@ -1610,19 +1617,32 @@ impl Collected {
             Item::Pattern(pattern) => {
                 patterns.insert(pattern.name, pattern.pattern);
             }
+            Item::Module(module) => {
+                for file in &module.files {
+                    modules
+                        .entry(file.clone())
+                        .or_default()
+                        .push(module.clone());
+                }
+            }
         }
     }
 }
 
-/// Expanded `@route-defaults` blocks by file and header line.
-type DefaultsCache = BTreeMap<(PathBuf, usize), Vec<String>>;
+/// The `@route-defaults` of a run.
+struct RouteDefaults {
+    /// `mod name;` declarations by the file of the module they declare.
+    modules: BTreeMap<PathBuf, Vec<extract::ModuleItem>>,
+    /// Expanded blocks by file and header line.
+    expanded: BTreeMap<(PathBuf, usize), Vec<String>>,
+}
 
 /// Lexical expansion and parsing of one pending text.
 fn materialize(
     pending: Pending,
     registry: &Registry,
     settings: Settings<'_>,
-    defaults_cache: &mut DefaultsCache,
+    route_defaults: &mut RouteDefaults,
     diagnostics: &mut Diagnostics,
 ) -> Result<Option<Snippet>> {
     let Settings {
@@ -1732,7 +1752,7 @@ fn materialize(
             let line_numbers = source_lines(&expanded, &route.line_numbers, &route.location);
             let lines: Vec<String> = expanded.into_iter().map(|(line, _)| line).collect();
             let defaults =
-                expand_defaults(&route, registry, variables, defaults_cache, diagnostics);
+                expand_defaults(&route, registry, variables, route_defaults, diagnostics);
             let compiled = dsl::compile(
                 RouteSource::new(&lines, &route.location)
                     .line_numbers(&line_numbers)
@@ -1759,56 +1779,91 @@ fn materialize(
     }
 }
 
-/// The expanded `@route-defaults` blocks of a route. Each module's block is
-/// expanded once for all routes of the module, so its findings are reported
-/// once, at its own lines.
+/// The expanded `@route-defaults` blocks of a route, outermost first: those
+/// of the modules that declare the route's file (`mod name;`), up to the
+/// crate root, then the route's own (of its file and its inline modules).
+/// Each module's block is expanded once for all routes of the module, so its
+/// findings are reported once, at its own lines.
 fn expand_defaults(
     route: &extract::RouteItem,
     registry: &Registry,
     variables: &Variables,
-    cache: &mut DefaultsCache,
+    defaults: &mut RouteDefaults,
     diagnostics: &mut Diagnostics,
 ) -> Vec<String> {
-    let mut starts: Vec<usize> = route
-        .defaults
-        .iter()
-        .enumerate()
-        .filter(|(i, line)| *i == 0 || line.trim() == "@route-defaults")
-        .map(|(i, _)| i)
-        .collect();
-    starts.push(route.defaults.len());
+    let RouteDefaults {
+        modules,
+        expanded: cache,
+    } = defaults;
+    // The file, defaults and line numbers of each part, innermost first.
+    let mut parts = vec![(
+        route.location.file(),
+        &route.defaults[..],
+        &route.default_line_numbers[..],
+    )];
+    let mut file = extract::normalize_path(route.location.file());
+    let mut seen = BTreeSet::from([file.clone()]);
+    // A file declared twice belongs to the first declaration, by location,
+    // so that the order of the files does not matter.
+    let declaration = |file: &PathBuf| {
+        modules.get(file).and_then(|declarations| {
+            declarations
+                .iter()
+                .min_by(|a, b| a.location.cmp(&b.location))
+        })
+    };
+    while let Some(module) = declaration(&file) {
+        let parent = extract::normalize_path(module.location.file());
+        // Rust rejects modules that contain themselves; the chain ends there.
+        if !seen.insert(parent.clone()) {
+            break;
+        }
+        parts.push((
+            module.location.file(),
+            &module.defaults[..],
+            &module.default_line_numbers[..],
+        ));
+        file = parent;
+    }
     let mut expanded = Vec::new();
-    for range in starts.windows(2) {
-        let (start, end) = match range {
-            [start, end] => (*start, *end),
-            _ => continue,
-        };
-        let block = route.defaults.get(start..end).unwrap_or_default();
-        let line = route.default_line_numbers.get(start).copied();
-        let location = line.map_or_else(
-            || route.location.clone(),
-            |line| Location::new(route.location.file(), line),
-        );
-        let mut expand = || -> Vec<String> {
-            let text = block.join("\n");
-            lexical::expand_block(
-                &text,
-                registry,
-                variables,
-                &location,
-                diagnostics,
-                dsl::yaml_lines,
-            )
-            .into_iter()
-            .map(|(line, _)| line)
-            .collect()
-        };
-        match line {
-            Some(line) => {
-                let key = (route.location.file().to_path_buf(), line);
-                expanded.extend(cache.entry(key).or_insert_with(expand).iter().cloned());
+    for (file, lines, numbers) in parts.into_iter().rev() {
+        let mut starts: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter(|(i, line)| *i == 0 || line.trim() == "@route-defaults")
+            .map(|(i, _)| i)
+            .collect();
+        starts.push(lines.len());
+        for range in starts.windows(2) {
+            let (start, end) = match range {
+                [start, end] => (*start, *end),
+                _ => continue,
+            };
+            let block = lines.get(start..end).unwrap_or_default();
+            let line = numbers.get(start).copied();
+            let location =
+                line.map_or_else(|| route.location.clone(), |line| Location::new(file, line));
+            let mut expand = || -> Vec<String> {
+                let text = block.join("\n");
+                lexical::expand_block(
+                    &text,
+                    registry,
+                    variables,
+                    &location,
+                    diagnostics,
+                    dsl::yaml_lines,
+                )
+                .into_iter()
+                .map(|(line, _)| line)
+                .collect()
+            };
+            match line {
+                Some(line) => {
+                    let key = (file.to_path_buf(), line);
+                    expanded.extend(cache.entry(key).or_insert_with(expand).iter().cloned());
+                }
+                None => expanded.extend(expand()),
             }
-            None => expanded.extend(expand()),
         }
     }
     expanded

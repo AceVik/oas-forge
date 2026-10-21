@@ -1,0 +1,149 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/dsl_file_module_defaults/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /export:
+    get:
+      summary: Old export
+      operationId: export
+      tags:
+      - Legacy
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: string
+  /v1/decks:
+    get:
+      summary: List decks
+      operationId: list_decks
+      tags:
+      - Decks
+      security:
+      - bearer: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        "401":
+          description: Not signed in
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  "/v1/decks/{deck}/cards":
+    get:
+      summary: List the cards of a deck
+      operationId: list_cards
+      tags:
+      - Decks
+      parameters:
+      - name: deck
+        in: path
+        required: true
+        description: Deck id
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      security:
+      - bearer: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        "401":
+          description: Not signed in
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /v1/social/devices:
+    get:
+      summary: List devices
+      operationId: devices
+      tags:
+      - Social
+      security:
+      - bearer: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        "401":
+          description: Not signed in
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /v1/social/status:
+    get:
+      summary: Public status
+      operationId: status
+      tags:
+      - Social
+      security: []
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Not signed in
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  schemas:
+    ProblemDetails:
+      type: object
+      description: Problem details (RFC 9457).
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          default: about:blank
+          description: A URI reference that identifies the problem type.
+        title:
+          type: string
+          description: A short summary of the problem type.
+        status:
+          type: integer
+          format: int32
+          minimum: 100
+          maximum: 599
+          description: The HTTP status code.
+        detail:
+          type: string
+          description: An explanation specific to this occurrence.
+        instance:
+          type: string
+          format: uri-reference
+          description: A URI reference that identifies this occurrence.

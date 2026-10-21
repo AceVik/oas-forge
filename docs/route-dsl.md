@@ -254,7 +254,8 @@ pub async fn order_paid() {}
 ## Module defaults
 
 `@route-defaults` in the doc comment of a module applies to every route in
-it, including nested modules:
+it, including nested modules (for modules in files of their own see
+[below](#modules-in-their-own-files)):
 
 <!-- corpus: guide_route_defaults -->
 ```rust
@@ -311,6 +312,42 @@ over those of outer ones. Each module's defaults are expanded once, so a
 problem in them (an unset `{{env:…}}`, an unknown fragment) is reported once,
 at its line. Module doc lines of the form `tags: [A, B]` (from 0.1) still
 tag the operations inside.
+
+### Modules in their own files
+
+A module in a file of its own takes its defaults in either place: on the
+declaration (`/// @route-defaults` above `mod name;`) or at the top of the
+module's file (`//! @route-defaults`, which also works inside an inline
+`mod name { … }`). They nest along the module tree like inline modules,
+also through files without routes:
+
+```text
+src/lib.rs            /// @route-defaults       ← everything in routes/
+                      /// @security bearer
+                      pub mod routes;
+
+src/routes/mod.rs     //! @route-defaults       ← this file and its modules
+                      //! @prefix /v1
+                      /// @route-defaults       ← routes/decks.rs only
+                      /// @tag Decks
+                      pub mod decks;
+                      pub mod social;
+
+src/routes/decks.rs   /// @route GET /decks     → GET /v1/decks, Decks, bearer
+
+src/routes/social.rs  //! @route-defaults
+                      //! @prefix /social
+                      //! @tag Social
+                      /// @route GET /devices   → GET /v1/social/devices, Social, bearer
+```
+
+The module's file is found the way Rust finds it: `name.rs` or
+`name/mod.rs` next to `lib.rs`, `main.rs` or a `mod.rs`, in a directory
+named after any other file (`social.rs` declares `social/feed.rs`), below
+the directories of inline modules, or the file of a `#[path]` attribute.
+The files are linked after all of them are read, so their order does not
+matter. In a file comment, the defaults end at the next block header
+(`@openapi`, `@route`, …), separator line or gap in the comment.
 
 ## Signature inference
 

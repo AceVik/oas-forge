@@ -184,6 +184,27 @@ pub(super) fn route_defaults(lines: &[DocLine]) -> &[DocLine] {
     lines.get(start..=start + count).unwrap_or_default()
 }
 
+/// The `@route-defaults` block of a file's `//!` comment: the header and the
+/// lines after it, up to the next block header, separator line or gap in the
+/// comment (empty without header).
+pub(super) fn file_route_defaults(lines: &[DocLine]) -> &[DocLine] {
+    let Some(start) = lines.iter().position(|l| l.trimmed() == ROUTE_DEFAULTS) else {
+        return &[];
+    };
+    let mut last = lines.get(start).map_or(0, |l| l.line);
+    let count = lines
+        .iter()
+        .skip(start + 1)
+        .take_while(|l| {
+            let trimmed = l.trimmed();
+            let contiguous = l.line == last + 1;
+            last = l.line;
+            contiguous && !is_header(trimmed) && !is_separator(trimmed) && trimmed != ROUTE_DEFAULTS
+        })
+        .count();
+    lines.get(start..=start + count).unwrap_or_default()
+}
+
 /// Tags declared in a module's doc comment: lines `tags: [A, B]` whose list
 /// holds names only (a list of tag objects is document YAML, not this).
 pub(super) fn module_tags(lines: &[DocLine]) -> Vec<String> {
@@ -244,6 +265,9 @@ pub(super) fn file_blocks(
             if is_header(trimmed) {
                 close(path, &mut block, &mut items, diagnostics);
                 block.push(line);
+            } else if trimmed == ROUTE_DEFAULTS {
+                // Module defaults (`file_route_defaults`) are no block.
+                close(path, &mut block, &mut items, diagnostics);
             } else if is_separator(trimmed) {
                 if !block.is_empty() {
                     diagnostics.push(

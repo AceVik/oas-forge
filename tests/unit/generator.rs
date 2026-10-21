@@ -1873,3 +1873,137 @@ fn configured_outputs_are_rendered_once_and_reused() {
         spec.render_with_diagnostics(OutputKind::Full).unwrap().0
     );
 }
+
+/// `@route-defaults` of modules in files of their own (`mod name;`).
+mod file_module_defaults {
+    use super::*;
+
+    const ROOT: &str = "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! components:\n//!   securitySchemes:\n//!     bearer: { type: http, scheme: bearer }\npub mod routes;\n";
+
+    fn operation<'d>(document: &'d Value, path: &str) -> &'d Value {
+        let operation = &document["paths"][path]["get"];
+        assert!(operation.is_object(), "no GET {path} in {document:#}");
+        operation
+    }
+
+    #[test]
+    fn both_forms_apply_to_the_routes_of_the_module_file() {
+        let files = [
+            ("src/lib.rs", ROOT),
+            (
+                "src/routes/mod.rs",
+                "/// Deck routes.\n/// @route-defaults\n/// @tag Decks\n/// @security bearer\npub mod decks;\npub mod social;\n",
+            ),
+            (
+                "src/routes/decks.rs",
+                "/// List decks\n/// @route GET /decks\npub async fn list() {}\n",
+            ),
+            (
+                "src/routes/social.rs",
+                "//! Social routes.\n//! @route-defaults\n//! @prefix /social\n//! @tag Social\n//! @security bearer\n\n/// List devices\n/// @route GET /devices\npub async fn devices() {}\n",
+            ),
+        ];
+        let (document, diagnostics) = pipeline(&files);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let decks = operation(&document, "/decks");
+        assert_eq!(decks["tags"], json!(["Decks"]));
+        assert_eq!(decks["security"], json!([{ "bearer": [] }]));
+        let devices = operation(&document, "/social/devices");
+        assert_eq!(devices["tags"], json!(["Social"]));
+        assert_eq!(devices["security"], json!([{ "bearer": [] }]));
+        // Files are linked after extraction: their order does not matter.
+        let mut reversed = files;
+        reversed.reverse();
+        assert_eq!(pipeline(&reversed).0, document);
+    }
+
+    #[test]
+    fn defaults_nest_along_the_module_tree() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "src/lib.rs",
+                &ROOT.replace(
+                    "pub mod routes;",
+                    "/// @route-defaults\n/// @prefix /api\n/// @tag Api\n/// @problem 401 \"Not signed in\"\npub mod routes;",
+                ),
+            ),
+            // Defaults in a file without routes apply to its modules.
+            (
+                "src/routes/mod.rs",
+                "//! @route-defaults\n//! @prefix /v1\n//! @security bearer\n\npub mod decks;\n",
+            ),
+            (
+                "src/routes/decks.rs",
+                "//! @route-defaults\n//! @tag Decks\n\n/// @route GET /decks\nfn list() {}\n\npub mod cards {\n    /// @route GET /cards\n    /// @security none\n    fn cards() {}\n}\n",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let decks = operation(&document, "/api/v1/decks");
+        // The innermost `@tag` replaces the outer ones.
+        assert_eq!(decks["tags"], json!(["Decks"]));
+        assert_eq!(decks["security"], json!([{ "bearer": [] }]));
+        assert!(decks["responses"]["401"].is_object());
+        let cards = operation(&document, "/api/v1/cards");
+        assert_eq!(cards["tags"], json!(["Decks"]));
+        assert_eq!(cards["security"], json!([]));
+    }
+
+    #[test]
+    fn path_attributes_and_inline_modules_are_followed() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "src/lib.rs",
+                &ROOT.replace(
+                    "pub mod routes;",
+                    "/// @route-defaults\n/// @tag Legacy\n#[path = \"old/handlers.rs\"]\npub mod legacy;\n/// @route-defaults\n/// @prefix /api\npub mod api {\n    /// @route-defaults\n    /// @tag V2\n    pub mod v2;\n}",
+                ),
+            ),
+            (
+                "src/old/handlers.rs",
+                "/// @route GET /old\nfn old() {}\n",
+            ),
+            ("src/api/v2.rs", "/// @route GET /items\nfn items() {}\n"),
+            // Not declared by any module: only its own defaults.
+            (
+                "src/legacy.rs",
+                "//! @route-defaults\n//! @tag Stray\n\n/// @route GET /stray\nfn stray() {}\n",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(operation(&document, "/old")["tags"], json!(["Legacy"]));
+        assert_eq!(operation(&document, "/api/items")["tags"], json!(["V2"]));
+        assert_eq!(operation(&document, "/stray")["tags"], json!(["Stray"]));
+    }
+
+    #[test]
+    fn a_file_declared_twice_belongs_to_the_first_declaration() {
+        let files = [
+            (
+                "src/a.rs",
+                "/// @route-defaults\n/// @tag First\n#[path = \"shared.rs\"]\nmod shared;\n",
+            ),
+            (
+                "src/b.rs",
+                "/// @route-defaults\n/// @tag Second\n#[path = \"shared.rs\"]\nmod shared;\n",
+            ),
+            ("src/shared.rs", "/// @route GET /x\nfn x() {}\n"),
+        ];
+        let (document, _) = pipeline(&files);
+        assert_eq!(operation(&document, "/x")["tags"], json!(["First"]));
+        let mut reversed = files;
+        reversed.reverse();
+        assert_eq!(pipeline(&reversed).0, document);
+    }
+
+    #[test]
+    fn a_module_that_declares_its_own_file_ends_the_chain() {
+        let (document, _) = pipeline(&[(
+            "src/lib.rs",
+            &ROOT.replace(
+                "pub mod routes;",
+                "//! @route-defaults\n//! @prefix /api\n\n#[path = \"lib.rs\"]\nmod again;\n\n/// @route GET /x\nfn x() {}",
+            ),
+        )]);
+        assert!(operation(&document, "/api/x").is_object());
+    }
+}
