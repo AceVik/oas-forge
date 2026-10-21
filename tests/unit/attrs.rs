@@ -980,3 +980,297 @@ mod directives {
         );
     }
 }
+
+/// `@description`, `@summary` and `@internal` in the doc comments of
+/// types, fields, variants and aliases, and where `@openapi` YAML ends.
+mod doc_sections {
+    use super::*;
+    use crate::common::pipeline;
+
+    /// The schema of field `field` of `struct S` with the given doc lines.
+    fn field_docs(docs: &str, ty: &str) -> (Value, Vec<Code>) {
+        let (items, diagnostics) = extract_with_diagnostics(&format!(
+            "/// @openapi\nstruct S {{\n{docs}\nfield: {ty},\n}}"
+        ));
+        (
+            schema(&items, "S")["properties"]["field"].clone(),
+            codes(&diagnostics),
+        )
+    }
+
+    #[test]
+    fn description_replaces_the_prose() {
+        let (field, codes) = field_docs(
+            "/// Borrowed for the constant messages, owned for the few that have to\n/// name a value back to the caller.\n///\n/// `Cow` rather than `String` everywhere: …\n/// @description One sentence for a person saying what went wrong.",
+            "std::borrow::Cow<'static, str>",
+        );
+        assert_eq!(
+            field,
+            json!({ "type": "string", "description": "One sentence for a person saying what went wrong." })
+        );
+        assert!(codes.is_empty(), "{codes:?}");
+    }
+
+    #[test]
+    fn description_continues_on_plain_lines() {
+        let (field, _) = field_docs(
+            "/// Prose.\n/// @description The first\n/// line, continued.\n///\n/// A second paragraph.\n/// @example 3\n/// Prose again.",
+            "u8",
+        );
+        assert_eq!(
+            field["description"],
+            "The first line, continued.\n\nA second paragraph."
+        );
+        assert_eq!(field["examples"], json!([3]));
+    }
+
+    #[test]
+    fn several_descriptions_are_joined() {
+        let (field, _) = field_docs(
+            "/// @description One.\n/// @example 1\n/// @description Two.",
+            "u8",
+        );
+        assert_eq!(field["description"], "One. Two.");
+    }
+
+    #[test]
+    fn an_empty_description_removes_the_prose() {
+        let (field, _) = field_docs("/// Developer notes.\n/// @description", "u8");
+        assert!(field.get("description").is_none(), "{field}");
+    }
+
+    #[test]
+    fn internal_lines_never_reach_the_document() {
+        let (field, codes) = field_docs(
+            "/// Shown.\n/// @internal Not this.\n/// Nor this: a colon.\n///\n/// Nor this paragraph.\n/// @example 1\n/// Shown too.",
+            "u8",
+        );
+        assert_eq!(field["description"], "Shown. Shown too.");
+        assert_eq!(field["examples"], json!([1]));
+        assert!(codes.is_empty(), "{codes:?}");
+    }
+
+    #[test]
+    fn internal_lines_before_openapi_are_dropped() {
+        let items = extract(
+            "/// @internal\n/// Developer notes: many.\n/// @openapi\n/// minProperties: 1\nstruct S { a: u8 }",
+        );
+        let s = schema(&items, "S");
+        assert!(s.get("description").is_none(), "{s}");
+        assert_eq!(s["minProperties"], 1);
+    }
+
+    #[test]
+    fn summary_is_the_title() {
+        let (field, _) = field_docs(
+            "/// Prose.\n/// @summary Size\n/// @openapi minimum: 1",
+            "u8",
+        );
+        assert_eq!(field["title"], "Size");
+        assert_eq!(field["description"], "Prose.");
+        assert_eq!(field["minimum"], 1);
+        let (_, codes) = field_docs("/// @summary", "u8");
+        assert_eq!(codes, [Code::InvalidSchemaDirective]);
+    }
+
+    #[test]
+    fn yaml_overrides_win_over_the_directives() {
+        let (field, _) = field_docs(
+            "/// Prose.\n/// @summary Short\n/// @description Long.\n/// @openapi\n/// title: Shorter\n/// description: Longest.",
+            "u8",
+        );
+        assert_eq!(field["title"], "Shorter");
+        assert_eq!(field["description"], "Longest.");
+    }
+
+    #[test]
+    fn a_directive_ends_the_yaml_of_openapi() {
+        for prose in [
+            "The statement's signature (§4.1), 64 bytes, base64url.",
+            "The statement's signature: 64 bytes, base64url.",
+        ] {
+            let (field, codes) = field_docs(
+                &format!(
+                    "/// @description The signature.\n/// @openapi contentEncoding: base64url\n/// @internal\n/// {prose}"
+                ),
+                "String",
+            );
+            assert_eq!(
+                field,
+                json!({ "type": "string", "description": "The signature.", "contentEncoding": "base64url" })
+            );
+            assert!(codes.is_empty(), "{codes:?}");
+        }
+    }
+
+    #[test]
+    fn the_block_form_ends_at_a_directive_too() {
+        let (field, codes) = field_docs(
+            "/// @openapi\n/// minimum: 1\n///   # @comment indented in YAML\n/// @summary Count\n/// Prose after it.\n/// @example 2",
+            "u8",
+        );
+        assert_eq!(field["minimum"], 1);
+        assert_eq!(field["title"], "Count");
+        assert_eq!(field["description"], "Prose after it.");
+        assert_eq!(field["examples"], json!([2]));
+        assert!(codes.is_empty(), "{codes:?}");
+    }
+
+    #[test]
+    fn indented_lines_starting_with_at_are_yaml_text() {
+        let (field, codes) = field_docs(
+            "/// @openapi\n/// description: |\n///   @mention the owner\n///   when it fails.",
+            "u8",
+        );
+        assert_eq!(field["description"], "@mention the owner\nwhen it fails.\n");
+        assert!(codes.is_empty(), "{codes:?}");
+    }
+
+    #[test]
+    fn insert_and_extend_lines_stay_in_the_yaml() {
+        for directive in ["@insert Bounded", "@extend Bounded"] {
+            let (items, diagnostics) = extract_with_diagnostics(&format!(
+                "/// @openapi\nstruct S {{\n/// @openapi\n/// minimum: 1\n/// {directive}\n/// maximum: 9\na: u8,\n}}"
+            ));
+            // Item overrides are plain YAML: the line is reported there, and
+            // the line after it is no prose.
+            let a = &schema(&items, "S")["properties"]["a"];
+            assert!(a.get("description").is_none(), "{a}");
+            let lines: Vec<usize> = diagnostics
+                .iter()
+                .filter(|d| d.code() == Code::InvalidOverride)
+                .filter_map(|d| d.location().map(|l| l.line()))
+                .collect();
+            assert_eq!(lines, [5], "{directive}");
+        }
+    }
+
+    #[test]
+    fn several_openapi_lines_merge_in_order() {
+        let (field, codes) = field_docs(
+            "/// @openapi minimum: 1\n/// @openapi maximum: 200\n/// @openapi minimum: 2",
+            "u32",
+        );
+        assert_eq!(
+            (&field["minimum"], &field["maximum"]),
+            (&json!(2), &json!(200))
+        );
+        assert!(codes.is_empty(), "{codes:?}");
+    }
+
+    #[test]
+    fn invalid_yaml_in_one_section_is_reported_at_its_line() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            "/// @openapi\nstruct S {\n/// @openapi minimum: 1\n/// @openapi maximum: [\na: u8,\n}",
+        );
+        assert_eq!(schema(&items, "S")["properties"]["a"]["minimum"], 1);
+        let lines: Vec<usize> = diagnostics
+            .iter()
+            .filter_map(|d| d.location().map(|l| l.line()))
+            .collect();
+        assert_eq!(lines, [4]);
+    }
+
+    #[test]
+    fn directives_work_on_types_variants_and_aliases() {
+        let items = extract(
+            r#"
+/// Internal type notes.
+/// @summary A job
+/// @description Something to run.
+/// @openapi
+#[derive(Serialize)]
+pub enum Job {
+    /// Notes.
+    /// @description Waits.
+    /// @summary Wait
+    #[deprecated]
+    Wait,
+    /// @internal
+    /// Never documented.
+    /// @description Runs a command.
+    Run { cmd: String },
+    /// @openapi skip
+    /// @description Hidden.
+    Hidden,
+}
+/// The alias.
+/// @description An identifier.
+/// @summary Id
+/// @openapi
+/// @example 7
+pub type Id = u64;
+"#,
+        );
+        let job = schema(&items, "Job");
+        assert_eq!(
+            (&job["title"], &job["description"]),
+            (&json!("A job"), &json!("Something to run."))
+        );
+        let alternatives = job["oneOf"].as_array().unwrap();
+        assert_eq!(
+            alternatives[0]["oneOf"],
+            json!([{ "const": "Wait", "title": "Wait", "description": "Waits.", "deprecated": true }])
+        );
+        assert_eq!(alternatives[1]["description"], "Runs a command.");
+        assert_eq!(alternatives[0]["enum"], json!(["Wait"]));
+        let id = schema(&items, "Id");
+        assert_eq!(
+            (&id["title"], &id["description"], &id["examples"]),
+            (&json!("Id"), &json!("An identifier."), &json!([7]))
+        );
+    }
+
+    #[test]
+    fn fragments_end_at_the_new_directives() {
+        for directive in ["@description A size.", "@summary Size", "@internal"] {
+            let items = extract(&format!(
+                "/// @openapi-fragment Limit\n/// maximum: 9\n/// {directive}\n/// @openapi\nstruct S {{ a: u8 }}"
+            ));
+            assert_eq!(crate::extract::fragment(&items, "Limit").body, "maximum: 9");
+        }
+    }
+
+    #[test]
+    fn query_parameters_get_the_cleaned_descriptions() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            r#"
+/// @openapi
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Q {
+    /// Developer notes.
+    /// @description Text.
+    q: String,
+    /// @description Page size.
+    /// @openapi minimum: 1
+    /// @openapi maximum: 200
+    limit: Option<u32>,
+    /// @description The token of the link in the mail.
+    /// @internal
+    /// Checked against the hash: never logged.
+    token: String,
+}
+/// @route GET /x
+/// @query-params $Q
+fn x() {}
+"#,
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            document["paths"]["/x"]["get"]["parameters"],
+            json!([
+                { "name": "q", "in": "query", "required": false, "description": "Text.", "schema": { "type": "string" } },
+                {
+                    "name": "limit", "in": "query", "required": false, "description": "Page size.",
+                    "schema": { "type": "integer", "format": "int64", "minimum": 1, "maximum": 200 },
+                },
+                {
+                    "name": "token", "in": "query", "required": false,
+                    "description": "The token of the link in the mail.", "schema": { "type": "string" },
+                },
+            ])
+        );
+    }
+}

@@ -231,6 +231,7 @@ impl<'a> Reflector<'a> {
     /// are reported here, once.
     fn annotations(&mut self, naming: &Naming, what: &str) -> Annotations {
         let mut annotations = Annotations {
+            title: naming.docs.summary.clone(),
             description: (!naming.docs.description.is_empty())
                 .then(|| naming.docs.description.clone()),
             examples: None,
@@ -270,38 +271,46 @@ impl<'a> Reflector<'a> {
                 .collect();
             annotations.examples = Some(examples);
         }
-        let Some(text) = naming.docs.override_text() else {
-            return annotations;
-        };
-        let start = self.location(naming.docs.override_line().unwrap_or(1));
-        let text = lexical::substitute(&text, self.variables, &start, self.diagnostics);
-        match yaml::parse(&text) {
-            Ok(Value::Null) => {}
-            Ok(Value::Object(value)) => annotations.overrides = Some(value),
-            Ok(_) => {
-                self.diagnostics.push(
-                    Diagnostic::new(
-                        Code::InvalidOverride,
-                        format!(
-                            "`@openapi` override of {what} is not a YAML mapping (`{}`); it is ignored",
-                            text.trim()
-                        ),
-                    )
-                    .at(start),
-                );
-            }
-            Err(e) => {
-                let line = naming.docs.override_line().unwrap_or(1) + e.line - 1;
-                self.diagnostics.push(
-                    Diagnostic::new(
-                        Code::InvalidOverride,
-                        format!(
-                            "`@openapi` override of {what} is not valid YAML: {}",
-                            e.message
-                        ),
-                    )
-                    .at(self.location(line)),
-                );
+        // Several `@openapi` lines merge in order; later keys win.
+        for (text, first) in naming.docs.override_sections() {
+            let start = self.location(first);
+            let text = lexical::substitute(&text, self.variables, &start, self.diagnostics);
+            match yaml::parse(&text) {
+                Ok(Value::Null) => {}
+                Ok(Value::Object(value)) => match &mut annotations.overrides {
+                    Some(overrides) => {
+                        let mut merged = Value::Object(std::mem::take(overrides));
+                        merge(&mut merged, Value::Object(value), Policy::Override);
+                        if let Value::Object(merged) = merged {
+                            *overrides = merged;
+                        }
+                    }
+                    None => annotations.overrides = Some(value),
+                },
+                Ok(_) => {
+                    self.diagnostics.push(
+                        Diagnostic::new(
+                            Code::InvalidOverride,
+                            format!(
+                                "`@openapi` override of {what} is not a YAML mapping (`{}`); it is ignored",
+                                text.trim()
+                            ),
+                        )
+                        .at(start),
+                    );
+                }
+                Err(e) => {
+                    self.diagnostics.push(
+                        Diagnostic::new(
+                            Code::InvalidOverride,
+                            format!(
+                                "`@openapi` override of {what} is not valid YAML: {}",
+                                e.message
+                            ),
+                        )
+                        .at(self.location(first + e.line - 1)),
+                    );
+                }
             }
         }
         annotations
@@ -869,10 +878,13 @@ impl<'a> Reflector<'a> {
             json!({ "type": "string", "enum": names })
         };
         // A string `enum` says nothing about single values. When a unit
-        // variant has an override, `@example` or `#[deprecated]`, a `oneOf`
+        // variant has an override, `@example`, `@summary` or `#[deprecated]`, a `oneOf`
         // of `const`s next to the `enum` carries it (and the variants' docs).
         let annotated = units.iter().any(|(_, n)| {
-            n.deprecated || !n.docs.examples.is_empty() || n.docs.override_text().is_some()
+            n.deprecated
+                || !n.docs.examples.is_empty()
+                || n.docs.summary.is_some()
+                || n.docs.override_text().is_some()
         });
         if annotated && let Value::Object(map) = &mut strings {
             let mut values = Vec::new();
@@ -1115,7 +1127,10 @@ fn mentions_param(schema: &Value, param: &str) -> bool {
 
 /// What the docs of an item, field or variant add to its schema.
 struct Annotations {
-    /// The prose of the doc comment; `None` without any.
+    /// The `@summary`; `None` without one.
+    title: Option<String>,
+    /// The `@description` or the prose of the doc comment; `None` without
+    /// any.
     description: Option<String>,
     /// The `@example` values, parsed as YAML (text that is no YAML or reads
     /// as nothing stays text); `None` without `@example`.
@@ -1127,10 +1142,13 @@ struct Annotations {
 }
 
 impl Annotations {
-    /// Sets `description`, `examples` and `deprecated` on an object
-    /// `schema`, then merges the override ([`apply_override`]).
+    /// Sets `title`, `description`, `examples` and `deprecated` on an
+    /// object `schema`, then merges the override ([`apply_override`]).
     fn apply(&self, schema: &mut Value) {
         if let Value::Object(map) = schema {
+            if let Some(title) = &self.title {
+                map.insert("title".into(), json!(title));
+            }
             if let Some(description) = &self.description {
                 map.insert("description".into(), json!(description));
             }

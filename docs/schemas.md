@@ -34,10 +34,11 @@ User:
   description: A user account.
 ```
 
-- Doc lines before the first `@openapi` line are the description. Lines are
-  joined with spaces; blank lines separate paragraphs. Fenced code blocks,
-  list items and the line after a heading keep their line breaks.
-  `/** … */` comments work too, also with a leading `*` on every line.
+- The prose of the doc comment is the description. Lines are joined with
+  spaces; blank lines separate paragraphs. Fenced code blocks, list items
+  and the line after a heading keep their line breaks. `/** … */` comments
+  work too, also with a leading `*` on every line. For prose meant for
+  developers, see [descriptions](#descriptions).
 - Fields and variants need no `@openapi` line; their doc comments become
   their descriptions.
 - A sentence that merely mentions `@openapi` does not export anything.
@@ -46,8 +47,11 @@ User:
 
 ## Overrides
 
-YAML after `@openapi`, on the same line or on the following doc lines, is
-merged into the reflected schema. Values written there win:
+YAML after `@openapi`, on the same line or on the following doc lines up
+to the next line that starts with a directive (`@description`, `@internal`,
+`@example`, …; `@insert` and `@extend` lines belong to the YAML), is merged
+into the reflected schema. Several `@openapi` lines merge in order, later
+keys win. Values written there win over everything else:
 
 ```rust,ignore
 /// @openapi
@@ -72,6 +76,44 @@ override that defines the structure itself (`type`, `properties`, `oneOf`,
 Invalid YAML, and text that is not a YAML mapping (`/// @openapi The id`),
 is reported (`OF1001`) and ignored.
 
+## Descriptions
+
+Doc comments often explain the code to developers. Three directives choose
+what reaches the document, on types, fields, variants and type aliases:
+
+```rust,ignore
+/// @openapi
+#[derive(Serialize)]
+struct ErrorBody {
+    /// Borrowed for the constant messages, owned for the few that have to
+    /// name a value back to the caller.
+    /// @summary Error
+    /// @description One sentence for a person saying what went wrong.
+    /// @internal
+    /// `Cow` rather than `String` everywhere: most messages are constants.
+    error: std::borrow::Cow<'static, str>,
+}
+```
+
+```yaml
+error:
+  type: string
+  title: Error
+  description: One sentence for a person saying what went wrong.
+```
+
+- `@description text` replaces the prose as the `description`. It continues
+  on the following plain lines up to the next directive line; several
+  `@description` lines are joined.
+- `@summary text` (one line) sets the JSON Schema `title`.
+- `@internal` drops the plain lines after it, up to the next directive line,
+  wherever it stands (also before `@openapi`).
+- Precedence: `description:` or `title:` in the `@openapi` YAML, then
+  `@description` and `@summary`, then the prose. Without these directives
+  nothing changes.
+- A unit variant with `@summary` gets the `oneOf` of `const`s described in
+  [enums](#enums), like one with an `@example`.
+
 ## Directives
 
 | Directive | On | Effect |
@@ -81,6 +123,9 @@ is reported (`OF1001`) and ignored.
 | `@openapi rename-all rule` | type | Renames all fields (structs) or variants (enums); rules as in serde: `camelCase`, `snake_case`, `kebab-case`, `PascalCase`, `SCREAMING_SNAKE_CASE`, `SCREAMING-KEBAB-CASE`, `lowercase`, `UPPERCASE` |
 | `@openapi skip` | type, field, variant | Leaves it out of the document (a type alias becomes [transparent](#type-aliases)) |
 | `@example value` | type, field, variant | Adds a YAML value (or plain text) to `examples`; repeatable |
+| `@description text` | type, field, variant, type alias | Replaces the prose as `description`; continues on plain lines ([descriptions](#descriptions)) |
+| `@summary text` | type, field, variant, type alias | Sets `title` |
+| `@internal` | type, field, variant, type alias | Drops the plain lines after it from the document |
 | `@openapi<T, U>` | generic type, type alias | Declares a [blueprint](#explicit-blueprints) with YAML that uses `$T` |
 | `#[deprecated]` | type, field, variant | Sets `deprecated: true` |
 
@@ -184,9 +229,9 @@ Enums follow serde's representation:
 | `#[serde(untagged)]` | `anyOf` of the variants' content |
 
 A string `enum` cannot describe single values. When a unit variant has an
-`@openapi` override, an `@example` or `#[deprecated]`, the enum also gets a
-`oneOf` with one `const` per unit variant that carries it, together with the
-variants' doc comments. A `serde_repr` discriminant that is not an integer
+`@openapi` override, an `@example`, a `@summary` or `#[deprecated]`, the
+enum also gets a `oneOf` with one `const` per unit variant that carries it,
+together with the variants' doc comments. A `serde_repr` discriminant that is not an integer
 literal is reported (`OF1009`).
 
 Variants with `#[serde(untagged)]` in a tagged enum become additional
