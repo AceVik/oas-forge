@@ -235,7 +235,8 @@ pub fn lower(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnosti
         return;
     }
     let mut lost = BTreeSet::new();
-    walk_document(document, &mut |schema| {
+    let headers = dialect == Dialect::AsyncApi3;
+    walk_document(document, headers, &mut |schema| {
         lower_schema(schema, dialect, &mut lost)
     });
     report_lost(lost, dialect, diagnostics);
@@ -448,25 +449,34 @@ fn remove_media_item_schemas(container: &mut Value, removed: &mut Removed) {
 }
 
 /// Calls `f` for every schema object of a document, outermost first (so `f`
-/// sees subschemas before they are rewritten).
-fn walk_document(value: &mut Value, f: &mut impl FnMut(&mut Map<String, Value>)) {
+/// sees subschemas before they are rewritten). `headers` is a schema in
+/// AsyncAPI documents (messages, message traits, bindings), but a map of
+/// Header Objects in OpenAPI documents.
+fn walk_document(
+    value: &mut Value,
+    headers_are_schemas: bool,
+    f: &mut impl FnMut(&mut Map<String, Value>),
+) {
     match value {
         Value::Object(map) => {
             for (key, child) in map.iter_mut() {
                 match key.as_str() {
                     // `payload`: AsyncAPI messages.
                     "schema" | "payload" => walk_schema(child, f),
+                    "headers" if headers_are_schemas => walk_schema(child, f),
                     "schemas" | "definitions" => {
                         if let Value::Object(schemas) = child {
                             schemas.values_mut().for_each(|s| walk_schema(s, f));
                         }
                     }
                     k if DATA_KEYS.contains(&k) => {}
-                    _ => walk_document(child, f),
+                    _ => walk_document(child, headers_are_schemas, f),
                 }
             }
         }
-        Value::Array(items) => items.iter_mut().for_each(|i| walk_document(i, f)),
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|i| walk_document(i, headers_are_schemas, f)),
         _ => {}
     }
 }

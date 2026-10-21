@@ -305,3 +305,37 @@ fn broken_proto_files_and_unknown_messages_are_reported() {
     let finding = spec.diagnostics().iter().next().unwrap();
     assert!(finding.to_string().contains("baylee.proto:2"), "{finding}");
 }
+
+/// Message headers are schemas too: they are lowered like payloads, in
+/// channel messages, component messages and message traits.
+#[test]
+fn message_headers_follow_the_asyncapi_dialect() {
+    let headers = "{ type: object, properties: { trace: { type: array, prefixItems: [{ type: string }] } }, $defs: { Id: { type: string } }, unevaluatedProperties: false }";
+    let (spec, _project) = spec_of(&[(
+        "lib.rs",
+        &format!(
+            "{ROOT}//! channels:\n//!   a:\n//!     address: a\n//!     messages:\n//!       m:\n//!         headers: {headers}\n//!         payload: {{ type: string }}\n//! components:\n//!   messages:\n//!     M:\n//!       headers: {headers}\n//!   messageTraits:\n//!     T:\n//!       headers: {headers}\n"
+        ),
+    )]);
+    let (document, diagnostics) = spec.render_with_diagnostics(OutputKind::AsyncApi).unwrap();
+    let lowered = json!({
+        "type": "object",
+        "properties": { "trace": { "type": "array", "items": [{ "type": "string" }] } },
+        "definitions": { "Id": { "type": "string" } },
+    });
+    assert_eq!(
+        document["channels"]["a"]["messages"]["m"]["headers"],
+        lowered
+    );
+    assert_eq!(document["components"]["messages"]["M"]["headers"], lowered);
+    assert_eq!(
+        document["components"]["messageTraits"]["T"]["headers"],
+        lowered
+    );
+    assert_eq!(codes(&diagnostics), [Code::LossyLowering]);
+    assert!(
+        spec::validate(&document).is_empty(),
+        "{:?}",
+        spec::validate(&document)
+    );
+}

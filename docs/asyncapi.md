@@ -259,9 +259,11 @@ In a `//!` file comment, an `@openapi` line starts a new block, so
 Every component schema a message refers to, directly or through other
 schemas, is copied from the OpenAPI document into the AsyncAPI
 `components.schemas`, unless the AsyncAPI document defines a schema of that
-name itself. Schemas are written in the AsyncAPI schema dialect: tuples
-become `items` lists and the discriminator a property name. What has no
-equivalent is reported (`OF6001`).
+name itself. Schemas (component schemas, message payloads and message
+headers, also in message traits) are written in the AsyncAPI schema
+dialect: tuples become `items` lists, `$defs` become `definitions` and the
+discriminator a property name. What has no equivalent is reported
+(`OF6001`).
 
 The AsyncAPI document is checked by the same lints as the OpenAPI document,
 for example for references that lead nowhere (`OF5001`).

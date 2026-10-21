@@ -675,3 +675,28 @@ mod content_keywords {
         assert_eq!(lower_to(Dialect::OpenApi31, schema.clone()).0, schema);
     }
 }
+
+/// In OpenAPI, `headers` maps names to Header Objects: the names are not
+/// schema keywords, only the `schema` of each header is lowered.
+#[test]
+fn openapi_headers_are_maps_of_header_objects() {
+    let mut document = json!({
+        "openapi": "3.0.3",
+        "paths": { "/a": { "get": { "responses": { "200": {
+            "description": "OK",
+            "headers": { "X-Rate-Limit": { "schema": { "type": ["integer", "null"] } } },
+        }}}}},
+        "components": { "headers": { "X-Trace": { "schema": { "const": "t" } } } },
+    });
+    let mut diagnostics = Diagnostics::new();
+    lower(&mut document, Dialect::OpenApi30, &mut diagnostics);
+    assert_eq!(
+        document["paths"]["/a"]["get"]["responses"]["200"]["headers"],
+        json!({ "X-Rate-Limit": { "schema": { "type": "integer", "nullable": true } } })
+    );
+    assert_eq!(
+        document["components"]["headers"],
+        json!({ "X-Trace": { "schema": { "enum": ["t"] } } })
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
