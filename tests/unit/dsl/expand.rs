@@ -104,3 +104,40 @@ fn header_parameters_are_lifted_too() {
     assert_eq!(search["deprecated"], true);
     assert!(search["schema"].get("deprecated").is_none());
 }
+
+#[test]
+fn examples_stay_in_the_schema_next_to_an_example_or_when_not_a_list() {
+    let (document, diagnostics) = pipeline(&[(
+        "api.rs",
+        r#"
+/// @openapi
+pub struct Filter {
+    /// @example 1
+    /// @openapi
+    /// example: 2
+    pub both: Option<u32>,
+    /// @openapi
+    /// examples: not a list
+    pub odd: Option<u32>,
+}
+
+/// @route GET /x
+/// @query-params $Filter
+fn x() {}
+"#,
+    )]);
+    assert!(
+        diagnostics.iter().all(|d| !d.is_error()),
+        "{diagnostics:#?}"
+    );
+    let parameters = document["paths"]["/x"]["get"]["parameters"]
+        .as_array()
+        .unwrap();
+    let both = parameters.iter().find(|p| p["name"] == "both").unwrap();
+    assert_eq!(both["example"], 2);
+    assert!(both.get("examples").is_none());
+    assert_eq!(both["schema"]["examples"], json!([1]));
+    let odd = parameters.iter().find(|p| p["name"] == "odd").unwrap();
+    assert!(odd.get("examples").is_none() && odd.get("example").is_none());
+    assert_eq!(odd["schema"]["examples"], "not a list");
+}

@@ -99,12 +99,11 @@ pub(super) fn trailing_description(text: &str) -> (&str, Option<String>) {
     let mut open = None;
     let mut escaped = false;
     for (index, c) in body.char_indices() {
-        if std::mem::take(&mut escaped) {
-            continue;
-        }
-        match c {
-            '\\' if open.is_some() => escaped = true,
-            '"' => open = if open.is_some() { None } else { Some(index) },
+        match (open, c) {
+            _ if std::mem::take(&mut escaped) => {}
+            (Some(_), '\\') => escaped = true,
+            (Some(_), '"') => open = None,
+            (None, '"') => open = Some(index),
             _ => {}
         }
     }

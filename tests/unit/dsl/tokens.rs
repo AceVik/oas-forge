@@ -108,6 +108,18 @@ fn a_description_without_escapes_is_unchanged() {
 }
 
 #[test]
+fn an_escaped_final_quote_is_no_description() {
+    let (_, diagnostics) = try_route(&["@route GET /x", r#"@return 200: String "open\""#]);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+}
+
+#[test]
+fn backticks_after_an_escaped_quote_stay_in_the_description() {
+    let op = op(&["@route GET /x", r#"@return 200: String "say \" `hi` \"""#]);
+    assert_eq!(op["responses"]["200"]["description"], r#"say " `hi` ""#);
+}
+
+#[test]
 fn an_unbalanced_quote_is_no_description() {
     // As before: a trailing quote without opening quote is dropped.
     let op = operation(&["@route GET /x", r#"@return 200: String""#], "/x", "get");
