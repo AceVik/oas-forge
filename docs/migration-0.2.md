@@ -308,9 +308,37 @@ what 0.1 wrote:
   false "multiple roots" error; symbolic links in input directories are
   followed, broken ones are reported (`OF0005`).
 
-New warnings can fail builds with `deny_warnings`: `OF0005`, `OF1001` and
+New warnings can fail builds with `deny_warnings`: `OF0006`, `OF1010`,
+`OF1011`, `OF2009`, `OF3012`–`OF3014`, `OF0005`, `OF1001` and
 `OF1008` for directive mistakes, `OF1009`, `OF3010`, `OF3011`, and `OF3002`/
 `OF3008` for broken templates in included files, which were dropped silently.
+
+### Integration in a real project
+Documenting a large service with 0.2 before the release led to these
+changes. Those that change 0.1 output:
+- **Type aliases are exported only with `@openapi`** (`transparent_aliases`,
+  `type_aliases`). 0.1 made every `type X = …` a component. Now an alias
+  without `@openapi` has no schema of its own; fields and routes that use
+  it get the schema of its target. *Action:* add `/// @openapi` to aliases
+  that should stay components.
+- **Output types are exact about `required`** (`readme_schemas`,
+  `guide_schemas`). In a type that only derives `Serialize`, every field
+  serde always writes is required, `Option` fields included (they are
+  nullable). `skip_serializing_if = "Option::is_none"` makes a field
+  optional and not nullable. Types that derive `Deserialize` keep the 0.1
+  rules.
+- **Type references resolve by module path** (`module_qualified_names`).
+  0.1 matched the last segment of a type name, so two `User` types in
+  different crates or modules were confused silently. Now `use`
+  declarations and paths decide; an ambiguous name is reported (`OF3014`)
+  and left unresolved; two documented types with the same component name
+  are named `crate.module.Name` (`OF1004`). *Action:* give such types
+  distinct names with `@openapi rename "…"`.
+- **Responses are sorted by status**, and several `@return` lines (from the
+  block, `@insert` and module defaults) for one status are merged into one
+  response with all their descriptions.
+- **Flags may follow a quoted description** (`@query-param q: u32 "Text"
+  default=1`); 0.1 made them part of the description.
 
 ### Command line
 - `--check` writes nothing and exits with status 1 when an output is missing or

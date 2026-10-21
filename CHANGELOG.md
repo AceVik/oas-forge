@@ -64,6 +64,31 @@ worked in 0.1 keeps working unless the
 - **CLI:** `--check`, `--deny-warnings`, `--strict`,
   `--message-format json`, `--var`, the export flags; the package metadata
   of `Cargo.toml` is used.
+- **Scopes:** `@scope` on routes, webhooks, channels, module defaults and
+  YAML blocks; `Generator::output_scoped` writes several documents (e.g.
+  public, admin, a second service) from one run, each with its own root and
+  only the components it uses (`Spec::render_scoped`, `--scope`).
+- **WebSocket channels:** `@ws-query` / `@ws-header` (handshake bindings),
+  embedded YAML in `@channel` blocks (`@openapi message Name`, `operation`,
+  `document`) and a media type per message.
+- **protobuf payloads:** `.proto` files are inputs; `proto(pkg.Message)`
+  gives an AsyncAPI multi-format payload with the message's `.proto` text.
+- **Route blocks:** several `@route`/`@webhook` lines in one block;
+  `@description` replaces the prose, `@summary` sets the summary and leaves
+  all prose to the description, `@internal` keeps developer notes out of
+  the document; the same directives on types, fields and variants
+  (`@summary` is the schema `title`); `optional` flag for parameters;
+  `required`/`optional` for response headers (optional by default).
+- **rustdoc-friendly annotations:** directive arguments may be wrapped in
+  backticks, URLs may be autolinks (`<https://…>`), and YAML may sit in
+  fenced code blocks, so annotated crates pass `clippy::doc_markdown`.
+- **Type names resolve by module path:** `use` declarations, module paths
+  and crates decide which documented type a field refers to; ambiguous
+  names are reported (OF3014) instead of guessed, and colliding component
+  names are qualified (`crate.module.Name`).
+- `@route-defaults` in module files (`//!` at the top, or `///` on
+  `mod name;`); the `#[default]` variant of an enum becomes its `default`
+  and that of `#[serde(default)]` fields of its type.
 - **API documentation:** every public item has a running example (100 %
   of the items rustdoc counts), fallible functions document their errors,
   and every internal item is documented; lints keep it that way.
@@ -85,6 +110,13 @@ worked in 0.1 keeps working unless the
   top-level `tags` are tag objects. The [migration guide](docs/migration-0.2.md)
   lists every change with its corpus case.
 - Findings are diagnostics instead of `log` messages.
+- Type aliases without `@openapi` are no longer components; references to
+  them resolve to their target.
+- Output types (deriving `Serialize` only) list every field serde always
+  writes as `required`, also `Option` fields (nullable); a field with
+  `skip_serializing_if = "Option::is_none"` is optional and not nullable.
+- Responses are sorted by status; several lines for one status are one
+  response whose descriptions are combined.
 - `Error` is `#[non_exhaustive]` and carries locations instead of foreign
   error types.
 
@@ -134,6 +166,17 @@ worked in 0.1 keeps working unless the
   - lints: properties named `mapping` and example data are no longer taken
     for references; lints and exports run in linear time (23–31 % fewer
     instructions on large projects).
+- Found while documenting a real project (about 200 routes, 7 WebSockets)
+  with the 0.2 code: `@route-defaults` in module files were ignored;
+  unannotated aliases polluted the document; function-pointer types leaked
+  token text into references; flags after a quoted description and escaped
+  quotes broke parameters; fragment responses were replaced silently;
+  multi-line `@description` kept stray spaces; `@openapi` one-liners
+  swallowed the following lines; prose next to `@openapi` blocks was read
+  as YAML; `$Name` in schema lists of inline YAML became a string;
+  `deprecated`/`example` of expanded parameters landed in the schema;
+  `enum` overrides dropped `null` of nullable fields; findings in module
+  defaults were repeated per route.
 - Found by mutation testing (`cargo mutants`, 91–93 % of mutants caught
   before, the survivors now covered or documented as equivalent): flags
   after a quoted parameter description, Swagger hosts of URLs with an empty
