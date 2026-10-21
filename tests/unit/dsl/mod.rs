@@ -1345,6 +1345,29 @@ mod defaults_findings {
             .collect();
         assert_eq!(found, ["OF2004 mod.rs:4"]);
     }
+
+    #[test]
+    fn several_routes_report_findings_of_the_defaults_after_other_findings() {
+        let defaults = lines(&["@route-defaults", "@return oops"]);
+        let locations = at("mod.rs", &[3, 4]);
+        let location = here();
+        let mut diagnostics = Diagnostics::new();
+        // A finding of an earlier block, not about the defaults.
+        let other = lines(&["@route GET /x", "@frobnicate"]);
+        dsl::compile(RouteSource::new(&other, &location), &mut diagnostics);
+        let block = lines(&["@route GET /a", "@route GET /b"]);
+        dsl::compile(
+            RouteSource::new(&block, &location)
+                .defaults(&defaults)
+                .default_locations(&locations),
+            &mut diagnostics,
+        );
+        let found: Vec<String> = diagnostics
+            .iter()
+            .map(|d| format!("{} {}", d.code(), d.location().unwrap()))
+            .collect();
+        assert_eq!(found, ["OF2006 test.rs:1", "OF2004 mod.rs:4"]);
+    }
 }
 
 mod scope_directive {
