@@ -207,6 +207,46 @@ mod builder {
         );
         assert_eq!(lines.len(), 5, "{text}");
     }
+
+    /// `generate` prints the directives to the standard output of the build
+    /// script, which a test cannot capture: this test runs itself again in
+    /// a child process, which generates and prints.
+    #[test]
+    fn generate_prints_cargo_directives_to_standard_output() {
+        const CHILD: &str = "OAS_FORGE_TEST_DIRECTIVES_CHILD";
+        if let Some(mode) = std::env::var_os(CHILD) {
+            let root = std::env::var_os("OAS_FORGE_TEST_DIRECTIVES_ROOT").unwrap();
+            let root = std::path::Path::new(&root);
+            Generator::new()
+                .input(root.join("src"))
+                .output(root.join(format!("{}.yaml", mode.to_string_lossy())))
+                .emit_cargo_directives(mode == "emit")
+                .generate()
+                .unwrap();
+            return;
+        }
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC);
+        let run = |mode: &str| {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "generator::builder::generate_prints_cargo_directives_to_standard_output",
+                    "--nocapture",
+                ])
+                .env(CHILD, mode)
+                .env("OAS_FORGE_TEST_DIRECTIVES_ROOT", project.root())
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            assert!(project.path(&format!("{mode}.yaml")).is_file(), "{mode}");
+            String::from_utf8(output.stdout).unwrap()
+        };
+        let directive = format!("cargo:rerun-if-changed={}", project.path("src").display());
+        let printed = run("emit");
+        assert!(printed.lines().any(|line| line == directive), "{printed}");
+        assert!(!run("silent").contains("cargo:"));
+    }
 }
 
 mod spec {
@@ -775,6 +815,9 @@ mod pipeline_stages {
             document["tags"],
             json!([{ "name": "Users" }, { "name": "Admin", "description": "Staff" }])
         );
+        // Entries that are neither names nor objects are kept, once.
+        let (document, _) = pipeline(&[("a.yaml", "tags: [5, Users, 5, null]")]);
+        assert_eq!(document["tags"], json!([5, { "name": "Users" }, null]));
     }
 
     #[test]
@@ -1375,6 +1418,22 @@ mod operations {
         assert_eq!(values("/a"), (json!(10), json!(1)));
         assert_eq!(values("/b"), (json!(20), json!(2)));
         assert_eq!(values("/c"), (json!(30), json!(3)));
+    }
+
+    /// A module's defaults are expanded as one text: its `@extend` markers
+    /// are numbered in order and the first fragment wins, like in a route.
+    #[test]
+    fn every_extend_of_a_module_applies() {
+        let (document, diagnostics) = pipeline(&[(
+            "api.rs",
+            "//! @openapi-fragment A\n//! x-a: 1\n//! x-both: a\n//! @openapi-fragment B\n//! x-b: 2\n//! x-both: b\n\n/// @route-defaults\n/// @extend A\n/// @extend B\nmod api {\n  /// @route GET /a\n  fn a() {}\n}",
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let op = &document["paths"]["/a"]["get"];
+        assert_eq!(
+            (&op["x-a"], &op["x-b"], &op["x-both"]),
+            (&json!(1), &json!(2), &json!("a"))
+        );
     }
 
     #[test]

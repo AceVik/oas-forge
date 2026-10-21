@@ -1,7 +1,7 @@
 //! `src/attrs/`: rename rules, validation constraints and how serde,
 //! validator, garde and `@openapi` directives shape reflected schemas.
 
-use crate::common::{codes, extract, extract_with_diagnostics, schema};
+use crate::common::{codes, extract, extract_with_diagnostics, pipeline, schema};
 use oas_forge::attrs::{Constraints, LengthUnit, RenameRule, Rule};
 use oas_forge::diagnostics::Code;
 use serde_json::{Number, Value, json};
@@ -135,6 +135,7 @@ mod constraints {
         let constraints = Constraints::default();
         assert!(constraints.is_empty());
         assert!(!constraints.requires_value());
+        assert!(!Constraints::new(vec![Rule::Required]).is_empty());
         assert_eq!(
             applied(vec![], json!({ "type": "string" })),
             json!({ "type": "string" })
@@ -673,14 +674,15 @@ mod bounds {
     #[test]
     fn unusable_values_are_reported_with_the_reason() {
         let (_, diagnostics) = extract_with_diagnostics(
-            "/// @openapi\nstruct S {\n#[validate(length(min = 99999999999999999999), range(max = -99999999999999999999))]\na: String,\n#[garde(length(max = MAX), pattern(Regex::new(\"x\").unwrap()))]\nb: String,\n}",
+            "/// @openapi\nstruct S {\n#[validate(length(min = 99999999999999999999), range(max = -99999999999999999999))]\na: String,\n#[garde(length(max = MAX), pattern(Regex::new(\"x\").unwrap()))]\nb: String,\n#[validate(length(max = (99999999999999999999)))]\nc: String,\n}",
         );
-        assert_eq!(codes(&diagnostics), [Code::NonLiteralConstraint; 4]);
+        assert_eq!(codes(&diagnostics), [Code::NonLiteralConstraint; 5]);
         let messages: Vec<&str> = diagnostics.iter().map(|d| d.message()).collect();
         assert!(messages[0].contains("is out of range"), "{messages:?}");
         assert!(messages[1].contains("is out of range"), "{messages:?}");
         assert!(messages[2].contains("is not a literal"), "{messages:?}");
         assert!(messages[3].contains("`pattern` argument"), "{messages:?}");
+        assert!(messages[4].contains("is out of range"), "{messages:?}");
     }
 }
 
@@ -1327,5 +1329,21 @@ fn x() {}
                 },
             ])
         );
+    }
+}
+
+mod patterns {
+    use super::*;
+
+    #[test]
+    fn constants_are_resolved_inside_lists_of_schemas() {
+        let (document, diagnostics) = pipeline(&[(
+            "a.rs",
+            "static SLUG: LazyLock<Regex> = LazyLock::new(|| Regex::new(\"^[a-z]+$\").unwrap());\n/// @openapi\n#[derive(serde::Serialize)]\nenum Key {\n  Slug {\n    #[validate(regex(path = *SLUG))]\n    slug: String,\n  },\n  Id { id: u64 },\n}",
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let text = document["components"]["schemas"]["Key"].to_string();
+        assert!(text.contains(r#""pattern":"^[a-z]+$""#), "{text}");
+        assert!(!text.contains("x-oas-forge-pattern"), "{text}");
     }
 }

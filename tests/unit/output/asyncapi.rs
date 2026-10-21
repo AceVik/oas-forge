@@ -132,6 +132,18 @@ fn asyncapi_files_and_multiple_roots() {
         matches!(result, Err(Error::MultipleRootsFound { .. })),
         "{result:?}"
     );
+
+    // Another block with `asyncapi` but without `info` is no second root.
+    let (spec, _project) = spec_of(&[(
+        "lib.rs",
+        &format!(
+            "{ROOT}\n/// @asyncapi\n/// asyncapi: 3.1.0\n/// channels: {{ b: {{ address: b }} }}\nfn b() {{}}"
+        ),
+    )]);
+    assert_eq!(
+        spec.render(OutputKind::AsyncApi).unwrap()["channels"]["b"]["address"],
+        "b"
+    );
 }
 
 #[test]

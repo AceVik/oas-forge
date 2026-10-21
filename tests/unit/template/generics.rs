@@ -394,6 +394,23 @@ mod std_containers {
     }
 
     #[test]
+    fn wrappers_of_references_are_inline_schemas() {
+        let (value, concrete, diagnostics) = run(
+            &Registry::new(),
+            json!({ "a": "$Box<User>", "b": "$Option<User>" }),
+        );
+        assert_eq!(
+            value,
+            json!({
+                "a": { "$ref": "$User" },
+                "b": { "anyOf": [{ "$ref": "$User" }, { "type": "null" }] },
+            })
+        );
+        assert!(concrete.is_empty());
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
     fn a_blueprint_named_like_a_container_wins() {
         let reg = registry(&[("Vec", &["T"], json!({ "custom": "$T" }))]);
         let (value, concrete, _) = run(&reg, json!({ "$ref": "$Vec<Tag>" }));
