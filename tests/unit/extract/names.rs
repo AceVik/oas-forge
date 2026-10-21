@@ -501,6 +501,46 @@ mod edges {
     }
 
     #[test]
+    fn glob_re_export_cycles_end() {
+        let (document, diagnostics) = pipeline(&[
+            ("lib.rs", "mod a;\nmod b;\nmod c;"),
+            ("a.rs", "pub use crate::b::*;"),
+            ("b.rs", "pub use crate::a::*;"),
+            (
+                "c.rs",
+                "/// @openapi\npub struct User { pub id: u64 }\n/// @openapi\npub struct S { pub u: crate::a::User }",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            document["components"]["schemas"]["S"]["properties"]["u"],
+            reference("User"),
+            "the one documented `User`"
+        );
+    }
+
+    #[test]
+    fn a_file_declared_before_its_declaring_file_is_found_in_a_later_pass() {
+        // `src/a.rs` keeps its module but is named by `#[path]`, so its
+        // modules are next to it; it is read before `src/lib.rs` marks it.
+        let (document, _) = pipeline(&[
+            ("src/x.rs", "/// @openapi\npub struct User { pub id: u64 }"),
+            ("src/a.rs", "mod x;"),
+            (
+                "src/lib.rs",
+                "#[path = \"a.rs\"]\nmod a;\n/// @openapi\npub struct User { pub name: String }",
+            ),
+        ]);
+        let mut names: Vec<&String> = document["components"]["schemas"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect();
+        names.sort_unstable();
+        assert_eq!(names, ["crate.User", "crate.a.x.User"]);
+    }
+
+    #[test]
     fn a_path_of_a_crate_finds_the_type_of_a_module_it_does_not_show() {
         let project = crates();
         project.file(

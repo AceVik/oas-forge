@@ -581,8 +581,9 @@ impl NameTable {
                         inner: inner.clone(),
                     });
                 }
-                // `type B = A;`: the alias `A`, read in the module of `B`.
-                [] if params.is_empty() => {
+                // `type B = A;`: the alias `A`, read in the module of `B`
+                // (an alias has no type parameters its target does not use).
+                [] => {
                     scope = module.to_vec();
                     written.clone_from(target);
                 }

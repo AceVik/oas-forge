@@ -437,6 +437,10 @@ mod transparent {
             pub type Chained = MaybeId;
             pub type Maybe<T> = Option<T>;
             pub type Full = std::option::Option<bool>;
+            // No `std::option::Option`: not optional.
+            pub type NotStd = crate::option::Option<u8>;
+            pub type Odd = std::other::Option<u8>;
+            use crate::types::*;
             /// @openapi
             pub struct User { pub id: u64 }
             /// @openapi
@@ -448,7 +452,10 @@ mod transparent {
                 pub full: Full,
                 pub note: models::Note,
                 pub plain: Option<u64>,
+                pub glob: GlobId,
                 pub required: u64,
+                pub not_std: NotStd,
+                pub odd: Odd,
             }
             /// @openapi
             #[derive(Serialize)]
@@ -469,11 +476,12 @@ mod transparent {
                 "models.rs",
                 "pub type Note = Option<Text>;\n/// @openapi\npub struct Text { pub body: String }",
             ),
+            ("types.rs", "pub type GlobId = Option<u32>;"),
         ]);
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
         let schemas = &document["components"]["schemas"];
         let both = &schemas["Both"];
-        assert_eq!(both["required"], json!(["required"]));
+        assert_eq!(both["required"], json!(["required", "not_std", "odd"]));
         let properties = &both["properties"];
         assert_eq!(
             properties["id"],
@@ -485,6 +493,10 @@ mod transparent {
         assert_eq!(properties["user"], nullable("User"));
         assert_eq!(properties["note"], nullable("Text"));
         assert_eq!(properties["full"], json!({ "type": ["boolean", "null"] }));
+        assert_eq!(
+            properties["glob"],
+            json!({ "type": ["integer", "null"], "format": "int64", "minimum": 0, "maximum": u32::MAX })
+        );
         // An output type requires every field it writes; `skip_serializing_if`
         // leaves `None` out, so that value is not nullable.
         let out = &schemas["Out"];
@@ -551,6 +563,36 @@ mod transparent {
         assert_eq!(
             schemas["Page_Option_u64"]["properties"]["items"]["items"]["type"],
             json!(["integer", "null"])
+        );
+    }
+
+    #[test]
+    fn alias_cycles_as_type_arguments_keep_their_name() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            r#"
+            pub type A = B;
+            pub type B = A;
+            pub type Owner = User;
+            /// @openapi
+            pub struct Page<T> { pub items: Vec<T> }
+            /// @openapi
+            pub struct Pair<L, R> { pub left: L, pub right: R }
+            /// @openapi
+            pub struct User { pub id: u64 }
+            /// @openapi
+            pub struct H { pub cycle: Page<A>, pub twice: Pair<Owner, Owner> }
+            "#,
+        )]);
+        let h = &document["components"]["schemas"]["H"]["properties"];
+        assert_eq!(h["cycle"], json!({ "$ref": "#/components/schemas/Page_A" }));
+        assert_eq!(
+            h["twice"],
+            json!({ "$ref": "#/components/schemas/Pair_User_User" })
+        );
+        assert!(
+            codes(&diagnostics).contains(&Code::AliasCycle),
+            "{diagnostics:?}"
         );
     }
 
