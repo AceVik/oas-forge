@@ -176,8 +176,9 @@ Flags may come in any order, also after the description; an unknown flag is
 reported and ignored.
 
 `@query-params $Pagination` adds one query parameter per field of the
-documented struct `Pagination` (field descriptions included; `Option`
-fields are optional). Fields of `#[serde(flatten)]` structs are included; a
+documented struct `Pagination` (`Option` fields are optional). A field's
+description, `deprecated` (`#[deprecated]` or `@openapi deprecated: true`)
+and examples (`@example`) become the parameter's, not its schema's. Fields of `#[serde(flatten)]` structs are included; a
 flattened `Option<T>` makes its fields optional. A path such as
 `models::Pagination` names the struct by its last segment. It works for
 `path`, `header` and `cookie` too. Parameters written explicitly win over

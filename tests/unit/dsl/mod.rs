@@ -1,6 +1,7 @@
 //! `src/dsl/`: the route DSL, split like the source modules.
 
 mod channel;
+mod expand;
 mod operation;
 mod params;
 mod prose;

@@ -195,22 +195,53 @@ fn from_schema(
     properties
         .into_iter()
         .map(|(name, mut property)| {
-            let description = match &mut property {
-                Value::Object(map) => map.remove("description"),
-                _ => None,
-            };
             let required = location == "path" || required.contains(&name);
             let mut parameter = Map::new();
             parameter.insert("name".into(), json!(name));
             parameter.insert("in".into(), json!(location));
             parameter.insert("required".into(), json!(required));
-            if let Some(description) = description {
-                parameter.insert("description".into(), description);
-            }
+            lift_annotations(&mut property, &mut parameter);
             parameter.insert("schema".into(), strip_null(property));
             Value::Object(parameter)
         })
         .collect()
+}
+
+/// Moves the keywords of a field's schema that the Parameter Object has
+/// itself into `parameter`: `description`, `deprecated` and `example`. The
+/// schema's `examples` (a list) become the parameter's `example` when there
+/// is one, its `examples` (Example Objects `example1`, `example2`, …) when
+/// there are several; next to an `example` they stay in the schema, as
+/// `example` and `examples` exclude each other.
+fn lift_annotations(property: &mut Value, parameter: &mut Map<String, Value>) {
+    let Value::Object(schema) = property else {
+        return;
+    };
+    for key in ["description", "deprecated", "example"] {
+        if let Some(value) = schema.remove(key) {
+            parameter.insert(key.into(), value);
+        }
+    }
+    if parameter.contains_key("example") {
+        return;
+    }
+    match schema.remove("examples") {
+        Some(Value::Array(mut examples)) if examples.len() == 1 => {
+            parameter.insert("example".into(), examples.remove(0));
+        }
+        Some(Value::Array(examples)) => {
+            let named: Map<String, Value> = examples
+                .into_iter()
+                .enumerate()
+                .map(|(i, value)| (format!("example{}", i + 1), json!({ "value": value })))
+                .collect();
+            parameter.insert("examples".into(), Value::Object(named));
+        }
+        Some(other) => {
+            schema.insert("examples".into(), other);
+        }
+        None => {}
+    }
 }
 
 /// Removes empty `parameters` lists (an expansion may leave nothing).
