@@ -401,19 +401,25 @@ mod validator {
         );
     }
 
+    /// The marker keeps the path as written, so constants of the same name
+    /// in different modules can be told apart.
     #[test]
     fn regex_paths_name_constants() {
-        for attrs in [
-            "#[validate(regex(path = *SLUG))]",
-            "#[validate(regex(path = SLUG))]",
-            "#[validate(regex(path = \"SLUG\"))]",
-            "#[validate(regex = \"crate::re::SLUG\")]",
-            "#[validate(regex(path = &crate::SLUG))]",
-            "#[validate(regex(path = (SLUG)))]",
+        for (attrs, path) in [
+            ("#[validate(regex(path = *SLUG))]", "SLUG"),
+            ("#[validate(regex(path = SLUG))]", "SLUG"),
+            ("#[validate(regex(path = \"SLUG\"))]", "SLUG"),
+            (
+                "#[validate(regex = \" crate::re::SLUG \")]",
+                "crate::re::SLUG",
+            ),
+            ("#[validate(regex(path = &crate::SLUG))]", "crate::SLUG"),
+            ("#[validate(regex(path = (SLUG)))]", "SLUG"),
+            ("#[validate(regex(path = *re :: SLUG))]", "re::SLUG"),
         ] {
             assert_eq!(
                 field_schema(attrs, "String")["x-oas-forge-pattern"],
-                "SLUG",
+                path,
                 "{attrs}"
             );
         }

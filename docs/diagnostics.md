@@ -43,6 +43,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF1008` | warning | An `@openapi` directive has an invalid argument: an unknown `rename-all` rule, `rename` without a name, text after `skip` | Fix the directive; the argument is ignored meanwhile |
 | `OF1009` | warning | A variant of a `serde_repr` enum has a discriminant that is not an integer literal; the values are not documented | Use literals, or describe the enum with an `@openapi` override |
 | `OF1010` | warning | A documented type uses a type that cannot be documented: a function pointer, `dyn Trait`, `impl Trait` or a macro, also through a type alias; its schema is `{}` | Skip the field (`#[serde(skip)]`), describe it with an `@openapi` override, or map the type with `map_type` |
+| `OF1011` | warning | A `regex(path = …)` or `pattern(…)` constant matches several constants with different patterns (the same name in several modules); the pattern is left out | Qualify the path with the module (`regex(path = *crate::a::RE)`), or rename a constant |
 
 ## Route DSL (OF2xxx)
 

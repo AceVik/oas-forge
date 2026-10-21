@@ -943,6 +943,99 @@ mod types_and_dialects {
         );
     }
 
+    /// The source of a regular expression constant `name` on line 1.
+    fn regex_constant(name: &str, pattern: &str) -> String {
+        format!(
+            "pub static {name}: LazyLock<Regex> = LazyLock::new(|| Regex::new(\"{pattern}\").unwrap());\n"
+        )
+    }
+
+    /// Constants of the same name in different modules: a path selects one
+    /// by the modules it names, a bare name the one in the referencing
+    /// file; constants with the same pattern are no conflict, and anything
+    /// else is ambiguous, reported and left out.
+    #[test]
+    fn pattern_constants_are_resolved_by_path() {
+        let local = format!(
+            "{}/// @openapi\nstruct L {{\n  #[validate(regex(path = *RE))]\n  local: String,\n}}",
+            regex_constant("RE", "^local$")
+        );
+        let (document, diagnostics) = pipeline(&[
+            ("src/a.rs", &regex_constant("RE", "^a$")),
+            ("src/b/mod.rs", &regex_constant("RE", "^b$")),
+            ("src/b/c.rs", &regex_constant("RE", "^c$")),
+            ("src/d.rs", &regex_constant("SAME", "^s$")),
+            ("src/e.rs", &regex_constant("SAME", "^s$")),
+            (
+                "src/lib.rs",
+                "/// @openapi\nstruct S {\n  #[validate(regex(path = *crate::a::RE))]\n  a: String,\n  #[validate(regex(path = \"b::RE\"))]\n  b: String,\n  #[garde(pattern(b::c::RE))]\n  c: String,\n  #[validate(regex(path = *self::c::RE))]\n  c2: String,\n  #[validate(regex(path = *SAME))]\n  same: String,\n  #[validate(regex(path = *RE))]\n  ambiguous: String,\n  #[validate(regex(path = *other_crate::RE))]\n  unknown_module: String,\n}",
+            ),
+            ("src/local.rs", &local),
+        ]);
+        let pattern = |schema: &str, property: &str| {
+            document["components"]["schemas"][schema]["properties"][property]
+                .get("pattern")
+                .cloned()
+        };
+        assert_eq!(pattern("S", "a"), Some(json!("^a$")));
+        assert_eq!(pattern("S", "b"), Some(json!("^b$")));
+        assert_eq!(pattern("S", "c"), Some(json!("^c$")));
+        assert_eq!(pattern("S", "c2"), Some(json!("^c$")));
+        assert_eq!(pattern("S", "same"), Some(json!("^s$")));
+        assert_eq!(pattern("S", "ambiguous"), None);
+        assert_eq!(pattern("S", "unknown_module"), None);
+        assert_eq!(pattern("L", "local"), Some(json!("^local$")));
+        assert_eq!(
+            codes(&diagnostics),
+            [Code::AmbiguousPattern, Code::AmbiguousPattern]
+        );
+        let messages: Vec<String> = diagnostics.iter().map(|d| d.to_string()).collect();
+        assert_eq!(
+            messages[0],
+            "warning[OF1011]: regular expression constant `RE` matches constants with different patterns (src/a.rs:1, src/b/c.rs:1, src/b/mod.rs:1, src/local.rs:1); the pattern is not documented (src/lib.rs:1)"
+        );
+        assert!(
+            messages[1].contains("`other_crate::RE` matches constants"),
+            "{messages:?}"
+        );
+    }
+
+    /// Markers in the alternatives of an untagged enum (an array).
+    #[test]
+    fn pattern_constants_in_alternatives_are_resolved() {
+        let (document, diagnostics) = pipeline(&[(
+            "a.rs",
+            &format!(
+                "{}/// @openapi\n#[serde(untagged)]\nenum Key {{\n  Named {{\n    #[validate(regex(path = *RE))]\n    name: String,\n  }},\n}}",
+                regex_constant("RE", "^k$")
+            ),
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let alternatives = document["components"]["schemas"]["Key"]["anyOf"].clone();
+        assert_eq!(
+            alternatives[0]["properties"]["name"]["pattern"], "^k$",
+            "{alternatives}"
+        );
+    }
+
+    /// Before paths were resolved, the last definition won without a word.
+    #[test]
+    fn a_bare_name_of_several_constants_is_ambiguous() {
+        let (document, diagnostics) = pipeline(&[
+            ("a.rs", &regex_constant("RE", "^a$")),
+            ("b.rs", &regex_constant("RE", "^b$")),
+            (
+                "c.rs",
+                "/// @openapi\nstruct S {\n  #[validate(regex(path = *RE))]\n  s: String,\n}",
+            ),
+        ]);
+        assert_eq!(
+            document["components"]["schemas"]["S"]["properties"]["s"],
+            json!({ "type": "string" })
+        );
+        assert_eq!(codes(&diagnostics), [Code::AmbiguousPattern]);
+    }
+
     #[test]
     fn patterns_in_generic_instances_are_resolved() {
         let (document, diagnostics) = pipeline(&[(

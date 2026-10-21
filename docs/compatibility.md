@@ -93,7 +93,7 @@ writes the discriminant: the enum is an integer `enum` of the discriminants
 | `range(min, max, exclusive_min, exclusive_max, equal)` | `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`; floats and negative values are fine |
 | `contains(pattern = "x")`, `contains = "x"` | `pattern` matching the literal text |
 | `does_not_contain(pattern = "x")` | `not: { pattern }` |
-| `regex(path = RE)`, `regex = "RE"` | the `pattern` of the constant `RE` (see [schemas](schemas.md#validation-constraints)) |
+| `regex(path = RE)`, `regex = "RE"` | the `pattern` of the constant `RE`; a path such as `crate::a::RE` selects among constants of the same name (see [schemas](schemas.md#validation-constraints)) |
 | `required`, `required_nested` | required and not nullable |
 | `credit_card`, `non_control_character`, `must_match`, `custom`, `nested`, `schema` | not expressible; left out |
 

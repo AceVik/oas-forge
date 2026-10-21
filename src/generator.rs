@@ -1,6 +1,6 @@
 //! The generator: configuration, the pipeline run and its result.
 
-use super::attrs::validate::resolve_patterns;
+use super::attrs::validate::{Patterns, resolve_patterns};
 use super::config::Config;
 use super::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
 use super::document::for_each_operation;
@@ -1976,8 +1976,8 @@ impl ScopeFindings {
 struct Collected {
     /// Fragments, blueprints and the schema names of renamed Rust types.
     registry: Registry,
-    /// Regular expression constants by name.
-    patterns: BTreeMap<String, String>,
+    /// Regular expression constants.
+    patterns: Patterns,
     /// The schema names smart references may resolve to.
     known: KnownSchemas,
     /// Snippets that are complete after extraction (reflected schemas).
@@ -2073,9 +2073,7 @@ impl Collected {
             Item::Channel(channel) => {
                 pending.push((snippets.len(), Pending::Channel(Box::new(channel))));
             }
-            Item::Pattern(pattern) => {
-                patterns.insert(pattern.name, pattern.pattern);
-            }
+            Item::Pattern(pattern) => patterns.add(pattern),
             Item::Module(module) => {
                 for file in &module.files {
                     modules

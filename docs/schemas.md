@@ -454,6 +454,11 @@ A `regex(path = RE)` refers to a constant; when a
 `static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new("…").unwrap())`
 (or `Lazy`, `lazy_static!`, `OnceLock`) with a literal pattern is in the
 scanned sources, its pattern is used, otherwise the finding `OF1007` reports
-it. Values that are not literals (`length(max = MAX)`) are reported
-(`OF1006`) and left out. See the
+it. When several modules define a constant of that name, a path selects one
+by its modules (`regex(path = *crate::a::RE)` or `a::RE` finds `RE` in
+`src/a.rs` or `src/a/mod.rs`; constants in inline `mod` blocks count as part
+of their file), and a bare name the one in the same file; constants with
+different patterns that still match are reported (`OF1011`) and left out.
+Values that are not literals (`length(max = MAX)`) are reported (`OF1006`)
+and left out. See the
 [validator and garde tables](compatibility.md#validator).

@@ -257,6 +257,8 @@ codes! {
     UnknownDiscriminant = "OF1009", Warning;
     /// A type that cannot be documented (function pointer, trait object, `impl Trait`, macro).
     UndocumentableType = "OF1010", Warning;
+    /// A `regex(path = ..)` / `pattern(..)` constant path that matches constants with different patterns.
+    AmbiguousPattern = "OF1011", Warning;
 
     /// A route is missing its method or path.
     InvalidRoute = "OF2001", Error;

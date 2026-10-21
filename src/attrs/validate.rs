@@ -7,7 +7,11 @@
 //! on arrays and `minProperties`/`maxProperties` on maps.
 
 use super::{metas, string_literal};
+use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
+use crate::extract::PatternItem;
 use serde_json::{Map, Number, Value, json};
+use std::collections::BTreeMap;
+use std::path::Path;
 use syn::punctuated::Punctuated;
 use syn::{Attribute, Expr, ExprLit, ExprUnary, Lit, Meta, UnOp};
 
@@ -108,8 +112,9 @@ pub enum Rule {
     Pattern(String),
     /// The value does not match a regular expression.
     NotPattern(String),
-    /// The value matches the regular expression in the named constant
-    /// (`regex(path = *RE)`), resolved after all files are read.
+    /// The value matches the regular expression in the constant at this
+    /// path, as written (`RE` for `regex(path = *RE)`, `crate::re::RE`),
+    /// resolved after all files are read.
     PatternConstant(String),
     /// The value must be present (`Option` fields become required).
     Required,
@@ -384,7 +389,7 @@ impl Parser {
             ("range", Meta::List(list)) => self.range(&args(list))?,
             ("contains" | "prefix" | "suffix" | "pattern", Meta::List(list)) => {
                 let expr: Expr = list.parse_args().ok()?;
-                let constant = || last_segment(&expr).filter(|_| name == "pattern");
+                let constant = || expr_path(&expr).filter(|_| name == "pattern");
                 match (name.as_str(), string_literal(&expr), constant()) {
                     ("pattern", Some(pattern), _) => Rule::Pattern(pattern),
                     (_, None, Some(constant)) => Rule::PatternConstant(constant),
@@ -530,7 +535,8 @@ fn is_true(meta: &Meta) -> bool {
     }
 }
 
-/// The constant named by `regex(path = *RE)` / `regex(path = "RE")` / `regex = "RE"`.
+/// The path of the constant named by `regex(path = *RE)` /
+/// `regex(path = "RE")` / `regex = "RE"`, segments joined with `::`.
 fn path_arg(meta: &Meta, key: &str) -> Option<String> {
     let expr = match meta {
         Meta::NameValue(nv) => nv.value.clone(),
@@ -541,19 +547,32 @@ fn path_arg(meta: &Meta, key: &str) -> Option<String> {
         Meta::Path(_) => return None,
     };
     match string_literal(&expr) {
-        Some(text) => text.rsplit("::").next().map(|s| s.trim().to_string()),
-        None => last_segment(&expr),
+        Some(text) => Some(
+            text.split("::")
+                .map(str::trim)
+                .collect::<Vec<_>>()
+                .join("::"),
+        ),
+        None => expr_path(&expr),
     }
 }
 
-/// The last path segment of `RE`, `*RE`, `&RE` or `crate::re::RE`.
-fn last_segment(expr: &Expr) -> Option<String> {
+/// The path of `RE`, `*RE`, `&RE` or `crate::re::RE`, segments joined with
+/// `::`.
+fn expr_path(expr: &Expr) -> Option<String> {
     match expr {
-        Expr::Path(p) => p.path.segments.last().map(|s| s.ident.to_string()),
+        Expr::Path(p) => Some(
+            p.path
+                .segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect::<Vec<_>>()
+                .join("::"),
+        ),
         Expr::Unary(ExprUnary { expr, .. }) | Expr::Reference(syn::ExprReference { expr, .. }) => {
-            last_segment(expr)
+            expr_path(expr)
         }
-        Expr::Paren(p) => last_segment(&p.expr),
+        Expr::Paren(p) => expr_path(&p.expr),
         _ => None,
     }
 }
@@ -753,32 +772,153 @@ fn add_subschema(map: &mut Map<String, Value>, key: &str, value: Value) {
     }
 }
 
+/// The regular expression constants of a run, for resolving the paths of
+/// [`Rule::PatternConstant`]s.
+///
+/// Constants are found by name. A path with modules (`crate::a::RE`,
+/// `a::RE`) selects the constants whose file stands for a module path
+/// ending with those modules (`src/a.rs`, `src/x/a/mod.rs`); a bare name
+/// prefers the constant in the referencing file, as Rust resolves it in
+/// scope. Constants in inline `mod` blocks count as part of their file's
+/// module.
+#[derive(Debug, Default)]
+pub(crate) struct Patterns {
+    /// The definitions of each constant name, in the order they were found.
+    by_name: BTreeMap<String, Vec<PatternItem>>,
+}
+
+/// What the path of a pattern constant resolves to.
+enum Resolution<'a> {
+    /// The pattern of the constant (or of all candidates, which agree).
+    Pattern(&'a str),
+    /// No constant of that name is defined.
+    Unknown,
+    /// Constants with different patterns match; where they are defined.
+    Ambiguous(Vec<&'a Location>),
+}
+
+impl Patterns {
+    /// Adds a constant definition.
+    pub(crate) fn add(&mut self, item: PatternItem) {
+        self.by_name
+            .entry(item.name.clone())
+            .or_default()
+            .push(item);
+    }
+
+    /// The constant `path` (as written in the attribute) refers to from the
+    /// file `from`.
+    fn resolve(&self, path: &str, from: &Path) -> Resolution<'_> {
+        let segments: Vec<&str> = path.split("::").collect();
+        let Some((name, modules)) = segments.split_last() else {
+            return Resolution::Unknown;
+        };
+        let Some(definitions) = self.by_name.get(*name) else {
+            return Resolution::Unknown;
+        };
+        // `crate::`, `self::` and `super::` say nothing about the module
+        // names that follow.
+        let modules: Vec<&str> = modules
+            .iter()
+            .copied()
+            .skip_while(|s| matches!(*s, "crate" | "self" | "super"))
+            .collect();
+        let preferred: Vec<&PatternItem> = definitions
+            .iter()
+            .filter(|d| match modules.as_slice() {
+                [] => d.location.file() == from,
+                modules => in_modules(d.location.file(), modules),
+            })
+            .collect();
+        let candidates = if preferred.is_empty() {
+            definitions.iter().collect()
+        } else {
+            preferred
+        };
+        match candidates.as_slice() {
+            [first, rest @ ..] if rest.iter().all(|d| d.pattern == first.pattern) => {
+                Resolution::Pattern(&first.pattern)
+            }
+            _ => Resolution::Ambiguous(candidates.iter().map(|d| &d.location).collect()),
+        }
+    }
+}
+
+/// Whether the module path of `file` ([`file_modules`]) ends with
+/// `modules`.
+fn in_modules(file: &Path, modules: &[&str]) -> bool {
+    let path = file_modules(file);
+    modules.len() <= path.len()
+        && path
+            .iter()
+            .rev()
+            .zip(modules.iter().rev())
+            .all(|(a, b)| a == b)
+}
+
+/// The module path a source file stands for: its path without the
+/// extension, where `lib.rs`, `main.rs` and `mod.rs` stand for their
+/// directory (`src/a/mod.rs` and `src/a.rs` are both `src::a`).
+fn file_modules(file: &Path) -> Vec<String> {
+    let mut modules: Vec<String> = file
+        .with_extension("")
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect();
+    if modules
+        .last()
+        .is_some_and(|last| matches!(last.as_str(), "lib" | "main" | "mod"))
+    {
+        modules.pop();
+    }
+    modules
+}
+
 /// Replaces the [`PATTERN_KEY`] markers in `value` with the `pattern` of the
-/// named constant; unknown constants are reported and dropped.
+/// constant they name ([`Patterns`]); unknown and ambiguous constants are
+/// reported and dropped.
 pub(crate) fn resolve_patterns(
     value: &mut Value,
-    patterns: &std::collections::BTreeMap<String, String>,
-    location: &crate::diagnostics::Location,
-    diagnostics: &mut crate::diagnostics::Diagnostics,
+    patterns: &Patterns,
+    location: &Location,
+    diagnostics: &mut Diagnostics,
 ) {
     match value {
         Value::Object(map) => {
-            if let Some(Value::String(name)) = map.remove(PATTERN_KEY) {
-                match patterns.get(&name) {
-                    Some(pattern) => {
+            if let Some(Value::String(path)) = map.remove(PATTERN_KEY) {
+                match patterns.resolve(&path, location.file()) {
+                    Resolution::Pattern(pattern) => {
                         let mut schema = Value::Object(std::mem::take(map));
-                        apply_rule(&Rule::Pattern(pattern.clone()), &mut schema);
+                        apply_rule(&Rule::Pattern(pattern.to_string()), &mut schema);
                         if let Value::Object(restored) = schema {
                             *map = restored;
                         }
                     }
-                    None => diagnostics.push(
-                        crate::diagnostics::Diagnostic::new(
-                            crate::diagnostics::Code::UnresolvedPattern,
-                            format!("regular expression constant `{name}` is not defined in the scanned code; the pattern is not documented"),
+                    Resolution::Unknown => diagnostics.push(
+                        Diagnostic::new(
+                            Code::UnresolvedPattern,
+                            format!("regular expression constant `{path}` is not defined in the scanned code; the pattern is not documented"),
                         )
                         .at(location.clone()),
                     ),
+                    Resolution::Ambiguous(mut definitions) => diagnostics.push({
+                        definitions.sort();
+                        Diagnostic::new(
+                            Code::AmbiguousPattern,
+                            format!(
+                                "regular expression constant `{path}` matches constants with different patterns ({}); the pattern is not documented",
+                                definitions
+                                    .iter()
+                                    .map(ToString::to_string)
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ),
+                        )
+                        .at(location.clone())
+                    }),
                 }
             }
             map.values_mut()
