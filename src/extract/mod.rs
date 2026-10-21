@@ -472,6 +472,9 @@ pub struct ChannelItem {
     pub line_numbers: Vec<usize>,
     /// The operationId (the function name), if any.
     pub operation_id: Option<String>,
+    /// `@route-defaults` blocks of the enclosing modules, outermost first;
+    /// their `@scope` applies to the channel.
+    pub defaults: Vec<String>,
     /// Where the block starts.
     pub location: Location,
 }
@@ -919,6 +922,7 @@ impl Extractor<'_> {
                 line_numbers: lines.iter().map(|l| l.line).collect(),
                 lines: texts,
                 operation_id: Some(sig.ident.to_string()),
+                defaults: self.defaults.clone(),
                 location: self.location(lines.first().map_or(line, |l| l.line)),
             }));
         } else if dsl::is_route(&texts) {

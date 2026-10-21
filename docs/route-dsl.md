@@ -128,6 +128,7 @@ methods work like functions.
 | `@return-header` | `CODE Name: [Type] [required \| optional] ["description"]` | a header of that response |
 | `@problem` | `CODE ["description"]` | an RFC 9457 `application/problem+json` response |
 | `@no-infer` | | no [signature inference](#signature-inference) for this route |
+| `@scope` | `name[, name…]` | the documents the route belongs to, see [scopes](#scopes) |
 | `@openapi` | `[operation \| path \| document]` | starts [embedded YAML](#embedded-openapi) |
 | `@insert`, `@extend` | `Fragment[(args)]` | [fragments](templates.md#fragments) |
 
@@ -417,6 +418,53 @@ the directories of inline modules, or the file of a `#[path]` attribute.
 The files are linked after all of them are read, so their order does not
 matter. In a file comment, the defaults end at the next block header
 (`@openapi`, `@route`, …), separator line or gap in the comment.
+
+## Scopes
+
+One source set can describe several APIs: a public listener and an admin
+listener of one service, or several services read in one run. `@scope`
+assigns a block to the documents of the named scopes:
+
+```rust,ignore
+/// @openapi
+/// @scope admin
+/// openapi: 3.1.0
+/// info: { title: Gateway administration, version: 1.0.0 }
+/// servers: [{ url: "http://127.0.0.1:9000" }]
+fn admin_root() {}
+
+/// The loopback admin listener.
+/// @route-defaults
+/// @scope admin
+/// @security admin_token
+pub mod admin {
+    /// List reports
+    /// @route GET /reports
+    /// @return 200: Vec<$Report>
+    pub async fn list_reports() {}
+}
+```
+
+- `@scope name[, name…]` works in route and webhook blocks, in
+  `@route-defaults` (inherited like `@tag`: an inner module's `@scope`
+  replaces the outer one, the route's own replaces the module's), in
+  `@channel` blocks and as a line of a YAML block (`@openapi`, `@asyncapi`,
+  root blocks included), so each scope can have its own root with its own
+  title and servers. Names consist of letters, digits, `.`, `-` and `_`;
+  several lines add up.
+- A block without `@scope` is shared: it is part of every scope's document.
+  Reflected types, `@openapi-type` schemas, templates, fragments and YAML
+  files are always shared.
+- The documents of the scopes are merged separately, so the same path may
+  exist in several scopes (`GET /health` of two services) without a
+  conflict. Each scoped document keeps only the components that its
+  operations reach (security schemes and `x-` sections stay) and the
+  top-level tags they use, with their parents.
+- [`output_scoped(scope, kind, path)`](outputs.md#scopes) writes the
+  document of a scope; `scope(name)`, the configuration key `scope` and
+  the CLI flag `--scope` select the scope of every other output. Without a
+  scope, every block is merged into one document, `@scope` or not (two
+  scoped roots are then an error).
 
 ## Signature inference
 

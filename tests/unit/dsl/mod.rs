@@ -1264,3 +1264,111 @@ mod defaults_findings {
         assert_eq!(found, ["OF2004 mod.rs:4"]);
     }
 }
+
+mod scope_directive {
+    use super::*;
+    use oas_forge::dsl::CompiledRoute;
+
+    /// Compiles `src` with module `defaults` and returns the route.
+    fn compiled(src: &[&str], defaults: &[&str]) -> (Option<CompiledRoute>, Diagnostics) {
+        let mut diagnostics = Diagnostics::new();
+        let block = lines(src);
+        let defaults = lines(defaults);
+        let location = here();
+        let compiled = dsl::compile(
+            RouteSource::new(&block, &location)
+                .line_numbers(&[1, 2, 3, 4])
+                .defaults(&defaults),
+            &mut diagnostics,
+        );
+        (compiled, diagnostics)
+    }
+
+    fn scopes(src: &[&str], defaults: &[&str]) -> Vec<String> {
+        let (route, diagnostics) = compiled(src, defaults);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        route.expect("valid route").scopes
+    }
+
+    #[test]
+    fn a_route_without_scope_is_shared() {
+        assert!(scopes(&["@route GET /x"], &[]).is_empty());
+    }
+
+    #[test]
+    fn scope_lines_name_scopes_and_add_up_without_duplicates() {
+        assert_eq!(
+            scopes(
+                &["@route GET /x", "@scope admin, public", "@scope public,ops"],
+                &[]
+            ),
+            ["admin", "public", "ops"]
+        );
+        assert_eq!(
+            scopes(&["@webhook paid", "@scope billing.v1"], &[]),
+            ["billing.v1"]
+        );
+    }
+
+    #[test]
+    fn scopes_never_reach_the_document() {
+        let (route, _) = compiled(&["@route GET /x", "@scope admin"], &[]);
+        let document = route.expect("valid route").document;
+        assert_eq!(
+            document["paths"]["/x"]["get"],
+            json!({ "operationId": "get_x", "responses": { "default": { "description": "Default response" } } })
+        );
+    }
+
+    #[test]
+    fn module_defaults_pass_their_scope_on() {
+        let defaults = ["@route-defaults", "@scope admin"];
+        assert_eq!(scopes(&["@route GET /x"], &defaults), ["admin"]);
+    }
+
+    #[test]
+    fn the_route_scope_replaces_the_module_scope() {
+        let defaults = ["@route-defaults", "@scope admin"];
+        assert_eq!(
+            scopes(&["@route GET /x", "@scope public"], &defaults),
+            ["public"]
+        );
+    }
+
+    #[test]
+    fn an_inner_module_scope_replaces_the_outer_one() {
+        let nested = [
+            "@route-defaults",
+            "@scope public",
+            "@scope docs",
+            "@route-defaults",
+            "@scope admin",
+        ];
+        assert_eq!(scopes(&["@route GET /x"], &nested), ["admin"]);
+        // Several lines of one module add up; an inner module without
+        // `@scope` keeps the outer one.
+        assert_eq!(scopes(&["@route GET /x"], &nested[..3]), ["public", "docs"]);
+        let inner_without = [
+            "@route-defaults",
+            "@scope public",
+            "@route-defaults",
+            "@tag T",
+        ];
+        assert_eq!(scopes(&["@route GET /x"], &inner_without), ["public"]);
+    }
+
+    #[test]
+    fn invalid_scope_lines_are_reported_and_ignored() {
+        for line in ["@scope", "@scope a b", "@scope a,,b", "@scope ädmin"] {
+            let (route, diagnostics) = compiled(&["@route GET /x", line], &[]);
+            assert!(
+                route.expect("the route stays valid").scopes.is_empty(),
+                "{line}"
+            );
+            assert_eq!(codes(&diagnostics), [Code::InvalidDirective], "{line}");
+            let finding = diagnostics.iter().next().expect("a finding");
+            assert_eq!(finding.location(), Some(&Location::new("test.rs", 2)));
+            assert!(finding.message().contains("`@scope` needs"), "{line}");
+        }
+    }
+}

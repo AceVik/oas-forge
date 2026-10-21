@@ -27,6 +27,7 @@ pub(crate) use params::EXPAND_KEY;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
 use crate::merge::{Policy, merge};
 use crate::schema::{MappedType, TypeExpr, TypeMapper, shadow};
+use crate::scope;
 use crate::template::lexical::{DEFAULTS_MARKER, EXTEND_KEY};
 use crate::yaml;
 use operation::Security;
@@ -51,6 +52,10 @@ const YAML_KEYS: &[&str] = &[
     "security",
     "servers",
 ];
+
+/// The finding for a `@scope` line without valid names.
+pub(crate) const SCOPE_SYNTAX: &str =
+    "`@scope` needs `name[, name...]`; a name may contain letters, digits, `.`, `-` and `_`";
 
 /// Methods that are fixed fields of a path item (OpenAPI 3.2 adds `query`);
 /// other methods go to `additionalOperations`.
@@ -453,6 +458,9 @@ pub struct CompiledRoute {
     pub method: String,
     /// Whether the first valid line is a `@webhook`.
     pub webhook: bool,
+    /// The scopes of `@scope` (or of the module defaults) the route belongs
+    /// to; empty when it is shared by every scope.
+    pub scopes: Vec<String>,
     /// The document fragment: `paths` (or `webhooks`) with the operation of
     /// every line, plus anything from `@openapi document` and the components
     /// the block needs.
@@ -533,6 +541,10 @@ struct Builder {
     outer_security: bool,
     /// Where the YAML of each module's defaults starts in `yaml`.
     module_yaml: Vec<usize>,
+    /// The `@scope` names; `None` without a `@scope` line.
+    scopes: Option<Vec<String>>,
+    /// Like `outer_tags`, for the scopes.
+    outer_scopes: bool,
 }
 
 /// The line of a block (or of its module defaults) a finding is about.
@@ -924,6 +936,7 @@ impl Compiler<'_, '_> {
             "route-defaults" if defaults => {
                 b.outer_tags = b.tags.is_some();
                 b.outer_security = b.security.is_some();
+                b.outer_scopes = b.scopes.is_some();
                 b.module_yaml.push(b.yaml.len());
             }
             "prefix" if defaults => {
@@ -941,6 +954,15 @@ impl Compiler<'_, '_> {
                     }
                 }
             }
+            "scope" => match scope::names(rest) {
+                Some(names) => {
+                    if std::mem::take(&mut b.outer_scopes) {
+                        b.scopes = None;
+                    }
+                    scope::add(b.scopes.get_or_insert_with(Vec::new), names);
+                }
+                None => self.invalid(at, SCOPE_SYNTAX),
+            },
             "summary" => b.prose.summary(rest),
             "description" => b.prose.description(margin, rest),
             // The plain lines after it are left out (`Structure::read`).
@@ -1223,6 +1245,7 @@ impl Compiler<'_, '_> {
         if b.security.is_none() {
             b.security = defaults.security;
         }
+        let scopes = b.scopes.take().or(defaults.scopes).unwrap_or_default();
         self.default_responses(&mut b, defaults.responses, defaults.explained);
         describe_responses(&mut b.responses, &b.explained);
         for (key, value) in defaults.operation {
@@ -1356,6 +1379,7 @@ impl Compiler<'_, '_> {
             path: name,
             method: b.method,
             webhook,
+            scopes,
             document,
         })
     }

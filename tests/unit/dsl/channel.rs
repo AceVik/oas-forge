@@ -161,3 +161,88 @@ fn a_block_without_channel_line_is_rejected_once() {
     assert!(document.is_none());
     assert_eq!(codes(&diagnostics), [Code::InvalidRoute]);
 }
+
+mod scopes {
+    use super::*;
+    use oas_forge::dsl::CompiledChannel;
+
+    fn compiled(src: &[&str], defaults: &[&str]) -> (Option<CompiledChannel>, Diagnostics) {
+        let lines = lines(src);
+        let defaults = lines_of(defaults);
+        let location = here();
+        let mut diagnostics = Diagnostics::new();
+        let compiled = compile_channel(
+            ChannelSource::new(&lines, &location)
+                .line_numbers(&[1, 2, 3])
+                .defaults(&defaults),
+            &mut diagnostics,
+        );
+        (compiled, diagnostics)
+    }
+
+    fn lines_of(src: &[&str]) -> Vec<String> {
+        src.iter().map(|l| l.to_string()).collect()
+    }
+
+    fn scopes(src: &[&str], defaults: &[&str]) -> Vec<String> {
+        let (channel, diagnostics) = compiled(src, defaults);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        channel.expect("valid channel").scopes
+    }
+
+    #[test]
+    fn a_channel_names_its_scopes() {
+        assert!(scopes(&["@channel a"], &[]).is_empty());
+        assert_eq!(
+            scopes(&["@channel a", "@scope admin, ops", "@scope admin"], &[]),
+            ["admin", "ops"]
+        );
+        let (channel, _) = compiled(&["@channel a", "@scope admin"], &[]);
+        let document = channel.expect("valid channel").document;
+        assert_eq!(document["channels"]["a"], json!({ "address": "a" }));
+    }
+
+    #[test]
+    fn the_innermost_module_scope_applies_unless_the_block_has_one() {
+        let defaults = [
+            "@route-defaults",
+            "@scope public",
+            "@tag Outer",
+            "@route-defaults",
+            "@scope admin",
+            "@scope ops",
+        ];
+        assert_eq!(scopes(&["@channel a"], &defaults), ["admin", "ops"]);
+        assert_eq!(scopes(&["@channel a"], &defaults[..3]), ["public"]);
+        let inner_without = ["@route-defaults", "@scope public", "@route-defaults"];
+        assert_eq!(scopes(&["@channel a"], &inner_without), ["public"]);
+        assert_eq!(
+            scopes(&["@channel a", "@scope internal"], &defaults),
+            ["internal"]
+        );
+    }
+
+    #[test]
+    fn invalid_scope_lines_are_reported() {
+        let (channel, diagnostics) = compiled(&["@channel a", "@scope a b"], &[]);
+        assert!(channel.expect("valid channel").scopes.is_empty());
+        assert_eq!(codes(&diagnostics), [Code::InvalidDirective]);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .next()
+                .and_then(|d| d.location())
+                .map(|l| l.line()),
+            Some(2)
+        );
+
+        let (channel, diagnostics) =
+            compiled(&["@channel a"], &["@route-defaults", "@scope", "@scope ok"]);
+        assert_eq!(channel.expect("valid channel").scopes, ["ok"]);
+        assert_eq!(codes(&diagnostics), [Code::InvalidDirective]);
+        assert_eq!(
+            diagnostics.iter().next().and_then(|d| d.location()),
+            Some(&here())
+        );
+    }
+}

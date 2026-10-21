@@ -2119,3 +2119,611 @@ mod route_defaults_findings {
         assert_eq!(expansions, ["OF2008 api.rs:2", "OF2008 api.rs:2"]);
     }
 }
+
+mod scopes {
+    use super::*;
+    use oas_forge::Package;
+
+    /// A gateway with public and admin routes and a feedback service whose
+    /// `GET /health` collides with the gateway's.
+    const SERVICES: &str = r#"
+/// @openapi
+/// @scope public
+/// openapi: 3.1.0
+/// info: { title: Public, version: 1.0.0 }
+/// tags:
+///   - { name: Users, description: People }
+///   - { name: Reports }
+fn public_root() {}
+
+/// @openapi
+/// @scope admin
+/// openapi: 3.1.0
+/// info: { title: Admin, version: 1.0.0 }
+fn admin_root() {}
+
+/// @openapi
+/// @scope feedback
+/// openapi: 3.1.0
+/// info: { title: Feedback, version: 1.0.0 }
+fn feedback_root() {}
+
+/// @openapi
+/// components:
+///   securitySchemes:
+///     bearer: { type: http, scheme: bearer }
+fn shared() {}
+
+/// A user.
+/// @openapi
+pub struct User { pub id: u64, pub team: Team }
+
+/// A team.
+/// @openapi
+pub struct Team { pub name: String }
+
+/// An audit entry.
+/// @openapi
+pub struct Entry { pub at: String }
+
+/// Gateway endpoints.
+/// @route-defaults
+/// @scope public
+pub mod gateway {
+    /// Health
+    /// @route GET /health
+    pub async fn health() {}
+
+    /// List users
+    /// @route GET /users
+    /// @tag Users
+    /// @return 200: Vec<$User>
+    pub async fn list_users() {}
+
+    /// Admin endpoints.
+    /// @route-defaults
+    /// @scope admin
+    pub mod admin {
+        /// Read the audit log
+        /// @route GET /audit
+        /// @return 200: Vec<$Entry>
+        /// @security bearer
+        pub async fn audit() {}
+    }
+}
+
+/// Feedback service.
+/// @route-defaults
+/// @scope feedback
+pub mod feedback {
+    /// Feedback health
+    /// @route GET /health
+    pub async fn feedback_health() {}
+}
+"#;
+
+    fn services() -> Project {
+        let project = Project::new();
+        project.file("src/lib.rs", SERVICES);
+        project
+    }
+
+    fn scoped(project: &Project) -> Generator {
+        Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .output_scoped("public", OutputKind::Full, project.path("out/public.yaml"))
+            .output_scoped("admin", OutputKind::Full, project.path("out/admin.yaml"))
+            .output_scoped(
+                "feedback",
+                OutputKind::Full,
+                project.path("out/feedback.yaml"),
+            )
+    }
+
+    #[test]
+    fn each_scope_merges_its_own_snippets_and_the_shared_ones() {
+        let project = services();
+        let spec = scoped(&project).build().unwrap();
+        assert!(spec.diagnostics().is_empty(), "{:#?}", spec.diagnostics());
+
+        let public = spec.render_scoped(OutputKind::Full, "public").unwrap();
+        assert_eq!(public["info"]["title"], "Public");
+        assert_eq!(public["paths"]["/health"]["get"]["operationId"], "health");
+        assert!(public["paths"].get("/audit").is_none());
+        // Only what the scope uses: `User` and `Team`, the used tag; the
+        // security scheme stays.
+        assert_eq!(
+            public["components"]["schemas"]
+                .as_object()
+                .map(|s| s.keys().cloned().collect::<Vec<_>>()),
+            Some(vec!["Team".to_string(), "User".to_string()])
+        );
+        assert_eq!(
+            public["tags"],
+            json!([{ "name": "Users", "description": "People" }])
+        );
+        assert!(public["components"]["securitySchemes"]["bearer"].is_object());
+
+        let admin = spec.render_scoped(OutputKind::Full, "admin").unwrap();
+        assert_eq!(admin["info"]["title"], "Admin");
+        assert_eq!(
+            admin["paths"]
+                .as_object()
+                .map(|p| p.keys().cloned().collect::<Vec<_>>()),
+            Some(vec!["/audit".to_string()])
+        );
+        assert!(admin["components"]["schemas"]["Entry"].is_object());
+        assert!(admin["components"]["schemas"].get("User").is_none());
+
+        // The colliding `GET /health` of the feedback service.
+        let feedback = spec.render_scoped(OutputKind::Full, "feedback").unwrap();
+        assert_eq!(
+            feedback["paths"]["/health"]["get"]["operationId"],
+            "feedback_health"
+        );
+        // Nothing is left of the schemas; the security scheme stays.
+        assert_eq!(
+            feedback["components"],
+            json!({ "securitySchemes": { "bearer": { "type": "http", "scheme": "bearer" } } })
+        );
+        assert!(feedback.get("tags").is_none());
+    }
+
+    #[test]
+    fn write_and_check_cover_scoped_outputs() {
+        let project = services();
+        let generator = scoped(&project);
+        let paths = [
+            project.path("out/public.yaml"),
+            project.path("out/admin.yaml"),
+            project.path("out/feedback.yaml"),
+        ];
+        assert_eq!(generator.build().unwrap().check().unwrap(), paths);
+        generator.generate().unwrap();
+        assert_eq!(
+            project.read_yaml("out/admin.yaml")["info"]["title"],
+            "Admin"
+        );
+        assert!(generator.build().unwrap().check().unwrap().is_empty());
+        project.file("out/feedback.yaml", "openapi: 3.1.0\n");
+        assert_eq!(
+            generator.build().unwrap().check().unwrap(),
+            [project.path("out/feedback.yaml")]
+        );
+    }
+
+    #[test]
+    fn scoped_outputs_are_not_read_as_inputs() {
+        let project = services();
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .output_scoped("admin", OutputKind::Full, project.path("src/admin.yaml"))
+            .build()
+            .unwrap();
+        // Not written yet: nothing to skip. Once written, it is skipped.
+        assert!(spec.diagnostics().is_empty());
+        spec.write().unwrap();
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .output_scoped("admin", OutputKind::Full, project.path("src/admin.yaml"))
+            .build()
+            .unwrap();
+        assert_eq!(codes(spec.diagnostics()), [Code::OutputNotRead]);
+    }
+
+    #[test]
+    fn only_scoped_outputs_leave_the_default_document_unbuilt() {
+        let project = services();
+        let spec = scoped(&project).build().unwrap();
+        // Merging every snippet would find three roots.
+        assert_eq!(spec.document(), &json!({}));
+        assert!(matches!(
+            spec.render(OutputKind::Full),
+            Err(Error::MultipleRootsFound { .. })
+        ));
+        // Building it is an error.
+        let error = scoped(&project)
+            .output(project.path("out/all.yaml"))
+            .build()
+            .unwrap_err();
+        assert!(matches!(error, Error::MultipleRootsFound { locations } if locations.len() == 3));
+    }
+
+    #[test]
+    fn the_default_scope_applies_to_outputs_without_their_own() {
+        let project = services();
+        let generator = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .output(project.path("admin.json"))
+            .output_scoped(
+                "public",
+                OutputKind::Paths,
+                project.path("public-paths.json"),
+            )
+            .scope("admin");
+        let spec = generator.build().unwrap();
+        assert_eq!(spec.document()["info"]["title"], "Admin");
+        assert_eq!(
+            spec.render(OutputKind::Full).unwrap()["info"]["title"],
+            "Admin"
+        );
+        generator.generate().unwrap();
+        assert_eq!(project.read_yaml("admin.json")["info"]["title"], "Admin");
+        assert!(project.read_yaml("public-paths.json")["/users"].is_object());
+    }
+
+    #[test]
+    fn the_scope_of_a_configuration_is_the_default_scope() {
+        let project = services();
+        let mut config = Config::default();
+        config.scope = Some("feedback".into());
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .with_config(config)
+            .build()
+            .unwrap();
+        assert_eq!(spec.document()["info"]["title"], "Feedback");
+        // A configuration without scope keeps the scope set before.
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .scope("admin")
+            .with_config(Config::default())
+            .build()
+            .unwrap();
+        assert_eq!(spec.document()["info"]["title"], "Admin");
+    }
+
+    #[test]
+    fn without_a_scope_every_snippet_is_merged() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC).file(
+            "src/lib.rs",
+            "/// A\n/// @route GET /a\n/// @scope public\npub async fn a() {}\n\
+             /// B\n/// @route GET /b\n/// @scope admin\npub async fn b() {}\n",
+        );
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .build()
+            .unwrap();
+        let paths = spec.document()["paths"].as_object().unwrap();
+        assert_eq!(paths.keys().collect::<Vec<_>>(), ["/a", "/b"]);
+    }
+
+    #[test]
+    fn scopes_not_built_are_merged_on_demand() {
+        let project = services();
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .scope("public")
+            .build()
+            .unwrap();
+        let admin = spec.render_scoped(OutputKind::Full, "admin").unwrap();
+        assert_eq!(admin["info"]["title"], "Admin");
+        // The default scope by name is the built document.
+        assert_eq!(
+            spec.render_scoped(OutputKind::Full, "public").unwrap(),
+            spec.render(OutputKind::Full).unwrap()
+        );
+        // A scope without snippets of its own has the shared ones only.
+        let other = spec.render_scoped(OutputKind::Fragments, "other").unwrap();
+        assert!(other.get("paths").is_none());
+    }
+
+    #[test]
+    fn scope_lines_of_yaml_blocks_are_taken_out() {
+        let project = Project::new();
+        project.file(
+            "src/lib.rs",
+            "/// @openapi\n/// @scope admin, ops\n/// paths:\n///   /admin: {}\nfn admin() {}\n\
+             /// @openapi\n/// paths:\n///   /shared: {}\nfn shared() {}\n",
+        );
+        let generator = Generator::new()
+            .input(project.path("src"))
+            .without_package();
+        let spec = generator.clone().build().unwrap();
+        assert!(spec.diagnostics().is_empty(), "{:#?}", spec.diagnostics());
+        let all = spec.render(OutputKind::Paths).unwrap();
+        assert_eq!(all, json!({ "/admin": {}, "/shared": {} }));
+        let ops = spec.render_scoped(OutputKind::Paths, "ops").unwrap();
+        assert_eq!(ops, json!({ "/admin": {}, "/shared": {} }));
+        let public = spec.render_scoped(OutputKind::Paths, "public").unwrap();
+        assert_eq!(public, json!({ "/shared": {} }));
+    }
+
+    #[test]
+    fn invalid_scope_lines_of_yaml_blocks_are_reported_where_they_are() {
+        let project = Project::new();
+        project.file(
+            "src/lib.rs",
+            "/// @openapi\n/// paths:\n///   /a: {}\n/// @scope a b\nfn a() {}\n",
+        );
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .build()
+            .unwrap();
+        assert_eq!(codes(spec.diagnostics()), [Code::InvalidDirective]);
+        let finding = spec.diagnostics().iter().next().unwrap();
+        assert_eq!(finding.location().map(|l| l.line()), Some(4));
+        // The block is shared.
+        assert_eq!(
+            spec.render_scoped(OutputKind::Paths, "x").unwrap(),
+            json!({ "/a": {} })
+        );
+    }
+
+    #[test]
+    fn yaml_errors_after_a_scope_line_keep_their_line() {
+        let line_of_error = |second_line: &str| {
+            let project = Project::new();
+            project.file(
+                "src/lib.rs",
+                &format!("/// @openapi\n/// {second_line}\n/// paths:\n///   /a: [\nfn a() {{}}\n"),
+            );
+            let error = Generator::new()
+                .input(project.path("src"))
+                .without_package()
+                .build()
+                .unwrap_err();
+            let Error::Yaml { location, .. } = error else {
+                panic!("expected a YAML error, got {error:?}");
+            };
+            location.line()
+        };
+        // The same line as with a YAML comment in place of the scope line.
+        assert_eq!(line_of_error("@scope admin"), line_of_error("# admin"));
+    }
+
+    #[test]
+    fn findings_are_reported_once_across_scopes() {
+        let project = Project::new();
+        project.file(
+            "src/lib.rs",
+            r#"
+/// @openapi
+/// @scope a
+/// openapi: 3.0.3
+/// info: { title: A, version: 1.0.0 }
+fn a_root() {}
+
+/// @openapi
+/// @scope b
+/// openapi: 3.0.3
+/// info: { title: B, version: 1.0.0 }
+fn b_root() {}
+
+/// Shared
+/// @route GET /shared
+/// @return 200: $Missing
+pub async fn shared() {}
+
+/// Only in b
+/// @route GET /b
+/// @scope b
+/// @return 200: $Gone
+pub async fn only_b() {}
+"#,
+        );
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .output_scoped("a", OutputKind::Full, project.path("a.yaml"))
+            .output_scoped("b", OutputKind::Full, project.path("b.yaml"))
+            .build()
+            .unwrap();
+        let messages: Vec<String> = spec
+            .diagnostics()
+            .iter()
+            .map(|d| format!("{}: {}", d.code(), d.message()))
+            .collect();
+        let dangling: Vec<&String> = messages
+            .iter()
+            .filter(|m| m.starts_with("OF5001"))
+            .collect();
+        assert_eq!(dangling.len(), 2, "{messages:#?}");
+        assert!(dangling[0].contains("Missing") && dangling[1].contains("Gone"));
+    }
+
+    #[test]
+    fn pruning_keeps_what_the_scope_reaches() {
+        let project = Project::new();
+        project.file(
+            "src/lib.rs",
+            r#"
+/// @openapi
+/// openapi: 3.2.0
+/// info: { title: Api, version: 1.0.0 }
+/// tags:
+///   - { name: Admin }
+///   - { name: Users, parent: People }
+///   - { name: People }
+///   - { name: Unused }
+/// components:
+///   securitySchemes:
+///     key: { type: apiKey, in: header, name: X-Key }
+///   parameters:
+///     Page: { name: page, in: query, schema: { type: integer } }
+///     Unused: { name: unused, in: query, schema: { type: integer } }
+///   responses:
+///     NotFound: { description: Missing, content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+///   schemas:
+///     Problem: { type: object }
+///     Lonely: { type: object }
+///     Cycle: { type: object, properties: { next: { $ref: '#/components/schemas/Cycle' } } }
+///   x-internal:
+///     anything: true
+fn root() {}
+
+/// Users
+/// @route GET /users
+/// @tag Users
+/// @scope public
+/// parameters: [{ $ref: '#/components/parameters/Page' }]
+/// responses: { '404': { $ref: '#/components/responses/NotFound' } }
+pub async fn users() {}
+
+/// Admin
+/// @route GET /admin
+/// @tag Admin
+/// @scope admin
+pub async fn admin() {}
+"#,
+        );
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .build()
+            .unwrap();
+        let public = spec.render_scoped(OutputKind::Full, "public").unwrap();
+        assert_eq!(
+            public["components"],
+            json!({
+                "securitySchemes": { "key": { "type": "apiKey", "in": "header", "name": "X-Key" } },
+                "parameters": { "Page": { "name": "page", "in": "query", "schema": { "type": "integer" } } },
+                "responses": { "NotFound": { "description": "Missing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Problem" } } } } },
+                "schemas": { "Problem": { "type": "object" } },
+                "x-internal": { "anything": true },
+            })
+        );
+        // The used tag and its parent.
+        assert_eq!(
+            public["tags"],
+            json!([{ "name": "Users", "parent": "People" }, { "name": "People" }])
+        );
+        let admin = spec.render_scoped(OutputKind::Full, "admin").unwrap();
+        assert_eq!(admin["tags"], json!([{ "name": "Admin" }]));
+        assert_eq!(
+            admin["components"],
+            json!({
+                "securitySchemes": { "key": { "type": "apiKey", "in": "header", "name": "X-Key" } },
+                "x-internal": { "anything": true },
+            })
+        );
+        // Without a scope nothing is pruned.
+        let all = spec.render(OutputKind::Full).unwrap();
+        assert_eq!(all["tags"].as_array().map(Vec::len), Some(4));
+        assert!(all["components"]["schemas"]["Lonely"].is_object());
+    }
+
+    #[test]
+    fn empty_sections_are_kept_when_nothing_was_pruned() {
+        let project = Project::new();
+        project.file(
+            "src/lib.rs",
+            "/// @openapi\n/// openapi: 3.1.0\n/// info: { title: Api, version: 1.0.0 }\n\
+             /// tags: []\n/// components: { schemas: {} }\nfn root() {}\n",
+        );
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .scope("any")
+            .build()
+            .unwrap();
+        assert_eq!(spec.document()["tags"], json!([]));
+        assert_eq!(spec.document()["components"], json!({ "schemas": {} }));
+    }
+
+    #[test]
+    fn asyncapi_documents_are_scoped_too() {
+        let project = Project::new();
+        project.file(
+            "src/lib.rs",
+            r#"
+/// @asyncapi
+/// @scope public
+/// asyncapi: 3.0.0
+/// info: { title: Public events, version: 1.0.0 }
+fn public_events() {}
+
+/// @asyncapi
+/// @scope admin
+/// asyncapi: 3.0.0
+/// info: { title: Admin events, version: 1.0.0 }
+/// components:
+///   messages:
+///     Unused: { payload: { type: string } }
+fn admin_events() {}
+
+/// A job, used by no route.
+/// @openapi
+pub struct Job { pub id: u64, pub step: Step }
+
+/// A step of a job.
+/// @openapi
+pub struct Step { pub name: String }
+
+/// Shared ticks
+/// @channel ticks
+/// @send Tick: { type: integer }
+pub fn tick() {}
+
+/// Admin endpoints.
+/// @route-defaults
+/// @scope admin
+pub mod admin {
+    /// Job updates
+    /// @channel jobs
+    /// @send JobChanged: $Job
+    pub fn job_changed() {}
+}
+"#,
+        );
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .scope("public")
+            .build()
+            .unwrap();
+        let public = spec.render_scoped(OutputKind::AsyncApi, "public").unwrap();
+        assert_eq!(public["info"]["title"], "Public events");
+        assert_eq!(
+            public["channels"]
+                .as_object()
+                .map(|c| c.keys().cloned().collect::<Vec<_>>()),
+            Some(vec!["ticks".to_string()])
+        );
+        assert!(public["components"].get("schemas").is_none());
+
+        let admin = spec.render_scoped(OutputKind::AsyncApi, "admin").unwrap();
+        assert_eq!(admin["info"]["title"], "Admin events");
+        assert!(admin["channels"]["jobs"].is_object());
+        assert!(admin["operations"]["job_changed"].is_object());
+        // The schemas of the message survive although no route uses them;
+        // the message nothing refers to is pruned.
+        let schemas = admin["components"]["schemas"].as_object().unwrap();
+        assert_eq!(schemas.keys().collect::<Vec<_>>(), ["Job", "Step"]);
+        let messages = admin["components"]["messages"].as_object().unwrap();
+        assert_eq!(messages.keys().collect::<Vec<_>>(), ["JobChanged", "Tick"]);
+        // The OpenAPI document of the scope has no use for them.
+        let fragments = spec.render_scoped(OutputKind::Fragments, "admin").unwrap();
+        assert!(fragments.get("components").is_none(), "{fragments:#}");
+    }
+
+    #[test]
+    fn every_scope_gets_a_root_from_the_package() {
+        let project = services();
+        project.file(
+            "src/lib.rs",
+            "/// A\n/// @route GET /a\n/// @scope a\npub async fn a() {}\n",
+        );
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .package(Package::new("shop", "1.0.0"))
+            .output_scoped("a", OutputKind::Full, project.path("a.yaml"))
+            .output_scoped("b", OutputKind::Full, project.path("b.yaml"))
+            .build()
+            .unwrap();
+        // The generated-root note, once.
+        assert_eq!(codes(spec.diagnostics()), [Code::GeneratedRoot]);
+        let b = spec.render_scoped(OutputKind::Full, "b").unwrap();
+        assert_eq!(b["info"]["title"], "shop");
+    }
+}

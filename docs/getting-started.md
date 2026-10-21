@@ -117,6 +117,7 @@ oas-forge -i src -o openapi.yaml --var STAGE=prod
 | `--output-asyncapi FILE` | AsyncAPI 3 document |
 | `--config FILE` | Configuration file (in addition to `Cargo.toml` and `openapi.toml`) |
 | `--var NAME=VALUE` | Value of a `{{NAME}}` placeholder (repeatable) |
+| `--scope NAME` | Write the document of a [scope](route-dsl.md#scopes) to every output |
 | `--check` | Write nothing; fail when an output is missing or out of date |
 | `--deny-warnings` | Treat warnings as errors |
 | `--strict` | Also report unused components and missing descriptions |
@@ -173,6 +174,7 @@ STAGE = "dev"
 | `include` | list of files | `include` |
 | `output`, `output_schemas`, `output_paths`, `output_fragments` | lists of files | `output`, … |
 | `output_json_schema`, `output_openapi_30`, `output_swagger2`, `output_asyncapi` | lists of files | `output_json_schema`, … |
+| `scope` | string | `scope` ([scopes](route-dsl.md#scopes)) |
 | `[types]` | table of schemas | `map_type` |
 | `[variables]` | table of strings | `var` |
 
@@ -206,6 +208,8 @@ fn main() {
 | `deny_warnings(true)` | Turns warnings into errors |
 | `max_file_size(bytes)` | Skips larger inputs with an error (default 16 MiB) |
 | `output_as(kind, path)` | Any [`OutputKind`](outputs.md) |
+| `output_scoped(scope, kind, path)` | The document of a [scope](outputs.md#scopes); one run writes several |
+| `scope(name)` | The scope of `document()`, `render()` and the outputs without their own |
 
 `build()` runs the pipeline without writing and returns a `Spec`: the
 document, every diagnostic, `render(kind)` for any output in memory,

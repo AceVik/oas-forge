@@ -187,6 +187,45 @@ fn run_writes_exports() {
     assert_eq!(project.read_yaml("v2.yaml")["swagger"], "2.0");
 }
 
+#[test]
+fn the_scope_flag_selects_the_document_of_every_output() {
+    let project = Project::new();
+    project.file(
+        "src/lib.rs",
+        "/// @openapi\n/// @scope admin\n/// openapi: 3.1.0\n/// info: { title: Admin, version: 1.0.0 }\nfn admin() {}\n\
+         /// @openapi\n/// @scope public\n/// openapi: 3.1.0\n/// info: { title: Public, version: 1.0.0 }\nfn public() {}\n",
+    );
+    project.file("openapi.toml", "scope = \"public\"");
+    let src = project.path("src").display().to_string();
+    let out = project.path("admin.yaml").display().to_string();
+    let paths_out = project.path("paths.yaml").display().to_string();
+
+    let cli = parse(&[
+        "oas-forge",
+        "-i",
+        &src,
+        "-o",
+        &out,
+        "--output-paths",
+        &paths_out,
+        "--scope",
+        "admin",
+    ]);
+    assert_eq!(cli.scope.as_deref(), Some("admin"));
+    assert_eq!(
+        cli.resolve_config(project.root()).unwrap().scope.as_deref(),
+        Some("admin"),
+        "the flag wins over openapi.toml"
+    );
+    run(&cli, project.root()).unwrap();
+    assert_eq!(project.read_yaml("admin.yaml")["info"]["title"], "Admin");
+
+    // Without the flag, the configured scope applies.
+    let cli = parse(&["oas-forge", "-i", &src, "-o", &out]);
+    run(&cli, project.root()).unwrap();
+    assert_eq!(project.read_yaml("admin.yaml")["info"]["title"], "Public");
+}
+
 mod ci_options {
     use super::*;
     use oas_forge::diagnostics::Code;

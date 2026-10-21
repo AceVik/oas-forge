@@ -59,6 +59,9 @@ pub struct Config {
     pub output_swagger2: Option<Vec<PathBuf>>,
     /// Files receiving the AsyncAPI document.
     pub output_asyncapi: Option<Vec<PathBuf>>,
+    /// The scope whose document every output receives, as with
+    /// [`Generator::scope`](crate::Generator::scope): `scope = "admin"`.
+    pub scope: Option<String>,
     /// Schemas for Rust types, by type name or path, as with
     /// [`Generator::map_type`](crate::Generator::map_type):
     ///
@@ -311,6 +314,7 @@ impl Config {
             output_openapi_30,
             output_swagger2,
             output_asyncapi,
+            scope,
             types,
             variables,
             files,
@@ -338,6 +342,7 @@ impl Config {
         overlay(&mut self.output_openapi_30, output_openapi_30);
         overlay(&mut self.output_swagger2, output_swagger2);
         overlay(&mut self.output_asyncapi, output_asyncapi);
+        overlay(&mut self.scope, scope);
     }
 
     /// Every configured output file, across all output strategies (in the

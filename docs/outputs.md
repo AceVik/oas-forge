@@ -18,6 +18,47 @@ The extension selects the format: `.json` writes JSON, anything else YAML.
 Both contain the same document. `Spec::render(kind)` returns any output as a
 `serde_json::Value` without writing.
 
+## Scopes
+
+Blocks marked with [`@scope`](route-dsl.md#scopes) belong to the documents
+of their scopes; blocks without one are shared. One run writes the
+documents of several scopes; the sources are read and expanded once, the
+documents are merged, lowered and checked per scope:
+
+```rust,no_run
+// build.rs
+use oas_forge::{Generator, OutputKind};
+
+fn main() {
+    Generator::new()
+        .input("src")
+        .input("../feedback/src")
+        .output_scoped("public", OutputKind::Full, "openapi/public.yaml")
+        .output_scoped("admin", OutputKind::Full, "openapi/admin.yaml")
+        .output_scoped("feedback", OutputKind::Full, "openapi/feedback.yaml")
+        .output_scoped("public", OutputKind::AsyncApi, "openapi/public-events.yaml")
+        .emit_cargo_directives(true)
+        .generate()
+        .expect("OpenAPI generation failed");
+}
+```
+
+- A scoped document keeps the components its operations and channels
+  reach, directly or through other components (security schemes and `x-`
+  sections always stay), and the top-level tags its operations use (with
+  their `parent` tags). An AsyncAPI document shares the schemas its
+  messages use before that, so they stay even when no route of the scope
+  uses them.
+- `scope(name)` (configuration key `scope`, CLI `--scope NAME`) selects the
+  scope of `Spec::document()`, `Spec::render()` and every output added
+  without one (`output`, `output_as`, …).
+- Without any scope, every block is merged into one document, as without
+  `@scope`. With only scoped outputs and no `scope(name)`, that document is
+  not built: `Spec::document()` is empty.
+- `Spec::render_scoped(kind, scope)` renders the document of any scope;
+  `write()` and `check()` cover scoped outputs like the others. A finding
+  that several scopes produce is reported once.
+
 ## Writing
 
 - A file is written only when its content changes, and atomically (a

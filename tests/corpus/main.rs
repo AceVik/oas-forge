@@ -14,6 +14,7 @@
 //! includes = ["shared.yaml"]  # optional files passed to `Generator::include`
 //! known_bug = "…"             # optional: the snapshot documents wrong behaviour
 //! strict_lints = true         # optional: unused components, missing descriptions
+//! scopes = ["public", "admin"] # optional: snapshot the document of each scope
 //!
 //! [variables]                 # optional `Generator::var` values
 //! STAGE = "prod"
@@ -46,6 +47,8 @@ struct Case {
     known_bug: Option<String>,
     #[serde(default)]
     strict_lints: bool,
+    #[serde(default)]
+    scopes: Vec<String>,
     #[serde(default)]
     variables: BTreeMap<String, String>,
     #[serde(default)]
@@ -119,6 +122,22 @@ fn run_case(case_file: &Path) -> Value {
                 .map(|d| normalize(&d.to_string(), &dir))
                 .collect();
             result.insert("diagnostics".into(), json!(diagnostics));
+            if !case.scopes.is_empty() {
+                let mut scopes = Map::new();
+                for scope in &case.scopes {
+                    let mut outputs = Map::new();
+                    for (kind, name) in STRATEGIES {
+                        let entry = match spec.render_scoped(kind, scope) {
+                            Ok(doc) => describe(kind, round_trip(doc)),
+                            Err(error) => json!({ "error": normalize(&error.to_string(), &dir) }),
+                        };
+                        outputs.insert(name.into(), entry);
+                    }
+                    scopes.insert(scope.clone(), Value::Object(outputs));
+                }
+                result.insert("scopes".into(), Value::Object(scopes));
+                return redact(canonical(Value::Object(result)));
+            }
             for (kind, name) in STRATEGIES {
                 let entry = match spec.render_with_diagnostics(kind) {
                     Ok((doc, findings)) => {
@@ -150,6 +169,15 @@ fn rendered_yaml(case_file: &Path) -> Option<String> {
     let dir = case_file.parent().unwrap();
     let case: Case = toml::from_str(&std::fs::read_to_string(case_file).unwrap()).unwrap();
     let spec = build(dir, &case).ok()?;
+    if !case.scopes.is_empty() {
+        let mut text = String::new();
+        for scope in &case.scopes {
+            let value = spec.render_scoped(OutputKind::Full, scope).ok()?;
+            text.push_str(&format!("# full output of scope {scope}\n"));
+            text.push_str(&redact_text(&Format::Yaml.render(&value)));
+        }
+        return Some(text);
+    }
     let (kind, value) = match spec.render(OutputKind::Full) {
         Ok(value) => ("full", value),
         Err(_) => ("fragments", spec.render(OutputKind::Fragments).ok()?),
@@ -171,6 +199,15 @@ fn build(dir: &Path, case: &Case) -> oas_forge::Result<Spec> {
     }
     if let Some(package) = &case.package {
         generator = generator.package(package.to_package());
+    }
+    // Each scope's document is built (and its findings reported) as for a
+    // configured output; nothing is written.
+    for scope in &case.scopes {
+        generator = generator.output_scoped(
+            scope,
+            OutputKind::Full,
+            dir.join(format!("out/{scope}.yaml")),
+        );
     }
     generator.strict_lints(case.strict_lints).build()
 }

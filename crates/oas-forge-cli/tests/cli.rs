@@ -341,6 +341,7 @@ mod ci {
             "--deny-warnings",
             "--strict",
             "--message-format",
+            "--scope",
         ] {
             assert!(help.contains(flag), "missing {flag} in:\n{help}");
         }

@@ -76,6 +76,17 @@ mod merging {
     }
 
     #[test]
+    fn a_scope_is_read_and_replaced_by_later_layers() {
+        let mut base = Config::from_toml_str("scope = \"public\"").unwrap();
+        assert_eq!(base.scope.as_deref(), Some("public"));
+        base.merge(Config::from_toml_str("input = [\"src\"]").unwrap());
+        assert_eq!(base.scope.as_deref(), Some("public"));
+        base.merge(Config::from_toml_str("scope = \"admin\"").unwrap());
+        assert_eq!(base.scope.as_deref(), Some("admin"));
+        assert_eq!(base.outputs().count(), 0, "a scope is no output");
+    }
+
+    #[test]
     fn outputs_lists_every_strategy() {
         let config = Config::from_toml_str(ALL_FIELDS).unwrap();
         let outputs: Vec<_> = config.outputs().cloned().collect();

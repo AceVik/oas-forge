@@ -83,6 +83,7 @@ pub mod merge;
 pub mod output;
 pub mod package;
 pub mod schema;
+pub(crate) mod scope;
 pub mod source;
 pub mod template;
 pub(crate) mod yaml;

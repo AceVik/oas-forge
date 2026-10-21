@@ -68,6 +68,10 @@ pub struct Cli {
     #[arg(long = "output-asyncapi")]
     pub output_asyncapi: Option<Vec<PathBuf>>,
 
+    /// Write the document of this scope (`@scope`) to every output
+    #[arg(long = "scope", value_name = "NAME")]
+    pub scope: Option<String>,
+
     /// Path to a configuration file (toml)
     #[arg(long = "config")]
     pub config: Option<PathBuf>,
@@ -167,6 +171,7 @@ impl Cli {
         flags.output_openapi_30 = self.output_openapi_30.clone();
         flags.output_swagger2 = self.output_swagger2.clone();
         flags.output_asyncapi = self.output_asyncapi.clone();
+        flags.scope = self.scope.clone();
         if !self.var.is_empty() {
             flags.variables = Some(self.var.iter().cloned().collect());
         }

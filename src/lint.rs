@@ -187,10 +187,37 @@ fn placeholders(path: &str) -> BTreeSet<String> {
 /// Components that cannot be reached from outside `components`: a schema
 /// that only references itself (or a cycle of unused schemas) is unused.
 fn unused_components(document: &Value, diagnostics: &mut Diagnostics) {
-    let (Some(Value::Object(components)), Some(root)) =
-        (document.get("components"), document.as_object())
-    else {
+    let Some(Value::Object(components)) = document.get("components") else {
         return;
+    };
+    let used = reachable_components(document);
+    for (section, entries) in components {
+        // Security schemes are used by name, not by reference.
+        if section == "securitySchemes" || section.starts_with("x-") {
+            continue;
+        }
+        let Some(entries) = entries.as_object() else {
+            continue;
+        };
+        for name in entries.keys() {
+            let escaped = name.replace('~', "~0").replace('/', "~1");
+            if !used.contains(&(section.clone(), escaped.clone())) {
+                let target = format!("#/components/{section}/{escaped}");
+                diagnostics.push(Diagnostic::new(
+                    Code::UnusedComponent,
+                    format!("`{target}` is never referenced"),
+                ));
+            }
+        }
+    }
+}
+
+/// The components that references from outside `components` reach,
+/// directly or through other components, as `(section, name)` with the
+/// name as a JSON pointer segment (`~1` for `/`).
+pub(crate) fn reachable_components(document: &Value) -> BTreeSet<(String, String)> {
+    let Some(root) = document.as_object() else {
+        return BTreeSet::new();
     };
     let mut found = References::default();
     for (key, value) in root {
@@ -222,25 +249,7 @@ fn unused_components(document: &Value, diagnostics: &mut Diagnostics) {
             pending.extend(inner.list);
         }
     }
-    for (section, entries) in components {
-        // Security schemes are used by name, not by reference.
-        if section == "securitySchemes" || section.starts_with("x-") {
-            continue;
-        }
-        let Some(entries) = entries.as_object() else {
-            continue;
-        };
-        for name in entries.keys() {
-            let escaped = name.replace('~', "~0").replace('/', "~1");
-            if !used.contains(&(section.clone(), escaped.clone())) {
-                let target = format!("#/components/{section}/{escaped}");
-                diagnostics.push(Diagnostic::new(
-                    Code::UnusedComponent,
-                    format!("`{target}` is never referenced"),
-                ));
-            }
-        }
-    }
+    used
 }
 
 /// Keys whose values are data (examples, defaults, enumerations), never

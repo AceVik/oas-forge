@@ -52,6 +52,7 @@ oas-forge -i src -o openapi.yaml --check --deny-warnings   # in CI
 | `--output-openapi-30`, `--output-swagger2`, `--output-json-schema`, `--output-asyncapi FILE` | Exports |
 | `--config FILE` | Additional configuration file |
 | `--var NAME=VALUE` | Value of a `{{NAME}}` placeholder |
+| `--scope NAME` | Write the document of one scope (`@scope`) to every output |
 | `--check` | Write nothing; exit with status 1 when an output is out of date |
 | `--deny-warnings` | Treat warnings as errors |
 | `--strict` | Also report unused components and missing descriptions |

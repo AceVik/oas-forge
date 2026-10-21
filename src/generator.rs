@@ -13,6 +13,7 @@ use super::output::{self, Format, OutputKind};
 use super::package::Package;
 use super::schema::TypeMapper;
 use super::schema::dialect::{self, Dialect};
+use super::scope;
 use super::source::{DEFAULT_MAX_FILE_SIZE, DiscoverOptions, SourceFile, SourceKind, SourceSet};
 use super::template::generics::Instantiator;
 use super::template::lexical::{self, EXTEND_KEY, Variables};
@@ -22,6 +23,7 @@ use super::yaml;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 /// Builds OpenAPI documents from Rust sources.
 ///
@@ -42,8 +44,13 @@ pub struct Generator {
     inputs: Vec<PathBuf>,
     /// Single YAML/JSON files, read after the directories.
     includes: Vec<PathBuf>,
-    /// Output strategies and their files, in the order they were added.
-    outputs: Vec<(OutputKind, PathBuf)>,
+    /// Output strategies and their files, in the order they were added,
+    /// with the scope of [`Generator::output_scoped`] (`None`: the default
+    /// scope).
+    outputs: Vec<(Option<String>, OutputKind, PathBuf)>,
+    /// The scope of [`Generator::scope`]: of the outputs without their own
+    /// and of [`Spec::document`]; `None` merges every snippet.
+    scope: Option<String>,
     /// Values of `{{NAME}}` placeholders, `CARGO_PKG_*` included.
     variables: Variables,
     /// Whether warnings are raised to errors after the run.
@@ -98,6 +105,7 @@ impl Default for Generator {
             inputs: Vec::new(),
             includes: Vec::new(),
             outputs: Vec::new(),
+            scope: None,
             variables,
             deny_warnings: false,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
@@ -172,6 +180,7 @@ impl Generator {
             output_openapi_30,
             output_swagger2,
             output_asyncapi,
+            scope,
             types,
             variables,
             ..
@@ -192,8 +201,15 @@ impl Generator {
             (OutputKind::Swagger20, output_swagger2),
             (OutputKind::AsyncApi, output_asyncapi),
         ] {
-            self.outputs
-                .extend(paths.unwrap_or_default().into_iter().map(|p| (kind, p)));
+            self.outputs.extend(
+                paths
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|p| (None, kind, p)),
+            );
+        }
+        if scope.is_some() {
+            self.scope = scope;
         }
         self
     }
@@ -469,7 +485,115 @@ impl Generator {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn output_as(mut self, kind: OutputKind, path: impl Into<PathBuf>) -> Self {
-        self.outputs.push((kind, path.into()));
+        self.outputs.push((None, kind, path.into()));
+        self
+    }
+
+    /// Writes the output strategy `kind` of the document of `scope` to
+    /// `path`: the snippets of that scope (`@scope` in route, webhook and
+    /// channel blocks, module defaults and YAML blocks) and the shared ones
+    /// (without `@scope`), with only the components and tags they use. One
+    /// run can write the documents of several scopes; sources are read once.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Generator, OutputKind};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     src.path().join("lib.rs"),
+    ///     r#"
+    /// /// @openapi
+    /// /// @scope public
+    /// /// openapi: 3.1.0
+    /// /// info: { title: Public API, version: 1.0.0 }
+    /// fn public_root() {}
+    ///
+    /// /// @openapi
+    /// /// @scope admin
+    /// /// openapi: 3.1.0
+    /// /// info: { title: Admin API, version: 1.0.0 }
+    /// fn admin_root() {}
+    ///
+    /// /// Health
+    /// /// @route GET /health
+    /// /// @scope public
+    /// pub async fn health() {}
+    ///
+    /// /// Health with details
+    /// /// @route GET /health
+    /// /// @scope admin
+    /// pub async fn admin_health() {}
+    /// "#,
+    /// )?;
+    /// let out = tempfile::tempdir()?;
+    ///
+    /// Generator::new()
+    ///     .input(src.path())
+    ///     .output_scoped("public", OutputKind::Full, out.path().join("public.json"))
+    ///     .output_scoped("admin", OutputKind::Full, out.path().join("admin.json"))
+    ///     .generate()?;
+    /// let admin: serde_json::Value =
+    ///     serde_json::from_str(&std::fs::read_to_string(out.path().join("admin.json"))?)?;
+    /// assert_eq!(admin["info"]["title"], "Admin API");
+    /// assert_eq!(admin["paths"]["/health"]["get"]["operationId"], "admin_health");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn output_scoped(
+        mut self,
+        scope: impl Into<String>,
+        kind: OutputKind,
+        path: impl Into<PathBuf>,
+    ) -> Self {
+        self.outputs.push((Some(scope.into()), kind, path.into()));
+        self
+    }
+
+    /// Selects the scope of [`Spec::document`], [`Spec::render`] and of
+    /// every output configured without its own scope (see
+    /// [`Generator::output_scoped`]). Without a scope, every snippet is
+    /// merged into one document, `@scope` or not.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     src.path().join("lib.rs"),
+    ///     r#"
+    /// /// List users
+    /// /// @route GET /users
+    /// pub async fn list_users() {}
+    ///
+    /// /// Delete a user
+    /// /// @route DELETE /users
+    /// /// @scope admin
+    /// pub async fn delete_users() {}
+    ///
+    /// /// Reindex
+    /// /// @route POST /reindex
+    /// /// @scope internal
+    /// pub async fn reindex() {}
+    /// "#,
+    /// )?;
+    ///
+    /// let spec = Generator::new()
+    ///     .input(src.path())
+    ///     .without_package()
+    ///     .scope("admin")
+    ///     .build()?;
+    /// let paths = &spec.document()["paths"];
+    /// // The shared route and the admin route, not the internal one.
+    /// assert!(paths["/users"]["get"].is_object());
+    /// assert!(paths["/users"]["delete"].is_object());
+    /// assert!(paths.get("/reindex").is_none());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn scope(mut self, name: impl Into<String>) -> Self {
+        self.scope = Some(name.into());
         self
     }
 
@@ -765,7 +889,7 @@ impl Generator {
     pub fn build(&self) -> Result<Spec> {
         let mut diagnostics = Diagnostics::new();
         let options = DiscoverOptions::default()
-            .with_exclude(self.outputs.iter().map(|(_, p)| p.clone()).collect())
+            .with_exclude(self.outputs.iter().map(|(_, _, p)| p.clone()).collect())
             .with_max_file_size(self.max_file_size);
         let sources =
             SourceSet::discover(&self.inputs, &self.includes, &options, &mut diagnostics)?;
@@ -773,17 +897,47 @@ impl Generator {
             variables: &self.variables,
             types: &self.types,
             infer: self.infer,
-            package: self.package.as_ref(),
-            strict_lints: self.strict_lints,
         };
-        let documents = run(&sources, settings, &mut diagnostics)?;
+        let prepared = prepare(&sources, settings, &mut diagnostics)?;
+        // Outputs without their own scope use the default scope.
+        let outputs: Vec<(Option<String>, OutputKind, PathBuf)> = self
+            .outputs
+            .iter()
+            .map(|(scope, kind, path)| {
+                (
+                    scope.clone().or_else(|| self.scope.clone()),
+                    *kind,
+                    path.clone(),
+                )
+            })
+            .collect();
+        // The documents of the outputs' scopes, and of the default scope
+        // unless only scoped outputs are configured.
+        let mut scopes: BTreeSet<Option<String>> =
+            outputs.iter().map(|(scope, _, _)| scope.clone()).collect();
+        if scopes.is_empty() || self.scope.is_some() {
+            scopes.insert(self.scope.clone());
+        }
+        let mut documents = BTreeMap::new();
+        let mut findings = ScopeFindings::default();
+        for scope in scopes {
+            let mut found = Diagnostics::new();
+            let finish = Finish {
+                scope: scope.as_deref(),
+                package: self.package.as_ref(),
+                strict_lints: self.strict_lints,
+            };
+            documents.insert(scope.clone(), assemble(&prepared, finish, &mut found)?);
+            findings.add(&mut diagnostics, found);
+            findings.next_scope();
+        }
         let mut spec = Spec {
-            document: documents.document,
-            canonical: documents.canonical,
-            generated_keys: documents.generated_keys,
-            asyncapi: documents.asyncapi,
-            registry: documents.registry,
-            outputs: self.outputs.clone(),
+            documents,
+            scope: self.scope.clone(),
+            prepared,
+            package: self.package.clone(),
+            strict_lints: self.strict_lints,
+            outputs,
             diagnostics,
             watched: sources
                 .watched()
@@ -803,13 +957,23 @@ impl Generator {
         };
         // Configured outputs are rendered now, so their findings (e.g. what
         // an OpenAPI 3.0 export cannot express) are part of the run.
-        let mut kinds: Vec<OutputKind> = self.outputs.iter().map(|(kind, _)| *kind).collect();
-        kinds.sort_unstable();
-        kinds.dedup();
-        for kind in kinds {
-            if let Ok((value, findings)) = spec.render_with_diagnostics(kind) {
-                spec.diagnostics.extend(findings);
-                spec.rendered.insert(kind, value);
+        let mut targets: Vec<(Option<String>, OutputKind)> = spec
+            .outputs
+            .iter()
+            .map(|(scope, kind, _)| (scope.clone(), *kind))
+            .collect();
+        targets.sort();
+        targets.dedup();
+        let mut findings = ScopeFindings::default();
+        let mut last: Option<Option<String>> = None;
+        for (scope, kind) in targets {
+            if last.as_ref() != Some(&scope) {
+                findings.next_scope();
+                last = Some(scope.clone());
+            }
+            if let Ok((value, found)) = spec.render_in(scope.as_deref(), kind) {
+                findings.add(&mut spec.diagnostics, found);
+                spec.rendered.insert((scope, kind), value);
             }
         }
         if self.deny_warnings {
@@ -895,29 +1059,35 @@ impl Generator {
 /// ```
 #[derive(Debug, Clone)]
 pub struct Spec {
-    /// The merged document in the dialect of its root.
-    document: Value,
-    /// The merged document before version-specific lowering; `None` when
-    /// equal to `document`.
-    canonical: Option<Value>,
-    /// Top-level keys that only the root generated from the package defines.
-    generated_keys: Vec<String>,
-    /// The merged AsyncAPI document; an empty object without `@asyncapi`
-    /// and `@channel` blocks.
-    asyncapi: Value,
-    /// The templates and fragments of the run.
-    registry: Registry,
-    /// The configured outputs, in the order they were added.
-    outputs: Vec<(OutputKind, PathBuf)>,
+    /// The documents built by [`Generator::build`], by scope (`None`: every
+    /// snippet).
+    documents: BTreeMap<Option<String>, Documents>,
+    /// The default scope ([`Generator::scope`]).
+    scope: Option<String>,
+    /// The snippets and templates of the run, for the documents of scopes
+    /// that were not built.
+    prepared: Prepared,
+    /// The package a root document is generated from.
+    package: Option<Package>,
+    /// Whether the strict lints run.
+    strict_lints: bool,
+    /// The configured outputs with their scope, in the order they were
+    /// added.
+    outputs: Vec<(Option<String>, OutputKind, PathBuf)>,
     /// Every finding, those of rendering the configured outputs included.
     diagnostics: Diagnostics,
     /// Inputs and configuration files, for `cargo:rerun-if-changed`.
     watched: Vec<PathBuf>,
     /// Environment variables read with `{{env:NAME}}`, sorted and unique.
     watched_env: Vec<String>,
-    /// Each configured output kind, rendered once by [`Generator::build`].
-    rendered: BTreeMap<OutputKind, Value>,
+    /// Each configured output kind and scope, rendered once by
+    /// [`Generator::build`].
+    rendered: BTreeMap<(Option<String>, OutputKind), Value>,
 }
+
+/// The empty document of [`Spec::document`] when the default scope was not
+/// built.
+static EMPTY: LazyLock<Value> = LazyLock::new(|| Value::Object(Map::new()));
 
 impl Spec {
     /// The merged document (it has no root when none was defined).
@@ -936,7 +1106,9 @@ impl Spec {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn document(&self) -> &Value {
-        &self.document
+        self.documents
+            .get(&self.scope)
+            .map_or(&*EMPTY, |documents| &documents.document)
     }
 
     /// The templates and fragments known to this run.
@@ -964,7 +1136,7 @@ impl Spec {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn registry(&self) -> &Registry {
-        &self.registry
+        &self.prepared.registry
     }
 
     /// Every finding of the run.
@@ -1056,10 +1228,68 @@ impl Spec {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn render(&self, kind: OutputKind) -> Result<Value> {
-        if let Some(value) = self.rendered.get(&kind) {
+        self.cached(self.scope.as_deref(), kind)
+    }
+
+    /// The value an output strategy receives from the document of `scope`
+    /// (see [`Generator::output_scoped`]); the scope need not be configured.
+    ///
+    /// # Errors
+    /// As [`Spec::render`], and [`Error::MultipleRootsFound`] when the scope
+    /// was not built and several of its snippets declare a root.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::{Generator, OutputKind};
+    ///
+    /// let src = tempfile::tempdir()?;
+    /// std::fs::write(
+    ///     src.path().join("lib.rs"),
+    ///     r#"
+    /// /// Users.
+    /// /// @openapi
+    /// pub struct User { pub id: u64 }
+    ///
+    /// /// Audit entries.
+    /// /// @openapi
+    /// pub struct Entry { pub id: u64 }
+    ///
+    /// /// List users
+    /// /// @route GET /users
+    /// /// @return 200: Vec<$User>
+    /// pub async fn list_users() {}
+    ///
+    /// /// Read the audit log
+    /// /// @route GET /audit
+    /// /// @scope admin
+    /// /// @return 200: Vec<$Entry>
+    /// pub async fn audit() {}
+    /// "#,
+    /// )?;
+    /// let spec = Generator::new().input(src.path()).without_package().build()?;
+    ///
+    /// // Without a scope, everything is merged.
+    /// assert_eq!(spec.render(OutputKind::Schemas)?.as_object().map(|s| s.len()), Some(2));
+    /// // A scope keeps the schemas its operations use.
+    /// let public = spec.render_scoped(OutputKind::Fragments, "public")?;
+    /// assert!(public["paths"].get("/audit").is_none());
+    /// assert!(public["components"]["schemas"].get("Entry").is_none());
+    /// let admin = spec.render_scoped(OutputKind::Paths, "admin")?;
+    /// assert!(admin["/audit"]["get"].is_object());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn render_scoped(&self, kind: OutputKind, scope: &str) -> Result<Value> {
+        self.cached(Some(scope), kind)
+    }
+
+    /// The output `kind` of the document of `scope`, rendered by
+    /// [`Generator::build`] or now.
+    fn cached(&self, scope: Option<&str>, kind: OutputKind) -> Result<Value> {
+        if let Some(value) = self.rendered.get(&(scope.map(str::to_string), kind)) {
             return Ok(value.clone());
         }
-        self.render_with_diagnostics(kind).map(|(value, _)| value)
+        self.render_in(scope, kind).map(|(value, _)| value)
     }
 
     /// The value an output strategy receives and what it could not express
@@ -1092,12 +1322,32 @@ impl Spec {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn render_with_diagnostics(&self, kind: OutputKind) -> Result<(Value, Diagnostics)> {
+        self.render_in(self.scope.as_deref(), kind)
+    }
+
+    /// Renders the output `kind` of the document of `scope`; a scope that
+    /// [`Generator::build`] did not build is merged now (its findings are
+    /// left out).
+    fn render_in(&self, scope: Option<&str>, kind: OutputKind) -> Result<(Value, Diagnostics)> {
+        let merged;
+        let documents = match self.documents.get(&scope.map(str::to_string)) {
+            Some(documents) => documents,
+            None => {
+                let finish = Finish {
+                    scope,
+                    package: self.package.as_ref(),
+                    strict_lints: self.strict_lints,
+                };
+                merged = assemble(&self.prepared, finish, &mut Diagnostics::new())?;
+                &merged
+            }
+        };
         let input = output::RenderInput {
-            document: &self.document,
-            canonical: self.canonical.as_ref().unwrap_or(&self.document),
-            generated_keys: &self.generated_keys,
-            asyncapi: &self.asyncapi,
-            registry: &self.registry,
+            document: &documents.document,
+            canonical: documents.canonical.as_ref().unwrap_or(&documents.document),
+            generated_keys: &documents.generated_keys,
+            asyncapi: &documents.asyncapi,
+            registry: &self.prepared.registry,
         };
         let mut diagnostics = Diagnostics::new();
         let value = output::render(kind, &input, &mut diagnostics)?;
@@ -1129,8 +1379,8 @@ impl Spec {
     /// ```
     pub fn write(&self) -> Result<Vec<PathBuf>> {
         let mut rendered = Vec::new();
-        for (kind, path) in &self.outputs {
-            rendered.push((path, self.text(*kind, path)?));
+        for (scope, kind, path) in &self.outputs {
+            rendered.push((path, self.text(scope.as_deref(), *kind, path)?));
         }
         for (path, text) in &rendered {
             output::write_if_changed(path, text)?;
@@ -1165,21 +1415,18 @@ impl Spec {
     /// ```
     pub fn check(&self) -> Result<Vec<PathBuf>> {
         let mut outdated = Vec::new();
-        for (kind, path) in &self.outputs {
-            if !output::is_current(path, &self.text(*kind, path)?) {
+        for (scope, kind, path) in &self.outputs {
+            if !output::is_current(path, &self.text(scope.as_deref(), *kind, path)?) {
                 outdated.push(path.clone());
             }
         }
         Ok(outdated)
     }
 
-    /// The text the output file `path` of `kind` receives.
-    fn text(&self, kind: OutputKind, path: &Path) -> Result<String> {
-        let format = Format::of(path);
-        match self.rendered.get(&kind) {
-            Some(value) => Ok(format.render(value)),
-            None => Ok(format.render(&self.render_with_diagnostics(kind)?.0)),
-        }
+    /// The text the output file `path` of `kind` of the document of `scope`
+    /// receives.
+    fn text(&self, scope: Option<&str>, kind: OutputKind, path: &Path) -> Result<String> {
+        Ok(Format::of(path).render(&self.cached(scope, kind)?))
     }
 
     /// Prints the [cargo directives](Spec::write_cargo_directives) of a
@@ -1244,6 +1491,7 @@ impl Spec {
 }
 
 /// A parsed document and where it came from.
+#[derive(Debug, Clone)]
 struct Snippet {
     /// The parsed value, merged into the document.
     value: Value,
@@ -1251,16 +1499,26 @@ struct Snippet {
     location: Location,
     /// Part of the AsyncAPI document instead of the OpenAPI document.
     asyncapi: bool,
+    /// The scopes the snippet belongs to (`@scope`); empty when it is
+    /// shared by every scope.
+    scopes: Vec<String>,
 }
 
 impl Snippet {
-    /// A snippet of the OpenAPI document.
+    /// A shared snippet of the OpenAPI document.
     fn openapi(value: Value, location: Location) -> Self {
         Self {
             value,
             location,
             asyncapi: false,
+            scopes: Vec::new(),
         }
+    }
+
+    /// The same snippet in the scopes `scopes`.
+    fn in_scopes(mut self, scopes: Vec<String>) -> Self {
+        self.scopes = scopes;
+        self
     }
 }
 
@@ -1313,24 +1571,42 @@ pub(crate) struct Settings<'a> {
     pub(crate) types: &'a TypeMapper,
     /// Whether `@route` blocks are completed from handler signatures.
     pub(crate) infer: bool,
-    /// The package a root document is generated from when the sources
+}
+
+/// The snippets of a run before they are merged: passes 1 to 4 are done
+/// once, the merge and what follows once per scope ([`assemble`]).
+#[derive(Debug, Clone)]
+pub(crate) struct Prepared {
+    /// Every snippet in source order, with generics instantiated and smart
+    /// references resolved.
+    snippets: Vec<Snippet>,
+    /// The concrete schemas of generic instantiations (shared).
+    generated: Vec<Snippet>,
+    /// The templates of the run.
+    registry: Registry,
+}
+
+/// What [`assemble`] needs besides the snippets.
+#[derive(Clone, Copy)]
+pub(crate) struct Finish<'a> {
+    /// The scope whose document is merged; `None` merges every snippet.
+    pub(crate) scope: Option<&'a str>,
+    /// The package a root document is generated from when the snippets
     /// define none.
     pub(crate) package: Option<&'a Package>,
     /// Whether the strict lints run.
     pub(crate) strict_lints: bool,
 }
 
-/// Runs every stage on `sources`; returns the merged documents and registry.
-pub(crate) fn run(
+/// Runs passes 1 to 4 on `sources`: extraction, expansion, generics and
+/// smart references.
+pub(crate) fn prepare(
     sources: &SourceSet,
     settings: Settings<'_>,
     diagnostics: &mut Diagnostics,
-) -> Result<Documents> {
+) -> Result<Prepared> {
     let Settings {
-        types,
-        variables,
-        package,
-        ..
+        types, variables, ..
     } = settings;
     // Pass 1: extraction and template registration.
     let mut collected = Collected::default();
@@ -1432,13 +1708,41 @@ pub(crate) fn run(
             location,
         ));
     }
+    Ok(Prepared {
+        snippets,
+        generated,
+        registry,
+    })
+}
 
+/// Merges the documents of one scope (pass 5) and finishes them: the root
+/// from the package, normalization, parameter expansion, shared schemas,
+/// pruning (scoped documents only), lowering and lints.
+pub(crate) fn assemble(
+    prepared: &Prepared,
+    finish: Finish<'_>,
+    diagnostics: &mut Diagnostics,
+) -> Result<Documents> {
+    let Finish {
+        scope,
+        package,
+        strict_lints,
+    } = finish;
     // Pass 5: merge.
-    let (asyncapi, snippets): (Vec<Snippet>, Vec<Snippet>) =
-        snippets.into_iter().partition(|s| s.asyncapi);
+    let (asyncapi, snippets): (Vec<Snippet>, Vec<Snippet>) = prepared
+        .snippets
+        .iter()
+        .filter(|s| scope::includes(&s.scopes, scope))
+        .cloned()
+        .partition(|s| s.asyncapi);
     let mut asyncapi = merge_documents(asyncapi, Vec::new(), is_asyncapi_root, diagnostics)?;
     refs::unescape(&mut asyncapi);
-    let mut document = merge_documents(snippets, generated, output::is_root, diagnostics)?;
+    let mut document = merge_documents(
+        snippets,
+        prepared.generated.clone(),
+        output::is_root,
+        diagnostics,
+    )?;
     let mut generated_keys = Vec::new();
     if !output::is_root(&document)
         && let Some(package) = package
@@ -1467,6 +1771,18 @@ pub(crate) fn run(
     output::strip_transport(&mut document);
     normalize(&mut document, diagnostics);
     dsl::expand::expand_parameters(&mut document, diagnostics);
+    // The AsyncAPI document shares the schemas its messages use, before
+    // pruning removes those no operation of the scope uses.
+    let has_asyncapi = asyncapi.as_object().is_some_and(|map| !map.is_empty());
+    if let Value::Object(map) = &mut asyncapi
+        && has_asyncapi
+    {
+        output::asyncapi::add_shared_schemas(map, &document);
+    }
+    if scope.is_some() {
+        scope::prune(&mut document);
+        scope::prune(&mut asyncapi);
+    }
     // OpenAPI 3.2 is the canonical dialect: only older roots need a copy.
     let canonical = match Dialect::of_document(&document) {
         None | Some(Dialect::OpenApi32) => None,
@@ -1477,13 +1793,10 @@ pub(crate) fn run(
         }
     };
     let lints = Lints {
-        strict: settings.strict_lints,
+        strict: strict_lints,
     };
     lint::check(&document, lints, diagnostics);
-    if let Value::Object(map) = &mut asyncapi
-        && !map.is_empty()
-    {
-        output::asyncapi::add_shared_schemas(map, canonical.as_ref().unwrap_or(&document));
+    if has_asyncapi {
         lint::check(&asyncapi, Lints::default(), diagnostics);
     }
     Ok(Documents {
@@ -1491,7 +1804,6 @@ pub(crate) fn run(
         canonical,
         generated_keys,
         asyncapi,
-        registry,
     })
 }
 
@@ -1502,7 +1814,8 @@ fn is_asyncapi_root(value: &Value) -> bool {
         .is_some_and(|m| m.contains_key("asyncapi") && m.contains_key("info"))
 }
 
-/// The documents of a pipeline run.
+/// The documents of one scope of a pipeline run.
+#[derive(Debug, Clone)]
 pub(crate) struct Documents {
     /// The merged document in the dialect of its root.
     pub(crate) document: Value,
@@ -1513,8 +1826,43 @@ pub(crate) struct Documents {
     pub(crate) generated_keys: Vec<String>,
     /// The merged AsyncAPI document (empty without `@asyncapi`/`@channel`).
     pub(crate) asyncapi: Value,
-    /// The templates of the run.
-    pub(crate) registry: Registry,
+}
+
+/// The identity of a finding, for reporting it once across scopes.
+type FindingKey = (Code, Severity, String, Option<Location>);
+
+/// The findings of several scopes, each reported once: a finding that an
+/// earlier scope reported is left out; within a scope nothing is.
+#[derive(Default)]
+struct ScopeFindings {
+    /// The findings of the scopes before the current one.
+    earlier: BTreeSet<FindingKey>,
+    /// The findings of the current scope.
+    current: BTreeSet<FindingKey>,
+}
+
+impl ScopeFindings {
+    /// Adds the findings `found` of the current scope to `diagnostics`,
+    /// except those an earlier scope reported.
+    fn add(&mut self, diagnostics: &mut Diagnostics, found: Diagnostics) {
+        for finding in found {
+            let key = (
+                finding.code(),
+                finding.severity(),
+                finding.message().to_string(),
+                finding.location().cloned(),
+            );
+            if !self.earlier.contains(&key) {
+                self.current.insert(key);
+                diagnostics.push(finding);
+            }
+        }
+    }
+
+    /// Starts the next scope.
+    fn next_scope(&mut self) {
+        self.earlier.append(&mut self.current);
+    }
 }
 
 /// What pass 1 collects.
@@ -1667,12 +2015,16 @@ fn materialize(
             location,
             tags,
         } => {
-            let Some(mut value) = parse_text(&text, registry, variables, &location, diagnostics)?
+            let scoped = take_scopes(&text, &location, diagnostics);
+            let Some(mut value) =
+                parse_text(&scoped.text, registry, variables, &location, diagnostics)?
             else {
                 return Ok(None);
             };
             apply_tags(&mut value, &tags);
-            Ok(Some(Snippet::openapi(value, location)))
+            Ok(Some(
+                Snippet::openapi(value, location).in_scopes(scoped.names),
+            ))
         }
         Pending::NamedSchema {
             name,
@@ -1699,10 +2051,13 @@ fn materialize(
                 value,
                 location,
                 asyncapi,
+                scopes: Vec::new(),
             }))
         }
         Pending::AsyncApi { text, location } => {
-            let Some(value) = parse_text(&text, registry, variables, &location, diagnostics)?
+            let scoped = take_scopes(&text, &location, diagnostics);
+            let Some(value) =
+                parse_text(&scoped.text, registry, variables, &location, diagnostics)?
             else {
                 return Ok(None);
             };
@@ -1710,6 +2065,7 @@ fn materialize(
                 value,
                 location,
                 asyncapi: true,
+                scopes: scoped.names,
             }))
         }
         Pending::Channel(channel) => {
@@ -1729,7 +2085,8 @@ fn materialize(
                 dsl::ChannelSource::new(&lines, &channel.location)
                     .line_numbers(&line_numbers)
                     .operation_id(channel.operation_id.as_deref())
-                    .types(types),
+                    .types(types)
+                    .defaults(&channel.defaults),
                 diagnostics,
             );
             let Some(compiled) = compiled else {
@@ -1747,6 +2104,7 @@ fn materialize(
                 value,
                 location: channel.location,
                 asyncapi: true,
+                scopes: compiled.scopes,
             }))
         }
         Pending::Route(route) => {
@@ -1787,9 +2145,27 @@ fn materialize(
                 &route.location,
                 diagnostics,
             );
-            Ok(Some(Snippet::openapi(value, route.location)))
+            Ok(Some(
+                Snippet::openapi(value, route.location).in_scopes(compiled.scopes),
+            ))
         }
     }
+}
+
+/// Takes the `@scope` lines out of the YAML `text` of a block that starts
+/// at `location`; a line without valid names is reported.
+fn take_scopes(
+    text: &str,
+    location: &Location,
+    diagnostics: &mut Diagnostics,
+) -> scope::ScopeLines {
+    let scoped = scope::take_lines(text);
+    for line in &scoped.invalid {
+        diagnostics.push(
+            Diagnostic::new(Code::InvalidDirective, dsl::SCOPE_SYNTAX).at(location.offset(*line)),
+        );
+    }
+    scoped
 }
 
 /// The expanded `@route-defaults` blocks of a route, outermost first: those
@@ -2121,9 +2497,13 @@ pub fn generate_from_sources(
         variables,
         types: TypeMapper::builtin(),
         infer: true,
+    };
+    let prepared = prepare(&SourceSet::from_files(files), settings, &mut diagnostics)?;
+    let finish = Finish {
+        scope: None,
         package: None,
         strict_lints: false,
     };
-    let documents = run(&SourceSet::from_files(files), settings, &mut diagnostics)?;
+    let documents = assemble(&prepared, finish, &mut diagnostics)?;
     Ok((documents.document, diagnostics))
 }

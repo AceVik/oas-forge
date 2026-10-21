@@ -8,11 +8,13 @@
 //! fn publish_signup() {}
 //! ```
 
+use super::SCOPE_SYNTAX;
 use super::prose::{self, Prose, Text};
 use super::responses::type_schema;
 use super::tokens::{split_directive, trailing_description};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::schema::TypeMapper;
+use crate::scope;
 use serde_json::{Map, Value, json};
 
 /// One `@channel` block.
@@ -29,6 +31,10 @@ pub struct ChannelSource<'a> {
     pub location: &'a Location,
     /// How Rust types in the block map to schemas.
     pub types: &'a TypeMapper,
+    /// `@route-defaults` blocks of the enclosing modules, outermost first,
+    /// each starting with its header; only their `@scope` applies to a
+    /// channel.
+    pub defaults: &'a [String],
 }
 
 impl<'a> ChannelSource<'a> {
@@ -40,6 +46,7 @@ impl<'a> ChannelSource<'a> {
             operation_id: None,
             location,
             types: TypeMapper::builtin(),
+            defaults: &[],
         }
     }
 
@@ -60,6 +67,32 @@ impl<'a> ChannelSource<'a> {
         self.types = types;
         self
     }
+
+    /// Sets the `@route-defaults` lines of the enclosing modules; the
+    /// `@scope` of the innermost module that has one applies unless the
+    /// block has its own.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Diagnostics, Location};
+    /// use oas_forge::dsl::{ChannelSource, compile_channel};
+    ///
+    /// let defaults = ["@route-defaults", "@scope admin"].map(String::from);
+    /// let lines = ["@channel jobs", "@send JobDone: { type: object }"].map(String::from);
+    /// let location = Location::new("admin.rs", 1);
+    /// let channel = compile_channel(
+    ///     ChannelSource::new(&lines, &location).defaults(&defaults),
+    ///     &mut Diagnostics::new(),
+    /// )
+    /// .ok_or("the channel is invalid")?;
+    /// assert_eq!(channel.scopes, ["admin"]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn defaults(mut self, defaults: &'a [String]) -> Self {
+        self.defaults = defaults;
+        self
+    }
 }
 
 /// A compiled channel block.
@@ -70,6 +103,9 @@ pub struct CompiledChannel {
     pub id: String,
     /// The channel address (`user/{id}/signedup`).
     pub address: String,
+    /// The scopes of `@scope` (or of the module defaults) the channel
+    /// belongs to; empty when it is shared by every scope.
+    pub scopes: Vec<String>,
     /// The AsyncAPI fragment: `channels`, `operations` and
     /// `components.messages`.
     pub document: Value,
@@ -100,6 +136,7 @@ pub fn compile_channel(
     // What plain lines continue.
     let mut text = Text::Free;
     let mut tags: Vec<String> = Vec::new();
+    let mut scopes: Option<Vec<String>> = None;
     let mut messages: Vec<(&'static str, String, Value)> = Vec::new();
 
     for (index, line) in source.lines.iter().enumerate() {
@@ -181,6 +218,11 @@ pub fn compile_channel(
                     .map(|t| t.trim().to_string())
                     .filter(|t| !t.is_empty()),
             ),
+            "scope" => match scope::names(rest) {
+                Some(names) => scope::add(scopes.get_or_insert_with(Vec::new), names),
+                None => diagnostics
+                    .push(Diagnostic::new(Code::InvalidDirective, SCOPE_SYNTAX).at(at(index))),
+            },
             "summary" => prose.summary(rest),
             "description" => prose.description(prose::margin(line), rest),
             // The plain lines after it are left out.
@@ -279,11 +321,44 @@ pub fn compile_channel(
             json!({ "messages": component_messages }),
         );
     }
+    let scopes = match scopes {
+        Some(scopes) => scopes,
+        None => default_scopes(source, diagnostics),
+    };
     Some(CompiledChannel {
         id,
         address,
+        scopes,
         document: Value::Object(document),
     })
+}
+
+/// The `@scope` of the innermost module defaults that have one; an invalid
+/// `@scope` line is reported at the block.
+fn default_scopes(source: ChannelSource<'_>, diagnostics: &mut Diagnostics) -> Vec<String> {
+    let mut scopes: Option<Vec<String>> = None;
+    let mut outer = false;
+    for line in source.defaults {
+        if line.trim() == "@route-defaults" {
+            outer = scopes.is_some();
+            continue;
+        }
+        let Some(rest) = scope::directive(line) else {
+            continue;
+        };
+        match scope::names(rest) {
+            Some(names) => {
+                if std::mem::take(&mut outer) {
+                    scopes = None;
+                }
+                scope::add(scopes.get_or_insert_with(Vec::new), names);
+            }
+            None => diagnostics.push(
+                Diagnostic::new(Code::InvalidDirective, SCOPE_SYNTAX).at(source.location.clone()),
+            ),
+        }
+    }
+    scopes.unwrap_or_default()
 }
 
 /// A component key (`^[\w\d.\-_]+$`).

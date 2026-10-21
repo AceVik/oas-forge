@@ -333,6 +333,7 @@ fn close(path: &Path, block: &mut Vec<DocLine>, items: &mut Vec<Item>, diags: &m
             lines: block.iter().map(|l| l.text.clone()).collect(),
             line_numbers: block.iter().map(|l| l.line).collect(),
             operation_id: None,
+            defaults: Vec::new(),
             location: Location::new(path, header.line),
         }));
     } else if trimmed.starts_with("@route") || trimmed.starts_with("@webhook") {
