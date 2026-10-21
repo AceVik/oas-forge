@@ -69,7 +69,8 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: cargo test --workspace --locked
+      # All test targets run, so one run shows every failure of a system.
+      - run: cargo test --workspace --locked --no-fail-fast
 
   msrv:
     name: Minimum supported Rust version

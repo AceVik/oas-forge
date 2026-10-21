@@ -441,11 +441,14 @@ mod ci {
         );
         assert!(text.contains("api.rs:2)"), "{text}");
         // Lints of the merged document point to the annotation that defined
-        // the part, here the second operation with the id.
+        // the part, here the second operation with the id (`src\twice.rs`
+        // on Windows, as the walk joins it).
+        let twice = std::path::Path::new("src").join("twice.rs");
         assert!(
-            text.contains(
-                "warning[OF5002]: operationId `same` is used by 2 operations (src/twice.rs:4)\n"
-            ),
+            text.contains(&format!(
+                "warning[OF5002]: operationId `same` is used by 2 operations ({}:4)\n",
+                twice.display()
+            )),
             "{text}"
         );
     }
