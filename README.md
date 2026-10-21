@@ -187,8 +187,8 @@ it in your binary with `include_str!` ([how](https://github.com/AceVik/oas-forge
 
 ## Command line
 
-The same generator as a standalone tool, for projects without a build script
-and for CI:
+The same generator as a standalone tool: your crate stays unchanged, and the
+documents are written when you run it, by hand or in CI:
 
 ```bash
 cargo install oas-forge-cli
@@ -199,8 +199,9 @@ oas-forge -i src --output-openapi-30 openapi-3.0.json --output-swagger2 swagger.
 ```
 
 Settings can also live in `[package.metadata.oas-forge]` of `Cargo.toml` or
-in an `openapi.toml`; see [the CLI](https://github.com/AceVik/oas-forge/blob/main/crates/oas-forge-cli/README.md)
-and [Getting started](https://github.com/AceVik/oas-forge/blob/main/docs/getting-started.md).
+in an `openapi.toml`. The [`oas-forge-cli` README](https://github.com/AceVik/oas-forge/blob/main/crates/oas-forge-cli/README.md)
+has a tutorial, recipes for workspaces, scopes and CI, and the full option
+reference.
 
 ## A short tour
 
@@ -439,6 +440,24 @@ lists every code with its fix.
   stable.
 - `#![forbid(unsafe_code)]`, dependencies audited with `cargo deny`, CI on
   Linux, macOS and Windows.
+
+## Used by
+
+<table>
+  <tr>
+    <td align="center" width="200">
+      <a href="https://baylee.app"><img src="https://raw.githubusercontent.com/AceVik/oas-forge/main/docs/assets/used-by/baylee.png" alt="Baylee" width="160"></a>
+    </td>
+    <td>
+      <a href="https://baylee.app"><b>Baylee</b></a>: a free, non-commercial 3D table for a trading card game; play with friends, against a house AI or a language model. The public and admin HTTP APIs of its game server, its WebSocket protocol (AsyncAPI 3 with protobuf messages) and its feedback service are documented with oas-forge.<br>
+      <a href="https://baylee.app">baylee.app</a> · <a href="https://github.com/AceVik/baylee">GitHub</a>
+    </td>
+  </tr>
+</table>
+
+Using oas-forge in your project?
+[Open a pull request](https://github.com/AceVik/oas-forge/pulls) to add it
+here.
 
 ## Contributing and security
 
