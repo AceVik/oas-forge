@@ -71,13 +71,16 @@ is pushed.
    must pass) and `v*` tags (only maintainers may create them).
 3. crates.io, each crate's *Settings → Trusted Publishing*: add GitHub
    repository `AceVik/oas-forge`, workflow `release.yml`, environment
-   `crates-io`.
+   `crates-io`, and enable *Require trusted publishing for all new
+   versions*.
 4. A crate that is not on crates.io yet cannot use trusted publishing for its
-   first release. For that release only, create a crates.io API token that
-   may publish both crates, store it as the secret
-   `CRATES_IO_BOOTSTRAP_TOKEN` of the `crates-io` environment, and after the
-   release add the trusted publisher (step 3), delete the secret and revoke
-   the token.
+   first release. For that release only, create a crates.io API token with
+   the scope `publish-new` for that crate alone (crate pattern
+   `oas-forge-cli`) and store it as the secret `CRATES_IO_BOOTSTRAP_TOKEN` of
+   the `crates-io` environment. The workflow uses it for nothing else: crates
+   that exist are always published through trusted publishing. After the
+   release, do step 3 for the new crate, delete the secret and revoke the
+   token.
 
 ### Each release
 
