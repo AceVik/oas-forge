@@ -905,3 +905,96 @@ mod inference {
         );
     }
 }
+
+/// `dsl::yaml_lines`: the lines of a block the compiler reads as YAML, so
+/// that the lexical stage quotes whole-value placeholders there only.
+mod yaml_classification {
+    use super::*;
+
+    #[test]
+    fn yaml_lines_are_the_lines_the_compiler_reads_as_yaml() {
+        let rows = [
+            ("Since: 1.10", false),
+            ("", false),
+            ("Version: 1.10", false),
+            ("@route GET /x", false),
+            ("x-since: 1.10", true),
+            ("", true),
+            ("  more: 1", true),
+            ("@return 200: u32", false),
+            ("@description Released: 1.10", false),
+            ("tags: 1.10", false),
+            ("x-oas-forge-extend-1: 'Common'", true),
+            ("Still description.", false),
+            ("@openapi path", false),
+            ("summary: 1.10", true),
+            ("@openapi document", false),
+            ("x-doc: 1", true),
+            ("@openapi", false),
+            ("parameters:", true),
+            ("  - 1.10", true),
+            ("@tag A", false),
+            ("x-forwarded headers are kept: yes", false),
+            ("responses: {}", true),
+        ];
+        let block: Vec<String> = rows.iter().map(|(line, _)| line.to_string()).collect();
+        let expected: Vec<bool> = rows.iter().map(|(_, yaml)| *yaml).collect();
+        assert_eq!(dsl::yaml_lines(&block), expected);
+    }
+
+    #[test]
+    fn module_defaults_are_classified_like_a_route() {
+        let block = lines(&[
+            "@route-defaults",
+            "x-rate: 1",
+            "@prefix /v1",
+            "Prose: 1",
+            "@openapi path",
+            "summary: 1",
+        ]);
+        assert_eq!(
+            dsl::yaml_lines(&block),
+            [false, true, false, false, false, true]
+        );
+    }
+
+    #[test]
+    fn quoting_whole_values_does_not_change_the_classification() {
+        let plain = lines(&[
+            "Since: 1.10",
+            "@route GET /x",
+            "x-since: 1.10",
+            "parameters:",
+            "  - 1.10",
+            "  - v: 1.10",
+            "@description",
+            "tags: 1.10",
+            "@openapi path",
+            "summary: it's",
+            "new",
+        ]);
+        let quoted = lines(&[
+            "Since: '1.10'",
+            "@route GET /x",
+            "x-since: '1.10'",
+            "parameters:",
+            "  - '1.10'",
+            "  - v: '1.10'",
+            "@description",
+            "tags: '1.10'",
+            "@openapi path",
+            "summary: 'it''s",
+            "new'",
+        ]);
+        assert_eq!(dsl::yaml_lines(&plain), dsl::yaml_lines(&quoted));
+    }
+
+    #[test]
+    fn an_unknown_openapi_scope_opens_operation_yaml() {
+        let block = lines(&["@route GET /x", "@openapi sideways", "x-a: 1"]);
+        assert_eq!(dsl::yaml_lines(&block), [false, false, true]);
+        let (document, diagnostics) = try_route(&["@route GET /x", "@openapi sideways", "x-a: 1"]);
+        assert_eq!(codes(&diagnostics), [Code::InvalidDirective]);
+        assert_eq!(document.unwrap()["paths"]["/x"]["get"]["x-a"], 1);
+    }
+}

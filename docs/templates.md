@@ -195,7 +195,10 @@ A placeholder that is the whole value of a mapping entry or list item
 (also `- version: {{CARGO_PKG_VERSION}}`) is inserted as a quoted string, so
 `version: {{CARGO_PKG_VERSION}}` stays the string `"1.10"` instead of the
 number `1.1`. Inside block scalars (`description: |`) the value is inserted
-as it is. Unknown placeholders are left as they are.
+as it is. The summary, description and directive lines of route, webhook and
+channel blocks are not YAML, so there the value is always inserted as it is:
+`Since: {{CARGO_PKG_VERSION}}` reads `Since: 1.10`, and `@return 200: {{TYPE}}`
+names the type. Unknown placeholders are left as they are.
 
 With `emit_cargo_directives(true)`, every `{{env:NAME}}` in the inputs is
 also printed as `cargo:rerun-if-env-changed=NAME`, so Cargo reruns the

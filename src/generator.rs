@@ -1684,8 +1684,15 @@ fn materialize(
         }
         Pending::Channel(channel) => {
             let text = channel.lines.join("\n");
-            let expanded =
-                lexical::expand_lines(&text, registry, variables, &channel.location, diagnostics);
+            // A channel block has no embedded YAML: no placeholder is quoted.
+            let expanded = lexical::expand_block(
+                &text,
+                registry,
+                variables,
+                &channel.location,
+                diagnostics,
+                |lines| vec![false; lines.len()],
+            );
             let line_numbers = source_lines(&expanded, &channel.line_numbers, &channel.location);
             let lines: Vec<String> = expanded.into_iter().map(|(line, _)| line).collect();
             let compiled = dsl::compile_channel(
@@ -1714,8 +1721,14 @@ fn materialize(
         }
         Pending::Route(route) => {
             let text = route.lines.join("\n");
-            let expanded =
-                lexical::expand_lines(&text, registry, variables, &route.location, diagnostics);
+            let expanded = lexical::expand_block(
+                &text,
+                registry,
+                variables,
+                &route.location,
+                diagnostics,
+                dsl::yaml_lines,
+            );
             let line_numbers = source_lines(&expanded, &route.line_numbers, &route.location);
             let lines: Vec<String> = expanded.into_iter().map(|(line, _)| line).collect();
             let defaults =
@@ -1778,8 +1791,17 @@ fn expand_defaults(
         );
         let mut expand = || -> Vec<String> {
             let text = block.join("\n");
-            let text = lexical::expand(&text, registry, variables, &location, diagnostics);
-            text.lines().map(str::to_string).collect()
+            lexical::expand_block(
+                &text,
+                registry,
+                variables,
+                &location,
+                diagnostics,
+                dsl::yaml_lines,
+            )
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect()
         };
         match line {
             Some(line) => {

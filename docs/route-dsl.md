@@ -38,6 +38,10 @@ parameters say, see [below](#signature-inference).
   fragment into the operation without starting YAML: plain lines after it
   are still description.
 - One block contains one `@route` or `@webhook`.
+- [`{{variables}}`](templates.md#variables) work on every line. A
+  placeholder that is a whole value is quoted only in embedded YAML
+  (`x-since: {{VERSION}}` stays a string); in the summary, the description
+  and directive arguments the value is inserted as it is.
 
 ## Paths
 

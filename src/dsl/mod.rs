@@ -463,14 +463,11 @@ struct Builder {
     /// The description lines (`@description` and the prose after the
     /// summary), blank lines included.
     description: Vec<String>,
-    /// Whether prose lines continue a `@description`; then lines such as
-    /// `tags: …` are text, not YAML. Ends at the next directive.
-    in_description: bool,
+    /// Where the lines read so far leave the next one.
+    structure: Structure,
     /// The lines of embedded YAML: their scope, their index in
     /// [`RouteSource::lines`] (`None` for module defaults) and their text.
     yaml: Vec<(Scope, Option<usize>, String)>,
-    /// The embedded YAML section that is open; `None` in prose.
-    scope: Option<Scope>,
     /// The path parameters declared so far (inline, with `@param path` or
     /// inferred from the signature), checked against the placeholders of
     /// the path.
@@ -490,6 +487,131 @@ struct Builder {
     outer_security: bool,
     /// Where the YAML of each module's defaults starts in `yaml`.
     module_yaml: Vec<usize>,
+}
+
+/// Where the lines of a block read so far leave the next one: in an
+/// embedded YAML section, in a `@description` or in prose. The compiler and
+/// [`yaml_lines`] read lines with it, so the lexical stage quotes
+/// placeholders on exactly the lines the compiler parses as YAML.
+#[derive(Debug, Default, Clone, Copy)]
+struct Structure {
+    /// The embedded YAML section that is open; `None` in prose.
+    scope: Option<Scope>,
+    /// Whether prose lines continue a `@description`; then lines such as
+    /// `tags: …` are text, not YAML. Ends at the next directive.
+    in_description: bool,
+}
+
+/// What a line of a block is, as [`Structure::read`] sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Line<'l> {
+    /// A blank line: part of the open YAML section, if any.
+    Blank,
+    /// A directive: the text after `@`.
+    Directive(&'l str),
+    /// An `@extend` marker outside YAML: it merges into the operation, but
+    /// the lines after it are still prose.
+    Marker,
+    /// A line of embedded YAML for the scope.
+    Yaml(Scope),
+    /// The summary or a line of the description.
+    Prose,
+}
+
+impl Structure {
+    /// Reads one line and advances to the next: a directive ends a YAML
+    /// section and a `@description` (`@openapi` and `@description` start
+    /// them); a line that starts with an operation field (`responses:`,
+    /// `x-…:`) starts embedded YAML, unless it continues a `@description`.
+    fn read<'l>(&mut self, line: &'l str) -> Line<'l> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return Line::Blank;
+        }
+        if let Some(directive) = trimmed.strip_prefix('@') {
+            let (name, rest) = split_directive(directive);
+            self.in_description = name == "description";
+            // An unknown scope is reported and taken for the operation.
+            self.scope =
+                (name == "openapi").then(|| openapi_scope(rest).unwrap_or(Scope::Operation));
+            return Line::Directive(directive);
+        }
+        // A key is a word before `:`; prose such as `x-forwarded headers…`
+        // is not one.
+        let key = trimmed
+            .split_once(':')
+            .map(|(key, _)| key.trim())
+            .filter(|key| !key.is_empty() && !key.contains(char::is_whitespace));
+        if self.scope.is_none() && key.is_some_and(|key| key.starts_with(EXTEND_KEY)) {
+            return Line::Marker;
+        }
+        if self.scope.is_none()
+            && !self.in_description
+            && key.is_some_and(|key| YAML_KEYS.contains(&key) || key.starts_with("x-"))
+        {
+            self.scope = Some(Scope::Operation);
+        }
+        match self.scope {
+            Some(scope) => Line::Yaml(scope),
+            None => Line::Prose,
+        }
+    }
+}
+
+/// The name of a directive (the text after `@`) and its trimmed argument.
+fn split_directive(directive: &str) -> (&str, &str) {
+    directive
+        .split_once(char::is_whitespace)
+        .map_or((directive, ""), |(name, rest)| (name, rest.trim()))
+}
+
+/// Where the YAML after `@openapi rest` goes; `None` for an unknown scope.
+fn openapi_scope(rest: &str) -> Option<Scope> {
+    match rest {
+        "" | "operation" => Some(Scope::Operation),
+        "path" => Some(Scope::PathItem),
+        "document" => Some(Scope::Document),
+        _ => None,
+    }
+}
+
+/// For each line of a route block (or of `@route-defaults` blocks), whether
+/// the compiler reads it as embedded YAML. Summary, description and
+/// directive lines are not YAML; [`lexical::expand_block`] quotes
+/// whole-value placeholders only on YAML lines.
+///
+/// [`lexical::expand_block`]: crate::template::lexical::expand_block
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::dsl;
+///
+/// let lines = [
+///     "Since: 1.10",
+///     "@route GET /status",
+///     "x-since: 1.10",
+///     "@description",
+///     "tags: are prose here",
+///     "@openapi path",
+///     "summary: Status",
+/// ]
+/// .map(String::from);
+/// assert_eq!(
+///     dsl::yaml_lines(&lines),
+///     [false, false, true, false, false, false, true]
+/// );
+/// ```
+pub fn yaml_lines(lines: &[String]) -> Vec<bool> {
+    let mut structure = Structure::default();
+    lines
+        .iter()
+        .map(|line| match structure.read(line) {
+            Line::Blank => structure.scope.is_some(),
+            Line::Marker | Line::Yaml(_) => true,
+            Line::Directive(_) | Line::Prose => false,
+        })
+        .collect()
 }
 
 /// An inline path parameter: `{id}`, `{id: u64}`, `{id "User id"}` or
@@ -648,47 +770,20 @@ impl Compiler<'_, '_> {
     /// summary or a description line. `index` is the line's entry in the
     /// block (`None` for module defaults, then `defaults` is set).
     fn line(&mut self, b: &mut Builder, index: Option<usize>, line: &str, defaults: bool) {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            match b.scope {
+        match b.structure.read(line) {
+            Line::Blank => match b.structure.scope {
                 Some(scope) => b.yaml.push((scope, index, String::new())),
-                None if b.in_description || b.summary.is_some() => {
-                    b.description.push(String::new());
-                }
-                None => {}
-            }
-            return;
-        }
-        if let Some(directive) = trimmed.strip_prefix('@') {
-            b.scope = None;
-            b.in_description = false;
-            self.directive(b, index, directive, defaults);
-            return;
-        }
-        // A key is a word before `:`; prose such as `x-forwarded headers…`
-        // is not one.
-        let key = trimmed
-            .split_once(':')
-            .map(|(key, _)| key.trim())
-            .filter(|key| !key.is_empty() && !key.contains(char::is_whitespace));
-        if b.scope.is_none() && key.is_some_and(|key| key.starts_with(EXTEND_KEY)) {
-            // An `@extend` line merges into the operation but does not start
-            // a YAML section: the lines after it are still prose.
-            b.yaml.push((Scope::Operation, index, line.to_string()));
-            return;
-        }
-        if b.scope.is_none()
-            && !b.in_description
-            && key.is_some_and(|key| YAML_KEYS.contains(&key) || key.starts_with("x-"))
-        {
-            b.scope = Some(Scope::Operation);
-        }
-        match b.scope {
-            Some(scope) => b.yaml.push((scope, index, line.to_string())),
-            None if b.in_description || b.summary.is_some() => {
+                // Blank lines before the summary are leading blank lines of
+                // the description, which `description_text` drops.
+                None => b.description.push(String::new()),
+            },
+            Line::Directive(directive) => self.directive(b, index, directive, defaults),
+            Line::Marker => b.yaml.push((Scope::Operation, index, line.to_string())),
+            Line::Yaml(scope) => b.yaml.push((scope, index, line.to_string())),
+            Line::Prose if b.structure.in_description || b.summary.is_some() => {
                 b.description.push(line.to_string());
             }
-            None => b.summary = Some(trimmed.to_string()),
+            Line::Prose => b.summary = Some(line.trim().to_string()),
         }
     }
 
@@ -703,9 +798,7 @@ impl Compiler<'_, '_> {
         directive: &str,
         defaults: bool,
     ) {
-        let (name, rest) = directive
-            .split_once(char::is_whitespace)
-            .map_or((directive, ""), |(n, r)| (n, r.trim()));
+        let (name, rest) = split_directive(directive);
         let types = self.source.types;
         match name {
             "route" if !defaults => self.route(b, index, rest),
@@ -734,7 +827,6 @@ impl Compiler<'_, '_> {
             }
             "summary" => b.summary = Some(rest.to_string()),
             "description" => {
-                b.in_description = true;
                 if !rest.is_empty() {
                     b.description.push(rest.to_string());
                 }
@@ -856,20 +948,12 @@ impl Compiler<'_, '_> {
                 None => self.invalid(index, "`@problem` needs a status code"),
             },
             "no-infer" => b.no_infer = true,
-            "openapi" => {
-                b.scope = Some(match rest {
-                    "" | "operation" => Scope::Operation,
-                    "path" => Scope::PathItem,
-                    "document" => Scope::Document,
-                    other => {
-                        self.invalid(
-                            index,
-                            format!("unknown `@openapi` scope `{other}` (use operation, path or document)"),
-                        );
-                        Scope::Operation
-                    }
-                });
-            }
+            // The YAML section itself is opened by `Structure::read`.
+            "openapi" if openapi_scope(rest).is_none() => self.invalid(
+                index,
+                format!("unknown `@openapi` scope `{rest}` (use operation, path or document)"),
+            ),
+            "openapi" => {}
             other => self.report(
                 Code::UnknownDirective,
                 index,

@@ -484,3 +484,134 @@ fn argument_helpers() {
         "1-{{b}}-1"
     );
 }
+
+/// `expand_block`: blocks whose lines are not all YAML (route and channel
+/// blocks), where only the YAML lines quote whole-value placeholders.
+mod blocks {
+    use super::*;
+    use oas_forge::template::lexical::expand_block;
+
+    fn vars() -> Variables {
+        Variables::from([
+            ("VERSION".to_string(), "1.10".to_string()),
+            ("MULTI".to_string(), "it's\nnew".to_string()),
+        ])
+    }
+
+    /// The lines of `text` expanded with the `yaml` classification.
+    fn block(text: &str, yaml: &[bool]) -> Vec<String> {
+        let mut diagnostics = Diagnostics::new();
+        let lines = expand_block(
+            text,
+            &Registry::new(),
+            &vars(),
+            &here(),
+            &mut diagnostics,
+            |_| yaml.to_vec(),
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        lines.into_iter().map(|(line, _)| line).collect()
+    }
+
+    #[test]
+    fn whole_values_are_quoted_on_yaml_lines_only() {
+        let text = "Since: {{VERSION}}\nx-since: {{VERSION}}\n- {{VERSION}}\n- {{VERSION}}";
+        assert_eq!(
+            block(text, &[false, true, false, true]),
+            ["Since: 1.10", "x-since: '1.10'", "- 1.10", "- '1.10'"]
+        );
+    }
+
+    #[test]
+    fn values_inside_text_are_the_same_on_every_line() {
+        let text = "Built from {{VERSION}}.\nnote: v{{VERSION}}";
+        assert_eq!(
+            block(text, &[false, true]),
+            ["Built from 1.10.", "note: v1.10"]
+        );
+    }
+
+    #[test]
+    fn lines_the_classification_leaves_out_are_yaml() {
+        let text = "a: {{VERSION}}\nb: {{VERSION}}";
+        assert_eq!(block(text, &[false]), ["a: 1.10", "b: '1.10'"]);
+    }
+
+    #[test]
+    fn multi_line_values_are_split_and_quoted_across_their_lines() {
+        let text = "Note: {{MULTI}}\nnote: {{MULTI}}";
+        assert_eq!(
+            block(text, &[false, false, true, true]),
+            ["Note: it's", "new", "note: 'it''s", "new'"]
+        );
+    }
+
+    #[test]
+    fn the_classification_sees_the_expanded_lines_with_plain_values() {
+        let reg = registry(&[("Two", &[], "a: {{VERSION}}\nb: 2")]);
+        let mut seen = Vec::new();
+        let mut diagnostics = Diagnostics::new();
+        let lines = expand_block(
+            "x: {{VERSION}}\n  @insert Two\n@extend Common\nprice: \\$1",
+            &reg,
+            &vars(),
+            &here(),
+            &mut diagnostics,
+            |lines| {
+                seen = lines.to_vec();
+                vec![true; lines.len()]
+            },
+        );
+        assert_eq!(
+            seen,
+            [
+                "x: 1.10",
+                "  a: 1.10",
+                "  b: 2",
+                &format!("{EXTEND_KEY}1: 'Common'"),
+                &format!("price: {ESCAPED_DOLLAR}1"),
+            ]
+        );
+        assert_eq!(
+            lines,
+            [
+                ("x: '1.10'".to_string(), 0),
+                ("  a: '1.10'".to_string(), 1),
+                ("  b: 2".to_string(), 1),
+                (format!("{EXTEND_KEY}1: 'Common'"), 2),
+                (format!("price: {ESCAPED_DOLLAR}1"), 3),
+            ]
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn unset_environment_variables_are_reported_once() {
+        let mut diagnostics = Diagnostics::new();
+        let lines = expand_block(
+            "a: {{env:OAS_FORGE_UNSET_E}}\nb {{env:OAS_FORGE_UNSET_E}}",
+            &Registry::new(),
+            &Variables::new(),
+            &here(),
+            &mut diagnostics,
+            |lines| vec![false; lines.len()],
+        );
+        assert_eq!(lines[0].0, "a: {{env:OAS_FORGE_UNSET_E}}");
+        assert_eq!(codes(&diagnostics), [Code::UnknownVariable]);
+    }
+
+    #[test]
+    fn findings_of_the_expansion_are_reported() {
+        let mut diagnostics = Diagnostics::new();
+        let lines = expand_block(
+            "a: 1\n@insert Missing(1)",
+            &Registry::new(),
+            &Variables::new(),
+            &here(),
+            &mut diagnostics,
+            |lines| vec![true; lines.len()],
+        );
+        assert_eq!(lines, [("a: 1".to_string(), 0)]);
+        assert_eq!(codes(&diagnostics), [Code::UnknownFragment]);
+    }
+}

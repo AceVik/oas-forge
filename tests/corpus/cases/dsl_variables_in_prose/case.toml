@@ -1,0 +1,5 @@
+description = "Variables in route, webhook, channel and module-default blocks: a whole-value placeholder is quoted on embedded YAML lines only; summary, description and directive lines get the plain value"
+
+[variables]
+VERSION = "1.10"
+COUNT = "u32"

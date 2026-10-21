@@ -1,5 +1,7 @@
 //! The text-level stage (ADR 0001): `@insert`, `@extend` markers, `{{…}}`
-//! variables and `\$` escapes. Its output is parsed as YAML right away.
+//! variables and `\$` escapes. Its output is parsed as YAML right away, or,
+//! for route and channel blocks ([`expand_block`]), read by the DSL, which
+//! parses only some of the lines as YAML.
 
 use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
@@ -144,12 +146,106 @@ pub fn expand_lines(
     diagnostics: &mut Diagnostics,
 ) -> Vec<(String, usize)> {
     let (lines, offsets) = expand_text(text, registry, variables, location, diagnostics);
+    split_lines(&lines, &offsets)
+}
+
+/// [`expand_lines`] for a block whose lines are not all YAML, such as a
+/// route or channel block: a placeholder that is the whole value is quoted
+/// only on the lines that `yaml` marks as YAML; on the others (summary,
+/// description and directive lines) the value is inserted as it is.
+///
+/// `yaml` gets the lines after `@insert`, `@extend` and substitution, with
+/// the plain values (as the DSL reads prose and directives), and returns for
+/// each line whether it is YAML; lines it leaves out are YAML. Unset
+/// environment variables are reported once, like in [`expand_lines`].
+///
+/// # Examples
+///
+/// The route DSL tells which lines of a route block are embedded YAML:
+///
+/// ```
+/// use oas_forge::diagnostics::{Diagnostics, Location};
+/// use oas_forge::dsl;
+/// use oas_forge::template::{Registry, Variables, lexical};
+///
+/// let mut variables = Variables::new();
+/// variables.insert("VERSION".into(), "1.10".into());
+/// let text = "\
+/// Since: {{VERSION}}
+/// @route GET /status
+/// @description Version: {{VERSION}}
+/// @return 204:
+/// x-since: {{VERSION}}";
+/// let mut diagnostics = Diagnostics::new();
+/// let lines = lexical::expand_block(
+///     text,
+///     &Registry::new(),
+///     &variables,
+///     &Location::new("src/lib.rs", 3),
+///     &mut diagnostics,
+///     dsl::yaml_lines,
+/// );
+/// let lines: Vec<&str> = lines.iter().map(|(line, _)| line.as_str()).collect();
+/// assert_eq!(
+///     lines,
+///     [
+///         "Since: 1.10",
+///         "@route GET /status",
+///         "@description Version: 1.10",
+///         "@return 204:",
+///         "x-since: '1.10'",
+///     ]
+/// );
+/// ```
+pub fn expand_block(
+    text: &str,
+    registry: &Registry,
+    variables: &Variables,
+    location: &Location,
+    diagnostics: &mut Diagnostics,
+    yaml: impl FnOnce(&[String]) -> Vec<bool>,
+) -> Vec<(String, usize)> {
+    let (lines, offsets) = paste(text, registry, location, diagnostics);
+    let numbered = || {
+        lines
+            .iter()
+            .map(String::as_str)
+            .zip(offsets.iter().copied())
+    };
+    let mut missing = Vec::new();
+    let quoted = substitute_lines(numbered(), variables, &mut missing, true);
+    let plain = substitute_lines(numbered(), variables, &mut Vec::new(), false);
+    report_missing(missing, location, diagnostics);
+    // Quoting adds no line breaks: both have the same lines.
+    let quoted = split_lines(&quoted, &offsets);
+    let plain: Vec<String> = split_lines(&plain, &offsets)
+        .into_iter()
+        .map(|(line, _)| line)
+        .collect();
+    let is_yaml = yaml(&plain);
+    quoted
+        .into_iter()
+        .zip(plain)
+        .enumerate()
+        .map(|(i, ((quoted, offset), plain))| {
+            if is_yaml.get(i).copied().unwrap_or(true) {
+                (quoted, offset)
+            } else {
+                (plain, offset)
+            }
+        })
+        .collect()
+}
+
+/// Splits substituted `lines` at the line breaks of their values and
+/// protects `\$` escapes; each part keeps the offset of its line.
+fn split_lines(lines: &[String], offsets: &[usize]) -> Vec<(String, usize)> {
     let mut out = Vec::with_capacity(lines.len());
     for (line, offset) in lines.iter().zip(offsets) {
         // A substituted value may contain line breaks.
         for part in line.split('\n') {
             let part = part.strip_suffix('\r').unwrap_or(part);
-            out.push((part.replace("\\$", ESCAPED_DOLLAR_TEXT), offset));
+            out.push((part.replace("\\$", ESCAPED_DOLLAR_TEXT), *offset));
         }
     }
     out
@@ -160,6 +256,29 @@ fn expand_text(
     text: &str,
     registry: &Registry,
     variables: &Variables,
+    location: &Location,
+    diagnostics: &mut Diagnostics,
+) -> (Vec<String>, Vec<usize>) {
+    let (lines, offsets) = paste(text, registry, location, diagnostics);
+    let mut missing = Vec::new();
+    let substituted = substitute_lines(
+        lines
+            .iter()
+            .map(String::as_str)
+            .zip(offsets.iter().copied()),
+        variables,
+        &mut missing,
+        true,
+    );
+    report_missing(missing, location, diagnostics);
+    (substituted, offsets)
+}
+
+/// The lines of `text` after `@insert` and `@extend`, with the offset of the
+/// source line each comes from.
+fn paste(
+    text: &str,
+    registry: &Registry,
     location: &Location,
     diagnostics: &mut Diagnostics,
 ) -> (Vec<String>, Vec<usize>) {
@@ -175,15 +294,7 @@ fn expand_text(
         expansion.line(line, &location.offset(offset), offset);
     }
     let Expansion { lines, .. } = expansion;
-    let mut missing = Vec::new();
-    let substituted = substitute_lines(
-        lines.iter().map(|(line, offset)| (line.as_str(), *offset)),
-        variables,
-        &mut missing,
-    );
-    report_missing(missing, location, diagnostics);
-    let offsets = lines.into_iter().map(|(_, offset)| offset).collect();
-    (substituted, offsets)
+    lines.into_iter().unzip()
 }
 
 /// The names of the `{{env:NAME}}` placeholders in `text`, in order.
@@ -260,6 +371,7 @@ pub fn substitute(
             .map(|(offset, line)| (line, offset)),
         variables,
         &mut missing,
+        true,
     )
     .join("\n");
     if text.ends_with('\n') {
@@ -457,16 +569,21 @@ pub fn substitute_params(body: &str, params: &[String], args: &[String]) -> Stri
 }
 
 /// Substitutes the placeholders of `lines` (with the offset of their source
-/// line); whole values are quoted except inside block scalars.
+/// line). With `quote`, whole values are quoted except inside block scalars;
+/// without, every value is inserted as it is.
 fn substitute_lines<'l>(
     lines: impl Iterator<Item = (&'l str, usize)>,
     variables: &Variables,
     missing: &mut Vec<(usize, String)>,
+    quote: bool,
 ) -> Vec<String> {
     // The indentation of the line that opened the current block scalar.
     let mut block: Option<usize> = None;
     lines
         .map(|(line, offset)| {
+            if !quote {
+                return substitute_line(line, variables, offset, missing, false);
+            }
             let indent = line.len() - line.trim_start().len();
             if block.is_some_and(|parent| line.trim().is_empty() || indent > parent) {
                 return substitute_line(line, variables, offset, missing, false);
