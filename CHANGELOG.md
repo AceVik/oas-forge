@@ -27,6 +27,11 @@ All notable changes to `oas-forge` will be documented in this file.
   `Page_User` (it was a second, identical `Page_Owner`), and
   `Page<List<User>>` with `type List<T> = Vec<T>;` is `Page_Vec_User`.
   `AliasItem` has the new field `target`.
+- A field whose type is a type alias of an `Option` (`type MaybeId =
+  Option<u64>;`, generic ones and aliases of aliases too) is optional like
+  an `Option` field: it was nullable but required. Serialize-only types and
+  `skip_serializing_if = "Option::is_none"` follow the `Option` rules, and
+  DSL parameters of such a type are optional.
 
 ## [0.2.0] — 2026-10-21
 

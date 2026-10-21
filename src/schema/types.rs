@@ -2,6 +2,7 @@
 
 use crate::diagnostics::{Code, Diagnostic};
 use crate::extract::names::{NameTable, Resolved};
+use crate::template::generics::substitute;
 use crate::template::refs::UNRESOLVED_KEY;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -979,20 +980,66 @@ impl TypeMapper {
             }
             // A function pointer or trait object as an argument has no name.
             _ if args.iter().any(|arg| !arg.undocumentable().is_empty()) => json!({}),
-            // `Page<User>`: a generic type, instantiated from its blueprint.
-            // A template or argument that does not say which documented
-            // type it means is reported, and nothing is instantiated.
-            _ if !args.is_empty() => {
-                let mut findings = Vec::new();
-                let text = self.generic_text(path, args, resolve, &mut findings);
-                match findings.into_iter().next() {
-                    Some(finding) => json!({ UNRESOLVED_KEY: finding }),
-                    None => json!({ "$ref": format!("${text}") }),
-                }
-            }
-            _ => self.reference(path, resolve),
+            _ => return self.declared(path, args, resolve),
         };
         MappedType::required(schema)
+    }
+
+    /// The schema of a type that is not built in: a type alias of an
+    /// `Option` is optional like an `Option`; `Page<User>`, a generic type,
+    /// is instantiated from its blueprint; other names are references. A
+    /// template or argument that does not say which documented type it means
+    /// is reported, and nothing is instantiated.
+    fn declared(&self, path: &[String], args: &[TypeExpr], resolve: bool) -> MappedType {
+        if resolve && let Some(optional) = self.optional_alias(path, args) {
+            return optional;
+        }
+        if args.is_empty() {
+            return MappedType::required(self.reference(path, resolve));
+        }
+        let mut findings = Vec::new();
+        let text = self.generic_text(path, args, resolve, &mut findings);
+        MappedType::required(match findings.into_iter().next() {
+            Some(finding) => json!({ UNRESOLVED_KEY: finding }),
+            None => json!({ "$ref": format!("${text}") }),
+        })
+    }
+
+    /// `Option<X>` for a type alias of an `Option` (`type MaybeId =
+    /// Option<u64>;`, also through aliases of aliases): `X` is read in the
+    /// module of the alias, its type parameters bound to `args`.
+    fn optional_alias(&self, path: &[String], args: &[TypeExpr]) -> Option<MappedType> {
+        let (names, scope) = self.names.as_ref()?;
+        if matches!(path, [name] if self.params.contains(name)) {
+            return None;
+        }
+        let alias = names.optional_alias(scope, path)?;
+        if alias.params.len() != args.len() {
+            return None;
+        }
+        let params = alias.params.iter().cloned().collect();
+        let mapper = self.scoped(names, alias.scope).with_params(params);
+        let mut schema = mapper.map(&alias.inner).into_schema();
+        if !args.is_empty() {
+            // The arguments are written here, so they are read here.
+            let texts: Vec<String> = args.iter().map(|arg| self.type_text(arg)).collect();
+            let bindings: BTreeMap<&str, &str> = alias
+                .params
+                .iter()
+                .map(String::as_str)
+                .zip(
+                    texts
+                        .iter()
+                        .map(|text| text.strip_prefix('$').unwrap_or(text)),
+                )
+                .collect();
+            schema = substitute(&schema, &bindings);
+        }
+        Some(MappedType {
+            schema,
+            required: false,
+            nullable: true,
+        })
     }
 }
 

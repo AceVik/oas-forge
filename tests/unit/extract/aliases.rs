@@ -428,6 +428,76 @@ mod transparent {
     }
 
     #[test]
+    fn an_alias_of_an_option_is_optional_like_an_option() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "lib.rs",
+                r#"
+            pub type MaybeId = Option<u64>;
+            pub type Chained = MaybeId;
+            pub type Maybe<T> = Option<T>;
+            pub type Full = std::option::Option<bool>;
+            /// @openapi
+            pub struct User { pub id: u64 }
+            /// @openapi
+            #[derive(Serialize, Deserialize)]
+            pub struct Both {
+                pub id: MaybeId,
+                pub chained: Chained,
+                pub user: Maybe<User>,
+                pub full: Full,
+                pub note: models::Note,
+                pub plain: Option<u64>,
+                pub required: u64,
+            }
+            /// @openapi
+            #[derive(Serialize)]
+            pub struct Out {
+                pub id: MaybeId,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                pub skipped: MaybeId,
+            }
+            /// List
+            /// @route GET /items
+            /// @query-param id: MaybeId "Filter"
+            /// @return 204:
+            pub async fn list() {}
+            "#,
+            ),
+            // The target of an alias is read in its own file.
+            (
+                "models.rs",
+                "pub type Note = Option<Text>;\n/// @openapi\npub struct Text { pub body: String }",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let schemas = &document["components"]["schemas"];
+        let both = &schemas["Both"];
+        assert_eq!(both["required"], json!(["required"]));
+        let properties = &both["properties"];
+        assert_eq!(
+            properties["id"],
+            json!({ "type": ["integer", "null"], "format": "int64", "minimum": 0 })
+        );
+        assert_eq!(properties["chained"], properties["id"]);
+        assert_eq!(properties["plain"], properties["id"]);
+        let nullable = |name: &str| json!({ "anyOf": [{ "$ref": format!("#/components/schemas/{name}") }, { "type": "null" }] });
+        assert_eq!(properties["user"], nullable("User"));
+        assert_eq!(properties["note"], nullable("Text"));
+        assert_eq!(properties["full"], json!({ "type": ["boolean", "null"] }));
+        // An output type requires every field it writes; `skip_serializing_if`
+        // leaves `None` out, so that value is not nullable.
+        let out = &schemas["Out"];
+        assert_eq!(out["required"], json!(["id"]));
+        assert_eq!(
+            out["properties"]["skipped"],
+            json!({ "type": "integer", "format": "int64", "minimum": 0 })
+        );
+        let parameter = &document["paths"]["/items"]["get"]["parameters"][0];
+        assert_eq!(parameter["required"], json!(false));
+    }
+
+    #[test]
     fn aliases_as_type_arguments_name_the_instance_by_their_target() {
         let schemas = schemas(&[
             (

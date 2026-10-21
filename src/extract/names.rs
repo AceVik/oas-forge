@@ -16,6 +16,7 @@ use crate::attrs::serde::SerdeAttrs;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::docs::{doc_lines, line_of};
 use crate::package::Package;
+use crate::schema::TypeExpr;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 use syn::ext::IdentExt;
@@ -94,6 +95,18 @@ pub(crate) enum Resolved {
     Unknown,
 }
 
+/// A transparent type alias whose target is an `Option`, followed through
+/// aliases of aliases.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OptionalAlias {
+    /// The module of the alias, where the names of its target are read.
+    pub(crate) scope: Vec<String>,
+    /// Its type parameters.
+    pub(crate) params: Vec<String>,
+    /// The type argument of the `Option`.
+    pub(crate) inner: TypeExpr,
+}
+
 /// The module paths of the scanned Rust files and their documented types.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct NameTable {
@@ -106,6 +119,9 @@ pub(crate) struct NameTable {
     documented: BTreeMap<Segments, Documented>,
     /// The full paths of the documented types, by Rust name.
     by_name: BTreeMap<String, Vec<Segments>>,
+    /// The type parameters and targets of the transparent type aliases (no
+    /// `@openapi`), by full path.
+    aliases: BTreeMap<Segments, (Vec<String>, TypeExpr)>,
 }
 
 impl NameTable {
@@ -225,6 +241,13 @@ impl NameTable {
                 syn::Item::Type(t) => {
                     self.define(module, &t.ident, Definition::Alias);
                     self.document(module, &t.ident, &t.attrs, &t.generics, file, t.span());
+                    let mut path = module.clone();
+                    path.push(t.ident.unraw().to_string());
+                    if !self.documented.contains_key(&path) {
+                        let params = t.generics.type_params().map(|p| p.ident.to_string());
+                        self.aliases
+                            .insert(path, (params.collect(), TypeExpr::from_syn(&t.ty)));
+                    }
                 }
                 syn::Item::Use(u) => {
                     let start = UsePath {
@@ -448,27 +471,31 @@ impl NameTable {
         written: &[String],
         generic: bool,
     ) -> Option<Resolved> {
-        let segments;
-        // A path that starts with an imported name (`use a::model; model::X`).
+        let segments = self.written_path(scope, written);
+        self.follow(&segments, 0, generic)
+            .or_else(|| self.by_suffix(&segments, generic))
+    }
+
+    /// The absolute path of the path `written` in `scope`; it may start with
+    /// an imported name (`use a::model; model::X`), `crate`, `self` or
+    /// `super`.
+    fn written_path(&self, scope: &[String], written: &[String]) -> Segments {
         if let Some(first) = written.first()
             && let Some(target) = self.modules.get(scope).and_then(|m| m.uses.get(first))
         {
             let mut imported = self.absolute(scope, target);
             imported.extend(written.iter().skip(1).cloned());
-            segments = imported;
-        } else {
-            let start = UsePath {
-                segments: Vec::new(),
-                relative: true,
-                keywords: false,
-            };
-            let path = written
-                .iter()
-                .fold(start, |path, segment| step(scope, path, segment));
-            segments = self.absolute(scope, &path);
+            return imported;
         }
-        self.follow(&segments, 0, generic)
-            .or_else(|| self.by_suffix(&segments, generic))
+        let start = UsePath {
+            segments: Vec::new(),
+            relative: true,
+            keywords: false,
+        };
+        let path = written
+            .iter()
+            .fold(start, |path, segment| step(scope, path, segment));
+        self.absolute(scope, &path)
     }
 
     /// The meaning of the type `path`, defined as `definition` in its module;
@@ -493,9 +520,13 @@ impl NameTable {
     /// scanned module, or what a `use` of its module re-exports. `None` when
     /// the scanned sources do not define it.
     fn follow(&self, path: &Segments, depth: usize, generic: bool) -> Option<Resolved> {
-        if let Some(documented) = self.documented.get(path) {
-            return Some(Resolved::Component(documented.component.clone()));
-        }
+        let (path, definition) = self.definition(path, depth)?;
+        Some(self.defined(&path, definition, generic))
+    }
+
+    /// The full path and kind of the definition that the absolute `path`
+    /// names, following `use` declarations of its module (re-exports).
+    fn definition(&self, path: &Segments, depth: usize) -> Option<(Segments, Definition)> {
         if depth >= MAX_DEPTH {
             return None;
         }
@@ -505,16 +536,90 @@ impl NameTable {
         if let Some(definition) = module.defined.get(name) {
             let mut path = parent.clone();
             path.push(name.clone());
-            return Some(self.defined(&path, *definition, generic));
+            return Some((path, *definition));
         }
         if let Some(target) = module.uses.get(name) {
-            return self.follow(&self.absolute(&parent, target), depth + 1, generic);
+            return self.definition(&self.absolute(&parent, target), depth + 1);
         }
         module.globs.iter().find_map(|glob| {
             let mut candidate = self.absolute(&parent, glob);
             candidate.push(name.clone());
-            self.follow(&candidate, depth + 1, generic)
+            self.definition(&candidate, depth + 1)
         })
+    }
+
+    /// The transparent type alias that the type written as `written` in
+    /// `scope` means, when its target is an `Option` (directly or through
+    /// aliases of aliases): a field of that type is optional like one of
+    /// type `Option`.
+    pub(crate) fn optional_alias(
+        &self,
+        scope: &[String],
+        written: &[String],
+    ) -> Option<OptionalAlias> {
+        let mut scope = scope.to_vec();
+        let mut written = written.to_vec();
+        for _ in 0..MAX_DEPTH {
+            let path = self.local_definition(&scope, &written)?;
+            let (params, target) = self.aliases.get(&path)?;
+            let (_, module) = path.split_last()?;
+            let TypeExpr::Named {
+                path: target,
+                args,
+                smart: false,
+            } = target
+            else {
+                return None;
+            };
+            match args.as_slice() {
+                [inner] if is_option(target) => {
+                    return Some(OptionalAlias {
+                        scope: module.to_vec(),
+                        params: params.clone(),
+                        inner: inner.clone(),
+                    });
+                }
+                // `type B = A;`: the alias `A`, read in the module of `B`.
+                [] if params.is_empty() => {
+                    scope = module.to_vec();
+                    written.clone_from(target);
+                }
+                _ => return None,
+            }
+        }
+        None
+    }
+
+    /// The full path of the definition that `written` names in `scope`:
+    /// one of the module, an explicit `use`, the one of the glob imports, or
+    /// a written path.
+    fn local_definition(&self, scope: &[String], written: &[String]) -> Option<Segments> {
+        let module = self.modules.get(scope)?;
+        if let [name] = written {
+            let mut path = scope.to_vec();
+            path.push(name.clone());
+            if module.defined.contains_key(name) {
+                return Some(path);
+            }
+            if let Some(target) = module.uses.get(name) {
+                return Some(self.definition(&self.absolute(scope, target), 0)?.0);
+            }
+            let found: BTreeSet<Segments> = module
+                .globs
+                .iter()
+                .filter_map(|glob| {
+                    let mut candidate = self.absolute(scope, glob);
+                    candidate.push(name.clone());
+                    Some(self.definition(&candidate, 0)?.0)
+                })
+                .collect();
+            let mut found = found.into_iter();
+            return match (found.next(), found.next()) {
+                (Some(path), None) => Some(path),
+                _ => None,
+            };
+        }
+        Some(self.definition(&self.written_path(scope, written), 0)?.0)
     }
 
     /// The scanned module `path` names, also through `use` declarations of
@@ -612,6 +717,18 @@ impl NameTable {
             }
         }
         path.segments.clone()
+    }
+}
+
+/// Whether `path` names `Option` (`Option`, `std::option::Option`,
+/// `core::option::Option`).
+fn is_option(path: &[String]) -> bool {
+    match path {
+        [name] => name == "Option",
+        [krate, module, name] => {
+            matches!(krate.as_str(), "std" | "core") && module == "option" && name == "Option"
+        }
+        _ => false,
     }
 }
 

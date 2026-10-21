@@ -801,7 +801,7 @@ static PLACEHOLDER_RE: LazyLock<Regex> =
 /// in a single pass, so substituted names are never substituted again. In a
 /// whole generic reference (`$Envelope<T>`), bare parameter names are bound
 /// as well.
-fn substitute(schema: &Value, bindings: &BTreeMap<&str, &str>) -> Value {
+pub(crate) fn substitute(schema: &Value, bindings: &BTreeMap<&str, &str>) -> Value {
     let replace = |text: &str| -> String {
         PLACEHOLDER_RE
             .replace_all(text, |caps: &Captures| match bindings.get(&caps[1]) {

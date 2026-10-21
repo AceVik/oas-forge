@@ -349,8 +349,11 @@ pub struct Repo {
 - A target that cannot be documented (a function pointer, `dyn Trait`,
   `impl Trait`) is reported (`OF1010`) where the alias is used, once, at the
   alias; an unused alias is not.
-- The schema of the target replaces the reference, so an alias of an
-  `Option` makes the value nullable but not the field optional.
+- The schema of the target replaces the reference. An alias of an `Option`
+  (`type MaybeId = Option<u64>;`, `type Maybe<T> = Option<T>;`, also through
+  other aliases) is optional like an `Option`: a field of that type is
+  nullable and not required, `skip_serializing_if` and output types apply
+  as for `Option`, and a query parameter of that type is optional.
 - An alias used as a type argument stands for its target, so the instance
   is named as if the target were written: `Page<Owner>` is `Page_User`, and
   `Page<List<User>>` with `type List<T> = Vec<T>;` is `Page_Vec_User`. A
