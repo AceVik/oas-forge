@@ -2564,6 +2564,56 @@ pub async fn only_b() {}
     }
 
     #[test]
+    fn findings_of_rendering_are_reported_once_across_scopes() {
+        let project = Project::new();
+        project.file(
+            "src/lib.rs",
+            r#"
+/// @openapi
+/// @scope a
+/// openapi: 3.1.0
+/// info: { title: A, version: 1.0.0 }
+fn a_root() {}
+
+/// @openapi
+/// @scope b
+/// openapi: 3.1.0
+/// info: { title: B, version: 1.0.0 }
+fn b_root() {}
+
+/// A point.
+/// @openapi
+pub struct Point { pub xy: (f64, f64) }
+
+/// Where
+/// @route GET /where
+/// @return 200: $Point
+pub async fn locate() {}
+"#,
+        );
+        let generator = Generator::new()
+            .input(project.path("src"))
+            .without_package();
+        let single = generator
+            .clone()
+            .output_scoped("a", OutputKind::OpenApi30, project.path("a.json"))
+            .build()
+            .unwrap();
+        assert_eq!(codes(single.diagnostics()), [Code::LossyLowering]);
+        let both = generator
+            .output_scoped("a", OutputKind::OpenApi30, project.path("a.json"))
+            .output_scoped("b", OutputKind::OpenApi30, project.path("b.json"))
+            .output_scoped("b", OutputKind::Swagger20, project.path("b-2.json"))
+            .build()
+            .unwrap();
+        // The 3.0 finding once, those of the Swagger export of their own.
+        let messages: Vec<&str> = both.diagnostics().iter().map(|d| d.message()).collect();
+        assert_eq!(messages.len(), 3, "{messages:#?}");
+        let openapi_30 = messages.iter().filter(|m| m.starts_with("OpenAPI 3.0"));
+        assert_eq!(openapi_30.count(), 1, "{messages:#?}");
+    }
+
+    #[test]
     fn pruning_keeps_what_the_scope_reaches() {
         let project = Project::new();
         project.file(
@@ -2637,6 +2687,18 @@ pub async fn admin() {}
                 "securitySchemes": { "key": { "type": "apiKey", "in": "header", "name": "X-Key" } },
                 "x-internal": { "anything": true },
             })
+        );
+        // A scope without operations keeps no tag and only what always stays.
+        let other = spec.render_scoped(OutputKind::Full, "other").unwrap();
+        assert!(other.get("tags").is_none(), "{other:#}");
+        assert_eq!(
+            other["components"]
+                .as_object()
+                .map(|c| c.keys().cloned().collect::<Vec<_>>()),
+            Some(vec![
+                "securitySchemes".to_string(),
+                "x-internal".to_string()
+            ])
         );
         // Without a scope nothing is pruned.
         let all = spec.render(OutputKind::Full).unwrap();

@@ -195,3 +195,42 @@ fn messages_without_package_are_found_by_their_name() {
     assert!(index.message("_Private1").is_some());
     assert_eq!(index.message("_Private1").and_then(|f| f.package()), None);
 }
+
+#[test]
+fn comments_hide_keywords_braces_and_stars() {
+    let text = "// message Fake {\n/* package other;\n * message Hidden { */\npackage p; // }\nmessage Real {}\n";
+    assert!(problems(text).is_empty());
+    let (index, _) = index(&[("a.proto", text)]);
+    let file = index.message("p.Real").expect("indexed");
+    assert_eq!(file.messages(), ["Real"]);
+    assert!(index.message("p.Fake").is_none());
+    assert!(index.message("p.Hidden").is_none());
+}
+
+#[test]
+fn lines_count_inside_block_comments() {
+    assert_eq!(
+        problems("/* one\n   two\n*/\nmessage {\n"),
+        ["4: `message` needs `Name {`; the file is not indexed"]
+    );
+}
+
+#[test]
+fn an_escaped_quote_does_not_end_a_string() {
+    let text = "option a = \"\\\"; message Fake {\";\noption b = 'it\\'s';\nmessage Real {}\n";
+    assert!(problems(text).is_empty());
+    let (index, _) = index(&[("a.proto", text)]);
+    assert!(index.message("Fake").is_none());
+    assert!(index.message("Real").is_some());
+}
+
+#[test]
+fn names_are_identifiers() {
+    let (index, diagnostics) = index(&[("a.proto", "package my_pkg.v_1;\nmessage My_Message2 {}")]);
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    assert!(index.message("my_pkg.v_1.My_Message2").is_some());
+    assert_eq!(
+        problems("message A.B {}"),
+        ["1: `message` needs `Name {`; the file is not indexed"]
+    );
+}
