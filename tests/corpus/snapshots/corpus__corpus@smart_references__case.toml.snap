@@ -10,7 +10,7 @@ input_file: tests/corpus/cases/smart_references/case.toml
   "description": "Smart references: known/unknown names, quoted, inside text, escaped",
   "diagnostics": [
     "warning[OF3007]: `$Unknown` does not name a known schema (<case>/src/lib.rs:13)",
-    "warning[OF5001]: `$ref: #/components/schemas/Unknown` points to a component that does not exist"
+    "warning[OF5001]: `$ref: #/components/schemas/Unknown` points to a component that does not exist (<case>/src/lib.rs:13)"
   ],
   "fragments": {
     "document": {

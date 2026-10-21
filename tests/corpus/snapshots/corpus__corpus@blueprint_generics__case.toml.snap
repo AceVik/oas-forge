@@ -11,7 +11,7 @@ input_file: tests/corpus/cases/blueprint_generics/case.toml
   "diagnostics": [
     "warning[OF3004]: `$Missing<…>`: no blueprint named `Missing` (<case>/src/lib.rs:38)",
     "warning[OF3007]: `$Missing_User` does not name a known schema (<case>/src/lib.rs:38)",
-    "warning[OF5001]: `$ref: #/components/schemas/Missing_User` points to a component that does not exist"
+    "warning[OF5001]: `$ref: #/components/schemas/Missing_User` points to a component that does not exist (<case>/src/lib.rs:38)"
   ],
   "fragments": {
     "document": {

@@ -9,15 +9,15 @@ input_file: tests/corpus/cases/lints_strict/case.toml
   },
   "description": "Lints: undefined security schemes, path parameter mismatches, duplicate operationIds and the strict lints",
   "diagnostics": [
-    "warning[OF5002]: operationId `get_user` is used by 2 operations",
-    "warning[OF5005]: security scheme `api_key` is required but not defined in `components.securitySchemes`",
-    "warning[OF5006]: `{org}` of `/orgs/{org}` has no path parameter",
-    "warning[OF5006]: path parameter `organization` does not appear in `/orgs/{org}`",
-    "warning[OF5003]: `#/components/responses/Orphan` is never referenced",
-    "warning[OF5003]: `#/components/schemas/Lonely` is never referenced",
-    "warning[OF5004]: operation get /teams/{team} has no description",
-    "warning[OF5004]: schema `Undescribed` has no description",
-    "warning[OF5004]: schema `Lonely` has no description"
+    "warning[OF5002]: operationId `get_user` is used by 2 operations (<case>/src/lib.rs:34)",
+    "warning[OF5005]: security scheme `api_key` is required but not defined in `components.securitySchemes` (<case>/src/lib.rs:34)",
+    "warning[OF5006]: `{org}` of `/orgs/{org}` has no path parameter (<case>/src/lib.rs:41)",
+    "warning[OF5006]: path parameter `organization` does not appear in `/orgs/{org}` (<case>/src/lib.rs:41)",
+    "warning[OF5003]: `#/components/responses/Orphan` is never referenced (<case>/src/lib.rs:2)",
+    "warning[OF5003]: `#/components/schemas/Lonely` is never referenced (<case>/src/lib.rs:23)",
+    "warning[OF5004]: operation get /teams/{team} has no description (<case>/src/lib.rs:34)",
+    "warning[OF5004]: schema `Undescribed` has no description (<case>/src/lib.rs:18)",
+    "warning[OF5004]: schema `Lonely` has no description (<case>/src/lib.rs:23)"
   ],
   "fragments": {
     "document": {

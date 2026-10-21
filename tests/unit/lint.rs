@@ -506,3 +506,186 @@ fn external_references_and_mappings_without_targets_are_not_components() {
     );
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
+
+/// Findings point to the annotation that defined the operation, component
+/// or field they concern: the first snippet that defined it.
+mod locations {
+    use super::*;
+    use oas_forge::diagnostics::Location;
+
+    /// Every lint once, in a project of several files.
+    fn findings() -> (Project, Vec<(Code, String, Option<Location>)>) {
+        let project = Project::new();
+        project
+            .file(
+                "src/root.rs",
+                "//! @openapi\n//! openapi: 3.2.0\n//! info: { title: T, version: '1' }\n//! security: [{ rootScheme: [] }]\n",
+            )
+            .file(
+                "src/a.rs",
+                "/// @route GET /users/{id: u64}\n/// @operation-id same\n/// @security opScheme\n/// @return 200: { $ref: '#/components/schemas/Ghost' }\nfn a() {}\n",
+            )
+            .file(
+                "src/b.rs",
+                "/// @openapi\n/// paths:\n///   /items/{item}:\n///     get:\n///       operationId: same\n///       responses: { '200': { description: OK } }\n///     x-note: { $ref: '#/components/schemas/Ghost' }\nfn b() {}\n",
+            )
+            .file(
+                "src/c.rs",
+                "/// @openapi-type Broken\n/// $ref: '#/components/schemas/Nowhere'\nfn broken() {}\n\n/// @openapi\nstruct Lonely { a: u8 }\n",
+            )
+            .file(
+                "src/d.rs",
+                "/// @openapi\n/// paths:\n///   /users/{id}:\n///     get:\n///       description: Extended later\n///   /orders:\n///     additionalOperations:\n///       LIST:\n///         operationId: same\n///         responses: { '200': { description: OK } }\nfn d() {}\n",
+            );
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .strict_lints(true)
+            .build()
+            .unwrap();
+        let findings = spec
+            .diagnostics()
+            .iter()
+            .map(|d| (d.code(), d.message().to_string(), d.location().cloned()))
+            .collect();
+        (project, findings)
+    }
+
+    #[test]
+    fn every_lint_finding_has_the_location_of_its_part() {
+        let (project, findings) = findings();
+        let at = |file: &str, line: usize| Some(Location::new(project.path(file), line));
+        let expected = [
+            (
+                Code::DanglingReference,
+                "`$ref: #/components/schemas/Nowhere` points to a component that does not exist",
+                at("src/c.rs", 2),
+            ),
+            // Also referenced in `b.rs`, later.
+            (
+                Code::DanglingReference,
+                "`$ref: #/components/schemas/Ghost` points to a component that does not exist",
+                at("src/a.rs", 1),
+            ),
+            // The first duplicate.
+            (
+                Code::DuplicateOperationId,
+                "operationId `same` is used by 3 operations",
+                at("src/b.rs", 2),
+            ),
+            (
+                Code::UndefinedSecurityScheme,
+                "security scheme `rootScheme` is required but not defined in `components.securitySchemes`",
+                at("src/root.rs", 2),
+            ),
+            // The route defines the operation, `d.rs` extends it.
+            (
+                Code::UndefinedSecurityScheme,
+                "security scheme `opScheme` is required but not defined in `components.securitySchemes`",
+                at("src/a.rs", 1),
+            ),
+            (
+                Code::PathParameterMismatch,
+                "`{item}` of `/items/{item}` has no path parameter",
+                at("src/b.rs", 2),
+            ),
+            (
+                Code::UnusedComponent,
+                "`#/components/schemas/Lonely` is never referenced",
+                at("src/c.rs", 5),
+            ),
+            (
+                Code::UnusedComponent,
+                "`#/components/schemas/Broken` is never referenced",
+                at("src/c.rs", 2),
+            ),
+            (
+                Code::MissingDescription,
+                "operation get /items/{item} has no description",
+                at("src/b.rs", 2),
+            ),
+            (
+                Code::MissingDescription,
+                "operation LIST /orders has no description",
+                at("src/d.rs", 2),
+            ),
+            (
+                Code::MissingDescription,
+                "schema `Lonely` has no description",
+                at("src/c.rs", 5),
+            ),
+            (
+                Code::MissingDescription,
+                "schema `Broken` has no description",
+                at("src/c.rs", 2),
+            ),
+        ]
+        .map(|(code, message, location)| (code, message.to_string(), location));
+        assert_eq!(findings, expected);
+    }
+
+    /// The `@channel` that refers to a missing component, not the first
+    /// channel of the document.
+    #[test]
+    fn asyncapi_findings_point_to_their_channel() {
+        let (_, diagnostics) = pipeline(&[(
+            "events.rs",
+            "//! @asyncapi\n//! asyncapi: 3.0.0\n//! info: { title: Events, version: '1' }\n\n/// @channel pings\n/// @send Ping: { type: string }\nfn pings() {}\n\n/// @channel events\n/// @send Event: { $ref: '#/components/schemas/Absent' }\nfn events() {}\n",
+        )]);
+        let finding = diagnostics.iter().next().unwrap();
+        assert_eq!(finding.code(), Code::DanglingReference);
+        assert_eq!(finding.location(), Some(&Location::new("events.rs", 9)));
+    }
+
+    /// Operations and webhooks of path items defined in a file, parameter
+    /// mismatches of `additionalOperations` and references in arrays.
+    #[test]
+    fn nested_parts_inherit_the_location_of_their_part() {
+        let (_, diagnostics) = pipeline(&[
+            (
+                "root.yaml",
+                "openapi: 3.2.0\ninfo: { title: T, version: '1' }\nwebhooks:\n  ping:\n    post:\n      operationId: twice\n      responses: { '200': { description: OK } }\n",
+            ),
+            (
+                "z.rs",
+                "/// @openapi\n/// webhooks:\n///   pong:\n///     post:\n///       operationId: twice\n///       responses: { '200': { description: OK } }\n/// paths:\n///   /a/{x}:\n///     additionalOperations:\n///       PURGE:\n///         parameters: [{ $ref: '#/components/parameters/Gone' }]\n///         responses: { '200': { description: OK } }\nfn z() {}\n",
+            ),
+        ]);
+        let located: Vec<(Code, Option<Location>)> = diagnostics
+            .iter()
+            .map(|d| (d.code(), d.location().cloned()))
+            .collect();
+        assert_eq!(
+            located,
+            [
+                (Code::DanglingReference, Some(Location::new("z.rs", 2))),
+                (Code::DuplicateOperationId, Some(Location::new("z.rs", 2))),
+                (Code::PathParameterMismatch, Some(Location::new("z.rs", 2))),
+            ]
+        );
+    }
+
+    /// Top-level fields count as parts too, also when the root is generated
+    /// from the package.
+    #[test]
+    fn top_level_fields_of_any_snippet_are_located() {
+        let project = Project::new();
+        project.file(
+            "src/lib.rs",
+            "/// @openapi\n/// security: [{ missing: [] }]\nfn docs() {}\n",
+        );
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .package(oas_forge::Package::new("shop", "1.0.0"))
+            .build()
+            .unwrap();
+        let finding = spec
+            .diagnostics()
+            .iter()
+            .find(|d| d.code() == Code::UndefinedSecurityScheme)
+            .unwrap();
+        assert_eq!(
+            finding.location(),
+            Some(&Location::new(project.path("src/lib.rs"), 2))
+        );
+    }
+}

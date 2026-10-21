@@ -9,9 +9,9 @@ input_file: tests/corpus/cases/dsl_security/case.toml
   },
   "description": "Route DSL: @security with and without scopes",
   "diagnostics": [
-    "warning[OF5005]: security scheme `bearer` is required but not defined in `components.securitySchemes`",
-    "warning[OF5005]: security scheme `oauth2` is required but not defined in `components.securitySchemes`",
-    "warning[OF5005]: security scheme `apiKey` is required but not defined in `components.securitySchemes`"
+    "warning[OF5005]: security scheme `bearer` is required but not defined in `components.securitySchemes` (<case>/src/lib.rs:7)",
+    "warning[OF5005]: security scheme `oauth2` is required but not defined in `components.securitySchemes` (<case>/src/lib.rs:7)",
+    "warning[OF5005]: security scheme `apiKey` is required but not defined in `components.securitySchemes` (<case>/src/lib.rs:7)"
   ],
   "fragments": {
     "document": {

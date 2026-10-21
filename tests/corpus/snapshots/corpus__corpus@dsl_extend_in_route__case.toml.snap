@@ -9,7 +9,7 @@ input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
   },
   "description": "Route DSL: @extend inside a route block",
   "diagnostics": [
-    "warning[OF5005]: security scheme `oidc` is required but not defined in `components.securitySchemes`"
+    "warning[OF5005]: security scheme `oidc` is required but not defined in `components.securitySchemes` (<case>/src/api.rs:1)"
   ],
   "fragments": {
     "document": {

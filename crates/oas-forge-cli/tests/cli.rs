@@ -440,9 +440,12 @@ mod ci {
             "{text}"
         );
         assert!(text.contains("api.rs:2)"), "{text}");
-        // Lints of the merged document have no location.
+        // Lints of the merged document point to the annotation that defined
+        // the part, here the second operation with the id.
         assert!(
-            text.contains("warning[OF5002]: operationId `same` is used by 2 operations\n"),
+            text.contains(
+                "warning[OF5002]: operationId `same` is used by 2 operations (src/twice.rs:4)\n"
+            ),
             "{text}"
         );
     }

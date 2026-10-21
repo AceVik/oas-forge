@@ -10,7 +10,7 @@ input_file: tests/corpus/cases/transparent_aliases/case.toml
   "description": "Type aliases without @openapi are transparent across files: private duplicates, a function pointer, generic aliases, an ambiguous name",
   "diagnostics": [
     "warning[OF3012]: `Code` names type aliases with different targets (<case>/src/social/routes.rs:7, <case>/src/time.rs:9); the reference is not resolved (<case>/src/users.rs:10)",
-    "warning[OF5001]: `$ref: #/components/schemas/Code` points to a component that does not exist"
+    "warning[OF5001]: `$ref: #/components/schemas/Code` points to a component that does not exist (<case>/src/users.rs:10)"
   ],
   "fragments": {
     "document": {

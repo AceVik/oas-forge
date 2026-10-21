@@ -10,7 +10,7 @@ input_file: tests/corpus/cases/fragment_insert/case.toml
   "description": "Fragments: @insert with/without args, in DSL and manual blocks, unknown fragment fallback",
   "diagnostics": [
     "warning[OF3003]: fragment `Error` expects 1 argument(s), got 0 (<case>/src/lib.rs:24)",
-    "warning[OF5001]: `$ref: #/components/parameters/ExternalParam` points to a component that does not exist"
+    "warning[OF5001]: `$ref: #/components/parameters/ExternalParam` points to a component that does not exist (<case>/src/lib.rs:14)"
   ],
   "fragments": {
     "document": {

@@ -9,7 +9,7 @@ input_file: tests/corpus/cases/fragment_extend/case.toml
   },
   "description": "Fragments: @extend structural merge in manual blocks, with conflict",
   "diagnostics": [
-    "warning[OF5005]: security scheme `oidc` is required but not defined in `components.securitySchemes`"
+    "warning[OF5005]: security scheme `oidc` is required but not defined in `components.securitySchemes` (<case>/src/lib.rs:8)"
   ],
   "fragments": {
     "document": {

@@ -196,6 +196,10 @@ express, with warnings:
 | `OF5003` (strict) | a component nothing outside `components` reaches |
 | `OF5004` (strict) | an operation without summary or description, a schema without description |
 
+Each finding has the location of the annotation or file that first defined
+the operation, component or top-level field it concerns (see
+[diagnostics](diagnostics.md#lints-of5xxx)).
+
 The strict lints run with `strict_lints(true)` or `--strict`. The test suite
 also validates every corpus output against the official schemas for
 OpenAPI 3.0, 3.1 and 3.2, Swagger 2.0, AsyncAPI 3.0 and 3.1, and the JSON

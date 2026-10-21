@@ -9,7 +9,7 @@ input_file: tests/corpus/cases/v01_readme_fragments/case.toml
   },
   "description": "0.1 README (kept for compatibility): 'Fragments & Mixins' definition example with separator comments",
   "diagnostics": [
-    "warning[OF5005]: security scheme `oidcAuth` is required but not defined in `components.securitySchemes`"
+    "warning[OF5005]: security scheme `oidcAuth` is required but not defined in `components.securitySchemes` (<case>/src/api.rs:20)"
   ],
   "fragments": {
     "document": {

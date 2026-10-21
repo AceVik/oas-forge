@@ -86,6 +86,11 @@ The codes are stable: a code keeps its meaning across releases
 
 ## Lints (OF5xxx)
 
+Lints check the merged document. A finding points to the annotation or file
+that first defined the part it concerns: the operation, the component, or
+the top-level field such as `security`. For a duplicate `operationId` that
+is the second operation using it.
+
 | Code | Severity | Cause | Fix |
 | :--- | :--- | :--- | :--- |
 | `OF5001` | warning | A `$ref` points to a component that does not exist | Define the component or fix the reference |

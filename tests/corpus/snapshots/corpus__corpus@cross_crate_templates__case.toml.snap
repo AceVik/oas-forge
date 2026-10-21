@@ -9,7 +9,7 @@ input_file: tests/corpus/cases/cross_crate_templates/case.toml
   },
   "description": "Cross-crate: consuming x-oas-forge-templates/fragments from an included fragments file",
   "diagnostics": [
-    "warning[OF5006]: `{id}` of `/invoices/{id}` has no path parameter"
+    "warning[OF5006]: `{id}` of `/invoices/{id}` has no path parameter (<case>/src/lib.rs:17)"
   ],
   "fragments": {
     "document": {

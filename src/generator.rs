@@ -8,7 +8,7 @@ use super::dsl::{self, RouteSource};
 use super::error::{Error, Result};
 use super::extract::names::NameTable;
 use super::extract::{self, Item};
-use super::lint::{self, Lints};
+use super::lint::{self, Lints, Origins};
 use super::merge::{Policy, merge};
 use super::output::{self, Format, OutputKind};
 use super::package::Package;
@@ -1808,9 +1808,10 @@ pub(crate) fn assemble(
         .filter(|s| scope::includes(&s.scopes, scope))
         .cloned()
         .partition(|s| s.asyncapi);
-    let mut asyncapi = merge_documents(asyncapi, Vec::new(), is_asyncapi_root, diagnostics)?;
+    let (mut asyncapi, asyncapi_origins) =
+        merge_documents(asyncapi, Vec::new(), is_asyncapi_root, diagnostics)?;
     refs::unescape(&mut asyncapi);
-    let mut document = merge_documents(
+    let (mut document, origins) = merge_documents(
         snippets,
         prepared.generated.clone(),
         output::is_root,
@@ -1868,9 +1869,9 @@ pub(crate) fn assemble(
     let lints = Lints {
         strict: strict_lints,
     };
-    lint::check(&document, lints, diagnostics);
+    lint::check(&document, lints, &origins, diagnostics);
     if has_asyncapi {
-        lint::check(&asyncapi, Lints::default(), diagnostics);
+        lint::check(&asyncapi, Lints::default(), &asyncapi_origins, diagnostics);
     }
     Ok(Documents {
         document,
@@ -2496,13 +2497,14 @@ fn apply_tags(document: &mut Value, tags: &[String]) {
     });
 }
 
-/// Merges all snippets onto the root document (exactly one root allowed).
+/// Merges all snippets onto the root document (exactly one root allowed);
+/// returns the document and where its parts were first defined.
 fn merge_documents(
     snippets: Vec<Snippet>,
     generated: Vec<Snippet>,
     is_root: fn(&Value) -> bool,
     diagnostics: &mut Diagnostics,
-) -> Result<Value> {
+) -> Result<(Value, Origins)> {
     let roots: Vec<Location> = snippets
         .iter()
         .filter(|s| is_root(&s.value))
@@ -2513,11 +2515,16 @@ fn merge_documents(
     }
     let (root, others): (Vec<Snippet>, Vec<Snippet>) =
         snippets.into_iter().partition(|s| is_root(&s.value));
-    let mut document = root
-        .into_iter()
-        .next()
-        .map_or_else(|| Value::Object(Map::new()), |s| s.value);
+    let mut origins = Origins::default();
+    let mut document = root.into_iter().next().map_or_else(
+        || Value::Object(Map::new()),
+        |s| {
+            origins.record(&s.value, &s.location);
+            s.value
+        },
+    );
     for snippet in others.into_iter().chain(generated) {
+        origins.record(&snippet.value, &snippet.location);
         for pointer in merge(&mut document, snippet.value, Policy::Document) {
             diagnostics.push(
                 Diagnostic::new(
@@ -2528,7 +2535,7 @@ fn merge_documents(
             );
         }
     }
-    Ok(document)
+    Ok((document, origins))
 }
 
 /// Final clean-ups of the merged document.

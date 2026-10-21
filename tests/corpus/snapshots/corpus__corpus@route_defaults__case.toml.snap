@@ -9,7 +9,7 @@ input_file: tests/corpus/cases/route_defaults/case.toml
   },
   "description": "Module route defaults: prefix, tags, security, shared parameters and responses; nested modules and per-route overrides",
   "diagnostics": [
-    "warning[OF5005]: security scheme `bearer` is required but not defined in `components.securitySchemes`"
+    "warning[OF5005]: security scheme `bearer` is required but not defined in `components.securitySchemes` (<case>/src/lib.rs:17)"
   ],
   "fragments": {
     "document": {
