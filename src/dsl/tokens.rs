@@ -144,8 +144,12 @@ pub(super) fn untick(text: &str) -> Cow<'_, str> {
     let mut quoted = false;
     let mut escaped = false;
     let mut token_start = true;
-    let mut index = 0;
-    while let Some(c) = text.get(index..).and_then(|rest| rest.chars().next()) {
+    // Where the text continues after an unwrapped argument.
+    let mut resume = 0;
+    for (index, c) in text.char_indices() {
+        if index < resume {
+            continue;
+        }
         let next = index + c.len_utf8();
         if !quoted
             && c == '`'
@@ -153,7 +157,7 @@ pub(super) fn untick(text: &str) -> Cow<'_, str> {
             && let Some(end) = closing_backtick(text, next)
         {
             unticked.push_str(text.get(next..end).unwrap_or_default());
-            index = end + 1;
+            resume = end + 1;
             token_start = false;
             continue;
         }
@@ -169,7 +173,6 @@ pub(super) fn untick(text: &str) -> Cow<'_, str> {
         }
         token_start = c.is_whitespace();
         unticked.push(c);
-        index = next;
     }
     Cow::Owned(unticked)
 }

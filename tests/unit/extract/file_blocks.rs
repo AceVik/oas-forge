@@ -285,3 +285,38 @@ fn scope_lines_around_a_fence_stay_in_the_block() {
         assert!(!text.contains("```"), "{source}: {text}");
     }
 }
+
+#[test]
+fn separator_like_lines_inside_a_yaml_fence_are_yaml() {
+    // After `@asyncapi`, and after `@scope` lines of the block.
+    let items = extract(
+        "//! @asyncapi\n//! ```yaml\n//! asyncapi: 3.0.0\n//! ###\n//! ```\n//!\n//! @openapi\n//! @scope a\n//! ```yaml\n//! x-a: 1\n//! ###\n//! ```\n\nfn main() {}",
+    );
+    let texts: Vec<String> = items
+        .iter()
+        .map(|item| match item {
+            oas_forge::extract::Item::AsyncApi(document)
+            | oas_forge::extract::Item::Document(document) => document.text.clone(),
+            other => panic!("{other:#?}"),
+        })
+        .collect();
+    assert_eq!(texts, ["asyncapi: 3.0.0\n###", "@scope a\n\nx-a: 1\n###"]);
+}
+
+#[test]
+fn a_fence_after_yaml_lines_is_no_yaml_fence() {
+    // As before: only right after the header is a fence YAML; elsewhere a
+    // separator-like line in it ends the block.
+    let (_, diagnostics) = extract_with_diagnostics(
+        "//! @openapi\n//! x-a: 1\n//! ```\n//! ###\n//! ```\n\nfn main() {}",
+    );
+    assert_eq!(codes(&diagnostics), [Code::BlockSeparator]);
+}
+
+#[test]
+fn lines_of_a_block_comment_count_from_its_start() {
+    let items = extract("#![allow(unused)]\n\n/*! @openapi\n x-a: 1\n x-b: 2\n*/\n\nfn main() {}");
+    let document = &document_items(&items)[0];
+    assert_eq!(document.text, "x-a: 1\nx-b: 2");
+    assert_eq!(document.location.line(), 4);
+}
