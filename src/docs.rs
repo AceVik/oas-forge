@@ -104,6 +104,21 @@ pub(crate) fn unindent(lines: &[DocLine]) -> Vec<DocLine> {
         .collect()
 }
 
+/// Whether `trimmed`, a line at the top level of a YAML block, can start
+/// YAML: a key (`name:`, a word before the colon), a list item, a comment, a
+/// flow collection, a quoted key, a document marker or `@insert`/`@extend`.
+/// Prose such as `Some prose: with a colon.` cannot.
+pub(crate) fn starts_yaml(trimmed: &str) -> bool {
+    if trimmed.starts_with(['-', '#', '{', '[', '"', '\'', '?', '&', '*', '!', '%', '@']) {
+        return true;
+    }
+    trimmed.split_once(':').is_some_and(|(key, rest)| {
+        !key.is_empty()
+            && !key.contains(char::is_whitespace)
+            && (rest.is_empty() || rest.starts_with(char::is_whitespace))
+    })
+}
+
 /// Joins lines with `\n`.
 pub(crate) fn join(lines: &[DocLine]) -> String {
     lines

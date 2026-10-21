@@ -182,3 +182,113 @@ fn an_interrupted_doc_comment_ends_the_section() {
     assert_eq!(fragment(&items, "Paging").body, "- name: page");
     assert_eq!(document_items(&items)[0].text, "paths: {}");
 }
+
+/// Prose next to `@openapi` sections is never read as YAML.
+mod prose {
+    use super::*;
+    use crate::common::pipeline;
+
+    const ROOT: &str = "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: 1.0.0 }\n";
+
+    #[test]
+    fn prose_before_a_scoped_section_is_ignored() {
+        for scope in ["", " document", " path", " operation"] {
+            let items = extract(&format!(
+                "/// Some prose: with a colon.\n///\n/// @openapi{scope}\n/// components:\n///   schemas:\n///     X: {{ type: string }}\npub fn docs() {{}}"
+            ));
+            let documents = document_items(&items);
+            assert_eq!(documents.len(), 1, "@openapi{scope}");
+            assert_eq!(
+                documents[0].text,
+                "components:\n  schemas:\n    X: { type: string }"
+            );
+        }
+    }
+
+    #[test]
+    fn a_paragraph_of_prose_ends_the_yaml_of_a_section() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            "/// @openapi\n/// tags: [{ name: x }]\n///\n/// Some prose: with a colon.\n/// More prose.\n///\n/// @openapi document\n/// components:\n///   schemas:\n///     X: { type: string }\npub fn docs() {}",
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let texts: Vec<&str> = document_items(&items)
+            .iter()
+            .map(|d| d.text.as_str())
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                "tags: [{ name: x }]",
+                "components:\n  schemas:\n    X: { type: string }"
+            ]
+        );
+    }
+
+    #[test]
+    fn yaml_after_a_blank_line_stays_yaml() {
+        let items = extract(
+            "/// @openapi\n/// tags:\n///   - name: x\n///\n///     description: |\n///       Text\n///\n///       more.\n///\n/// # a comment\n/// - not: top\n///\n/// {\"x-a\": 1}\n/// [1]\n/// \"quoted key\": 1\n/// x-b: 2\n/// x-c:\npub fn docs() {}",
+        );
+        let documents = document_items(&items);
+        assert_eq!(documents.len(), 1);
+        assert!(
+            documents[0].text.ends_with("x-b: 2\nx-c:"),
+            "{}",
+            documents[0].text
+        );
+    }
+
+    #[test]
+    fn the_whole_pipeline_reads_prose_between_blocks_as_prose() {
+        for source in [
+            format!(
+                "{ROOT}//!\n//! Some prose.\n//!\n//! @openapi document\n//! components:\n//!   schemas:\n//!     X: {{ type: string }}"
+            ),
+            format!(
+                "{ROOT}\n/// @openapi\n/// tags: [{{ name: x }}]\n///\n/// Some prose.\n///\n/// @openapi document\n/// components:\n///   schemas:\n///     X: {{ type: string }}\npub fn docs() {{}}"
+            ),
+        ] {
+            let (document, diagnostics) = pipeline(&[("lib.rs", source.as_str())]);
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+            assert_eq!(
+                document["components"]["schemas"]["X"],
+                json!({ "type": "string" }),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn scoped_sections_on_types_are_document_blocks() {
+        for item in [
+            "pub struct Docs;",
+            "pub struct Docs { pub a: u8 }",
+            "pub enum E { A }",
+            "pub type A = u8;",
+        ] {
+            let (items, diagnostics) = extract_with_diagnostics(&format!(
+                "/// Some prose: with a colon.\n///\n/// @openapi document\n/// components:\n///   schemas:\n///     X: {{ type: string }}\n{item}"
+            ));
+            assert!(diagnostics.is_empty(), "{item}: {diagnostics:?}");
+            let documents = document_items(&items);
+            assert_eq!(documents.len(), 1, "{item}: {items:?}");
+            assert_eq!(documents[0].location.line(), 4);
+            assert!(
+                kinds(&items).iter().all(|k| !k.starts_with("schema:")),
+                "`@openapi document` does not export {item}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_type_keeps_its_schema_next_to_a_document_block() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            "/// A user.\n/// @openapi\n/// minProperties: 1\n///\n/// Developer notes: not YAML.\n///\n/// @openapi document\n/// tags: [{ name: users }]\npub struct User { pub id: u8 }",
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let user = schema(&items, "User");
+        assert_eq!(user["minProperties"], 1);
+        assert_eq!(user["description"], "A user.\n\nDeveloper notes: not YAML.");
+        assert_eq!(document_items(&items)[0].text, "tags: [{ name: users }]");
+    }
+}

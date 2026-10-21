@@ -49,8 +49,9 @@ User:
 
 YAML after `@openapi`, on the same line or on the following doc lines up
 to the next line that starts with a directive (`@description`, `@internal`,
-`@example`, …; `@insert` and `@extend` lines belong to the YAML), is merged
-into the reflected schema. Several `@openapi` lines merge in order, later
+`@example`, …; `@insert` and `@extend` lines belong to the YAML) or to a
+paragraph of prose (a line after a blank line that cannot start YAML), is
+merged into the reflected schema. Several `@openapi` lines merge in order, later
 keys win. Values written there win over everything else:
 
 ```rust,ignore

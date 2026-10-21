@@ -1146,6 +1146,23 @@ mod doc_sections {
     }
 
     #[test]
+    fn a_paragraph_of_prose_ends_the_yaml() {
+        let (field, codes) = field_docs(
+            "/// Before.\n/// @openapi\n/// minimum: 1\n///\n/// maximum: 3\n///\n/// Developer notes: not YAML.\n/// More.",
+            "u8",
+        );
+        assert_eq!(
+            (&field["minimum"], &field["maximum"]),
+            (&json!(1), &json!(3))
+        );
+        assert_eq!(
+            field["description"],
+            "Before.\n\nDeveloper notes: not YAML. More."
+        );
+        assert!(codes.is_empty(), "{codes:?}");
+    }
+
+    #[test]
     fn several_openapi_lines_merge_in_order() {
         let (field, codes) = field_docs(
             "/// @openapi minimum: 1\n/// @openapi maximum: 200\n/// @openapi minimum: 2",

@@ -130,8 +130,9 @@ pub(super) struct Reflector<'a> {
     variables: &'a Variables,
     /// Where findings go.
     diagnostics: &'a mut Diagnostics,
-    /// `@openapi-fragment` blocks found in the doc comments of the items
-    /// reflected so far, their fields and their variants.
+    /// `@openapi-fragment` and `@openapi document` blocks found in the doc
+    /// comments of the items reflected so far, their fields and their
+    /// variants.
     fragments: Vec<Item>,
 }
 
@@ -158,9 +159,10 @@ impl<'a> Reflector<'a> {
         std::mem::take(&mut self.fragments)
     }
 
-    /// Keeps the `@openapi-fragment` blocks of an item's doc comment
-    /// (`attrs`) and of its `members` (fields, variants and the fields of
-    /// variants) for [`Self::take_fragments`], in source order. Every member
+    /// Keeps the `@openapi-fragment` and `@openapi document` blocks of an
+    /// item's doc comment (`attrs`) and of its `members` (fields, variants
+    /// and the fields of variants) for [`Self::take_fragments`], in source
+    /// order. Every member
     /// is read, also of items that are not exported or not reflected field
     /// by field (`into`, `transparent`, tuple structs); nothing else of their
     /// docs is checked here.
@@ -175,6 +177,11 @@ impl<'a> Reflector<'a> {
             for (header, body) in &docs.fragments {
                 self.fragments
                     .push(super::blocks::item_fragment(self.path, header, body));
+            }
+            // `@openapi document` blocks, as on a function.
+            for block in &docs.documents {
+                let items = super::blocks::item_blocks(self.path, block, &[], self.diagnostics);
+                self.fragments.extend(items);
             }
         }
     }

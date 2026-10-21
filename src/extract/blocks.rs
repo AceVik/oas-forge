@@ -7,7 +7,7 @@
 
 use super::{ChannelItem, DocumentItem, FragmentItem, Item, NamedSchemaItem, RouteItem};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
-use crate::docs::{DocLine, doc_parts, doc_text, join, line_of, unindent};
+use crate::docs::{DocLine, doc_parts, doc_text, join, line_of, starts_yaml, unindent};
 use crate::dsl;
 use crate::yaml;
 use std::path::Path;
@@ -40,9 +40,23 @@ pub(super) fn item_blocks(
     let mut header: Option<DocLine> = None;
     let mut body: Vec<DocLine> = Vec::new();
     let mut last_line: Option<usize> = None;
+    // Whether the line before was blank: a paragraph of prose after it ends
+    // the YAML of the open section.
+    let mut after_blank = false;
 
     for line in lines {
         let trimmed = line.trimmed();
+        let paragraph = std::mem::replace(&mut after_blank, trimmed.is_empty());
+        if paragraph
+            && !line.text.starts_with(' ')
+            && !is_block_header(trimmed)
+            && trimmed != ROUTE_DEFAULTS
+            && !starts_yaml(trimmed)
+            && let Some(h) = header.take()
+        {
+            section(path, &h, &body, tags, diagnostics, &mut items);
+            body.clear();
+        }
         // Where the doc comment is interrupted by a non-doc line (a blank
         // line between two `///` groups), the open section ends.
         if last_line.is_some_and(|last| line.line > last + 1)

@@ -2,7 +2,7 @@
 //! variants and type aliases.
 
 use super::rename::RenameRule;
-use crate::docs::{DocLine, description};
+use crate::docs::{DocLine, description, starts_yaml};
 
 /// What the doc comment of a schema item (or of one of its fields/variants) says.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -33,6 +33,9 @@ pub(crate) struct ItemDocs {
     /// the body lines. They are not part of the item's description or
     /// override.
     pub fragments: Vec<(DocLine, Vec<DocLine>)>,
+    /// Free document blocks (`@openapi document`, `@openapi path`,
+    /// `@openapi operation`): the header line, then the body lines.
+    pub documents: Vec<Vec<DocLine>>,
 }
 
 /// How the text after `@openapi` on a header line is used.
@@ -54,6 +57,12 @@ enum Section {
     /// a block scalar).
     Yaml {
         /// The indentation of the `@openapi` line.
+        indent: usize,
+    },
+    /// The YAML of a free document block (`@openapi document`); `indent`
+    /// is the indentation of its header line.
+    Document {
+        /// The indentation of the header line.
         indent: usize,
     },
     /// `@description` and the plain lines after it.
@@ -98,7 +107,8 @@ impl ItemDocs {
     /// Plain lines belong to the section of the directive before them:
     /// prose (before any), the YAML of `@openapi`, `@description` or
     /// `@internal`. Every other directive (`@example`, `@summary`, unknown
-    /// ones) ends the section; prose follows it.
+    /// ones) ends the section; prose follows it. A paragraph that cannot
+    /// start YAML ([`starts_yaml`]) ends the YAML too: it is prose.
     pub(crate) fn parse(lines: &[DocLine], kind: ItemKind) -> Self {
         let mut docs = Self::default();
         let mut prose = Vec::new();
@@ -107,9 +117,11 @@ impl ItemDocs {
         // The open `@openapi-fragment` block, and the line of the last line.
         let mut fragment: Option<(DocLine, Vec<DocLine>)> = None;
         let mut last_line: Option<usize> = None;
+        let mut after_blank = false;
 
         for line in lines {
             let trimmed = line.trimmed();
+            let paragraph = std::mem::replace(&mut after_blank, trimmed.is_empty());
             // A fragment block ends at the next directive of the item or
             // where the doc comment is interrupted (a blank line between two
             // `///` groups), like the blocks of file comments.
@@ -124,13 +136,30 @@ impl ItemDocs {
                     continue;
                 }
             }
-            let yaml_text =
-                matches!(section, Section::Yaml { indent } if indentation(&line.text) > indent);
+            let yaml_indent = match section {
+                Section::Yaml { indent } | Section::Document { indent } => Some(indent),
+                _ => None,
+            };
+            let yaml_text = yaml_indent.is_some_and(|indent| indentation(&line.text) > indent);
             if !is_directive(trimmed) || yaml_text {
+                if paragraph
+                    && !yaml_text
+                    && yaml_indent.is_some()
+                    && !trimmed.is_empty()
+                    && !starts_yaml(trimmed)
+                {
+                    section = Section::Prose;
+                    prose.push("");
+                }
                 match section {
                     Section::Prose => prose.push(line.text.as_str()),
                     Section::Yaml { .. } => docs
                         .overrides
+                        .last_mut()
+                        .into_iter()
+                        .for_each(|lines| lines.push(line.clone())),
+                    Section::Document { .. } => docs
+                        .documents
                         .last_mut()
                         .into_iter()
                         .for_each(|lines| lines.push(line.clone())),
@@ -159,6 +188,14 @@ impl ItemDocs {
                 } else {
                     docs.summary = Some(text.to_string());
                 }
+            } else if let Some(rest) = trimmed.strip_prefix("@openapi")
+                && matches!(rest.trim(), "document" | "path" | "operation")
+            {
+                // A free block as on a function: not the item's schema.
+                section = Section::Document {
+                    indent: indentation(&line.text),
+                };
+                docs.documents.push(vec![DocLine::new(trimmed, line.line)]);
             } else if let Some(rest) = trimmed.strip_prefix("@openapi") {
                 section = Section::Yaml {
                     indent: indentation(&line.text),

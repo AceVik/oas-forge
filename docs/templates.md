@@ -22,7 +22,15 @@ pub async fn health() {}
 
 - Several blocks in one `//!` comment are separate snippets. A block ends at
   the next `@openapi…` header, at a separator line such as `//! ---` (note
-  `OF1003`) or at a gap in the comment.
+  `OF1003`), at a gap in the comment, or at a paragraph of prose: a line
+  after a blank line, at the indentation of the block, that cannot start
+  YAML (`Some prose.`; a line such as `key: value`, `- item`, `# comment`
+  or `{…}` can). Prose before the first header describes the Rust item and
+  is ignored.
+- `@openapi document` (also `@openapi path` and `@openapi operation`, which
+  only mean something in a [route](route-dsl.md#embedded-openapi)) is such a
+  block, also on a struct, enum or type alias: there it is not the type's
+  schema override and does not export the type.
 - `.yaml`, `.yml` and `.json` files in the input directories, and files
   passed with `include`, are snippets as well. A missing include is reported
   (`OF0001`).
