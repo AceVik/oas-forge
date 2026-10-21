@@ -1,0 +1,446 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/asyncapi_channel_messages/case.toml
+---
+{
+  "asyncapi": {
+    "document": {
+      "asyncapi": "3.0.0",
+      "channels": {
+        "chat": {
+          "address": "/chat",
+          "messages": {
+            "Line": {
+              "$ref": "#/components/messages/Line"
+            }
+          }
+        },
+        "lobby": {
+          "address": "/lobby/ws",
+          "bindings": {
+            "ws": {
+              "method": "GET"
+            }
+          },
+          "messages": {
+            "Waiting": {
+              "$ref": "#/components/messages/Waiting"
+            }
+          }
+        },
+        "seat": {
+          "address": "/games/{id}/seat",
+          "messages": {
+            "HelloAck": {
+              "description": "Seated",
+              "name": "HelloAck",
+              "payload": {
+                "$ref": "#/components/schemas/Hello"
+              }
+            },
+            "Move": {
+              "$ref": "#/components/messages/Move"
+            },
+            "Moved": {
+              "$ref": "#/components/messages/Moved"
+            }
+          },
+          "parameters": {
+            "id": {
+              "description": "The game"
+            }
+          }
+        },
+        "tables": {
+          "address": "/tables",
+          "messages": {
+            "HelloAck": {
+              "description": "Seated",
+              "name": "HelloAck",
+              "payload": {
+                "$ref": "#/components/schemas/Hello"
+              }
+            },
+            "Moved": {
+              "$ref": "#/components/messages/Moved"
+            }
+          }
+        },
+        "watch": {
+          "address": "/games/{game}/watch",
+          "messages": {
+            "HelloAck": {
+              "description": "Watching",
+              "name": "HelloAck",
+              "payload": {
+                "$ref": "#/components/schemas/Seat"
+              }
+            }
+          },
+          "parameters": {
+            "id": {}
+          },
+          "summary": "Spectators"
+        }
+      },
+      "components": {
+        "messages": {
+          "Line": {
+            "description": "A line",
+            "name": "Line",
+            "payload": {
+              "type": "string"
+            }
+          },
+          "Move": {
+            "description": "A second definition",
+            "name": "Move",
+            "payload": {
+              "$ref": "#/components/schemas/Seat"
+            }
+          },
+          "Moved": {
+            "description": "A move at the table",
+            "name": "Moved",
+            "payload": {
+              "$ref": "#/components/schemas/Move"
+            }
+          },
+          "Waiting": {
+            "description": "Players waiting",
+            "name": "Waiting",
+            "payload": {
+              "items": {
+                "$ref": "#/components/schemas/Seat"
+              },
+              "type": "array"
+            }
+          }
+        },
+        "schemas": {
+          "Hello": {
+            "description": "The first frame of a connection.",
+            "properties": {
+              "session": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "session"
+            ],
+            "type": "object"
+          },
+          "Move": {
+            "description": "A move of a player.",
+            "properties": {
+              "card": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "card"
+            ],
+            "type": "object"
+          },
+          "Seat": {
+            "description": "A seat at a table.",
+            "properties": {
+              "seat": {
+                "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "table": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "table",
+              "seat"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Games",
+        "version": "1.0.0"
+      },
+      "operations": {
+        "chat": {
+          "action": "send",
+          "channel": {
+            "$ref": "#/channels/chat"
+          },
+          "description": "Every line of the chat.\nx-not-yaml: [prose after description\nsummary: also prose",
+          "messages": [
+            {
+              "$ref": "#/channels/chat/messages/Line"
+            }
+          ],
+          "summary": "Chat lines"
+        },
+        "lobby": {
+          "action": "send",
+          "channel": {
+            "$ref": "#/channels/lobby"
+          },
+          "description": "Who is waiting for a game.\n\n- one update per change\n- no history",
+          "messages": [
+            {
+              "$ref": "#/channels/lobby/messages/Waiting"
+            }
+          ],
+          "summary": "The lobby"
+        },
+        "seat_receive": {
+          "action": "receive",
+          "channel": {
+            "$ref": "#/channels/seat"
+          },
+          "messages": [
+            {
+              "$ref": "#/channels/seat/messages/Moved"
+            },
+            {
+              "$ref": "#/channels/seat/messages/Move"
+            }
+          ],
+          "summary": "A seat"
+        },
+        "seat_send": {
+          "action": "send",
+          "channel": {
+            "$ref": "#/channels/seat"
+          },
+          "messages": [
+            {
+              "$ref": "#/channels/seat/messages/HelloAck"
+            },
+            {
+              "$ref": "#/channels/seat/messages/Moved"
+            }
+          ],
+          "summary": "A seat"
+        },
+        "tables": {
+          "action": "send",
+          "channel": {
+            "$ref": "#/channels/tables"
+          },
+          "messages": [
+            {
+              "$ref": "#/channels/tables/messages/HelloAck"
+            },
+            {
+              "$ref": "#/channels/tables/messages/Moved"
+            }
+          ],
+          "summary": "The tables"
+        },
+        "watch": {
+          "action": "send",
+          "channel": {
+            "$ref": "#/channels/watch"
+          },
+          "messages": [
+            {
+              "$ref": "#/channels/watch/messages/HelloAck"
+            }
+          ],
+          "summary": "Watching a game"
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "description": "AsyncAPI channel blocks: prose after YAML and description lines stay prose, channel YAML notes, a message name that channels define differently stays in each channel, an undeclared message section, a name clash in one channel, channel parameters checked against the address",
+  "diagnostics": [
+    "warning[OF2004]: `@openapi message Nope` names no `@send` or `@receive` message of this block; its YAML is ignored (<case>/src/lib.rs:42)",
+    "warning[OF4001]: message `Move` is defined again in this channel with other content; the later definition is used (give the messages distinct names) (<case>/src/lib.rs:61)",
+    "note[OF4001]: embedded YAML overrides the DSL value at `/summary` (<case>/src/lib.rs:70)",
+    "note[OF4001]: embedded YAML overrides the DSL value at `/address` (<case>/src/lib.rs:71)",
+    "warning[OF5006]: `{game}` of the address `/games/{game}/watch` of channel `watch` has no parameter (<case>/src/lib.rs:67)",
+    "warning[OF5006]: parameter `id` of channel `watch` does not appear in its address `/games/{game}/watch` (<case>/src/lib.rs:67)"
+  ],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Hello": {
+            "description": "The first frame of a connection.",
+            "properties": {
+              "session": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "session"
+            ],
+            "type": "object"
+          },
+          "Move": {
+            "description": "A move of a player.",
+            "properties": {
+              "card": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "card"
+            ],
+            "type": "object"
+          },
+          "Seat": {
+            "description": "A seat at a table.",
+            "properties": {
+              "seat": {
+                "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "table": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "table",
+              "seat"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "error": "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields."
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Hello": {
+          "description": "The first frame of a connection.",
+          "properties": {
+            "session": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "session"
+          ],
+          "type": "object"
+        },
+        "Move": {
+          "description": "A move of a player.",
+          "properties": {
+            "card": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "card"
+          ],
+          "type": "object"
+        },
+        "Seat": {
+          "description": "A seat at a table.",
+          "properties": {
+            "seat": {
+              "format": "int32",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "table": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "table",
+            "seat"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "error": "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields."
+  },
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Hello": {
+        "description": "The first frame of a connection.",
+        "properties": {
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "type": "object"
+      },
+      "Move": {
+        "description": "A move of a player.",
+        "properties": {
+          "card": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "card"
+        ],
+        "type": "object"
+      },
+      "Seat": {
+        "description": "A seat at a table.",
+        "properties": {
+          "seat": {
+            "format": "int32",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "table": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "table",
+          "seat"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "error": "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields."
+  }
+}
