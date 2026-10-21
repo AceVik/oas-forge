@@ -318,6 +318,41 @@ fn a_module_path_attribute_moves_the_module() {
 }
 
 #[test]
+fn module_files_are_found_as_rustc_finds_them() {
+    // `#[path]` inside inline modules (of a root and of a module file),
+    // `#[path]` on an inline module, and a file declared by a moved file.
+    let user = |field: &str| format!("/// @openapi\npub struct User {{ pub {field}: u64 }}");
+    let (document, diagnostics) = pipeline(&[
+        (
+            "src/lib.rs",
+            "pub mod outer;\npub mod nested {\n    #[path = \"renamed.rs\"]\n    pub mod inner;\n}\n#[path = \"gen/types.rs\"]\nmod api;\n#[path = \"thread_files\"]\nmod thread {\n    #[path = \"tls.rs\"]\n    mod local;\n}",
+        ),
+        ("src/nested/renamed.rs", &user("a")),
+        (
+            "src/outer.rs",
+            "pub mod inline {\n    #[path = \"deep.rs\"]\n    pub mod deep_mod;\n}",
+        ),
+        ("src/outer/inline/deep.rs", &user("b")),
+        ("src/gen/types.rs", "mod child;"),
+        ("src/gen/types/child.rs", &user("c")),
+        ("src/thread_files/tls.rs", &user("d")),
+    ]);
+    let schemas = document["components"]["schemas"].as_object().unwrap();
+    let mut names: Vec<&str> = schemas.keys().map(String::as_str).collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        [
+            "crate.api.child.User",
+            "crate.nested.inner.User",
+            "crate.outer.inline.deep_mod.User",
+            "crate.thread.local.User",
+        ]
+    );
+    assert_eq!(codes(&diagnostics), [Code::DuplicateSchema; 4]);
+}
+
+#[test]
 fn projects_without_collisions_are_unchanged() {
     let (document, diagnostics) = pipeline(&[
         (
@@ -636,6 +671,16 @@ mod edges {
                 && m.ends_with("the crate is named `nameless` after its directory")),
             "{messages:?}"
         );
+    }
+
+    #[test]
+    fn a_file_that_declares_itself_ends() {
+        // rustc rejects it ("circular modules"); the table stops moving it.
+        let (document, _) = pipeline(&[(
+            "src/lib.rs",
+            "#[path = \"lib.rs\"]\nmod again;\n/// @openapi\npub struct Tag { pub name: String }",
+        )]);
+        assert!(document["components"]["schemas"].get("Tag").is_some());
     }
 
     #[test]

@@ -398,9 +398,10 @@ or modules do not mix. Each scanned file has a module path: its crate (the
 `[package] name` of the `Cargo.toml` next to its `src` directory, `-` read
 as `_`; without one, the directory's name, and a manifest that cannot be
 read or has no name is reported, `OF0007`) and the modules below `src`
-(`mod.rs`, `lib.rs` and `main.rs` are their directory's module;
-`#[path]` on a top-level `mod` declaration is honoured; inline `mod` blocks
-count). Single files given as input belong to the crate of their `src`
+(`mod.rs`, `lib.rs` and `main.rs` are their directory's module; a file
+named by a `mod` declaration belongs to the declaring module, `#[path]`
+included and also inside inline `mod` blocks, as rustc finds it; inline
+`mod` blocks count). Single files given as input belong to the crate of their `src`
 directory too. A name resolves, in this order, to:
 
 1. the type of that name defined in the same module,

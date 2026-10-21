@@ -8,6 +8,10 @@ All notable changes to `oas-forge` will be documented in this file.
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of
   silently naming the crate after its directory.
+- `mod` declarations are followed as rustc follows them: `#[path]` inside
+  inline `mod` blocks and on them, and files declared by a file that
+  `#[path]` moved, get the module path rustc gives them (it decides the
+  `crate.module.Name` of colliding types and which type a path means).
 
 ## [0.2.0] — 2026-10-21
 

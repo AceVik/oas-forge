@@ -5,11 +5,11 @@
 //! Every Rust file has a module path: the crate (the `[package] name` of the
 //! `Cargo.toml` next to its `src` directory, `-` read as `_`; else the name
 //! of that directory, an unreadable manifest reported) and the modules
-//! below `src` (`#[path]` of top-level
-//! `mod` declarations honoured). A name written in a type position resolves
-//! in this order: a definition of the same module, an explicit `use`, glob
-//! imports, a written path (exact, then by its last segments), the one
-//! documented type of that name; several are ambiguous.
+//! below `src`, or the module whose `mod name;` declaration names the file
+//! (also through `#[path]`, as rustc resolves it). A name written in a type
+//! position resolves in this order: a definition of the same module, an
+//! explicit `use`, glob imports, a written path (exact, then by its last
+//! segments), the one documented type of that name; several are ambiguous.
 
 use crate::attrs::directives::{ItemDocs, ItemKind};
 use crate::attrs::serde::SerdeAttrs;
@@ -116,24 +116,39 @@ impl NameTable {
             let module = file_module(path, &mut crates, diagnostics);
             table.files.insert(normalize(path), (module, Vec::new()));
         }
-        // `#[path = "…"] mod name;` puts a file under the declaring module.
-        for (path, file) in files {
-            let Some(declaring) = table.module_of(path) else {
-                continue;
-            };
-            for item in &file.items {
-                if let syn::Item::Mod(declaration) = item
-                    && declaration.content.is_none()
-                    && let Some(target) = path_attribute(&declaration.attrs)
-                {
-                    let parent = path.parent().unwrap_or(Path::new(""));
-                    let target = normalize(&parent.join(target));
-                    let mut module = declaring.clone();
-                    module.push(declaration.ident.unraw().to_string());
-                    if let Some(entry) = table.files.get_mut(&target) {
+        // `mod name;` puts its file under the declaring module, as rustc
+        // finds it (`#[path]` honoured). A declaring file that moves moves
+        // the files it declares, so this repeats until nothing moves.
+        for _ in 0..=MAX_DEPTH {
+            let mut moved = false;
+            for (path, file) in files {
+                let Some(module) = table.module_of(path) else {
+                    continue;
+                };
+                let parent = path.parent().unwrap_or(Path::new(""));
+                let mut declared = Vec::new();
+                declared_files(
+                    &file.items,
+                    &module,
+                    &children_dir(path),
+                    parent,
+                    &mut declared,
+                );
+                for (candidates, module) in declared {
+                    let target = candidates
+                        .iter()
+                        .map(|candidate| normalize(candidate))
+                        .find(|candidate| table.files.contains_key(candidate));
+                    if let Some(entry) = target.and_then(|target| table.files.get_mut(&target))
+                        && entry.0 != module
+                    {
                         entry.0 = module;
+                        moved = true;
                     }
                 }
+            }
+            if !moved {
+                break;
             }
         }
         for (path, file) in files {
@@ -600,6 +615,56 @@ fn step(module: &[String], mut path: UsePath, segment: &str) -> UsePath {
         }
     }
     path
+}
+
+/// The files that the `mod name;` declarations of `items` (in `module`)
+/// may be, as rustc looks for them, with the module path each file gets:
+/// `#[path = "…"]` relative to `path_dir`, else `name.rs` or `name/mod.rs`
+/// in `dir`. Inside an inline `mod` block both are relative to `dir` and
+/// the block's directory (its `#[path]`, else its name).
+fn declared_files(
+    items: &[syn::Item],
+    module: &Segments,
+    dir: &Path,
+    path_dir: &Path,
+    declared: &mut Vec<(Vec<PathBuf>, Segments)>,
+) {
+    for item in items {
+        let syn::Item::Mod(declaration) = item else {
+            continue;
+        };
+        let name = declaration.ident.unraw().to_string();
+        let mut child = module.clone();
+        child.push(name.clone());
+        let path = path_attribute(&declaration.attrs);
+        match &declaration.content {
+            Some((_, content)) => {
+                let inner = dir.join(path.unwrap_or(name));
+                declared_files(content, &child, &inner, &inner, declared);
+            }
+            None => {
+                let candidates = match path {
+                    Some(path) => vec![path_dir.join(path)],
+                    None => vec![
+                        dir.join(format!("{name}.rs")),
+                        dir.join(&name).join("mod.rs"),
+                    ],
+                };
+                declared.push((candidates, child));
+            }
+        }
+    }
+}
+
+/// The directory of the files that `mod name;` declarations of the file
+/// `path` name: its own directory for `lib.rs`, `main.rs` and `mod.rs`,
+/// else a directory of its name next to it (`src/a.rs` → `src/a`).
+fn children_dir(path: &Path) -> PathBuf {
+    let parent = path.parent().unwrap_or(Path::new(""));
+    match path.file_stem().and_then(|stem| stem.to_str()) {
+        Some("lib" | "main" | "mod") | None => parent.to_path_buf(),
+        Some(stem) => parent.join(stem),
+    }
 }
 
 /// The module path of the Rust file `path`: the crate name, then the
