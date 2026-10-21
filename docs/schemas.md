@@ -1,6 +1,8 @@
 # Schemas
 
-Structs, enums and type aliases become entries of `components.schemas`. The
+Structs, enums and type aliases with `@openapi` become entries of
+`components.schemas`; type aliases without it are
+[transparent](#type-aliases). The
 schema describes the JSON that serde writes for the type, so field names,
 optional fields, flattening and enum tagging follow your serde attributes.
 The full list of supported attributes and types is in
@@ -77,7 +79,7 @@ is reported (`OF1001`) and ignored.
 | `@openapi` | type | Exports the type; YAML after it is merged |
 | `@openapi rename "Name"` | type, field, variant | Uses another name; wins over `#[serde(rename)]` |
 | `@openapi rename-all rule` | type | Renames all fields (structs) or variants (enums); rules as in serde: `camelCase`, `snake_case`, `kebab-case`, `PascalCase`, `SCREAMING_SNAKE_CASE`, `SCREAMING-KEBAB-CASE`, `lowercase`, `UPPERCASE` |
-| `@openapi skip` | type, field, variant | Leaves it out of the document |
+| `@openapi skip` | type, field, variant | Leaves it out of the document (a type alias becomes [transparent](#type-aliases)) |
 | `@example value` | type, field, variant | Adds a YAML value (or plain text) to `examples`; repeatable |
 | `@openapi<T, U>` | generic type, type alias | Declares a [blueprint](#explicit-blueprints) with YAML that uses `$T` |
 | `#[deprecated]` | type, field, variant | Sets `deprecated: true` |
@@ -210,7 +212,8 @@ inferred handler signatures and YAML values `$ref: $Page<User>`. Arguments
 may be paths (`Page<models::User>`). A generic type that is never used is not
 exported. Instantiation stops at a nesting depth of 16 (`OF3006`).
 
-A generic type alias (`type Paged<T> = Page<T>;`) is a template too. The
+A generic type alias with `@openapi` (`type Paged<T> = Page<T>;`) is a
+template too; without `@openapi`, it is [transparent](#type-aliases). The
 variants of a generic tagged enum that use a type parameter are instantiated
 with it: `Event<User>` has the variants `EventCreated_User`, … and keeps the
 variants without parameters (`EventDeleted`) shared.
@@ -233,6 +236,47 @@ pub struct Envelope<T>(T);
 
 A blueprint used with the wrong number of arguments is reported (`OF3005`),
 an unknown one (`$Missing<User>`) too (`OF3004`).
+
+## Type aliases
+
+A type alias with `@openapi` is exported like a struct: its schema is the
+schema of its target with the description, overrides and `@example`s of its
+doc comment; a generic one is a [template](#generics).
+
+A type alias without `@openapi` (or with `@openapi skip`) is transparent. It
+is not exported; where a documented type, a route, a channel message or a YAML
+block refers to it, the reference is replaced by the alias's target, as if
+the target had been written:
+
+```rust,ignore
+type Stamp = chrono::DateTime<chrono::Utc>;
+pub type Owner = User;
+type Paged<T> = Page<T>;
+
+/// @openapi
+pub struct Repo {
+    pub created: Stamp,       // {type: string, format: date-time}
+    pub owner: Owner,         // $ref: '#/components/schemas/User'
+    pub members: Paged<User>, // $ref: '#/components/schemas/Page_User'
+}
+```
+
+- An alias defined in the file of the reference wins, also over a
+  documented schema of the same name. Otherwise, the aliases of that name in
+  the other scanned files apply when no documented schema or template has the
+  name and they all have the same target.
+- Aliases of the same name with different targets make the name ambiguous in
+  the other files: it is reported (`OF3012`) and the reference is left
+  unresolved. Unused aliases produce nothing, so private aliases of the same
+  name in several modules never collide.
+- Chains of aliases are followed; the target of each alias is read in the
+  file that defines it. An alias that refers to itself through other aliases
+  is reported (`OF3013`); `type User = models::User;` is no cycle.
+- A built-in name written bare (`Duration`) means an alias of that name only
+  in the file that defines it.
+- The schema of the target replaces the reference, so an alias of an
+  `Option` makes the value nullable but not the field optional, and an alias
+  used as a type argument names the instance (`Page<Owner>` is `Page_Owner`).
 
 ## Types from other crates
 

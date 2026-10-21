@@ -1392,7 +1392,9 @@ pub(crate) fn run(
     let mut snippets: Vec<Snippet> = ordered.into_iter().map(|(_, s)| s).collect();
 
     // Pass 3: generic instantiation.
-    let mut instantiator = Instantiator::new(&registry).with_types(types);
+    let mut instantiator = Instantiator::new(&registry)
+        .with_types(types)
+        .with_known(&known);
     for snippet in &mut snippets {
         instantiator.apply(&mut snippet.value, &snippet.location, diagnostics);
     }
@@ -1625,6 +1627,7 @@ impl Collected {
                         .push(module.clone());
                 }
             }
+            Item::Alias(alias) => registry.add_transparent(alias),
         }
     }
 }

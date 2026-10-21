@@ -49,7 +49,7 @@ MSRV build, `cargo publish --dry-run` on release, and audits the workflows with
 | Doc comments | `src/docs.rs` | lines with positions, Javadoc blocks, Markdown-aware descriptions |
 | Attributes | `src/attrs/` | `serde.rs`, `validate.rs` (validator + garde), `rename.rs`, `directives.rs` (`@openapi …` lines) |
 | Text expansion | `src/template/lexical.rs` | the only text-level step: `@insert`, `@extend` markers, `{{vars}}`, `\$` |
-| Templates | `src/template/` | `registry.rs`, `extend.rs`, `generics.rs` (`$Page<User>`), `refs.rs` (`$User`) |
+| Templates | `src/template/` | `registry.rs`, `extend.rs`, `generics.rs` (`$Page<User>`), `refs.rs` (`$User`), `aliases.rs` (type aliases without `@openapi`) |
 | Route and channel DSL | `src/dsl/` | `mod.rs` (compiler), `params.rs`, `responses.rs`, `operation.rs`, `channel.rs`, `expand.rs` |
 | Merging | `src/merge.rs` | policies `Document`, `Extend`, `Operation`, `Override` (ADR 0003) |
 | Types | `src/schema/types.rs`, `shadow.rs` | `TypeExpr` parser and `TypeMapper` table; `shadow.rs` lets documented types win over built-in names |

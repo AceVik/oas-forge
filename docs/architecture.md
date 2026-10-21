@@ -32,9 +32,10 @@ source ──► extract ──► register ──► lexical ──► parse �
    schemas (`blocks.rs`), fragments, blueprints, routes with their handler
    signature (`signature.rs`), channels and regex constants
    (`constants.rs`).
-3. **Registration**: templates (fragments, blueprints, Rust-name aliases) go
-   into the `Registry` (`src/template/registry.rs`); reflected schemas
-   become snippets right away; texts wait until every template is known.
+3. **Registration**: templates (fragments, blueprints, Rust-name aliases,
+   type aliases without `@openapi`) go into the `Registry`
+   (`src/template/registry.rs`); reflected schemas become snippets right
+   away; texts wait until every template is known.
 4. **Lexical expansion** (`src/template/lexical.rs`), the only text-level
    step: `@insert`, `@extend` markers, `{{variables}}` and `\$` escapes. Its
    output is parsed to `serde_json::Value` immediately (`src/yaml.rs`).
@@ -43,6 +44,8 @@ source ──► extract ──► register ──► lexical ──► parse �
    to document fragments.
 7. **Generics** (`src/template/generics.rs`): every `$Name<Args>` is
    instantiated from its blueprint, to a fixed point with a depth limit.
+   References to type aliases without `@openapi` are replaced by the
+   alias's target first (`src/template/aliases.rs`).
 8. **References** (`src/template/refs.rs`): `$Name` becomes
    `#/components/schemas/Name`, built-in types become their schema, regex
    constants their pattern.

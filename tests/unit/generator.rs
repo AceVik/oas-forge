@@ -834,7 +834,7 @@ mod types_and_dialects {
         let project = Project::new();
         project.file("src/root.rs", ROOT_DOC).file(
             "src/api.rs",
-            "/// @openapi\nstruct User { id: UserId, tags: Vec<geo::Point> }\ntype Owner = UserId;\n/// @route GET /users/{id: UserId}\n/// @return 200: UserId\nfn get() {}",
+            "/// @openapi\nstruct User { id: UserId, tags: Vec<geo::Point> }\n/// @openapi\ntype Owner = UserId;\n/// @route GET /users/{id: UserId}\n/// @return 200: UserId\nfn get() {}",
         );
         let spec = Generator::new()
             .input(project.path("src"))

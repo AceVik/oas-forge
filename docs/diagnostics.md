@@ -70,6 +70,8 @@ The codes are stable: a code keeps its meaning across releases
 | `OF3009` | warning | `{{env:NAME}}` names an unset environment variable; the placeholder is kept | Set the variable for the build |
 | `OF3010` | warning | A fragment inserts or extends itself, directly or through other fragments; the repeated `@insert`/`@extend` is skipped | Remove the cycle |
 | `OF3011` | warning | A fragment got more arguments than it has parameters; the extra ones are ignored | Remove the extra arguments, or quote an argument that contains a comma |
+| `OF3012` | warning | A type alias name used without `@openapi` names aliases with different targets in several files; the reference is not resolved | Rename one of the aliases, or document the type the name should mean |
+| `OF3013` | warning | A type alias refers to itself through other aliases; the reference is not resolved | Remove the cycle |
 
 ## Merging (OF4xxx)
 

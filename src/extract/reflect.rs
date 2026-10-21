@@ -5,7 +5,7 @@
 //! `transparent`, newtype and tuple structs, and all four enum
 //! representations. Validation attributes add their keywords.
 
-use super::{BlueprintItem, DocumentItem, Item, Options, SchemaItem};
+use super::{AliasItem, BlueprintItem, DocumentItem, Item, Options, SchemaItem};
 use crate::attrs::directives::{ItemDocs, ItemKind};
 use crate::attrs::metas;
 use crate::attrs::rename::RenameRule;
@@ -595,16 +595,22 @@ impl<'a> Reflector<'a> {
         })
     }
 
-    /// Reflects a type alias (always exported, unless `@openapi skip`; a
-    /// generic alias is a blueprint).
+    /// Reflects a type alias. With `@openapi` it is exported (a generic
+    /// alias is a blueprint); without it, or with `@openapi skip`, it is a
+    /// transparent [`Item::Alias`] that stands for its target.
     pub(super) fn alias(&mut self, item: &syn::ItemType) -> Option<Item> {
         self.fragments(&item.attrs, []);
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Container);
-        if naming.docs.skip {
-            return None;
-        }
         let mut schema = self.typed(&TypeExpr::from_syn(&item.ty), MappedType::into_schema);
+        if !naming.docs.exported || naming.docs.skip {
+            return Some(Item::Alias(AliasItem {
+                rust_name,
+                params: type_params(&item.generics).unwrap_or_default(),
+                schema,
+                location: self.location(line_of(item.span())),
+            }));
+        }
         self.finish(&mut schema, &naming, &format!("type alias `{rust_name}`"));
         // `type Paged<T> = Page<T>` is a template like a generic struct, and
         // `@openapi<T>` declares one like on a struct.

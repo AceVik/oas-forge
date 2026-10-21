@@ -6,6 +6,7 @@
 //! values [`extend::apply`], [`generics::Instantiator`], [`refs::resolve`] and
 //! finally [`refs::unescape`].
 
+pub(crate) mod aliases;
 pub mod extend;
 pub mod generics;
 pub mod lexical;

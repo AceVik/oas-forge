@@ -88,6 +88,9 @@ pub enum Item {
     Channel(ChannelItem),
     /// A module declared with `mod name;`, whose items are in another file.
     Module(ModuleItem),
+    /// A type alias without `@openapi`: no schema of its own, it stands for
+    /// its target wherever its name is used.
+    Alias(AliasItem),
 }
 
 impl Item {
@@ -131,6 +134,7 @@ impl Item {
             Self::AsyncApi(i) => &i.location,
             Self::Channel(i) => &i.location,
             Self::Module(i) => &i.location,
+            Self::Alias(i) => &i.location,
         }
     }
 }
@@ -561,6 +565,52 @@ pub struct PatternItem {
     /// The regular expression.
     pub pattern: String,
     /// Where the constant is defined.
+    pub location: Location,
+}
+
+/// A type alias without `@openapi` (or with `@openapi skip`). It is not
+/// exported; references to its name are replaced by its schema when the
+/// references are resolved.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::Diagnostics;
+/// use oas_forge::extract::{self, Item, Options};
+/// use serde_json::json;
+/// use std::path::Path;
+///
+/// let source = r#"
+/// type Owner = User;
+/// type Paged<T> = Vec<T>;
+/// "#;
+/// let items = extract::extract_str(
+///     Path::new("src/lib.rs"),
+///     source,
+///     Options::new(),
+///     &mut Diagnostics::new(),
+/// )?;
+/// let [Item::Alias(owner), Item::Alias(paged)] = &items[..] else {
+///     return Err("no aliases".into());
+/// };
+/// assert_eq!(owner.rust_name, "Owner");
+/// assert_eq!(owner.schema, json!({ "$ref": "$User" }));
+/// assert_eq!(paged.params, ["T"]);
+/// assert_eq!(paged.schema, json!({ "type": "array", "items": { "$ref": "$T" } }));
+/// assert_eq!(paged.location.line(), 3);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct AliasItem {
+    /// The Rust identifier.
+    pub rust_name: String,
+    /// Type parameter names, referenced as `$T` in the schema.
+    pub params: Vec<String>,
+    /// The schema of the target type; references to other types are
+    /// `{"$ref": "$Name"}`.
+    pub schema: Value,
+    /// Where the alias is declared.
     pub location: Location,
 }
 

@@ -3,6 +3,7 @@
 //! that names a built-in type (`$String`, `$Uuid`, e.g. from a blueprint
 //! instantiated with `$Page<String>`) becomes that type's schema.
 
+use super::aliases::{self, Found, Lookup};
 use super::lexical::ESCAPED_DOLLAR;
 use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
@@ -30,6 +31,15 @@ pub struct KnownSchemas {
 }
 
 impl KnownSchemas {
+    /// The empty set, for stages run without documented names.
+    pub(crate) fn none() -> &'static Self {
+        /// The shared empty set.
+        static NONE: KnownSchemas = KnownSchemas {
+            names: BTreeSet::new(),
+        };
+        &NONE
+    }
+
     /// Adds a schema name.
     ///
     /// # Examples
@@ -90,7 +100,7 @@ impl KnownSchemas {
 /// The name of a smart reference: `text` is `$` followed by an identifier
 /// (a letter or `_`, then letters, digits or `_`). `None` for other text,
 /// e.g. a generic reference (`$Page<User>`) or prose.
-fn reference_name(text: &str) -> Option<&str> {
+pub(crate) fn reference_name(text: &str) -> Option<&str> {
     let name = text.strip_prefix('$')?;
     let mut chars = name.chars();
     let first = chars.next()?;
@@ -182,7 +192,14 @@ pub fn resolve(
     diagnostics: &mut Diagnostics,
 ) {
     let mut reported = HashSet::new();
-    resolve_at(value, targets, location, diagnostics, &mut reported);
+    resolve_at(
+        value,
+        targets,
+        location,
+        diagnostics,
+        &mut reported,
+        &mut Vec::new(),
+    );
 }
 
 /// The schema of a built-in or custom-mapped type named by
@@ -207,15 +224,18 @@ fn builtin(name: &str, targets: Targets<'_>) -> Option<serde_json::Map<String, V
 }
 
 /// [`resolve`] at `value` and below. `reported` holds the unknown names
-/// reported so far. In a mapping, the built-in alternatives are chosen
-/// first ([`shadow::choose`]), then a `$ref` of a built-in type is
-/// replaced, then the children are resolved.
+/// reported so far, `expanding` the type aliases being replaced around
+/// `value`. In a mapping, the built-in alternatives are chosen first
+/// ([`shadow::choose`]), then a `$ref` of a type alias is replaced by its
+/// target (resolved in the alias's file), or one of a built-in type by its
+/// schema, then the children are resolved.
 fn resolve_at(
     value: &mut Value,
     targets: Targets<'_>,
     location: &Location,
     diagnostics: &mut Diagnostics,
     reported: &mut HashSet<String>,
+    expanding: &mut Vec<String>,
 ) {
     let Targets {
         known, registry, ..
@@ -250,18 +270,47 @@ fn resolve_at(
         }
         Value::Array(items) => {
             for item in items {
-                resolve_at(item, targets, location, diagnostics, reported);
+                resolve_at(item, targets, location, diagnostics, reported, expanding);
             }
         }
         Value::Object(map) => {
+            let lookup = Lookup { registry, known };
             // A bare built-in name (`Duration`) that is also a documented
-            // schema refers to that schema.
+            // schema, or a type alias of the file, refers to that.
             shadow::choose(map, |name| {
                 known.contains(name)
                     || registry
                         .alias(name)
                         .is_some_and(|alias| known.contains(alias))
+                    || lookup.is_local(name, location)
             });
+            if let Some(name) = map
+                .get("$ref")
+                .and_then(Value::as_str)
+                .and_then(reference_name)
+                .map(str::to_string)
+            {
+                match lookup.find(&name, 0, location, expanding, diagnostics) {
+                    Found::Alias(alias) => {
+                        aliases::replace(map, alias.schema.clone());
+                        expanding.push(name);
+                        resolve_at(
+                            value,
+                            targets,
+                            &alias.location,
+                            diagnostics,
+                            reported,
+                            expanding,
+                        );
+                        expanding.pop();
+                        return;
+                    }
+                    Found::Reported => {
+                        reported.insert(name);
+                    }
+                    Found::Nothing => {}
+                }
+            }
             let schema = map
                 .get("$ref")
                 .and_then(Value::as_str)
@@ -274,7 +323,7 @@ fn resolve_at(
                 }
             }
             for child in map.values_mut() {
-                resolve_at(child, targets, location, diagnostics, reported);
+                resolve_at(child, targets, location, diagnostics, reported, expanding);
             }
             // An unknown name (reported above) still becomes a pointer, so
             // the reference stays well-formed and the lints see it.

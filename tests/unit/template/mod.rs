@@ -1,3 +1,4 @@
+mod aliases;
 mod extend;
 mod generics;
 mod lexical;

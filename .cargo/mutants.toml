@@ -29,4 +29,10 @@ exclude_re = [
     # A nullable reference merged into its parent is turned into `allOf` by
     # the reference-sibling rule right after; the result is the same.
     "src/schema/dialect.rs:.*replace match guard inner.contains_key\\(\"\\$ref\"\\) with false in lower_30",
+    # Fast path: `GenericRef::parse` rejects every string that does not
+    # start with `$` or has no `<`, so the guard only saves the parse.
+    "src/template/generics.rs:.*replace match guard s.starts_with\\('\\$'\\) && s.contains\\('<'\\) with true in Instantiator<'a>::apply",
+    "src/template/generics.rs:.*replace && with \\|\\| in Instantiator<'a>::apply",
+    # Any empty set is the same empty set of documented names.
+    "src/template/refs.rs:.*replace KnownSchemas::none -> &'static Self with Box::leak",
 ]

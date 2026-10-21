@@ -2,9 +2,11 @@
 //! cross-crate wire format (ADR 0005).
 
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
+use crate::extract::AliasItem;
 use crate::yaml;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
+use std::path::Path;
 
 /// Vendor extension carrying blueprints in headless outputs.
 pub const TEMPLATES_KEY: &str = "x-oas-forge-templates";
@@ -113,6 +115,22 @@ pub struct Registry {
     blueprints: BTreeMap<String, Blueprint>,
     /// The schema names of renamed Rust types, by Rust type name.
     aliases: BTreeMap<String, String>,
+    /// Type aliases without `@openapi`, by Rust name, in source order.
+    transparent: BTreeMap<String, Vec<AliasItem>>,
+}
+
+/// What a name means as a transparent type alias where it is used
+/// ([`Registry::transparent`]).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Transparent<'a> {
+    /// No type alias has the name.
+    None,
+    /// The alias of that name in the file where the name is used.
+    Local(&'a AliasItem),
+    /// The alias of that name in other files (all definitions agree).
+    Foreign(&'a AliasItem),
+    /// Several aliases of that name with different targets.
+    Ambiguous(Vec<&'a AliasItem>),
 }
 
 impl Registry {
@@ -180,6 +198,44 @@ impl Registry {
         let (rust_name, name) = (rust_name.into(), name.into());
         if rust_name != name {
             self.aliases.insert(rust_name, name);
+        }
+    }
+
+    /// Records a type alias without `@openapi`
+    /// ([`Item::Alias`](crate::extract::Item::Alias)).
+    pub(crate) fn add_transparent(&mut self, alias: AliasItem) {
+        self.transparent
+            .entry(alias.rust_name.clone())
+            .or_default()
+            .push(alias);
+    }
+
+    /// What `name` means as a transparent type alias in `file`: an alias
+    /// defined in `file` wins over those of other files; aliases of the same
+    /// name and target count as one.
+    pub(crate) fn transparent(&self, name: &str, file: &Path) -> Transparent<'_> {
+        let Some(all) = self.transparent.get(name) else {
+            return Transparent::None;
+        };
+        let local: Vec<&AliasItem> = all.iter().filter(|a| a.location.file() == file).collect();
+        let (candidates, is_local) = if local.is_empty() {
+            (all.iter().collect(), false)
+        } else {
+            (local, true)
+        };
+        let mut distinct: Vec<&AliasItem> = Vec::new();
+        for alias in candidates {
+            if !distinct
+                .iter()
+                .any(|d| d.params == alias.params && d.schema == alias.schema)
+            {
+                distinct.push(alias);
+            }
+        }
+        match distinct[..] {
+            [alias] if is_local => Transparent::Local(alias),
+            [alias] => Transparent::Foreign(alias),
+            _ => Transparent::Ambiguous(distinct),
         }
     }
 

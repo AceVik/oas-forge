@@ -21,16 +21,14 @@ components:
         user:
           $ref: "#/components/schemas/UserId"
         at:
-          $ref: "#/components/schemas/Timestamp"
+          type: string
+          format: date-time
         count:
           $ref: "#/components/schemas/Count"
       required:
       - user
       - at
       - count
-    Timestamp:
-      type: string
-      format: date-time
     UserId:
       type: string
       description: Identifier of a user.

@@ -1413,6 +1413,7 @@ mod builtin_names {
         }
         /// @openapi
         pub struct Timeout(pub Duration);
+        /// @openapi
         pub type Delay = Duration;
         "#;
 

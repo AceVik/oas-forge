@@ -4,8 +4,11 @@
 //! produces one concrete schema; instantiated bodies are processed again until
 //! no generic reference is left (bounded by [`MAX_DEPTH`]).
 
+use super::aliases::{self, Found, Lookup};
+use super::refs::{KnownSchemas, reference_name};
 use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
+use crate::extract::AliasItem;
 use crate::schema::shadow;
 use crate::schema::types::{MappedType, TypeExpr, TypeMapper, is_container};
 use regex::{Captures, Regex};
@@ -259,6 +262,11 @@ pub struct Instantiator<'a> {
     /// The concrete names being instantiated, outermost first; a recursive
     /// use of one of them is not instantiated again.
     in_progress: Vec<String>,
+    /// The documented schema names; a type alias of another file does not
+    /// replace a reference to one of them.
+    known: &'a KnownSchemas,
+    /// The type aliases being replaced, outermost first.
+    aliasing: Vec<String>,
 }
 
 impl<'a> Instantiator<'a> {
@@ -287,7 +295,16 @@ impl<'a> Instantiator<'a> {
             types: TypeMapper::builtin(),
             concrete: BTreeMap::new(),
             in_progress: Vec::new(),
+            known: KnownSchemas::none(),
+            aliasing: Vec::new(),
         }
+    }
+
+    /// Uses `known` as the documented schema names: a type alias of another
+    /// file does not replace a reference to one of them.
+    pub(crate) fn with_known(mut self, known: &'a KnownSchemas) -> Self {
+        self.known = known;
+        self
     }
 
     /// Uses `types` for type arguments such as `Vec<User>` or `Option<u8>`.
@@ -369,6 +386,15 @@ impl<'a> Instantiator<'a> {
                 }
             }
             Value::Object(map) => {
+                // A type alias stands for its target (`$Owner`, `$Paged<User>`),
+                // resolved in the alias's file.
+                if let Some((alias, schema)) = self.alias(map, location, diagnostics) {
+                    aliases::replace(map, schema);
+                    self.aliasing.push(alias.rust_name.clone());
+                    self.apply(value, &alias.location, diagnostics);
+                    self.aliasing.pop();
+                    return;
+                }
                 // `{$ref: $Vec<User>}`: the shorthand replaces the whole schema;
                 // sibling keywords such as `description` are kept.
                 let inline = map.get("$ref").and_then(Value::as_str).and_then(|r| {
@@ -390,6 +416,47 @@ impl<'a> Instantiator<'a> {
             }
             _ => {}
         }
+    }
+
+    /// The type alias that the `$ref` of `map` names (`$Owner`,
+    /// `$Paged<User>`) and its schema with the type arguments bound.
+    fn alias(
+        &self,
+        map: &Map<String, Value>,
+        location: &Location,
+        diagnostics: &mut Diagnostics,
+    ) -> Option<(&'a AliasItem, Value)> {
+        let text = map.get("$ref")?.as_str()?;
+        let (name, args) = match GenericRef::parse(text) {
+            Some(generic) => (
+                last_segment(&generic.name).to_string(),
+                generic
+                    .args
+                    .iter()
+                    .map(|arg| match arg {
+                        GenericArg::Name(name) => last_segment(name).to_string(),
+                        GenericArg::Generic(inner) => inner.text(),
+                    })
+                    .collect(),
+            ),
+            None => (reference_name(text)?.to_string(), Vec::new()),
+        };
+        let lookup = Lookup {
+            registry: self.registry,
+            known: self.known,
+        };
+        let Found::Alias(alias) =
+            lookup.find(&name, args.len(), location, &self.aliasing, diagnostics)
+        else {
+            return None;
+        };
+        let bindings: BTreeMap<&str, &str> = alias
+            .params
+            .iter()
+            .map(String::as_str)
+            .zip(args.iter().map(String::as_str))
+            .collect();
+        Some((alias, substitute(&alias.schema, &bindings)))
     }
 
     /// The inline schema of a `$Vec<T>`-style shorthand: std containers and

@@ -7,7 +7,7 @@ input_file: tests/corpus/cases/type_aliases/case.toml
   "asyncapi": {
     "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
   },
-  "description": "Type aliases: exported with and without @openapi, docs and overrides",
+  "description": "Type aliases: exported with @openapi (docs and overrides), transparent without it",
   "diagnostics": [],
   "fragments": {
     "document": {
@@ -22,7 +22,8 @@ input_file: tests/corpus/cases/type_aliases/case.toml
           "Event": {
             "properties": {
               "at": {
-                "$ref": "#/components/schemas/Timestamp"
+                "format": "date-time",
+                "type": "string"
               },
               "count": {
                 "$ref": "#/components/schemas/Count"
@@ -37,10 +38,6 @@ input_file: tests/corpus/cases/type_aliases/case.toml
               "count"
             ],
             "type": "object"
-          },
-          "Timestamp": {
-            "format": "date-time",
-            "type": "string"
           },
           "UserId": {
             "description": "Identifier of a user.",
@@ -65,7 +62,8 @@ input_file: tests/corpus/cases/type_aliases/case.toml
           "Event": {
             "properties": {
               "at": {
-                "$ref": "#/components/schemas/Timestamp"
+                "format": "date-time",
+                "type": "string"
               },
               "count": {
                 "$ref": "#/components/schemas/Count"
@@ -80,10 +78,6 @@ input_file: tests/corpus/cases/type_aliases/case.toml
               "count"
             ],
             "type": "object"
-          },
-          "Timestamp": {
-            "format": "date-time",
-            "type": "string"
           },
           "UserId": {
             "description": "Identifier of a user.",
@@ -113,7 +107,8 @@ input_file: tests/corpus/cases/type_aliases/case.toml
         "Event": {
           "properties": {
             "at": {
-              "$ref": "#/$defs/Timestamp"
+              "format": "date-time",
+              "type": "string"
             },
             "count": {
               "$ref": "#/$defs/Count"
@@ -128,10 +123,6 @@ input_file: tests/corpus/cases/type_aliases/case.toml
             "count"
           ],
           "type": "object"
-        },
-        "Timestamp": {
-          "format": "date-time",
-          "type": "string"
         },
         "UserId": {
           "description": "Identifier of a user.",
@@ -157,7 +148,8 @@ input_file: tests/corpus/cases/type_aliases/case.toml
           "Event": {
             "properties": {
               "at": {
-                "$ref": "#/components/schemas/Timestamp"
+                "format": "date-time",
+                "type": "string"
               },
               "count": {
                 "$ref": "#/components/schemas/Count"
@@ -172,10 +164,6 @@ input_file: tests/corpus/cases/type_aliases/case.toml
               "count"
             ],
             "type": "object"
-          },
-          "Timestamp": {
-            "format": "date-time",
-            "type": "string"
           },
           "UserId": {
             "description": "Identifier of a user.",
@@ -209,7 +197,8 @@ input_file: tests/corpus/cases/type_aliases/case.toml
       "Event": {
         "properties": {
           "at": {
-            "$ref": "#/components/schemas/Timestamp"
+            "format": "date-time",
+            "type": "string"
           },
           "count": {
             "$ref": "#/components/schemas/Count"
@@ -224,10 +213,6 @@ input_file: tests/corpus/cases/type_aliases/case.toml
           "count"
         ],
         "type": "object"
-      },
-      "Timestamp": {
-        "format": "date-time",
-        "type": "string"
       },
       "UserId": {
         "description": "Identifier of a user.",
@@ -249,7 +234,8 @@ input_file: tests/corpus/cases/type_aliases/case.toml
         "Event": {
           "properties": {
             "at": {
-              "$ref": "#/definitions/Timestamp"
+              "format": "date-time",
+              "type": "string"
             },
             "count": {
               "$ref": "#/definitions/Count"
@@ -264,10 +250,6 @@ input_file: tests/corpus/cases/type_aliases/case.toml
             "count"
           ],
           "type": "object"
-        },
-        "Timestamp": {
-          "format": "date-time",
-          "type": "string"
         },
         "UserId": {
           "description": "Identifier of a user.",

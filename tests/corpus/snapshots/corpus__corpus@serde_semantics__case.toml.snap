@@ -111,9 +111,6 @@ input_file: tests/corpus/cases/serde_semantics/case.toml
             ],
             "type": "object"
           },
-          "Paged_Event_User": {
-            "$ref": "#/components/schemas/Page_Event_User"
-          },
           "Pair": {
             "items": false,
             "maxItems": 1,
@@ -224,12 +221,6 @@ input_file: tests/corpus/cases/serde_semantics/case.toml
               "T"
             ]
           },
-          "Paged": {
-            "body": "$ref: $Page<$T>\n",
-            "params": [
-              "T"
-            ]
-          },
           "Wrapper": {
             "body": "type: object\nproperties:\n  value:\n    $ref: $T\nrequired:\n- value\n",
             "params": [
@@ -247,7 +238,7 @@ input_file: tests/corpus/cases/serde_semantics/case.toml
                 "content": {
                   "application/json": {
                     "schema": {
-                      "$ref": "#/components/schemas/Paged_Event_User"
+                      "$ref": "#/components/schemas/Page_Event_User"
                     }
                   }
                 },
@@ -401,9 +392,6 @@ input_file: tests/corpus/cases/serde_semantics/case.toml
             ],
             "type": "object"
           },
-          "Paged_Event_User": {
-            "$ref": "#/components/schemas/Page_Event_User"
-          },
           "Pair": {
             "items": false,
             "maxItems": 1,
@@ -509,7 +497,7 @@ input_file: tests/corpus/cases/serde_semantics/case.toml
                 "content": {
                   "application/json": {
                     "schema": {
-                      "$ref": "#/components/schemas/Paged_Event_User"
+                      "$ref": "#/components/schemas/Page_Event_User"
                     }
                   }
                 },
@@ -662,9 +650,6 @@ input_file: tests/corpus/cases/serde_semantics/case.toml
             "items"
           ],
           "type": "object"
-        },
-        "Paged_Event_User": {
-          "$ref": "#/$defs/Page_Event_User"
         },
         "Pair": {
           "items": false,
@@ -871,9 +856,6 @@ input_file: tests/corpus/cases/serde_semantics/case.toml
             ],
             "type": "object"
           },
-          "Paged_Event_User": {
-            "$ref": "#/components/schemas/Page_Event_User"
-          },
           "Pair": {
             "items": {
               "anyOf": [
@@ -975,7 +957,7 @@ input_file: tests/corpus/cases/serde_semantics/case.toml
                 "content": {
                   "application/json": {
                     "schema": {
-                      "$ref": "#/components/schemas/Paged_Event_User"
+                      "$ref": "#/components/schemas/Page_Event_User"
                     }
                   }
                 },
@@ -1038,7 +1020,7 @@ input_file: tests/corpus/cases/serde_semantics/case.toml
               "content": {
                 "application/json": {
                   "schema": {
-                    "$ref": "#/components/schemas/Paged_Event_User"
+                    "$ref": "#/components/schemas/Page_Event_User"
                   }
                 }
               },
@@ -1188,9 +1170,6 @@ input_file: tests/corpus/cases/serde_semantics/case.toml
           "items"
         ],
         "type": "object"
-      },
-      "Paged_Event_User": {
-        "$ref": "#/components/schemas/Page_Event_User"
       },
       "Pair": {
         "items": false,
@@ -1385,9 +1364,6 @@ input_file: tests/corpus/cases/serde_semantics/case.toml
           ],
           "type": "object"
         },
-        "Paged_Event_User": {
-          "$ref": "#/definitions/Page_Event_User"
-        },
         "Pair": {
           "items": {
             "x-anyOf": [
@@ -1489,7 +1465,7 @@ input_file: tests/corpus/cases/serde_semantics/case.toml
               "200": {
                 "description": "OK",
                 "schema": {
-                  "$ref": "#/definitions/Paged_Event_User"
+                  "$ref": "#/definitions/Page_Event_User"
                 }
               }
             },

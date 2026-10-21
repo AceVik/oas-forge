@@ -19,7 +19,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Paged_Event_User"
+                $ref: "#/components/schemas/Page_Event_User"
   /settings:
     get:
       summary: The settings
@@ -109,8 +109,6 @@ components:
       required:
       - items
       description: One page of results.
-    Paged_Event_User:
-      $ref: "#/components/schemas/Page_Event_User"
     Pair:
       type: array
       prefixItems:

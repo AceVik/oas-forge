@@ -293,6 +293,10 @@ codes! {
     FragmentCycle = "OF3010", Warning;
     /// A fragment was used with more arguments than parameters.
     ExtraFragmentArgument = "OF3011", Warning;
+    /// A type alias name refers to several aliases with different targets.
+    AmbiguousAlias = "OF3012", Warning;
+    /// A type alias refers to itself through other aliases.
+    AliasCycle = "OF3013", Warning;
 
     /// Two documents set the same value differently.
     MergeConflict = "OF4001", Warning;
