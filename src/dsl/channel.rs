@@ -360,14 +360,7 @@ pub fn compile_channel(
                     .push(Diagnostic::new(Code::InvalidDirective, SCOPE_SYNTAX).at(at(index))),
             },
             "ws-query" | "ws-header" => {
-                let location = if name == "ws-query" {
-                    "query"
-                } else {
-                    "header"
-                };
-                if let Some(property) =
-                    ws_property(name, location, rest, &source, index, diagnostics)
-                {
+                if let Some(property) = ws_property(name, rest, &source, index, diagnostics) {
                     let list = if name == "ws-query" {
                         &mut websocket.query
                     } else {
@@ -476,19 +469,21 @@ pub fn compile_channel(
     }
 
     let mut channel_object = Value::Object(channel_object);
-    let mut component_messages = Value::Object(component_messages);
-    let mut extra = Value::Object(Map::new());
     let embedded = Embedded {
         source: &source,
         lines: &yaml,
     };
     embedded.merge_into(&Target::Channel, &mut channel_object, diagnostics);
     for name in embedded.messages() {
-        let entry = match &mut component_messages {
-            Value::Object(map) => map.entry(name.clone()).or_insert_with(|| json!({})),
-            other => other,
-        };
-        embedded.merge_into(&Target::Message(name), entry, diagnostics);
+        let mut message = component_messages
+            .get(&name)
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        embedded.merge_into(&Target::Message(name.clone()), &mut message, diagnostics);
+        // YAML that was ignored adds no empty message.
+        if message.as_object().is_some_and(|m| !m.is_empty()) {
+            component_messages.insert(name, message);
+        }
     }
     if operations.is_empty() {
         embedded.without_operation(diagnostics);
@@ -496,7 +491,6 @@ pub fn compile_channel(
     for operation in operations.values_mut() {
         embedded.merge_into(&Target::Operation, operation, diagnostics);
     }
-    embedded.merge_into(&Target::Document, &mut extra, diagnostics);
 
     let mut document = Map::new();
     let mut channels = Map::new();
@@ -505,26 +499,14 @@ pub fn compile_channel(
     if !operations.is_empty() {
         document.insert("operations".into(), Value::Object(operations));
     }
-    if component_messages
-        .as_object()
-        .is_some_and(|m| !m.is_empty())
-    {
+    if !component_messages.is_empty() {
         document.insert(
             "components".into(),
             json!({ "messages": component_messages }),
         );
     }
     let mut document = Value::Object(document);
-    for pointer in merge(&mut document, extra, Policy::Document) {
-        diagnostics.push(
-            Diagnostic::new(
-                Code::MergeConflict,
-                format!("embedded YAML overrides the DSL value at `{pointer}`"),
-            )
-            .with_severity(Severity::Note)
-            .at(source.location.clone()),
-        );
-    }
+    embedded.merge_into(&Target::Document, &mut document, diagnostics);
     let scopes = match scopes {
         Some(scopes) => scopes,
         None => default_scopes(source, diagnostics),
@@ -583,12 +565,12 @@ fn yaml_target(rest: &str) -> Result<Target, String> {
     }
 }
 
-/// Parses `@ws-query`/`@ws-header` (`directive`) `rest` like a parameter of
-/// `location`; returns the property name, its schema and whether it is
-/// required. Flags that only parameters have are reported and ignored.
+/// Parses `@ws-query`/`@ws-header` (`directive`) `rest` like a query
+/// parameter (headers parse alike; the location is dropped); returns the
+/// property name, its schema and whether it is required. Flags that only
+/// parameters have are reported and ignored.
 fn ws_property(
     directive: &str,
-    location: &str,
     rest: &str,
     source: &ChannelSource<'_>,
     index: usize,
@@ -598,7 +580,7 @@ fn ws_property(
         Some(line) => Location::new(source.location.file(), *line),
         None => source.location.clone(),
     };
-    let Some(parameter) = params::parse(location, rest, source.types) else {
+    let Some(parameter) = params::parse("query", rest, source.types) else {
         diagnostics.push(
             Diagnostic::new(
                 Code::InvalidDirective,
@@ -756,12 +738,7 @@ impl Embedded<'_, '_> {
                 .at(self.at(first)),
             ),
             Ok(parsed) => {
-                let policy = if *target == Target::Document {
-                    Policy::Document
-                } else {
-                    Policy::Operation
-                };
-                for pointer in merge(value, parsed, policy) {
+                for pointer in merge(value, parsed, Policy::Document) {
                     let index = conflict_line(&text, &pointer)
                         .and_then(|i| lines.get(i))
                         .map_or(first, |(index, _)| *index);

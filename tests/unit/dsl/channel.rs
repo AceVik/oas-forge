@@ -529,15 +529,26 @@ mod embedded_yaml {
     }
 
     #[test]
-    fn document_yaml_that_changes_the_dsl_is_noted_at_the_block() {
-        let (_, diagnostics) = numbered(&[
+    fn document_yaml_that_changes_the_dsl_is_noted_at_its_line() {
+        let (document, diagnostics) = numbered(&[
             "@channel live",
+            "@send A: u8",
             "@openapi document",
-            "channels: { live: { address: elsewhere } }",
+            "channels:",
+            "  live:",
+            "    address: elsewhere",
+            "    messages: { B: { $ref: '#/components/messages/B' } }",
         ]);
         assert_eq!(
             findings(&diagnostics),
-            ["1: OF4001 embedded YAML overrides the DSL value at `/channels/live/address`"]
+            ["6: OF4001 embedded YAML overrides the DSL value at `/channels/live/address`"]
+        );
+        let channel = &document.unwrap()["channels"]["live"];
+        assert_eq!(channel["address"], "elsewhere");
+        assert_eq!(
+            channel["messages"].as_object().map(|m| m.len()),
+            Some(2),
+            "maps merge"
         );
     }
 
@@ -568,6 +579,8 @@ mod embedded_yaml {
         );
         let document = document.unwrap();
         assert!(document["channels"]["live"].get("bindings").is_none());
+        // The ignored message section leaves no empty message behind.
+        assert!(document.get("components").is_none(), "{document:#}");
     }
 
     #[test]
@@ -607,6 +620,7 @@ mod embedded_yaml {
             "Summary",
             "@channel live",
             "@send A: u8",
+            "Note: the servers are fast",
             "servers are fast: yes",
             "bindings: {}",
             "@tag T",
@@ -616,7 +630,7 @@ mod embedded_yaml {
         let document = document.unwrap();
         assert_eq!(
             document["operations"]["op"]["description"],
-            "servers are fast: yes\nMore text"
+            "Note: the servers are fast\nservers are fast: yes\nMore text"
         );
         assert_eq!(document["channels"]["live"]["bindings"], json!({}));
         // Blank YAML sections change nothing.
