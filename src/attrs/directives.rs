@@ -112,7 +112,7 @@ impl ItemDocs {
     pub(crate) fn parse(lines: &[DocLine], kind: ItemKind) -> Self {
         let mut docs = Self::default();
         let mut prose = Vec::new();
-        let mut explicit: Option<Vec<&str>> = None;
+        let mut explicit: Option<Vec<String>> = None;
         let mut section = Section::Prose;
         // The open `@openapi-fragment` block, and the line of the last line.
         let mut fragment: Option<(DocLine, Vec<DocLine>)> = None;
@@ -163,7 +163,9 @@ impl ItemDocs {
                         .last_mut()
                         .into_iter()
                         .for_each(|lines| lines.push(line.clone())),
-                    Section::Description => explicit.get_or_insert_default().push(&line.text),
+                    Section::Description => {
+                        explicit.get_or_insert_default().push(line.text.clone());
+                    }
                     Section::Internal => {}
                 }
                 continue;
@@ -177,7 +179,10 @@ impl ItemDocs {
                 section = Section::Description;
                 let lines = explicit.get_or_insert_default();
                 if !text.is_empty() {
-                    lines.push(text);
+                    // With the margin of the line, so that the text lines up
+                    // with the plain lines that continue it.
+                    let margin = line.text.len() - line.text.trim_start().len();
+                    lines.push(format!("{}{text}", " ".repeat(margin)));
                 }
             } else if argument(trimmed, "@internal").is_some() {
                 section = Section::Internal;
@@ -207,7 +212,10 @@ impl ItemDocs {
             }
         }
         docs.fragments.extend(fragment);
-        docs.description = description(explicit.as_deref().unwrap_or(&prose));
+        docs.description = match &explicit {
+            Some(lines) => description(&lines.iter().map(String::as_str).collect::<Vec<_>>()),
+            None => description(&prose),
+        };
         docs
     }
 

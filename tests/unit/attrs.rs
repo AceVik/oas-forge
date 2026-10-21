@@ -1025,6 +1025,12 @@ mod doc_sections {
     }
 
     #[test]
+    fn a_description_lines_up_with_its_continuation() {
+        let (field, _) = field_docs("/// @description Steps:\n/// - one\n/// - two", "u8");
+        assert_eq!(field["description"], "Steps:\n- one\n- two");
+    }
+
+    #[test]
     fn several_descriptions_are_joined() {
         let (field, _) = field_docs(
             "/// @description One.\n/// @example 1\n/// @description Two.",
