@@ -116,6 +116,11 @@ pub struct SerdeAttrs {
     pub serialize: bool,
     /// The container derives `Deserialize` (also behind `cfg_attr`).
     pub deserialize: bool,
+    /// `default` without a path: the `Default` of the field's type (on a
+    /// container: of the container).
+    pub default_of_type: bool,
+    /// The container derives `Default` (also behind `cfg_attr`).
+    pub derives_default: bool,
 }
 
 impl SerdeAttrs {
@@ -133,6 +138,7 @@ impl SerdeAttrs {
             {
                 Some("Serialize") => out.serialize = true,
                 Some("Deserialize") => out.deserialize = true,
+                Some("Default") => out.derives_default = true,
                 _ => {}
             }
         }
@@ -177,7 +183,10 @@ impl SerdeAttrs {
             "untagged" => self.untagged = true,
             "transparent" => self.transparent = true,
             "deny_unknown_fields" => self.deny_unknown_fields = true,
-            "default" => self.default = true,
+            "default" => {
+                self.default = true;
+                self.default_of_type = true;
+            }
             "skip" => self.skip = true,
             "skip_serializing" => self.skip_serializing = true,
             "skip_deserializing" => self.skip_deserializing = true,

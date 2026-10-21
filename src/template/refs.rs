@@ -11,6 +11,11 @@ use crate::schema::{TypeExpr, TypeMapper, shadow};
 use serde_json::Value;
 use std::collections::{BTreeSet, HashSet};
 
+/// Marks the reference of a field whose value is the `Default` of its type
+/// (`#[serde(default)]`): the references stage copies the `default` of the
+/// referenced schema next to it, then removes the marker.
+pub(crate) const TYPE_DEFAULT_KEY: &str = "x-oas-forge-type-default";
+
 /// The schema names smart references may resolve to.
 ///
 /// # Examples
@@ -310,6 +315,18 @@ fn resolve_at(
                     }
                     Found::Nothing => {}
                 }
+            }
+            // `#[serde(default)]` of a documented type with a `default`.
+            if map.shift_remove(TYPE_DEFAULT_KEY).is_some()
+                && let Some(default) = map
+                    .get("$ref")
+                    .and_then(Value::as_str)
+                    .and_then(reference_name)
+                    .map(|name| registry.alias(name).unwrap_or(name))
+                    .and_then(|name| registry.default_of(name))
+                    .cloned()
+            {
+                map.entry("default").or_insert(default);
             }
             let schema = map
                 .get("$ref")

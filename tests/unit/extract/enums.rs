@@ -1011,3 +1011,104 @@ mod serde_repr {
         );
     }
 }
+
+/// `#[default]` on a unit variant is the default of the enum and of fields
+/// that take it with `#[serde(default)]`.
+mod default_variant {
+    use super::*;
+    use crate::common::pipeline;
+
+    #[test]
+    fn the_enum_gets_its_default() {
+        let items = extract(
+            "/// @openapi\n#[derive(Default, Serialize)]\n#[serde(rename_all = \"kebab-case\")]\npub enum Verify { #[default] StopNow, Warn }",
+        );
+        assert_eq!(
+            schema(&items, "Verify"),
+            json!({ "type": "string", "enum": ["stop-now", "warn"], "default": "stop-now" })
+        );
+    }
+
+    #[test]
+    fn an_override_wins() {
+        let items = extract(
+            "/// @openapi default: warn\n#[derive(Default)]\npub enum Verify { #[default] Stop, Warn }",
+        );
+        assert_eq!(schema(&items, "Verify")["default"], "warn");
+    }
+
+    #[test]
+    fn fields_with_serde_default_get_the_default_of_the_enum() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "verify.rs",
+                "/// @openapi\n#[derive(Default, Deserialize)]\npub enum Verify { #[default] #[serde(rename = \"halt\")] Stop, Warn }\npub type Check = Verify;",
+            ),
+            (
+                "job.rs",
+                r#"
+                /// @openapi
+                #[derive(Deserialize)]
+                pub struct Job {
+                    /// How to verify.
+                    #[serde(default)]
+                    pub verify: Verify,
+                    #[serde(default)]
+                    pub check: Check,
+                    #[serde(default)]
+                    pub maybe: Option<Verify>,
+                    #[serde(default = "warn")]
+                    pub custom: Verify,
+                    /// @openapi default: warn
+                    #[serde(default)]
+                    pub overridden: Verify,
+                    pub plain: Verify,
+                }
+                /// @openapi
+                #[derive(Default, Deserialize)]
+                #[serde(default)]
+                pub struct Defaults { pub verify: Verify }
+                /// @openapi
+                #[derive(Deserialize)]
+                #[serde(default)]
+                pub struct Manual { pub verify: Verify }
+                "#,
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let schemas = &document["components"]["schemas"];
+        let job = &schemas["Job"]["properties"];
+        let verify = "#/components/schemas/Verify";
+        assert_eq!(
+            job["verify"],
+            json!({ "$ref": verify, "description": "How to verify.", "default": "halt" })
+        );
+        assert_eq!(
+            job["check"],
+            json!({ "$ref": verify, "default": "halt" }),
+            "through an alias"
+        );
+        assert!(
+            job["maybe"].to_string().find("default").is_none(),
+            "`None` is the default"
+        );
+        assert_eq!(
+            job["custom"],
+            json!({ "$ref": verify }),
+            "a function is unknown"
+        );
+        assert_eq!(job["overridden"]["default"], "warn");
+        assert_eq!(job["plain"], json!({ "$ref": verify }));
+        assert_eq!(
+            schemas["Defaults"]["properties"]["verify"],
+            json!({ "$ref": verify, "default": "halt" }),
+            "a derived `Default` of the container uses the field's"
+        );
+        assert_eq!(
+            schemas["Manual"]["properties"]["verify"],
+            json!({ "$ref": verify }),
+            "a hand-written `Default` is unknown"
+        );
+        assert!(!document.to_string().contains("x-oas-forge"), "{document}");
+    }
+}

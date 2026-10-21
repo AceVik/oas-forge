@@ -117,6 +117,9 @@ pub struct Registry {
     aliases: BTreeMap<String, String>,
     /// Type aliases without `@openapi`, by Rust name, in source order.
     transparent: BTreeMap<String, Vec<AliasItem>>,
+    /// The `default` of reflected schemas (an enum's `#[default]` variant),
+    /// by schema name.
+    defaults: BTreeMap<String, Value>,
 }
 
 /// What a name means as a transparent type alias where it is used
@@ -237,6 +240,17 @@ impl Registry {
             [alias] => Transparent::Foreign(alias),
             _ => Transparent::Ambiguous(distinct),
         }
+    }
+
+    /// Records the `default` of the reflected schema `name`, for fields
+    /// that take the `Default` of their type.
+    pub(crate) fn add_default(&mut self, name: impl Into<String>, default: Value) {
+        self.defaults.insert(name.into(), default);
+    }
+
+    /// The `default` of the reflected schema `name`.
+    pub(crate) fn default_of(&self, name: &str) -> Option<&Value> {
+        self.defaults.get(name)
     }
 
     /// A fragment by name.

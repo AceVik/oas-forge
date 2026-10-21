@@ -27,7 +27,7 @@ Attributes are also read inside `#[cfg_attr(…, serde(…))]`.
 | Attribute | Schema |
 | :--- | :--- |
 | `rename = "name"` | the property name |
-| `default`, `default = "path"` | not required (in an output type: no effect) |
+| `default`, `default = "path"` | not required (in an output type: no effect); `default` of a documented type with a `default` (an enum's `#[default]` variant) also sets the field's `default` |
 | `skip` | left out |
 | `skip_serializing` | `writeOnly: true`; in an output type also not required |
 | `skip_deserializing` | `readOnly: true` |
@@ -63,6 +63,7 @@ Known `with` modules:
 | `untagged` | an additional `anyOf` alternative |
 | `with = "…"` | for newtype variants, as for fields |
 | `other`, `alias` | documented like any other variant |
+| `#[default]` (Rust, on a unit variant of an externally tagged enum) | the enum's `default` |
 
 ### Enum representations
 

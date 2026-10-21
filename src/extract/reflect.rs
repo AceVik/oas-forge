@@ -16,6 +16,7 @@ use crate::docs::{doc_lines, line_of};
 use crate::merge::{Policy, merge};
 use crate::schema::types::{MappedType, TypeExpr, TypeMapper, undocumentable};
 use crate::schema::{accepts_null, nullable, shadow};
+use crate::template::refs::TYPE_DEFAULT_KEY;
 use crate::template::{Variables, lexical};
 use crate::yaml;
 use serde_json::{Map, Value, json};
@@ -475,6 +476,19 @@ impl<'a> Reflector<'a> {
                     }
                     _ => None,
                 });
+        // The `Default` of a documented type: its `default`, known once its
+        // schema is (an enum's `#[default]` variant).
+        let type_default = serde.default_of_type
+            || (!serde.default && container.default_of_type && container.derives_default);
+        if type_default && !mapped.nullable {
+            shadow::for_each(&mut schema, |schema| {
+                if let Value::Object(map) = schema
+                    && map.contains_key("$ref")
+                {
+                    map.insert(TYPE_DEFAULT_KEY.into(), json!(true));
+                }
+            });
+        }
         shadow::for_each(&mut schema, |schema| annotations.apply(schema));
         let required = lifted.unwrap_or(if output {
             !serde.skip_serializing_if && !serde.skip_serializing
@@ -749,7 +763,21 @@ impl<'a> Reflector<'a> {
 
         let mut items = Vec::new();
         let mut schema = match representation {
-            Representation::External => self.external(&naming, &variants),
+            Representation::External => {
+                let mut schema = self.external(&naming, &variants);
+                // `#[default]` on a unit variant (with `#[derive(Default)]`).
+                let default = variants.iter().find(|(v, _)| {
+                    matches!(v.fields, syn::Fields::Unit)
+                        && v.attrs.iter().any(|a| a.path().is_ident("default"))
+                });
+                if let (Some((_, variant)), Value::Object(map)) = (default, &mut schema) {
+                    map.insert(
+                        "default".into(),
+                        json!(Self::variant_name(variant, naming.rename_all)),
+                    );
+                }
+                schema
+            }
             Representation::Untagged => {
                 let alternatives = variants
                     .iter()

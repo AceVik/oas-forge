@@ -249,6 +249,12 @@ Enums follow serde's representation:
 | `#[serde(tag = "t", content = "c")]` | like internally tagged, the data under the content key |
 | `#[serde(untagged)]` | `anyOf` of the variants' content |
 
+`#[default]` on a unit variant (with `#[derive(Default)]`) is the enum's
+`default`. A field of such an enum with `#[serde(default)]` (or in a
+container with `#[serde(default)]` and `#[derive(Default)]`) gets that
+`default` too, also when the enum is defined in another file; with
+`default = "path"` the value is unknown and left out.
+
 A string `enum` cannot describe single values. When a unit variant has an
 `@openapi` override, an `@example`, a `@summary` or `#[deprecated]`, the
 enum also gets a `oneOf` with one `const` per unit variant that carries it,

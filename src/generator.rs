@@ -1564,6 +1564,9 @@ impl Collected {
                 }
                 known.insert(schema.name.clone());
                 registry.add_alias(&schema.rust_name, &schema.name);
+                if let Some(default) = schema.schema.get("default") {
+                    registry.add_default(&schema.name, default.clone());
+                }
                 snippets.push(Snippet::openapi(
                     json!({ "components": { "schemas": { schema.name: schema.schema } } }),
                     schema.location,
