@@ -803,6 +803,23 @@ mod serde_attribute {
         );
     }
 
+    /// For `clippy::doc_markdown`: the name may be written as code.
+    #[test]
+    fn directive_names_may_be_in_backticks() {
+        let items = extract(
+            r#"
+            /// @openapi rename `CatalogPrinting`
+            /// @openapi rename-all `kebab-case`
+            struct Printing { set_code: String }
+            "#,
+        );
+        assert!(
+            schema(&items, "CatalogPrinting")["properties"]
+                .get("set-code")
+                .is_some()
+        );
+    }
+
     #[test]
     fn field_rename_beats_the_container_rule() {
         let items = extract(

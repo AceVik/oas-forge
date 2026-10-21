@@ -237,8 +237,9 @@ well in rustdoc and pass the lint, and the document stays the same:
   or right after the closing fence.
 - Arguments of directives in backticks: `` @return 200: `Vec<$Art>` ``,
   `` @route GET `/art` ``, `` @insert `Paging(100)` ``, flag values and list
-  items (`` enum=[`art_crop`, `art_full`] ``), and URLs as autolinks
-  (`<https://example.com/art>`).
+  items (`` enum=[`art_crop`, `art_full`] ``), names on types
+  (`` @openapi rename `ConsoleDay` ``, `` @openapi rename-all `camelCase` ``),
+  and URLs as autolinks (`<https://example.com/art>`).
 
 <!-- corpus: guide_rustdoc -->
 ```rust

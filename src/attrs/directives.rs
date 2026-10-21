@@ -404,5 +404,13 @@ impl ItemDocs {
 
 /// `text` trimmed and without surrounding double quotes.
 fn unquote(text: &str) -> &str {
-    text.trim().trim_matches('"')
+    let text = text.trim();
+    // `` `Name` ``: Markdown backticks around the whole argument, so the
+    // line passes `clippy::doc_markdown` and renders as code in rustdoc.
+    let text = text
+        .strip_prefix('`')
+        .and_then(|inner| inner.strip_suffix('`'))
+        .filter(|inner| !inner.is_empty() && !inner.contains('`'))
+        .unwrap_or(text);
+    text.trim_matches('"')
 }
