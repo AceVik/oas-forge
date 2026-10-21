@@ -58,7 +58,9 @@ paths:
         "204":
           description: No Content
         "401":
-          description: Custom unauthorized
+          description: |-
+            - Unauthorized
+            - Custom unauthorized
 tags:
 - name: Tenants
   description: Everything about tenants

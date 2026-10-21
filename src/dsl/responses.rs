@@ -52,8 +52,11 @@ pub(super) fn body(rest: &str, types: &TypeMapper) -> Result<Body, String> {
 pub(super) struct Response {
     /// The status code or range (`200`, `4XX`, `default`).
     pub(super) code: String,
-    /// The Response object.
+    /// The Response object; its description is the reason phrase without
+    /// an explicit one.
     pub(super) value: Value,
+    /// The description written in the directive, if any.
+    pub(super) description: Option<String>,
 }
 
 /// Parses a `@return` directive; the error says what is wrong with it.
@@ -65,9 +68,10 @@ pub(super) fn response(rest: &str, types: &TypeMapper) -> Result<Response, Strin
     if code.is_empty() || code.contains(char::is_whitespace) {
         return Err(SYNTAX.into());
     }
-    let (residue, description) = trailing_description(residue);
-    let description = description
-        .filter(|d| !d.is_empty())
+    let (residue, explicit) = trailing_description(residue);
+    let explicit = explicit.filter(|d| !d.is_empty());
+    let description = explicit
+        .clone()
         .unwrap_or_else(|| reason_phrase(&code).to_string());
     let mut value = Map::new();
     value.insert("description".into(), json!(description));
@@ -100,6 +104,7 @@ pub(super) fn response(rest: &str, types: &TypeMapper) -> Result<Response, Strin
     Ok(Response {
         code,
         value: Value::Object(value),
+        description: explicit,
     })
 }
 
@@ -129,12 +134,13 @@ pub(super) fn header(rest: &str, types: &TypeMapper) -> Option<(String, String, 
 
 /// A problem details response: `@problem CODE ["description"]`.
 pub(super) fn problem(rest: &str) -> Option<Response> {
-    let (code, description) = trailing_description(rest);
+    let (code, explicit) = trailing_description(rest);
     if code.is_empty() || code.contains(char::is_whitespace) {
         return None;
     }
-    let description = description
-        .filter(|d| !d.is_empty())
+    let explicit = explicit.filter(|d| !d.is_empty());
+    let description = explicit
+        .clone()
         .unwrap_or_else(|| reason_phrase(code).to_string());
     Some(Response {
         code: code.to_string(),
@@ -144,6 +150,7 @@ pub(super) fn problem(rest: &str) -> Option<Response> {
                 "schema": { "$ref": format!("#/components/schemas/{PROBLEM_SCHEMA}") }
             } },
         }),
+        description: explicit,
     })
 }
 

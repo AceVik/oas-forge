@@ -448,3 +448,212 @@ mod dsl_v2 {
         );
     }
 }
+
+/// Several lines for one status code: one response, their descriptions
+/// combined when they agree on the content.
+mod merged_responses {
+    use super::*;
+    use crate::common::{here, lines};
+    use oas_forge::diagnostics::{Diagnostics, Location, Severity};
+    use oas_forge::dsl::{self, RouteSource};
+
+    /// The responses of `GET /x` and the findings, with the block on lines
+    /// 10, 11, … and the defaults on lines 1, 2, ….
+    fn compiled(block: &[&str], defaults: &[&str]) -> (Value, Diagnostics) {
+        let block = lines(block);
+        let numbers: Vec<usize> = (10..10 + block.len()).collect();
+        let defaults = lines(defaults);
+        let location = here();
+        let mut diagnostics = Diagnostics::new();
+        let route = dsl::compile(
+            RouteSource::new(&block, &location)
+                .line_numbers(&numbers)
+                .defaults(&defaults),
+            &mut diagnostics,
+        )
+        .unwrap_or_else(|| panic!("rejected: {diagnostics:#?}"));
+        let responses = route.document["paths"]["/x"]["get"]["responses"].clone();
+        (responses, diagnostics)
+    }
+
+    fn error_body() -> Value {
+        json!({ "application/json": { "schema": { "$ref": "$ErrorBody" } } })
+    }
+
+    #[test]
+    fn lines_with_the_same_content_combine_their_descriptions() {
+        let (responses, diagnostics) = compiled(
+            &[
+                "@route GET /x",
+                "@return 403: $ErrorBody \"The account is banned\"",
+                "@return 403: $ErrorBody \"The password is wrong\"",
+                "@return 403: $ErrorBody \"The account is banned\"",
+                "@return 403: $ErrorBody",
+                "@return 404: $ErrorBody \"No such deck\"",
+                "@return 404: $ErrorBody",
+                "@return 409: $ErrorBody",
+            ],
+            &[],
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(
+            responses["403"],
+            json!({
+                "description": "- The account is banned\n- The password is wrong",
+                "content": error_body(),
+            })
+        );
+        assert_eq!(responses["404"]["description"], "No such deck");
+        assert_eq!(responses["409"]["description"], "Conflict");
+    }
+
+    #[test]
+    fn defaults_and_the_block_combine_in_source_order() {
+        let (responses, diagnostics) = compiled(
+            &[
+                "@route GET /x",
+                "@return 403: $ErrorBody \"Own\"",
+                "@problem 401 \"Token expired\"",
+                "@return 200: String",
+            ],
+            &[
+                "@route-defaults",
+                "@return 403: $ErrorBody \"Outer\"",
+                "@problem 401 \"Not signed in\"",
+                "@return 200: String \"From the module\"",
+                "@return-header 200 X-Rate: u32",
+                "@route-defaults",
+                "@return 403: $ErrorBody \"Inner\"",
+                "@return 403: $ErrorBody \"Outer\"",
+            ],
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(responses["403"]["description"], "- Outer\n- Inner\n- Own");
+        assert_eq!(responses["403"]["content"], error_body());
+        assert_eq!(
+            responses["401"]["description"],
+            "- Not signed in\n- Token expired"
+        );
+        // The module's headers stay; a line without description adds nothing.
+        assert_eq!(responses["200"]["description"], "From the module");
+        assert!(responses["200"]["headers"]["X-Rate"].is_object());
+    }
+
+    #[test]
+    fn a_header_of_the_block_keeps_the_body_of_the_defaults() {
+        let (responses, diagnostics) = compiled(
+            &["@route GET /x", "@return-header 200 X-Total: u64"],
+            &["@route-defaults", "@return 200: String \"Items\""],
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(responses["200"]["description"], "Items");
+        assert_eq!(
+            responses["200"]["content"]["application/json"]["schema"],
+            json!({ "type": "string" })
+        );
+        assert!(responses["200"]["headers"]["X-Total"].is_object());
+    }
+
+    #[test]
+    fn a_different_content_in_the_block_wins_with_a_note() {
+        let (responses, diagnostics) = compiled(
+            &[
+                "@route GET /x",
+                "@tag Decks",
+                "@return 404: String \"No such deck\"",
+                "@return 204:",
+            ],
+            &[
+                "@route-defaults",
+                "@return 404: $ErrorBody \"Missing\"",
+                "@return 204: $ErrorBody \"Body\"",
+            ],
+        );
+        assert_eq!(
+            responses["404"],
+            json!({
+                "description": "No such deck",
+                "content": { "application/json": { "schema": { "type": "string" } } },
+            })
+        );
+        assert_eq!(responses["204"], json!({ "description": "No Content" }));
+        let found: Vec<(Code, Severity, Location)> = diagnostics
+            .iter()
+            .map(|d| (d.code(), d.severity(), d.location().unwrap().clone()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (
+                    Code::MergeConflict,
+                    Severity::Note,
+                    Location::new("test.rs", 12)
+                ),
+                (
+                    Code::MergeConflict,
+                    Severity::Note,
+                    Location::new("test.rs", 13)
+                ),
+            ]
+        );
+        assert!(
+            diagnostics.iter().any(|d| d.message().contains("`404`")),
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn embedded_yaml_adds_its_description() {
+        let (responses, diagnostics) = compiled(
+            &[
+                "@route GET /x",
+                "@return 403: $ErrorBody \"A\"",
+                "@return 401: $ErrorBody",
+                "responses:",
+                "  '403': { description: B }",
+                "  '401': { description: Who are you? }",
+                "  '400': { description: Bad }",
+            ],
+            &[],
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(responses["403"]["description"], "- A\n- B");
+        assert_eq!(responses["403"]["content"], error_body());
+        assert_eq!(responses["401"]["description"], "Who are you?");
+        assert_eq!(responses["400"], json!({ "description": "Bad" }));
+    }
+
+    #[test]
+    fn embedded_yaml_with_another_content_wins_as_before() {
+        let (responses, diagnostics) = compiled(
+            &[
+                "@route GET /x",
+                "@return 403: $ErrorBody \"A\"",
+                "responses:",
+                "  '403':",
+                "    description: C",
+                "    content: { text/plain: { schema: { type: string } } }",
+            ],
+            &[],
+        );
+        assert_eq!(responses["403"]["description"], "C");
+        let mut media: Vec<&String> = responses["403"]["content"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect();
+        media.sort();
+        assert_eq!(media, ["application/json", "text/plain"]);
+        assert_eq!(
+            codes_and_severities(&diagnostics),
+            [(Code::MergeConflict, Severity::Note)]
+        );
+    }
+
+    fn codes_and_severities(diagnostics: &Diagnostics) -> Vec<(Code, Severity)> {
+        diagnostics
+            .iter()
+            .map(|d| (d.code(), d.severity()))
+            .collect()
+    }
+}

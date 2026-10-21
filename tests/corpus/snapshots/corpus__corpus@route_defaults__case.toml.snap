@@ -43,7 +43,7 @@ input_file: tests/corpus/cases/route_defaults/case.toml
                 "description": "No Content"
               },
               "401": {
-                "description": "Custom unauthorized"
+                "description": "- Unauthorized\n- Custom unauthorized"
               }
             },
             "security": [],
@@ -141,7 +141,7 @@ input_file: tests/corpus/cases/route_defaults/case.toml
                 "description": "No Content"
               },
               "401": {
-                "description": "Custom unauthorized"
+                "description": "- Unauthorized\n- Custom unauthorized"
               }
             },
             "security": [],
@@ -248,7 +248,7 @@ input_file: tests/corpus/cases/route_defaults/case.toml
                 "description": "No Content"
               },
               "401": {
-                "description": "Custom unauthorized"
+                "description": "- Unauthorized\n- Custom unauthorized"
               }
             },
             "security": [],
@@ -341,7 +341,7 @@ input_file: tests/corpus/cases/route_defaults/case.toml
               "description": "No Content"
             },
             "401": {
-              "description": "Custom unauthorized"
+              "description": "- Unauthorized\n- Custom unauthorized"
             }
           },
           "security": [],
@@ -431,7 +431,7 @@ input_file: tests/corpus/cases/route_defaults/case.toml
                 "description": "No Content"
               },
               "401": {
-                "description": "Custom unauthorized"
+                "description": "- Unauthorized\n- Custom unauthorized"
               }
             },
             "security": [],

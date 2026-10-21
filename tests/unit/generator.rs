@@ -2007,3 +2007,50 @@ mod file_module_defaults {
         assert!(operation(&document, "/api/x").is_object());
     }
 }
+
+/// Responses with one status from fragments, defaults and the block.
+mod merged_responses {
+    use super::*;
+
+    const FRAGMENT: &str = "//! @openapi-fragment SessionRefusalsAnyTerms\n//! @return 403: $ErrorBody \"The account is banned\"\n\n/// @openapi\npub struct ErrorBody { pub message: String }\n";
+
+    #[test]
+    fn inserted_lines_and_the_block_combine_their_descriptions() {
+        let (document, diagnostics) = pipeline(&[(
+            "api.rs",
+            &format!(
+                "{FRAGMENT}\n/// @route POST /sessions\n/// @insert SessionRefusalsAnyTerms\n/// @return 403: $ErrorBody \"The password is wrong\"\nfn login() {{}}\n"
+            ),
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let response = &document["paths"]["/sessions"]["post"]["responses"]["403"];
+        assert_eq!(
+            response["description"],
+            "- The account is banned\n- The password is wrong"
+        );
+        assert_eq!(
+            response["content"]["application/json"]["schema"],
+            json!({ "$ref": "#/components/schemas/ErrorBody" })
+        );
+    }
+
+    #[test]
+    fn inserted_lines_in_defaults_combine_with_the_block() {
+        let (document, diagnostics) = pipeline(&[(
+            "api.rs",
+            &format!(
+                "{FRAGMENT}\n/// @route-defaults\n/// @insert SessionRefusalsAnyTerms\nmod sessions {{\n  /// @route POST /sessions\n  /// @return 403: $ErrorBody \"The password is wrong\"\n  fn login() {{}}\n  /// @route DELETE /sessions\n  fn logout() {{}}\n}}\n"
+            ),
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let paths = &document["paths"]["/sessions"];
+        assert_eq!(
+            paths["post"]["responses"]["403"]["description"],
+            "- The account is banned\n- The password is wrong"
+        );
+        assert_eq!(
+            paths["delete"]["responses"]["403"]["description"],
+            "The account is banned"
+        );
+    }
+}

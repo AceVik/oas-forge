@@ -33,7 +33,7 @@ use operation::Security;
 use prose::{Prose, Text};
 use regex::Regex;
 use serde_json::{Map, Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 /// Operation fields that start an embedded YAML section in a route block.
@@ -454,6 +454,12 @@ struct Builder {
     /// The responses of `@return`, `@return-header` and `@problem`, by
     /// status code.
     responses: Map<String, Value>,
+    /// The descriptions written in `@return` and `@problem` lines, by status
+    /// code, in source order.
+    explained: BTreeMap<String, Vec<String>>,
+    /// The status codes of `@return` and `@problem` lines (which mean their
+    /// content, or that there is none), with the line of the first.
+    stated: BTreeMap<String, Option<usize>>,
     /// The `@security` requirements (`{}` for `@security none`); `None`
     /// without a `@security` line.
     security: Option<Vec<Value>>,
@@ -905,7 +911,7 @@ impl Compiler<'_, '_> {
                 Err(message) => self.invalid(index, message),
             },
             "return" => match responses::response(rest, types) {
-                Ok(response) => add_response(&mut b.responses, response.code, response.value),
+                Ok(response) => add_response(b, response, index),
                 Err(message) => self.invalid(index, message),
             },
             "return-header" => match responses::header(rest, types) {
@@ -927,7 +933,7 @@ impl Compiler<'_, '_> {
             },
             "problem" => match responses::problem(rest) {
                 Some(response) => {
-                    add_response(&mut b.responses, response.code, response.value);
+                    add_response(b, response, index);
                     let mut schemas = Map::new();
                     schemas.insert(
                         responses::PROBLEM_SCHEMA.into(),
@@ -1120,9 +1126,13 @@ impl Compiler<'_, '_> {
         if b.security.is_none() {
             b.security = defaults.security;
         }
-        for (code, response) in defaults.responses {
-            b.responses.entry(code).or_insert(response);
-        }
+        self.default_responses(
+            &mut b,
+            defaults.responses,
+            defaults.explained,
+            &defaults.stated,
+        );
+        describe_responses(&mut b.responses, &b.explained);
         for (key, value) in defaults.operation {
             b.operation.entry(key).or_insert(value);
         }
@@ -1191,7 +1201,13 @@ impl Compiler<'_, '_> {
 
         let mut path_item = Value::Object(Map::new());
         let yaml = std::mem::take(&mut b.yaml);
-        self.embedded_yaml(&yaml, false, &mut operation, &mut path_item, &mut document);
+        let mut targets = Targets {
+            operation: &mut operation,
+            path_item: &mut path_item,
+            document: &mut document,
+            explained: &mut b.explained,
+        };
+        self.embedded_yaml(&yaml, false, &mut targets);
         // YAML of the module defaults fills what the route leaves open, the
         // innermost module first: each module is parsed on its own, so inner
         // values win over outer ones.
@@ -1201,7 +1217,7 @@ impl Compiler<'_, '_> {
         starts.extend(defaults.module_yaml.iter().copied());
         for (start, end) in starts.into_iter().zip(ends).rev() {
             if let Some(module) = defaults.yaml.get(start..end) {
-                self.embedded_yaml(module, true, &mut operation, &mut path_item, &mut document);
+                self.embedded_yaml(module, true, &mut targets);
             }
         }
         // Embedded YAML that is not a mapping is rejected, so the operation
@@ -1409,16 +1425,61 @@ impl Compiler<'_, '_> {
         }
     }
 
+    /// Adds the responses of the module defaults to the block's. A status
+    /// code the block has too keeps one response: with the same content (or
+    /// where one of them only adds headers) the defaults fill gaps and their
+    /// descriptions come first; with a different content the block's response
+    /// wins and a note says so.
+    fn default_responses(
+        &mut self,
+        b: &mut Builder,
+        responses: Map<String, Value>,
+        mut explained: BTreeMap<String, Vec<String>>,
+        stated: &BTreeMap<String, Option<usize>>,
+    ) {
+        for (code, response) in responses {
+            let outer = explained.remove(&code).unwrap_or_default();
+            if let Some(own) = b.responses.get_mut(&code) {
+                let differs =
+                    stated.contains_key(&code) && own.get("content") != response.get("content");
+                if let Some(index) = b.stated.get(&code).filter(|_| differs) {
+                    let location = self.location(*index);
+                    self.diagnostics.push(
+                        Diagnostic::new(
+                            Code::MergeConflict,
+                            format!(
+                                "response `{code}` replaces the one of the module defaults, whose content differs"
+                            ),
+                        )
+                        .with_severity(Severity::Note)
+                        .at(location),
+                    );
+                    continue;
+                }
+                merge(own, response, Policy::Extend);
+            } else {
+                b.responses.insert(code.clone(), response);
+            }
+            let own = b.explained.remove(&code).unwrap_or_default();
+            b.explained
+                .insert(code, outer.into_iter().chain(own).collect());
+        }
+    }
+
     /// Merges the embedded YAML sections into the operation, the path item
     /// and the document. YAML of the module `defaults` only fills gaps.
     fn embedded_yaml(
         &mut self,
         yaml: &[(Scope, Option<usize>, String)],
         defaults: bool,
-        operation: &mut Value,
-        path_item: &mut Value,
-        document: &mut Value,
+        targets: &mut Targets<'_>,
     ) {
+        let Targets {
+            operation,
+            path_item,
+            document,
+            explained,
+        } = targets;
         for scope in [Scope::Operation, Scope::PathItem, Scope::Document] {
             let lines: Vec<(Option<usize>, &str)> = yaml
                 .iter()
@@ -1450,7 +1511,10 @@ impl Compiler<'_, '_> {
                         merge(document, value, Policy::Document);
                     }
                 },
-                Ok(value) => {
+                Ok(mut value) => {
+                    if scope == Scope::Operation {
+                        add_yaml_descriptions(&mut value, operation, explained);
+                    }
                     let conflicts = match scope {
                         Scope::Operation => merge(operation, value, Policy::Operation),
                         Scope::PathItem => merge(path_item, value, Policy::Operation),
@@ -1639,14 +1703,116 @@ fn add_parameter(parameters: &mut Vec<Value>, parameter: Value) {
     }
 }
 
-/// Adds a response; repeated codes add their media types.
-fn add_response(responses: &mut Map<String, Value>, code: String, response: Value) {
-    match responses.get_mut(&code) {
+/// What embedded YAML is merged into, and the descriptions of the DSL's
+/// responses (see [`add_yaml_descriptions`]).
+struct Targets<'t> {
+    /// The Operation Object.
+    operation: &'t mut Value,
+    /// The Path Item Object.
+    path_item: &'t mut Value,
+    /// The document fragment.
+    document: &'t mut Value,
+    /// The explicit descriptions of the responses, by status code.
+    explained: &'t mut BTreeMap<String, Vec<String>>,
+}
+
+/// Adds the response of a `@return` or `@problem` line (`index`): one
+/// response per status code, repeated codes add their media types and their
+/// descriptions.
+fn add_response(b: &mut Builder, response: responses::Response, index: Option<usize>) {
+    let responses::Response {
+        code,
+        value,
+        description,
+    } = response;
+    if let Some(description) = description {
+        b.explained
+            .entry(code.clone())
+            .or_default()
+            .push(description);
+    }
+    b.stated.entry(code.clone()).or_insert(index);
+    match b.responses.get_mut(&code) {
         Some(existing) => {
-            merge(existing, response, Policy::Override);
+            merge(existing, value, Policy::Override);
         }
         None => {
-            responses.insert(code, response);
+            b.responses.insert(code, value);
+        }
+    }
+}
+
+/// Sets the description of each response from the descriptions written for
+/// it (see [`combined_description`]); without any, it keeps the reason
+/// phrase.
+fn describe_responses(
+    responses: &mut Map<String, Value>,
+    explained: &BTreeMap<String, Vec<String>>,
+) {
+    for (code, descriptions) in explained {
+        if let (Some(Value::Object(response)), Some(text)) =
+            (responses.get_mut(code), combined_description(descriptions))
+        {
+            response.insert("description".into(), json!(text));
+        }
+    }
+}
+
+/// The description of a response written in several places: one as it is,
+/// several (without repeats, in source order) as a Markdown list.
+fn combined_description(descriptions: &[String]) -> Option<String> {
+    let mut unique: Vec<&str> = Vec::new();
+    for description in descriptions {
+        if !unique.contains(&description.as_str()) {
+            unique.push(description);
+        }
+    }
+    match unique.as_slice() {
+        [] => None,
+        [one] => Some((*one).to_string()),
+        several => Some(
+            several
+                .iter()
+                .map(|description| format!("- {description}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+    }
+}
+
+/// Embedded YAML that describes a response of the DSL without another
+/// content adds its description to the DSL's instead of replacing it; YAML
+/// with another content is merged as usual (it wins, with a note).
+fn add_yaml_descriptions(
+    value: &mut Value,
+    operation: &mut Value,
+    explained: &mut BTreeMap<String, Vec<String>>,
+) {
+    let (Some(Value::Object(yaml)), Some(Value::Object(own))) =
+        (value.get_mut("responses"), operation.get_mut("responses"))
+    else {
+        return;
+    };
+    for (code, response) in yaml.iter_mut() {
+        let (Some(Value::Object(response)), Some(Value::Object(dsl))) =
+            (Some(response), own.get_mut(code))
+        else {
+            continue;
+        };
+        let other_content = response
+            .get("content")
+            .is_some_and(|content| Some(content) != dsl.get("content"));
+        let Some(Value::String(description)) = response.get("description").cloned() else {
+            continue;
+        };
+        if other_content {
+            continue;
+        }
+        response.remove("description");
+        let descriptions = explained.entry(code.clone()).or_default();
+        descriptions.push(description);
+        if let Some(text) = combined_description(descriptions) {
+            dsl.insert("description".into(), json!(text));
         }
     }
 }

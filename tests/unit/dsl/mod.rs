@@ -324,23 +324,19 @@ mod yaml_overrides {
     fn yaml_wins_conflicts_with_a_note() {
         let (document, diagnostics) = try_route(&[
             "@route GET /x",
-            "@return 200: String \"DSL\"",
-            "responses:",
-            "  '200': { description: YAML }",
+            "@external-docs https://dsl.example.com",
+            "externalDocs: { url: https://yaml.example.com }",
         ]);
         assert_eq!(
-            document.unwrap()["paths"]["/x"]["get"]["responses"]["200"]["description"],
-            "YAML"
+            document.unwrap()["paths"]["/x"]["get"]["externalDocs"]["url"],
+            "https://yaml.example.com"
         );
         let note = diagnostics.iter().next().unwrap();
         assert_eq!(
             (note.code(), note.severity()),
             (Code::MergeConflict, Severity::Note)
         );
-        assert!(
-            note.message().contains("/responses/200/description"),
-            "{note}"
-        );
+        assert!(note.message().contains("/externalDocs/url"), "{note}");
     }
 
     #[test]
@@ -350,7 +346,7 @@ mod yaml_overrides {
             "@return 200: String \"DSL\"",
             "@return 404: String \"Missing\"",
             "responses:",
-            "  '404': { description: Gone }",
+            "  '404': { description: Gone, content: { text/plain: {} } }",
             "  '200':",
             "    content: {}",
             "    description: YAML",
