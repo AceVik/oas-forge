@@ -534,14 +534,24 @@ mod pipeline_stages {
     }
 
     #[test]
-    fn duplicate_schemas_are_merged_and_reported() {
+    fn types_of_several_modules_with_one_name_are_qualified() {
         let (document, diagnostics) = pipeline(&[
             ("a.rs", "/// @openapi\nstruct User { id: u64 }"),
             ("b.rs", "/// @openapi\nstruct User { name: String }"),
         ]);
-        let user = &document["components"]["schemas"]["User"];
-        assert_eq!(user["properties"].as_object().unwrap().len(), 2);
-        assert_eq!(user["required"], json!(["id", "name"]));
+        let schemas = &document["components"]["schemas"];
+        assert_eq!(schemas["crate.a.User"]["required"], json!(["id"]));
+        assert_eq!(schemas["crate.b.User"]["required"], json!(["name"]));
+        assert_eq!(codes(&diagnostics), [Code::DuplicateSchema; 2]);
+    }
+
+    #[test]
+    fn the_same_type_read_twice_is_merged_and_reported() {
+        let source = "/// @openapi\nstruct User { id: u64 }";
+        let (document, diagnostics) = pipeline(&[("a.rs", source), ("a.rs", source)]);
+        let schemas = &document["components"]["schemas"];
+        assert_eq!(schemas.as_object().map(|s| s.len()), Some(1));
+        assert_eq!(schemas["User"]["required"], json!(["id"]));
         assert_eq!(codes(&diagnostics), [Code::DuplicateSchema]);
         assert_eq!(
             diagnostics
@@ -551,8 +561,20 @@ mod pipeline_stages {
                 .location()
                 .unwrap()
                 .to_string(),
-            "b.rs:1"
+            "a.rs:1"
         );
+    }
+
+    #[test]
+    fn a_rust_type_and_a_yaml_schema_of_one_name_are_merged_and_reported() {
+        let (document, diagnostics) = pipeline(&[
+            ("a.rs", "//! @openapi-type User\n//! description: From YAML"),
+            ("b.rs", "/// @openapi\nstruct User { name: String }"),
+        ]);
+        let user = &document["components"]["schemas"]["User"];
+        assert_eq!(user["description"], "From YAML");
+        assert_eq!(user["required"], json!(["name"]));
+        assert_eq!(codes(&diagnostics), [Code::DuplicateSchema]);
     }
 
     #[test]

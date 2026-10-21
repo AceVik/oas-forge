@@ -36,7 +36,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF1001` | warning | The YAML after `@openapi` on a type, field or variant is invalid or not a mapping (`/// @openapi The id`) | Fix the YAML (descriptions go before the `@openapi` line); the override is ignored meanwhile |
 | `OF1002` | warning | `@openapi<T>` on something without a name | Put it on a struct or enum |
 | `OF1003` | note | A separator line (`//! ---`) closed a file-level block | Nothing to do; text after it is not part of the block |
-| `OF1004` | warning | Two items produce the same schema name; they were merged | Rename one (`#[serde(rename)]` or `@openapi rename`) |
+| `OF1004` | warning | Two items produce the same schema name: documented Rust types of different modules are named by their module path (`crate.module.Name`), other definitions (a YAML schema, the same type read twice) were merged | Rename one (`#[serde(rename)]` or `@openapi rename`) |
 | `OF1005` | warning | A variant shape serde cannot write in the enum's tagging mode (a tuple or primitive in an internally tagged enum); only the tag is documented | Use a struct variant or another representation |
 | `OF1006` | warning | A validation value is not a literal (`length(max = MAX)`) or outside the 64-bit range; the constraint is left out | Use a literal, or add the keyword with an `@openapi` override |
 | `OF1007` | warning | A `regex(path = …)` or `pattern(…)` constant is not defined in the scanned code | Scan the file that defines it, or define it with a literal pattern |
@@ -75,6 +75,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF3011` | warning | A fragment got more arguments than it has parameters; the extra ones are ignored | Remove the extra arguments, or quote an argument that contains a comma |
 | `OF3012` | warning | A type alias name used without `@openapi` names aliases with different targets in several files; the reference is not resolved | Rename one of the aliases, or document the type the name should mean |
 | `OF3013` | warning | A type alias refers to itself through other aliases; the reference is not resolved | Remove the cycle |
+| `OF3014` | warning | A Rust type name in a field, type argument, signature or route means several documented types (none of them defined or imported in its module), or names an undocumented type of its module while other documented types have the name; the schema has no reference | Import the type with `use`, write its path, or document the local type |
 
 ## Merging (OF4xxx)
 

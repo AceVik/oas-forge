@@ -213,9 +213,10 @@ fn last_segment(name: &str) -> &str {
     name.rsplit("::").next().unwrap_or(name)
 }
 
-/// Whether `c` can be part of a (path-qualified) type name.
+/// Whether `c` can be part of a (path-qualified) type name or of a
+/// qualified schema name (`crate.module.Name`).
 fn is_name_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_' || c == ':'
+    c.is_alphanumeric() || c == '_' || c == ':' || c == '.'
 }
 
 /// Splits `text` after its leading name characters.

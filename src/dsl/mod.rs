@@ -1408,7 +1408,7 @@ impl Compiler<'_, '_> {
             // `Path<Params>` with a struct: expanded once its schema is known.
             [single] if is_custom(single, types) => {
                 let mut marker =
-                    params::expansion("path", &single.to_string(), self.source.location);
+                    params::expansion("path", &type_name(single, types), self.source.location);
                 if let [only] = undeclared.as_slice()
                     && let Some(Value::Object(expand)) = marker.get_mut(EXPAND_KEY)
                 {
@@ -1496,8 +1496,11 @@ impl Compiler<'_, '_> {
                     })
                 });
             if !described {
-                let mut marker =
-                    params::expansion("query", &query.to_string(), self.source.location);
+                let mut marker = params::expansion(
+                    "query",
+                    &type_name(query, self.source.types),
+                    self.source.location,
+                );
                 if signature.optional_query
                     && let Some(Value::Object(expand)) = marker.get_mut(EXPAND_KEY)
                 {
@@ -1756,6 +1759,16 @@ fn is_token(text: &str) -> bool {
         && text
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || "!#$%&'*+.^_`|~-".contains(c))
+}
+
+/// The name of the struct `ty` for a parameter expansion: the schema name
+/// of the documented type it means in the module of the route (`$Filter`),
+/// else `ty` as written.
+fn type_name(ty: &TypeExpr, types: &TypeMapper) -> String {
+    match types.map(ty).schema.get("$ref").and_then(Value::as_str) {
+        Some(reference) if reference.starts_with('$') => reference.to_string(),
+        _ => ty.to_string(),
+    }
 }
 
 /// Whether a type is documented as its own schema (a struct), not a

@@ -186,7 +186,9 @@ impl Registry {
     }
 
     /// Records that the Rust type `rust_name` is published as schema `name`;
-    /// a name equal to `rust_name` is no alias and is not recorded.
+    /// a name equal to `rust_name` is no alias and is not recorded. A Rust
+    /// name published under two different names (types of several modules)
+    /// has no alias.
     ///
     /// # Examples
     ///
@@ -196,11 +198,23 @@ impl Registry {
     /// registry.add_alias("Order", "Order");
     /// assert_eq!(registry.alias("UserDto"), Some("User"));
     /// assert_eq!(registry.alias("Order"), None);
+    ///
+    /// registry.add_alias("Status", "shop.Status");
+    /// registry.add_alias("Status", "admin.Status");
+    /// assert_eq!(registry.alias("Status"), None);
     /// ```
     pub fn add_alias(&mut self, rust_name: impl Into<String>, name: impl Into<String>) {
         let (rust_name, name) = (rust_name.into(), name.into());
-        if rust_name != name {
-            self.aliases.insert(rust_name, name);
+        if rust_name == name {
+            return;
+        }
+        match self.aliases.get_mut(&rust_name) {
+            // An empty name marks a Rust name with several schema names.
+            Some(existing) if *existing != name => existing.clear(),
+            Some(_) => {}
+            None => {
+                self.aliases.insert(rust_name, name);
+            }
         }
     }
 
@@ -299,7 +313,10 @@ impl Registry {
     /// assert_eq!(registry.alias("User"), None);
     /// ```
     pub fn alias(&self, rust_name: &str) -> Option<&str> {
-        self.aliases.get(rust_name).map(String::as_str)
+        self.aliases
+            .get(rust_name)
+            .map(String::as_str)
+            .filter(|name| !name.is_empty())
     }
 
     /// Every fragment, sorted by name.

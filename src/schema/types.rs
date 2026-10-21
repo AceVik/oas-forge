@@ -1,9 +1,12 @@
 //! Rust type expressions and their JSON Schema.
 
 use crate::diagnostics::{Code, Diagnostic};
+use crate::extract::names::{NameTable, Resolved};
+use crate::template::refs::UNRESOLVED_KEY;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::Arc;
 use std::sync::OnceLock;
 
 /// A parsed Rust type, independent of the parser library.
@@ -432,6 +435,10 @@ pub struct TypeMapper {
     custom: BTreeMap<String, Value>,
     /// Built-in names written bare that stand for documented schemas.
     shadowed: BTreeSet<String>,
+    /// The module paths of the scanned sources and the module the types are
+    /// written in (`crate`, `module`, …): names written in Rust resolve to
+    /// the component names of the documented types they mean.
+    names: Option<(Arc<NameTable>, Vec<String>)>,
 }
 
 /// Names of the built-in table that a crate may also give its own types
@@ -584,6 +591,82 @@ impl TypeMapper {
         }
     }
 
+    /// This mapper for types written in the module `scope` of the sources
+    /// of `names`.
+    pub(crate) fn scoped(&self, names: &Arc<NameTable>, scope: Vec<String>) -> Self {
+        let mut mapper = self.clone();
+        mapper.names = Some((Arc::clone(names), scope));
+        mapper
+    }
+
+    /// The component name of the documented type `name` of the module this
+    /// mapper is scoped to, when it is qualified because its name collides.
+    pub(crate) fn qualified(&self, name: &str) -> Option<String> {
+        let (names, scope) = self.names.as_ref()?;
+        names.qualified(scope, name).map(str::to_string)
+    }
+
+    /// What the Rust type written as `path` means in the module of this
+    /// mapper (unknown without a name table).
+    fn resolve(&self, path: &[String]) -> Resolved {
+        match &self.names {
+            Some((names, scope)) => names.resolve(scope, path),
+            None => Resolved::Unknown,
+        }
+    }
+
+    /// `{"$ref": "$Name"}` for the type written as `path`, `Name` the
+    /// component name of the documented type it means (`resolve`, for types
+    /// written in Rust). A name that is ambiguous or names an undocumented
+    /// type of its module, while documented types have it, carries the
+    /// finding under [`UNRESOLVED_KEY`] for the references stage.
+    fn reference(&self, path: &[String], resolve: bool) -> Value {
+        let name = path.last().map(String::as_str).unwrap_or_default();
+        let resolved = if resolve {
+            self.resolve(path)
+        } else {
+            Resolved::Unknown
+        };
+        match resolved {
+            Resolved::Component(component) => json!({ "$ref": format!("${component}") }),
+            Resolved::Ambiguous(paths) => json!({
+                "$ref": format!("${name}"),
+                UNRESOLVED_KEY: format!(
+                    "`{}` may be any of the documented types {}; write its path or import it with `use`",
+                    path.join("::"),
+                    paths.iter().map(|p| format!("`{p}`")).collect::<Vec<_>>().join(", ")
+                ),
+            }),
+            Resolved::Undocumented(defined) => json!({
+                "$ref": format!("${name}"),
+                UNRESOLVED_KEY: format!(
+                    "`{name}` is `{defined}` here, which is not documented; document it with `@openapi`"
+                ),
+            }),
+            Resolved::Unknown => json!({ "$ref": format!("${name}") }),
+        }
+    }
+
+    /// A generic argument of a raw reference. Named types carry a `$`
+    /// (`$Page<$T>`, `$Page<$Vec<$T>>`), so that the generics stage
+    /// substitutes the type parameters of a blueprint also inside nested
+    /// arguments; a documented type is named by its component name, and a
+    /// reference is its target (`&str` is `$str`).
+    fn generic_arg(&self, ty: &TypeExpr) -> String {
+        match ty {
+            TypeExpr::Reference(inner) => self.generic_arg(inner),
+            TypeExpr::Named { path, args, .. } if args.is_empty() => match self.resolve(path) {
+                Resolved::Component(component) => format!("${component}"),
+                _ => format!("${}", path.join("::")),
+            },
+            TypeExpr::Named { path, args, .. } => {
+                let args: Vec<String> = args.iter().map(|arg| self.generic_arg(arg)).collect();
+                format!("${}<{}>", path.join("::"), args.join(", "))
+            }
+            other => other.to_string(),
+        }
+    }
+
     /// This mapper with the bare built-in `names` standing for documented
     /// schemas (`{"$ref": "$Duration"}`).
     pub(crate) fn shadowing(&self, names: &BTreeSet<String>) -> Self {
@@ -636,7 +719,9 @@ impl TypeMapper {
                         json!({})
                     });
                 }
-                self.map_named(path, args)
+                // `$User` is a schema name; only types written in Rust are
+                // resolved by their module.
+                self.map_named(path, args, !*smart)
             }
             TypeExpr::Array { elem, len } => {
                 let items = self.schema(elem);
@@ -696,8 +781,9 @@ impl TypeMapper {
     /// The schema of a named type without custom or shadowed mapping:
     /// integers, std containers and wrappers, the library types of the
     /// built-in table, and else a smart reference (`$Name`, or `$Name<$Arg>`
-    /// for a generic type).
-    fn map_named(&self, path: &[String], args: &[TypeExpr]) -> MappedType {
+    /// for a generic type); `resolve` resolves the name of a type written in
+    /// Rust by its module.
+    fn map_named(&self, path: &[String], args: &[TypeExpr], resolve: bool) -> MappedType {
         let name = path.last().map(String::as_str).unwrap_or_default();
         let qualified = |prefix: &str| matches!(path, [first, _, ..] if first == prefix);
         let first = args.first();
@@ -854,28 +940,12 @@ impl TypeMapper {
             _ if args.iter().any(|arg| !arg.undocumentable().is_empty()) => json!({}),
             // `Page<User>`: a generic type, instantiated from its blueprint.
             _ if !args.is_empty() => {
-                let args: Vec<String> = args.iter().map(generic_arg).collect();
+                let args: Vec<String> = args.iter().map(|arg| self.generic_arg(arg)).collect();
                 json!({ "$ref": format!("${name}<{}>", args.join(", ")) })
             }
-            _ => json!({ "$ref": format!("${name}") }),
+            _ => self.reference(path, resolve),
         };
         MappedType::required(schema)
-    }
-}
-
-/// A generic argument of a raw reference. Named types carry a `$`
-/// (`$Page<$T>`, `$Page<$Vec<$T>>`), so that the generics stage substitutes
-/// the type parameters of a blueprint also inside nested arguments; a
-/// reference is its target (`&str` is `$str`).
-fn generic_arg(ty: &TypeExpr) -> String {
-    match ty {
-        TypeExpr::Reference(inner) => generic_arg(inner),
-        TypeExpr::Named { path, args, .. } if args.is_empty() => format!("${}", path.join("::")),
-        TypeExpr::Named { path, args, .. } => {
-            let args: Vec<String> = args.iter().map(generic_arg).collect();
-            format!("${}<{}>", path.join("::"), args.join(", "))
-        }
-        other => other.to_string(),
     }
 }
 

@@ -5,6 +5,7 @@
 //! `transparent`, newtype and tuple structs, and all four enum
 //! representations. Validation attributes add their keywords.
 
+use super::names::NameTable;
 use super::{AliasItem, BlueprintItem, DocumentItem, Item, Options, SchemaItem};
 use crate::attrs::directives::{ItemDocs, ItemKind};
 use crate::attrs::metas;
@@ -20,7 +21,9 @@ use crate::template::refs::TYPE_DEFAULT_KEY;
 use crate::template::{Variables, lexical};
 use crate::yaml;
 use serde_json::{Map, Value, json};
+use std::borrow::Cow;
 use std::path::Path;
+use std::sync::Arc;
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 
@@ -125,8 +128,10 @@ enum Representation<'a> {
 pub(super) struct Reflector<'a> {
     /// The file, for locations.
     path: &'a Path,
-    /// How Rust types map to schemas.
-    types: &'a TypeMapper,
+    /// How Rust types map to schemas, in the module of the current item.
+    types: Cow<'a, TypeMapper>,
+    /// The module paths of all scanned sources (a generator run).
+    names: Option<&'a Arc<NameTable>>,
     /// Values of `{{NAME}}` placeholders in overrides and `@example`s.
     variables: &'a Variables,
     /// Where findings go.
@@ -146,10 +151,22 @@ impl<'a> Reflector<'a> {
     ) -> Self {
         Self {
             path,
-            types: options.types,
+            types: Cow::Borrowed(options.types),
+            names: options.names,
             variables: options.variables,
             diagnostics,
             fragments: Vec::new(),
+        }
+    }
+
+    /// Maps the types of the item at `line` in its module: names of Rust
+    /// types resolve to the documented types they mean there.
+    fn enter(&mut self, line: usize) {
+        if let Some(names) = self.names
+            && let Some(scope) = names.scope_at(self.path, line)
+        {
+            let scoped = self.types.scoped(names, scope);
+            self.types = Cow::Owned(scoped);
         }
     }
 
@@ -204,6 +221,12 @@ impl<'a> Reflector<'a> {
             );
         }
         let renamed = docs.rename.clone().or_else(|| serde.rename.clone());
+        // A type whose name collides with another documented one is named
+        // by its module path.
+        let renamed = match kind {
+            ItemKind::Container => self.types.qualified(default).or(renamed),
+            ItemKind::Member => renamed,
+        };
         Naming {
             explicit: renamed.is_some(),
             name: renamed.unwrap_or_else(|| default.to_string()),
@@ -566,6 +589,7 @@ impl<'a> Reflector<'a> {
 
     /// Reflects a struct with an `@openapi` directive.
     pub(super) fn structure(&mut self, item: &syn::ItemStruct) -> Vec<Item> {
+        self.enter(line_of(item.span()));
         self.fragments(&item.attrs, item.fields.iter().map(|f| &f.attrs[..]));
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Container);
@@ -670,6 +694,7 @@ impl<'a> Reflector<'a> {
     /// alias is a blueprint); without it, or with `@openapi skip`, it is a
     /// transparent [`Item::Alias`] that stands for its target.
     pub(super) fn alias(&mut self, item: &syn::ItemType) -> Option<Item> {
+        self.enter(line_of(item.span()));
         self.fragments(&item.attrs, []);
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Container);
@@ -704,6 +729,7 @@ impl<'a> Reflector<'a> {
 
     /// Reflects an enum with an `@openapi` directive.
     pub(super) fn enumeration(&mut self, item: &syn::ItemEnum) -> Vec<Item> {
+        self.enter(line_of(item.span()));
         let members = item.variants.iter().flat_map(|variant| {
             std::iter::once(&variant.attrs[..]).chain(variant.fields.iter().map(|f| &f.attrs[..]))
         });

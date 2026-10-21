@@ -357,7 +357,9 @@ pub struct Repo {
 
 A type that is not exported in the scanned sources is a reference to a
 schema of the same name (`$ref: '#/components/schemas/Money'`), which is
-reported when nothing defines it (`OF3007`). Three ways to define it:
+reported when nothing defines it (`OF3007`). A type of another scanned crate
+is found by its module path (see [names and collisions](#names-and-collisions)).
+Three ways to define a type that is not scanned:
 
 1. A named YAML schema anywhere in the sources:
 
@@ -386,6 +388,43 @@ that name when the sources define one (an `@openapi` type or an
 `@openapi-type` schema, also in another file); otherwise it is the built-in
 type. A path (`std::time::Duration`, `serde_json::Value`) and a custom
 mapping always mean the built-in or mapped type.
+
+## Names and collisions
+
+A Rust type in a field, a type argument, a type alias, a handler signature
+or a route directive (`@return 200: Printing`) is looked up by its module
+path, so two documented types with the same Rust name in different crates
+or modules do not mix. Each scanned file has a module path: its crate (the
+`[package] name` of the `Cargo.toml` next to its `src` directory, `-` read
+as `_`; without one, the directory's name) and the modules below `src`
+(`mod.rs`, `lib.rs` and `main.rs` are their directory's module;
+`#[path]` on a top-level `mod` declaration is honoured; inline `mod` blocks
+count). Single files given as input belong to the crate of their `src`
+directory too. A name resolves, in this order, to:
+
+1. the type of that name defined in the same module,
+2. the type an explicit `use` names (groups, `as`, `self`, `super`, `crate`
+   and re-exports with `pub use` are followed),
+3. the type a glob import (`use a::*;`) brings in, when only one does,
+4. for a written path (`baylee_cardtext::Printing`), the type of that path,
+   else the one documented type whose path ends with it,
+5. the one documented type of that name in all sources.
+
+The reference uses the schema name of that type, renames applied: with
+`use baylee_catalog::Printing;`, a field `Vec<Printing>` points to
+`CatalogPrinting` when that type is renamed so. Several candidates, or a
+type of the same module that is not documented while other documented
+types have its name, are reported (`OF3014`); the schema then has no
+reference. A `$Name` written in a directive or in YAML is a schema name and
+is not looked up by module.
+
+Two documented types whose schema names are equal (no rename) are no longer
+merged: each is named by its module path with dots, `crate.module.Name`
+(`baylee_catalog.model.Status`), each is reported (`OF1004`), and the
+references above point to these names. Give them distinct names with
+`@openapi rename` to choose the names yourself. The same type read twice
+(the same file and module) is one type. Templates (generic types) and
+schemas written in YAML keep their names.
 
 ## References in YAML
 

@@ -8,6 +8,7 @@ mod file_blocks;
 mod functions;
 mod item_blocks;
 mod modules;
+mod names;
 mod signatures;
 mod structs;
 

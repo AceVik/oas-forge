@@ -1,0 +1,1013 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/module_qualified_names/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Rust type references resolve by module path and `use` across crates; colliding names are qualified",
+  "diagnostics": [
+    "warning[OF1004]: schema `Status` is defined by several types (`baylee_cardtext::Status`, `baylee_catalog::model::Status`); this one is named `baylee_cardtext.Status`; give them distinct names with `@openapi rename` (<case>/cardtext/src/lib.rs:9)",
+    "warning[OF1004]: schema `Status` is defined by several types (`baylee_cardtext::Status`, `baylee_catalog::model::Status`); this one is named `baylee_catalog.model.Status`; give them distinct names with `@openapi rename` (<case>/catalog/src/model.rs:9)",
+    "warning[OF3014]: `Status` may be any of the documented types `baylee_cardtext::Status`, `baylee_catalog::model::Status`; write its path or import it with `use` (<case>/gw/src/lib.rs:15)",
+    "warning[OF3014]: `Note` is `gateway::Note` here, which is not documented; document it with `@openapi` (<case>/gw/src/lib.rs:15)"
+  ],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "CatalogPrinting": {
+            "description": "A printing in the catalog.",
+            "properties": {
+              "set": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/baylee_catalog.model.Status"
+              }
+            },
+            "required": [
+              "set",
+              "status"
+            ],
+            "type": "object"
+          },
+          "Note": {
+            "description": "A note on a printing.",
+            "properties": {
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "type": "object"
+          },
+          "Pool": {
+            "description": "A pool of cards.",
+            "properties": {
+              "cards": {
+                "description": "Through a glob import.",
+                "items": {
+                  "$ref": "#/components/schemas/PoolCard"
+                },
+                "type": "array"
+              },
+              "note": {
+                "description": "The undocumented `Note` of this module."
+              },
+              "other": {
+                "$ref": "#/components/schemas/Printing",
+                "description": "Written with its path."
+              },
+              "printings": {
+                "description": "Imported with `use`: the catalog's (renamed) printing.",
+                "items": {
+                  "$ref": "#/components/schemas/CatalogPrinting"
+                },
+                "type": "array"
+              },
+              "sold": {
+                "$ref": "#/components/schemas/baylee_catalog.model.Status",
+                "description": "The catalog's, by path."
+              },
+              "status": {
+                "description": "Two crates document a `Status`; neither is imported here."
+              }
+            },
+            "required": [
+              "printings",
+              "other",
+              "cards",
+              "status",
+              "sold",
+              "note"
+            ],
+            "type": "object"
+          },
+          "PoolCard": {
+            "description": "A card in a pool.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "Printing": {
+            "description": "A printing picked for card text.",
+            "properties": {
+              "face": {
+                "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "status": {
+                "$ref": "#/components/schemas/baylee_cardtext.Status"
+              }
+            },
+            "required": [
+              "face",
+              "status"
+            ],
+            "type": "object"
+          },
+          "baylee_cardtext.Status": {
+            "description": "Whether the text is final.",
+            "enum": [
+              "Draft",
+              "Final"
+            ],
+            "type": "string"
+          },
+          "baylee_catalog.model.Status": {
+            "description": "Whether a printing is sold.",
+            "enum": [
+              "Sold",
+              "Retired"
+            ],
+            "type": "string"
+          }
+        }
+      },
+      "paths": {
+        "/pool": {
+          "get": {
+            "operationId": "pool",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Pool"
+                    }
+                  }
+                },
+                "description": "OK"
+              },
+              "201": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Printing"
+                    }
+                  }
+                },
+                "description": "Created"
+              },
+              "202": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Printing"
+                    }
+                  }
+                },
+                "description": "By component name"
+              }
+            },
+            "summary": "Get the pool"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "CatalogPrinting": {
+            "description": "A printing in the catalog.",
+            "properties": {
+              "set": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/baylee_catalog.model.Status"
+              }
+            },
+            "required": [
+              "set",
+              "status"
+            ],
+            "type": "object"
+          },
+          "Note": {
+            "description": "A note on a printing.",
+            "properties": {
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "type": "object"
+          },
+          "Pool": {
+            "description": "A pool of cards.",
+            "properties": {
+              "cards": {
+                "description": "Through a glob import.",
+                "items": {
+                  "$ref": "#/components/schemas/PoolCard"
+                },
+                "type": "array"
+              },
+              "note": {
+                "description": "The undocumented `Note` of this module."
+              },
+              "other": {
+                "$ref": "#/components/schemas/Printing",
+                "description": "Written with its path."
+              },
+              "printings": {
+                "description": "Imported with `use`: the catalog's (renamed) printing.",
+                "items": {
+                  "$ref": "#/components/schemas/CatalogPrinting"
+                },
+                "type": "array"
+              },
+              "sold": {
+                "$ref": "#/components/schemas/baylee_catalog.model.Status",
+                "description": "The catalog's, by path."
+              },
+              "status": {
+                "description": "Two crates document a `Status`; neither is imported here."
+              }
+            },
+            "required": [
+              "printings",
+              "other",
+              "cards",
+              "status",
+              "sold",
+              "note"
+            ],
+            "type": "object"
+          },
+          "PoolCard": {
+            "description": "A card in a pool.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "Printing": {
+            "description": "A printing picked for card text.",
+            "properties": {
+              "face": {
+                "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "status": {
+                "$ref": "#/components/schemas/baylee_cardtext.Status"
+              }
+            },
+            "required": [
+              "face",
+              "status"
+            ],
+            "type": "object"
+          },
+          "baylee_cardtext.Status": {
+            "description": "Whether the text is final.",
+            "enum": [
+              "Draft",
+              "Final"
+            ],
+            "type": "string"
+          },
+          "baylee_catalog.model.Status": {
+            "description": "Whether a printing is sold.",
+            "enum": [
+              "Sold",
+              "Retired"
+            ],
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Gateway",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/pool": {
+          "get": {
+            "operationId": "pool",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Pool"
+                    }
+                  }
+                },
+                "description": "OK"
+              },
+              "201": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Printing"
+                    }
+                  }
+                },
+                "description": "Created"
+              },
+              "202": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Printing"
+                    }
+                  }
+                },
+                "description": "By component name"
+              }
+            },
+            "summary": "Get the pool"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "CatalogPrinting": {
+          "description": "A printing in the catalog.",
+          "properties": {
+            "set": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/baylee_catalog.model.Status"
+            }
+          },
+          "required": [
+            "set",
+            "status"
+          ],
+          "type": "object"
+        },
+        "Note": {
+          "description": "A note on a printing.",
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        },
+        "Pool": {
+          "description": "A pool of cards.",
+          "properties": {
+            "cards": {
+              "description": "Through a glob import.",
+              "items": {
+                "$ref": "#/$defs/PoolCard"
+              },
+              "type": "array"
+            },
+            "note": {
+              "description": "The undocumented `Note` of this module."
+            },
+            "other": {
+              "$ref": "#/$defs/Printing",
+              "description": "Written with its path."
+            },
+            "printings": {
+              "description": "Imported with `use`: the catalog's (renamed) printing.",
+              "items": {
+                "$ref": "#/$defs/CatalogPrinting"
+              },
+              "type": "array"
+            },
+            "sold": {
+              "$ref": "#/$defs/baylee_catalog.model.Status",
+              "description": "The catalog's, by path."
+            },
+            "status": {
+              "description": "Two crates document a `Status`; neither is imported here."
+            }
+          },
+          "required": [
+            "printings",
+            "other",
+            "cards",
+            "status",
+            "sold",
+            "note"
+          ],
+          "type": "object"
+        },
+        "PoolCard": {
+          "description": "A card in a pool.",
+          "properties": {
+            "id": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
+        "Printing": {
+          "description": "A printing picked for card text.",
+          "properties": {
+            "face": {
+              "format": "int32",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "$ref": "#/$defs/baylee_cardtext.Status"
+            }
+          },
+          "required": [
+            "face",
+            "status"
+          ],
+          "type": "object"
+        },
+        "baylee_cardtext.Status": {
+          "description": "Whether the text is final.",
+          "enum": [
+            "Draft",
+            "Final"
+          ],
+          "type": "string"
+        },
+        "baylee_catalog.model.Status": {
+          "description": "Whether a printing is sold.",
+          "enum": [
+            "Sold",
+            "Retired"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "CatalogPrinting": {
+            "description": "A printing in the catalog.",
+            "properties": {
+              "set": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/baylee_catalog.model.Status"
+              }
+            },
+            "required": [
+              "set",
+              "status"
+            ],
+            "type": "object"
+          },
+          "Note": {
+            "description": "A note on a printing.",
+            "properties": {
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "type": "object"
+          },
+          "Pool": {
+            "description": "A pool of cards.",
+            "properties": {
+              "cards": {
+                "description": "Through a glob import.",
+                "items": {
+                  "$ref": "#/components/schemas/PoolCard"
+                },
+                "type": "array"
+              },
+              "note": {
+                "description": "The undocumented `Note` of this module."
+              },
+              "other": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Printing"
+                  }
+                ],
+                "description": "Written with its path."
+              },
+              "printings": {
+                "description": "Imported with `use`: the catalog's (renamed) printing.",
+                "items": {
+                  "$ref": "#/components/schemas/CatalogPrinting"
+                },
+                "type": "array"
+              },
+              "sold": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/baylee_catalog.model.Status"
+                  }
+                ],
+                "description": "The catalog's, by path."
+              },
+              "status": {
+                "description": "Two crates document a `Status`; neither is imported here."
+              }
+            },
+            "required": [
+              "printings",
+              "other",
+              "cards",
+              "status",
+              "sold",
+              "note"
+            ],
+            "type": "object"
+          },
+          "PoolCard": {
+            "description": "A card in a pool.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "Printing": {
+            "description": "A printing picked for card text.",
+            "properties": {
+              "face": {
+                "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "status": {
+                "$ref": "#/components/schemas/baylee_cardtext.Status"
+              }
+            },
+            "required": [
+              "face",
+              "status"
+            ],
+            "type": "object"
+          },
+          "baylee_cardtext.Status": {
+            "description": "Whether the text is final.",
+            "enum": [
+              "Draft",
+              "Final"
+            ],
+            "type": "string"
+          },
+          "baylee_catalog.model.Status": {
+            "description": "Whether a printing is sold.",
+            "enum": [
+              "Sold",
+              "Retired"
+            ],
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Gateway",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/pool": {
+          "get": {
+            "operationId": "pool",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Pool"
+                    }
+                  }
+                },
+                "description": "OK"
+              },
+              "201": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Printing"
+                    }
+                  }
+                },
+                "description": "Created"
+              },
+              "202": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Printing"
+                    }
+                  }
+                },
+                "description": "By component name"
+              }
+            },
+            "summary": "Get the pool"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/pool": {
+        "get": {
+          "operationId": "pool",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Pool"
+                  }
+                }
+              },
+              "description": "OK"
+            },
+            "201": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Printing"
+                  }
+                }
+              },
+              "description": "Created"
+            },
+            "202": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Printing"
+                  }
+                }
+              },
+              "description": "By component name"
+            }
+          },
+          "summary": "Get the pool"
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "CatalogPrinting": {
+        "description": "A printing in the catalog.",
+        "properties": {
+          "set": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/baylee_catalog.model.Status"
+          }
+        },
+        "required": [
+          "set",
+          "status"
+        ],
+        "type": "object"
+      },
+      "Note": {
+        "description": "A note on a printing.",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "Pool": {
+        "description": "A pool of cards.",
+        "properties": {
+          "cards": {
+            "description": "Through a glob import.",
+            "items": {
+              "$ref": "#/components/schemas/PoolCard"
+            },
+            "type": "array"
+          },
+          "note": {
+            "description": "The undocumented `Note` of this module."
+          },
+          "other": {
+            "$ref": "#/components/schemas/Printing",
+            "description": "Written with its path."
+          },
+          "printings": {
+            "description": "Imported with `use`: the catalog's (renamed) printing.",
+            "items": {
+              "$ref": "#/components/schemas/CatalogPrinting"
+            },
+            "type": "array"
+          },
+          "sold": {
+            "$ref": "#/components/schemas/baylee_catalog.model.Status",
+            "description": "The catalog's, by path."
+          },
+          "status": {
+            "description": "Two crates document a `Status`; neither is imported here."
+          }
+        },
+        "required": [
+          "printings",
+          "other",
+          "cards",
+          "status",
+          "sold",
+          "note"
+        ],
+        "type": "object"
+      },
+      "PoolCard": {
+        "description": "A card in a pool.",
+        "properties": {
+          "id": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "Printing": {
+        "description": "A printing picked for card text.",
+        "properties": {
+          "face": {
+            "format": "int32",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/baylee_cardtext.Status"
+          }
+        },
+        "required": [
+          "face",
+          "status"
+        ],
+        "type": "object"
+      },
+      "baylee_cardtext.Status": {
+        "description": "Whether the text is final.",
+        "enum": [
+          "Draft",
+          "Final"
+        ],
+        "type": "string"
+      },
+      "baylee_catalog.model.Status": {
+        "description": "Whether a printing is sold.",
+        "enum": [
+          "Sold",
+          "Retired"
+        ],
+        "type": "string"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "CatalogPrinting": {
+          "description": "A printing in the catalog.",
+          "properties": {
+            "set": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/definitions/baylee_catalog.model.Status"
+            }
+          },
+          "required": [
+            "set",
+            "status"
+          ],
+          "type": "object"
+        },
+        "Note": {
+          "description": "A note on a printing.",
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        },
+        "Pool": {
+          "description": "A pool of cards.",
+          "properties": {
+            "cards": {
+              "description": "Through a glob import.",
+              "items": {
+                "$ref": "#/definitions/PoolCard"
+              },
+              "type": "array"
+            },
+            "note": {
+              "description": "The undocumented `Note` of this module."
+            },
+            "other": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Printing"
+                }
+              ],
+              "description": "Written with its path."
+            },
+            "printings": {
+              "description": "Imported with `use`: the catalog's (renamed) printing.",
+              "items": {
+                "$ref": "#/definitions/CatalogPrinting"
+              },
+              "type": "array"
+            },
+            "sold": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/baylee_catalog.model.Status"
+                }
+              ],
+              "description": "The catalog's, by path."
+            },
+            "status": {
+              "description": "Two crates document a `Status`; neither is imported here."
+            }
+          },
+          "required": [
+            "printings",
+            "other",
+            "cards",
+            "status",
+            "sold",
+            "note"
+          ],
+          "type": "object"
+        },
+        "PoolCard": {
+          "description": "A card in a pool.",
+          "properties": {
+            "id": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
+        "Printing": {
+          "description": "A printing picked for card text.",
+          "properties": {
+            "face": {
+              "format": "int32",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "$ref": "#/definitions/baylee_cardtext.Status"
+            }
+          },
+          "required": [
+            "face",
+            "status"
+          ],
+          "type": "object"
+        },
+        "baylee_cardtext.Status": {
+          "description": "Whether the text is final.",
+          "enum": [
+            "Draft",
+            "Final"
+          ],
+          "type": "string"
+        },
+        "baylee_catalog.model.Status": {
+          "description": "Whether a printing is sold.",
+          "enum": [
+            "Sold",
+            "Retired"
+          ],
+          "type": "string"
+        }
+      },
+      "info": {
+        "title": "Gateway",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/pool": {
+          "get": {
+            "operationId": "pool",
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "$ref": "#/definitions/Pool"
+                }
+              },
+              "201": {
+                "description": "Created",
+                "schema": {
+                  "$ref": "#/definitions/Printing"
+                }
+              },
+              "202": {
+                "description": "By component name",
+                "schema": {
+                  "$ref": "#/definitions/Printing"
+                }
+              }
+            },
+            "summary": "Get the pool"
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

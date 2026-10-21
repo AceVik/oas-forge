@@ -16,6 +16,12 @@ use std::collections::{BTreeSet, HashSet};
 /// referenced schema next to it, then removes the marker.
 pub(crate) const TYPE_DEFAULT_KEY: &str = "x-oas-forge-type-default";
 
+/// Marks the reference of a Rust type name that does not identify one
+/// documented type (ambiguous, or an undocumented type of its module); the
+/// value is the finding. The references stage reports it and leaves the
+/// schema without the reference.
+pub(crate) const UNRESOLVED_KEY: &str = "x-oas-forge-unresolved";
+
 /// The schema names smart references may resolve to.
 ///
 /// # Examples
@@ -102,14 +108,20 @@ impl KnownSchemas {
     }
 }
 
-/// The name of a smart reference: `text` is `$` followed by an identifier
-/// (a letter or `_`, then letters, digits or `_`). `None` for other text,
-/// e.g. a generic reference (`$Page<User>`) or prose.
+/// The name of a smart reference: `text` is `$` followed by identifiers
+/// (a letter or `_`, then letters, digits or `_`) joined by `.` (the
+/// qualified name of a type whose name collides, `crate.module.Name`).
+/// `None` for other text, e.g. a generic reference (`$Page<User>`) or prose.
 pub(crate) fn reference_name(text: &str) -> Option<&str> {
     let name = text.strip_prefix('$')?;
-    let mut chars = name.chars();
-    let first = chars.next()?;
-    ((first.is_alphabetic() || first == '_') && chars.all(|c| c.is_alphanumeric() || c == '_'))
+    name.split('.')
+        .all(|part| {
+            let mut chars = part.chars();
+            chars
+                .next()
+                .is_some_and(|first| first.is_alphabetic() || first == '_')
+                && chars.all(|c| c.is_alphanumeric() || c == '_')
+        })
         .then_some(name)
 }
 
@@ -289,6 +301,16 @@ fn resolve_at(
                         .is_some_and(|alias| known.contains(alias))
                     || lookup.is_local(name, location)
             });
+            // A Rust type name that does not say which documented type it
+            // means: reported, and not resolved.
+            if let Some(Value::String(finding)) = map.shift_remove(UNRESOLVED_KEY) {
+                map.shift_remove("$ref");
+                if reported.insert(finding.clone()) {
+                    diagnostics.push(
+                        Diagnostic::new(Code::AmbiguousTypeName, finding).at(location.clone()),
+                    );
+                }
+            }
             if let Some(name) = map
                 .get("$ref")
                 .and_then(Value::as_str)

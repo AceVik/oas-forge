@@ -1,0 +1,394 @@
+//! `src/extract/names.rs`: names of Rust types resolve by module path and
+//! `use` declarations; colliding names are qualified.
+
+use crate::common::{Project, codes, pipeline};
+use oas_forge::Generator;
+use oas_forge::diagnostics::Code;
+use oas_forge::output::OutputKind;
+use serde_json::{Value, json};
+
+/// The root document of the projects below.
+const ROOT: &str = "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: 1.0.0 }\n";
+
+/// A reference to the schema `name`.
+fn reference(name: &str) -> Value {
+    json!({ "$ref": format!("#/components/schemas/{name}") })
+}
+
+/// Two crates with a `Printing` each (one renamed), and a gateway.
+fn crates() -> Project {
+    let project = Project::new();
+    project
+        .file(
+            "catalog/Cargo.toml",
+            "[package]\nname = \"baylee-catalog\"\nversion = \"1.0.0\"\n",
+        )
+        .file(
+            "catalog/src/lib.rs",
+            "mod model;\npub use model::Printing;\n",
+        )
+        .file(
+            "catalog/src/model.rs",
+            "/// @openapi rename \"CatalogPrinting\"\npub struct Printing { pub set: String }\n",
+        )
+        .file(
+            "cardtext/Cargo.toml",
+            "[package]\nname = \"baylee-cardtext\"\nversion = \"1.0.0\"\n",
+        )
+        .file(
+            "cardtext/src/lib.rs",
+            "/// @openapi\npub struct Printing { pub face: u8 }\n",
+        );
+    project
+}
+
+/// The document of a generator run on `inputs` of `project`.
+fn document(project: &Project, inputs: &[&str]) -> (Value, Vec<Code>) {
+    let generator = inputs
+        .iter()
+        .fold(Generator::new().without_package(), |generator, input| {
+            generator.input(project.path(input))
+        });
+    let spec = generator.build().unwrap();
+    (spec.document().clone(), codes(spec.diagnostics()))
+}
+
+#[test]
+fn a_use_and_a_path_pick_the_type_of_their_crate() {
+    let project = crates();
+    project.file(
+        "gw/src/lib.rs",
+        &format!(
+            "{ROOT}use baylee_catalog::Printing;\n/// @openapi\npub struct Pool {{\n    pub printings: Vec<Printing>,\n    pub other: baylee_cardtext::Printing,\n    pub direct: ::baylee_catalog::Printing,\n}}\n"
+        ),
+    );
+    let (document, codes) = document(&project, &["catalog/src", "cardtext/src", "gw/src"]);
+    assert!(codes.is_empty(), "{codes:?}");
+    let pool = &document["components"]["schemas"]["Pool"]["properties"];
+    assert_eq!(pool["printings"]["items"], reference("CatalogPrinting"));
+    assert_eq!(pool["other"], reference("Printing"));
+    assert_eq!(pool["direct"], reference("CatalogPrinting"));
+}
+
+#[test]
+fn without_a_hint_two_documented_types_of_a_name_are_ambiguous() {
+    let project = crates();
+    project.file(
+        "gw/src/lib.rs",
+        &format!("{ROOT}/// @openapi\npub struct Pool {{\n    /// Which one?\n    pub printing: Printing,\n}}\n"),
+    );
+    let generator = Generator::new()
+        .without_package()
+        .input(project.path("catalog/src"))
+        .input(project.path("cardtext/src"))
+        .input(project.path("gw/src"));
+    let spec = generator.build().unwrap();
+    assert_eq!(
+        spec.document()["components"]["schemas"]["Pool"]["properties"]["printing"],
+        json!({ "description": "Which one?" })
+    );
+    let findings: Vec<String> = spec
+        .diagnostics()
+        .iter()
+        .map(|d| d.message().to_string())
+        .collect();
+    assert_eq!(
+        findings,
+        [
+            "`Printing` may be any of the documented types `baylee_cardtext::Printing`, `baylee_catalog::model::Printing`; write its path or import it with `use`"
+        ]
+    );
+    assert_eq!(codes(spec.diagnostics()), [Code::AmbiguousTypeName]);
+}
+
+#[test]
+fn single_files_and_directories_without_a_manifest_are_crates_too() {
+    let project = crates();
+    project
+        .file("cards/src/pool.rs", "/// @openapi\npub struct PoolCard { pub id: u32 }\n")
+        .file(
+            "plain/lib.rs",
+            &format!("{ROOT}use cards::pool::PoolCard;\n/// @openapi\npub struct Deck {{ pub cards: Vec<PoolCard> }}\n"),
+        );
+    let (document, codes) = document(&project, &["cards/src/pool.rs", "plain"]);
+    assert!(codes.is_empty(), "{codes:?}");
+    assert_eq!(
+        document["components"]["schemas"]["Deck"]["properties"]["cards"]["items"],
+        reference("PoolCard")
+    );
+}
+
+#[test]
+fn colliding_names_are_qualified_and_references_follow() {
+    let (document, diagnostics) = pipeline(&[
+        (
+            "lib.rs",
+            "mod a;\nmod b;\n/// @openapi\npub struct Both { pub a: a::User, pub b: crate::b::User }",
+        ),
+        (
+            "a.rs",
+            "/// @openapi\npub struct User { pub id: u64 }\n/// @openapi\npub struct Team { pub lead: User }",
+        ),
+        (
+            "b.rs",
+            "/// @openapi\npub struct User { pub name: String }\n/// @openapi\npub struct Club { pub owner: self::User, pub members: Vec<super::b::User> }",
+        ),
+    ]);
+    let schemas = &document["components"]["schemas"];
+    let mut names: Vec<&String> = schemas.as_object().unwrap().keys().collect();
+    names.sort();
+    assert_eq!(
+        names,
+        ["Both", "Club", "Team", "crate.a.User", "crate.b.User"]
+    );
+    assert_eq!(schemas["crate.a.User"]["required"], json!(["id"]));
+    assert_eq!(
+        schemas["Team"]["properties"]["lead"],
+        reference("crate.a.User")
+    );
+    assert_eq!(
+        schemas["Club"]["properties"]["owner"],
+        reference("crate.b.User")
+    );
+    assert_eq!(
+        schemas["Club"]["properties"]["members"]["items"],
+        reference("crate.b.User")
+    );
+    assert_eq!(
+        schemas["Both"]["properties"]["a"],
+        reference("crate.a.User")
+    );
+    assert_eq!(
+        schemas["Both"]["properties"]["b"],
+        reference("crate.b.User")
+    );
+    let findings: Vec<String> = diagnostics.iter().map(ToString::to_string).collect();
+    assert_eq!(
+        findings,
+        [
+            "warning[OF1004]: schema `User` is defined by several types (`crate::a::User`, `crate::b::User`); this one is named `crate.a.User`; give them distinct names with `@openapi rename` (a.rs:1)",
+            "warning[OF1004]: schema `User` is defined by several types (`crate::a::User`, `crate::b::User`); this one is named `crate.b.User`; give them distinct names with `@openapi rename` (b.rs:1)",
+        ]
+    );
+}
+
+#[test]
+fn a_schema_name_in_yaml_or_dsl_stays_a_schema_name() {
+    let (document, diagnostics) = pipeline(&[
+        ("lib.rs", &format!("{ROOT}mod a;\nmod b;")),
+        ("a.rs", "/// @openapi\npub struct User { pub id: u64 }"),
+        ("b.rs", "/// @openapi\npub struct User { pub name: String }"),
+        (
+            "c.rs",
+            "use crate::a::User;\n/// Get\n/// @route GET /users\n/// @return 200: User\n/// @return 201: $User\n/// responses:\n///   '202':\n///     description: B\n///     content: { application/json: { schema: { $ref: $crate.b.User } } }\npub async fn users() {}",
+        ),
+    ]);
+    let responses = &document["paths"]["/users"]["get"]["responses"];
+    let schema = |code: &str| responses[code]["content"]["application/json"]["schema"].clone();
+    assert_eq!(schema("200"), reference("crate.a.User"), "a Rust type");
+    assert_eq!(
+        schema("201"),
+        reference("User"),
+        "a schema name: no schema is called `User` any more"
+    );
+    assert_eq!(schema("202"), reference("crate.b.User"));
+    assert!(
+        codes(&diagnostics).contains(&Code::UnresolvedReference),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn an_undocumented_type_of_the_module_is_not_another_documented_one() {
+    let (document, diagnostics) = pipeline(&[
+        ("a.rs", "/// @openapi\npub struct Note { pub text: String }"),
+        (
+            "b.rs",
+            "pub struct Note;\n/// @openapi\npub struct Page { pub note: Note, pub other: crate::a::Note }",
+        ),
+    ]);
+    let page = &document["components"]["schemas"]["Page"]["properties"];
+    assert_eq!(page["note"], json!({}));
+    assert_eq!(page["other"], reference("Note"));
+    let findings: Vec<String> = diagnostics
+        .iter()
+        .map(|d| d.message().to_string())
+        .collect();
+    assert_eq!(
+        findings,
+        ["`Note` is `crate::b::Note` here, which is not documented; document it with `@openapi`"]
+    );
+}
+
+#[test]
+fn uses_with_groups_renames_globs_and_re_exports() {
+    let (document, diagnostics) = pipeline(&[
+        ("lib.rs", "pub mod models;\npub mod api;"),
+        (
+            "models.rs",
+            "mod inner {\n    /// @openapi\n    pub struct User { pub id: u64 }\n}\npub use inner::User;\n/// @openapi\npub struct Group { pub id: u64 }\n/// @openapi\npub struct Tag { pub id: u64 }",
+        ),
+        (
+            "other.rs",
+            "/// @openapi\npub struct Group { pub other: bool }\n/// @openapi\npub struct Tag { pub other: bool }\n/// @openapi\npub struct User { pub other: bool }",
+        ),
+        (
+            "api.rs",
+            r#"
+            use crate::models::{self, Group as Team, User};
+            use crate::models::*;
+            /// @openapi
+            pub struct Board {
+                pub user: User,
+                pub team: Team,
+                pub tag: Tag,
+                pub by_module: models::Group,
+            }
+            mod nested {
+                use super::super::models::User as Member;
+                /// @openapi
+                pub struct Inner { pub member: Member }
+            }
+            "#,
+        ),
+    ]);
+    assert!(
+        diagnostics
+            .iter()
+            .all(|d| d.code() == Code::DuplicateSchema),
+        "{diagnostics:?}"
+    );
+    let schemas = &document["components"]["schemas"];
+    let board = &schemas["Board"]["properties"];
+    assert_eq!(board["user"], reference("crate.models.inner.User"));
+    assert_eq!(board["team"], reference("crate.models.Group"));
+    assert_eq!(board["tag"], reference("crate.models.Tag"));
+    assert_eq!(board["by_module"], reference("crate.models.Group"));
+    assert_eq!(
+        schemas["Inner"]["properties"]["member"],
+        reference("crate.models.inner.User")
+    );
+}
+
+#[test]
+fn generic_arguments_name_the_instance_by_the_component() {
+    let (document, diagnostics) = pipeline(&[
+        (
+            "a.rs",
+            "/// @openapi rename \"Member\"\npub struct User { pub id: u64 }",
+        ),
+        ("b.rs", "/// @openapi\npub struct User { pub name: String }"),
+        (
+            "c.rs",
+            "use crate::a::User;\n/// @openapi\npub struct Page<T> { pub items: Vec<T> }\n/// @openapi\npub struct Users { pub page: Page<User> }",
+        ),
+    ]);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let schemas = &document["components"]["schemas"];
+    assert_eq!(
+        schemas["Users"]["properties"]["page"],
+        reference("Page_Member")
+    );
+    assert_eq!(
+        schemas["Page_Member"]["properties"]["items"]["items"],
+        reference("Member")
+    );
+}
+
+#[test]
+fn a_module_path_attribute_moves_the_module() {
+    let (document, diagnostics) = pipeline(&[
+        (
+            "src/lib.rs",
+            "#[path = \"generated/types.rs\"]\nmod api;\n/// @openapi\npub struct Holder { pub a: api::User, pub b: crate::other::User }\nmod other;",
+        ),
+        (
+            "src/generated/types.rs",
+            "/// @openapi\npub struct User { pub id: u64 }",
+        ),
+        (
+            "src/other.rs",
+            "/// @openapi\npub struct User { pub name: String }",
+        ),
+    ]);
+    let holder = &document["components"]["schemas"]["Holder"]["properties"];
+    assert_eq!(holder["a"], reference("crate.api.User"));
+    assert_eq!(holder["b"], reference("crate.other.User"));
+    assert_eq!(codes(&diagnostics), [Code::DuplicateSchema; 2]);
+}
+
+#[test]
+fn projects_without_collisions_are_unchanged() {
+    let (document, diagnostics) = pipeline(&[
+        (
+            "models.rs",
+            "/// @openapi rename \"Member\"\npub struct User { pub id: u64 }",
+        ),
+        (
+            "api.rs",
+            "/// @openapi\npub struct Team { pub lead: User, pub other: crate::models::User }\n/// @openapi-type Money\n/// type: string\nfn _t() {}\n/// @openapi\npub struct Price { pub amount: Money }",
+        ),
+    ]);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let schemas = &document["components"]["schemas"];
+    assert_eq!(schemas["Team"]["properties"]["lead"], reference("Member"));
+    assert_eq!(schemas["Team"]["properties"]["other"], reference("Member"));
+    assert_eq!(schemas["Price"]["properties"]["amount"], reference("Money"));
+}
+
+#[test]
+fn scoped_documents_keep_the_qualified_schemas_they_use() {
+    let project = Project::new();
+    project
+        .file("Cargo.toml", "[package]\nname = \"shop-api\"\nversion = \"1.0.0\"\n")
+        .file("src/root.rs", ROOT)
+        .file("src/a.rs", "/// @openapi\npub struct Status { pub a: bool }")
+        .file("src/b.rs", "/// @openapi\npub struct Status { pub b: bool }")
+        .file(
+            "src/routes.rs",
+            "/// A\n/// @route GET /a\n/// @scope public\n/// @return 200: crate::a::Status\npub async fn a() {}\n/// B\n/// @route GET /b\n/// @scope admin\n/// @return 200: crate::b::Status\npub async fn b() {}",
+        );
+    let spec = Generator::new()
+        .input(project.path("src"))
+        .without_package()
+        .build()
+        .unwrap();
+    let public = spec.render_scoped(OutputKind::Full, "public").unwrap();
+    let schemas: Vec<&String> = public["components"]["schemas"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .collect();
+    assert_eq!(schemas, ["shop_api.a.Status"]);
+    assert_eq!(
+        public["paths"]["/a"]["get"]["responses"]["200"]["content"]["application/json"]["schema"],
+        reference("shop_api.a.Status")
+    );
+}
+
+#[test]
+fn handler_signatures_expand_the_struct_of_their_module() {
+    let (document, diagnostics) = pipeline(&[
+        ("lib.rs", &format!("{ROOT}mod a;\nmod b;\nmod routes;")),
+        (
+            "a.rs",
+            "/// @openapi\n#[derive(Deserialize)]\npub struct Filter { pub name: String }",
+        ),
+        (
+            "b.rs",
+            "/// @openapi\n#[derive(Deserialize)]\npub struct Filter { pub age: u8 }",
+        ),
+        (
+            "routes.rs",
+            "use crate::b::Filter;\n/// Search\n/// @route GET /search\npub async fn search(Query(filter): Query<Filter>) {}",
+        ),
+    ]);
+    assert!(
+        diagnostics
+            .iter()
+            .all(|d| d.code() == Code::DuplicateSchema),
+        "{diagnostics:?}"
+    );
+    let parameters = &document["paths"]["/search"]["get"]["parameters"];
+    assert_eq!(parameters[0]["name"], "age");
+}

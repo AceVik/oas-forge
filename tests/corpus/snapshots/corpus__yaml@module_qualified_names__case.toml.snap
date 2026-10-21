@@ -1,0 +1,123 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/module_qualified_names/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Gateway
+  version: "1.0.0"
+paths:
+  /pool:
+    get:
+      summary: Get the pool
+      operationId: pool
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pool"
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Printing"
+        "202":
+          description: By component name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Printing"
+components:
+  schemas:
+    CatalogPrinting:
+      type: object
+      properties:
+        set:
+          type: string
+        status:
+          $ref: "#/components/schemas/baylee_catalog.model.Status"
+      required:
+      - set
+      - status
+      description: A printing in the catalog.
+    Note:
+      type: object
+      properties:
+        text:
+          type: string
+      required:
+      - text
+      description: A note on a printing.
+    Pool:
+      type: object
+      properties:
+        printings:
+          type: array
+          items:
+            $ref: "#/components/schemas/CatalogPrinting"
+          description: "Imported with `use`: the catalog's (renamed) printing."
+        other:
+          $ref: "#/components/schemas/Printing"
+          description: Written with its path.
+        cards:
+          type: array
+          items:
+            $ref: "#/components/schemas/PoolCard"
+          description: Through a glob import.
+        status:
+          description: Two crates document a `Status`; neither is imported here.
+        sold:
+          $ref: "#/components/schemas/baylee_catalog.model.Status"
+          description: The catalog's, by path.
+        note:
+          description: The undocumented `Note` of this module.
+      required:
+      - printings
+      - other
+      - cards
+      - status
+      - sold
+      - note
+      description: A pool of cards.
+    PoolCard:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      required:
+      - id
+      description: A card in a pool.
+    Printing:
+      type: object
+      properties:
+        face:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 255
+        status:
+          $ref: "#/components/schemas/baylee_cardtext.Status"
+      required:
+      - face
+      - status
+      description: A printing picked for card text.
+    baylee_cardtext.Status:
+      type: string
+      enum:
+      - Draft
+      - Final
+      description: Whether the text is final.
+    baylee_catalog.model.Status:
+      type: string
+      enum:
+      - Sold
+      - Retired
+      description: Whether a printing is sold.

@@ -6,6 +6,7 @@ use super::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
 use super::document::for_each_operation;
 use super::dsl::{self, RouteSource};
 use super::error::{Error, Result};
+use super::extract::names::NameTable;
 use super::extract::{self, Item};
 use super::lint::{self, Lints};
 use super::merge::{Policy, merge};
@@ -24,7 +25,7 @@ use super::yaml;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 /// Builds OpenAPI documents from Rust sources.
 ///
@@ -1613,18 +1614,35 @@ pub(crate) fn prepare(
     let Settings {
         types, variables, ..
     } = settings;
+    // Pass 0: the module paths of the Rust files and their documented types.
+    let parsed = parse_rust(sources);
+    let names = Arc::new(NameTable::build(
+        &parsed
+            .iter()
+            .filter_map(|(file, ast)| Some((file.path(), ast.as_ref()?)))
+            .collect::<Vec<_>>(),
+        diagnostics,
+    ));
     // Pass 1: extraction and template registration.
     let mut collected = Collected::default();
     // `.proto` files, for `proto(package.Message)` payloads.
     let mut protos = ProtoIndex::new();
+    let mut asts = parsed.iter();
     for file in sources.files() {
         match file.kind() {
             SourceKind::Rust => {
-                for item in extract::extract(
-                    file,
-                    extract::Options::new().types(types).variables(variables),
-                    diagnostics,
-                )? {
+                let options = extract::Options::new()
+                    .types(types)
+                    .variables(variables)
+                    .names(&names);
+                let items = match asts.next() {
+                    Some((_, Some(ast))) => {
+                        extract::extract_parsed(file.path(), ast, options, diagnostics)
+                    }
+                    // Not valid Rust: the error of the extraction.
+                    _ => extract::extract(file, options, diagnostics)?,
+                };
+                for item in items {
                     collected.register(item, diagnostics);
                 }
             }
@@ -1671,6 +1689,7 @@ pub(crate) fn prepare(
             registry: &registry,
             protos: &protos,
             settings,
+            names: &names,
         };
         if let Some(snippet) = materialize(item, context, &mut defaults, diagnostics)? {
             known.collect_from(&snippet.value);
@@ -2005,6 +2024,8 @@ struct Context<'a> {
     protos: &'a ProtoIndex,
     /// The settings of the run.
     settings: Settings<'a>,
+    /// The module paths of the Rust sources, for the types of routes.
+    names: &'a Arc<NameTable>,
 }
 
 /// How many `mod name;` declarations a route's defaults are looked up
@@ -2030,6 +2051,7 @@ fn materialize(
         registry,
         protos,
         settings,
+        names,
     } = context;
     let Settings {
         variables,
@@ -2109,6 +2131,7 @@ fn materialize(
             );
             let line_numbers = source_lines(&expanded, &channel.line_numbers, &channel.location);
             let lines: Vec<String> = expanded.into_iter().map(|(line, _)| line).collect();
+            let types = &in_module(types, names, &channel.location);
             let compiled = dsl::compile_channel(
                 dsl::ChannelSource::new(&lines, &channel.location)
                     .line_numbers(&line_numbers)
@@ -2152,6 +2175,7 @@ fn materialize(
                 expand_defaults(&route, registry, variables, route_defaults, diagnostics)
                     .into_iter()
                     .unzip();
+            let types = &in_module(types, names, &route.location);
             let compiled = dsl::compile(
                 RouteSource::new(&lines, &route.location)
                     .line_numbers(&line_numbers)
@@ -2178,6 +2202,25 @@ fn materialize(
                 Snippet::openapi(value, route.location).in_scopes(compiled.scopes),
             ))
         }
+    }
+}
+
+/// The Rust files of `sources` with their syntax trees (`None` for a file
+/// that is not valid Rust; extracting it reports the error).
+fn parse_rust(sources: &SourceSet) -> Vec<(&SourceFile, Option<syn::File>)> {
+    sources
+        .files()
+        .iter()
+        .filter(|file| file.kind() == SourceKind::Rust)
+        .map(|file| (file, extract::parse(file.path(), file.text()).ok()))
+        .collect()
+}
+
+/// `types` for the Rust types written in the module at `location`.
+fn in_module(types: &TypeMapper, names: &Arc<NameTable>, location: &Location) -> TypeMapper {
+    match names.scope_at(location.file(), location.line()) {
+        Some(scope) => types.scoped(names, scope),
+        None => types.clone(),
     }
 }
 

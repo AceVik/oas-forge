@@ -6,6 +6,7 @@
 
 mod blocks;
 mod constants;
+pub(crate) mod names;
 mod reflect;
 mod signature;
 
@@ -16,8 +17,10 @@ use super::error::{Error, Result};
 use super::schema::TypeMapper;
 use super::source::SourceFile;
 use super::template::Variables;
+use names::NameTable;
 use serde_json::Value;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
@@ -671,6 +674,9 @@ pub struct Options<'a> {
     /// Values of `{{NAME}}` placeholders in type overrides and `@example`s.
     /// Free blocks and routes are expanded later, together with `@insert`.
     pub variables: &'a Variables,
+    /// The module paths of all scanned sources (a generator run): names of
+    /// Rust types resolve to the documented types they mean.
+    pub(crate) names: Option<&'a Arc<NameTable>>,
 }
 
 impl Default for Options<'_> {
@@ -680,6 +686,7 @@ impl Default for Options<'_> {
         Self {
             types: TypeMapper::builtin(),
             variables: &NONE,
+            names: None,
         }
     }
 }
@@ -788,6 +795,12 @@ impl<'a> Options<'a> {
         self.variables = variables;
         self
     }
+
+    /// Resolves names of Rust types by the module paths of `names`.
+    pub(crate) fn names(mut self, names: &'a Arc<NameTable>) -> Self {
+        self.names = Some(names);
+        self
+    }
 }
 
 /// Parses Rust `source` and returns its annotations in source order.
@@ -862,10 +875,25 @@ pub fn extract_str(
     options: Options<'_>,
     diagnostics: &mut Diagnostics,
 ) -> Result<Vec<Item>> {
-    let file = syn::parse_file(text).map_err(|e| Error::Parse {
+    let file = parse(path, text)?;
+    Ok(extract_parsed(path, &file, options, diagnostics))
+}
+
+/// Parses Rust `text` of the file at `path`.
+pub(crate) fn parse(path: &Path, text: &str) -> Result<syn::File> {
+    syn::parse_file(text).map_err(|e| Error::Parse {
         location: Location::new(path, line_of(e.span())).with_column(e.span().start().column + 1),
         message: e.to_string(),
-    })?;
+    })
+}
+
+/// The annotations of the parsed Rust `file` at `path`, in source order.
+pub(crate) fn extract_parsed(
+    path: &Path,
+    file: &syn::File,
+    options: Options<'_>,
+    diagnostics: &mut Diagnostics,
+) -> Vec<Item> {
     let mut visitor = Extractor {
         path,
         options,
@@ -876,8 +904,8 @@ pub fn extract_str(
         inline: Vec::new(),
         diagnostics,
     };
-    visitor.visit_file(&file);
-    Ok(visitor.items)
+    visitor.visit_file(file);
+    visitor.items
 }
 
 /// Walks a parsed file and collects its annotations in source order.

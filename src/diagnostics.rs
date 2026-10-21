@@ -303,6 +303,8 @@ codes! {
     AmbiguousAlias = "OF3012", Warning;
     /// A type alias refers to itself through other aliases.
     AliasCycle = "OF3013", Warning;
+    /// A Rust type name does not identify one documented type.
+    AmbiguousTypeName = "OF3014", Warning;
 
     /// Two documents set the same value differently.
     MergeConflict = "OF4001", Warning;
