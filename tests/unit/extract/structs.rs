@@ -1625,3 +1625,108 @@ pub struct Callback(pub fn(u8) -> u8);
         assert_eq!(lines, [3, 4]);
     }
 }
+
+/// Overrides merged into a schema that accepts `null` keep accepting it.
+mod nullable_overrides {
+    use super::*;
+    use crate::common::pipeline;
+
+    fn field(docs: &str, ty: &str) -> serde_json::Value {
+        let items = extract(&format!(
+            "/// @openapi\n#[derive(serde::Serialize)]\npub struct S {{\n{docs}\npub field: {ty},\n}}"
+        ));
+        schema(&items, "S")["properties"]["field"].clone()
+    }
+
+    #[test]
+    fn an_enum_gets_null() {
+        assert_eq!(
+            field(
+                "/// @openapi enum: [central, gateway]\n#[serde(skip_serializing_if = \"Option::is_none\")]",
+                "Option<&'static str>"
+            ),
+            json!({ "type": ["string", "null"], "enum": ["central", "gateway", null] })
+        );
+        assert_eq!(
+            field("/// @openapi enum: [1, null, 2]", "Option<u8>")["enum"],
+            json!([1, null, 2]),
+            "an enum with `null` stays as written"
+        );
+    }
+
+    #[test]
+    fn a_const_becomes_an_enum_with_null() {
+        assert_eq!(
+            field("/// @openapi const: central", "Option<String>"),
+            json!({ "type": ["string", "null"], "enum": ["central", null] })
+        );
+    }
+
+    #[test]
+    fn an_explicit_type_or_nullable_is_kept() {
+        assert_eq!(
+            field(
+                "/// @openapi\n/// type: string\n/// enum: [a]",
+                "Option<String>"
+            ),
+            json!({ "type": "string", "enum": ["a"] })
+        );
+        assert_eq!(
+            field(
+                "/// @openapi\n/// nullable: false\n/// enum: [a]",
+                "Option<String>"
+            ),
+            json!({ "type": ["string", "null"], "enum": ["a"], "nullable": false })
+        );
+    }
+
+    #[test]
+    fn schemas_without_null_are_unchanged() {
+        assert_eq!(
+            field("/// @openapi enum: [a, b]", "String"),
+            json!({ "type": "string", "enum": ["a", "b"] })
+        );
+        assert_eq!(
+            field("/// @openapi const: a", "String"),
+            json!({ "type": "string", "const": "a" })
+        );
+    }
+
+    #[test]
+    fn a_nullable_reference_stays_nullable() {
+        assert_eq!(
+            field("/// @openapi enum: [a, b]", "Option<Code>"),
+            json!({ "anyOf": [{ "enum": ["a", "b"] }, { "type": "null" }] })
+        );
+        assert_eq!(
+            field(
+                "/// @openapi\n/// type: string\n/// const: a",
+                "Option<Code>"
+            ),
+            json!({ "anyOf": [{ "type": "string", "const": "a" }, { "type": "null" }] })
+        );
+    }
+
+    #[test]
+    fn openapi_30_lowering_keeps_null_in_the_enum() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            "//! @openapi\n//! openapi: 3.0.3\n//! info: { title: T, version: '1' }\n\n/// @openapi\npub struct S {\n    /// @openapi enum: [central, gateway]\n    pub a: Option<String>,\n    /// @openapi const: c\n    pub b: Option<String>,\n}",
+        )]);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|d| d.code() != Code::InvalidOverride),
+            "{diagnostics:?}"
+        );
+        let s = &document["components"]["schemas"]["S"]["properties"];
+        assert_eq!(
+            s["a"],
+            json!({ "type": "string", "nullable": true, "enum": ["central", "gateway", null] })
+        );
+        assert_eq!(
+            s["b"],
+            json!({ "type": "string", "nullable": true, "enum": ["c", null] })
+        );
+    }
+}

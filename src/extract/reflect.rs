@@ -15,7 +15,7 @@ use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::docs::{doc_lines, line_of};
 use crate::merge::{Policy, merge};
 use crate::schema::types::{MappedType, TypeExpr, TypeMapper, undocumentable};
-use crate::schema::{nullable, shadow};
+use crate::schema::{accepts_null, nullable, shadow};
 use crate::template::{Variables, lexical};
 use crate::yaml;
 use serde_json::{Map, Value, json};
@@ -1168,9 +1168,16 @@ impl Annotations {
 /// Merges an `@openapi` override into a reflected schema. An override that
 /// defines the structure itself (a virtual type on a newtype such as
 /// `struct Wrapper<T>(T)`) replaces the reflected reference, also the one of
-/// an `Option<Newtype>`, which stays nullable.
+/// an `Option<Newtype>`, which stays nullable. In a schema that accepts
+/// `null`, an `enum` gets `null` and a `const` becomes such an `enum`,
+/// unless the override sets `type` or `nullable`.
 fn apply_override(schema: &mut Value, value: Map<String, Value>) {
     let structural = STRUCTURE_KEYS.iter().any(|k| value.contains_key(*k));
+    // An `enum` or `const` of the override must not reject the `null` the
+    // schema accepts, unless the override says what the type is.
+    let keep_null = schema.as_object().is_some_and(accepts_null)
+        && !value.contains_key("type")
+        && !value.contains_key("nullable");
     let mut renullable = false;
     if structural
         && let Value::Object(map) = schema
@@ -1183,6 +1190,15 @@ fn apply_override(schema: &mut Value, value: Map<String, Value>) {
     merge(schema, Value::Object(value), Policy::Override);
     if renullable {
         *schema = nullable(std::mem::take(schema));
+    } else if keep_null && let Value::Object(map) = schema {
+        if let Some(value) = map.remove("const") {
+            map.insert("enum".into(), json!([value]));
+        }
+        if let Some(Value::Array(values)) = map.get_mut("enum")
+            && !values.contains(&Value::Null)
+        {
+            values.push(Value::Null);
+        }
     }
 }
 

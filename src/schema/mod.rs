@@ -61,7 +61,7 @@ pub fn nullable(schema: Value) -> Value {
 
 /// Whether the schema already accepts `null`: a `null` type (alone or in a
 /// type list) or a `{"type": "null"}` alternative in `anyOf`.
-fn accepts_null(map: &serde_json::Map<String, Value>) -> bool {
+pub(crate) fn accepts_null(map: &serde_json::Map<String, Value>) -> bool {
     match map.get("type") {
         Some(Value::String(t)) => t == "null",
         Some(Value::Array(types)) => types.iter().any(|t| t == "null"),

@@ -71,7 +71,10 @@ The same works on enum variants; it describes the variant as serialized. An
 override that defines the structure itself (`type`, `properties`, `oneOf`,
 …) replaces the reflected reference of a newtype, so `struct Id(Uuid)` with
 `/// @openapi type: string` is exactly `{type: string}`; on a field of type
-`Option<Id>` the result stays nullable.
+`Option<Id>` the result stays nullable. On a schema that accepts `null`, an
+`enum` of the override gets a `null` entry and a `const` becomes
+`enum: [value, null]` (3.0: `nullable: true` with that `enum`), unless the
+override sets `type` or `nullable` itself.
 
 Invalid YAML, and text that is not a YAML mapping (`/// @openapi The id`),
 is reported (`OF1001`) and ignored.
