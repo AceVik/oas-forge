@@ -404,10 +404,11 @@ mod transparent {
             }
             "#,
         )]);
-        // An alias as a type argument names the instance (`Page_List_User`).
+        // An alias as a type argument stands for its target: the instance
+        // is named as for `Page<Vec<User>>`.
         assert_eq!(
             names(&schemas),
-            ["H", "Page_List_User", "Page_User", "User"],
+            ["H", "Page_User", "Page_Vec_User", "User"],
             "no `Paged_User`, no `Result`"
         );
         let h = &schemas["H"]["properties"];
@@ -418,11 +419,68 @@ mod transparent {
         );
         assert_eq!(
             h["n"],
-            json!({ "$ref": "#/components/schemas/Page_List_User" })
+            json!({ "$ref": "#/components/schemas/Page_Vec_User" })
         );
         assert_eq!(
-            schemas["Page_List_User"]["properties"]["items"]["items"],
+            schemas["Page_Vec_User"]["properties"]["items"]["items"],
             json!({ "type": "array", "items": { "$ref": "#/components/schemas/User" } })
+        );
+    }
+
+    #[test]
+    fn aliases_as_type_arguments_name_the_instance_by_their_target() {
+        let schemas = schemas(&[
+            (
+                "lib.rs",
+                r#"
+            pub type Owner = User;
+            pub type Chain = Owner;
+            pub type Maybe = Option<u64>;
+            pub type Pair = (u8, u8);
+            /// @openapi
+            pub struct Page<T> { pub items: Vec<T> }
+            /// @openapi
+            pub struct User { pub id: u64 }
+            /// @openapi
+            pub struct H {
+                pub a: Page<Owner>,
+                pub b: Page<Chain>,
+                pub c: Page<User>,
+                pub d: Page<Maybe>,
+                pub e: Page<Pair>,
+                pub f: Page<models::Member>,
+            }
+            "#,
+            ),
+            // The target of an alias is read in its own file.
+            (
+                "models.rs",
+                "pub type Member = Account;\n/// @openapi\npub struct Account { pub id: u64 }",
+            ),
+        ]);
+        assert_eq!(
+            names(&schemas),
+            [
+                "Account",
+                "H",
+                "Page_Account",
+                "Page_Option_u64",
+                "Page_Pair",
+                "Page_User",
+                "User"
+            ]
+        );
+        let h = &schemas["H"]["properties"];
+        for field in ["a", "b", "c"] {
+            assert_eq!(
+                h[field],
+                json!({ "$ref": "#/components/schemas/Page_User" }),
+                "{field}"
+            );
+        }
+        assert_eq!(
+            schemas["Page_Option_u64"]["properties"]["items"]["items"]["type"],
+            json!(["integer", "null"])
         );
     }
 

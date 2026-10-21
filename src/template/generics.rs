@@ -637,6 +637,7 @@ impl<'a> Instantiator<'a> {
         location: &Location,
         diagnostics: &mut Diagnostics,
     ) -> Option<String> {
+        let generic = &self.unaliased(generic, location);
         let Some(blueprint) = self.registry.blueprint(last_segment(&generic.name)) else {
             diagnostics.push(
                 Diagnostic::new(
@@ -709,6 +710,87 @@ impl<'a> Instantiator<'a> {
         self.concrete.insert(name.clone(), (body, location.clone()));
         Some(name)
     }
+
+    /// `generic` with every argument that names a transparent type alias
+    /// replaced by the alias's target, also inside nested arguments, so that
+    /// `Page<Owner>` (`type Owner = User;`) is the instance `Page_User`. An
+    /// argument whose alias cannot replace it (ambiguous, a cycle) stays; it
+    /// is reported where its schema is resolved.
+    fn unaliased(&self, generic: &GenericRef, location: &Location) -> GenericRef {
+        GenericRef {
+            name: generic.name.clone(),
+            args: generic
+                .args
+                .iter()
+                .map(|arg| self.unalias(arg, location, 0))
+                .collect(),
+        }
+    }
+
+    /// `arg` with transparent aliases replaced by their targets (see
+    /// [`Self::unaliased`]); names in a target are looked up at the alias.
+    fn unalias(&self, arg: &GenericArg, location: &Location, depth: usize) -> GenericArg {
+        let (name, args): (&str, Vec<GenericArg>) = match arg {
+            GenericArg::Name(name) => (last_segment(name), Vec::new()),
+            GenericArg::Generic(inner) => (
+                last_segment(&inner.name),
+                inner
+                    .args
+                    .iter()
+                    .map(|arg| self.unalias(arg, location, depth + 1))
+                    .collect(),
+            ),
+        };
+        let lookup = Lookup {
+            registry: self.registry,
+            known: self.known,
+        };
+        // The canonical findings come from resolving the schemas.
+        let found = lookup.find(
+            name,
+            args.len(),
+            location,
+            &self.aliasing,
+            &mut Diagnostics::new(),
+        );
+        if depth < MAX_DEPTH
+            && let Found::Alias(alias) = found
+            && let Some(target) = bound_target(alias, &args)
+        {
+            return self.unalias(&target, &alias.location, depth + 1);
+        }
+        match arg {
+            GenericArg::Name(_) => arg.clone(),
+            GenericArg::Generic(inner) => GenericArg::Generic(GenericRef {
+                name: inner.name.clone(),
+                args,
+            }),
+        }
+    }
+}
+
+/// The target of `alias` with its type parameters bound to `args`, as a
+/// generic argument; `None` when the target is no named type (a tuple, an
+/// array).
+fn bound_target(alias: &AliasItem, args: &[GenericArg]) -> Option<GenericArg> {
+    let texts: Vec<String> = args
+        .iter()
+        .map(|arg| match arg {
+            GenericArg::Name(name) => name.clone(),
+            GenericArg::Generic(inner) => inner.text(),
+        })
+        .collect();
+    let bindings: BTreeMap<&str, &str> = alias
+        .params
+        .iter()
+        .map(String::as_str)
+        .zip(texts.iter().map(String::as_str))
+        .collect();
+    let Value::String(target) = substitute(&Value::String(alias.target.clone()), &bindings) else {
+        return None;
+    };
+    let (arg, rest) = parse_arg(&target)?;
+    rest.trim().is_empty().then_some(arg)
 }
 
 /// A `$Param` identifier in a blueprint string; captures the name.

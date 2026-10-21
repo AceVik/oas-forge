@@ -350,8 +350,11 @@ pub struct Repo {
   `impl Trait`) is reported (`OF1010`) where the alias is used, once, at the
   alias; an unused alias is not.
 - The schema of the target replaces the reference, so an alias of an
-  `Option` makes the value nullable but not the field optional, and an alias
-  used as a type argument names the instance (`Page<Owner>` is `Page_Owner`).
+  `Option` makes the value nullable but not the field optional.
+- An alias used as a type argument stands for its target, so the instance
+  is named as if the target were written: `Page<Owner>` is `Page_User`, and
+  `Page<List<User>>` with `type List<T> = Vec<T>;` is `Page_Vec_User`. A
+  target that is no named type (a tuple, an array) keeps the alias's name.
 
 ## Types from other crates
 

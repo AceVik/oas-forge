@@ -22,6 +22,11 @@ All notable changes to `oas-forge` will be documented in this file.
   such as `Page<User>` with two documented `User`s, is reported (`OF3014`)
   and nothing is instantiated, instead of an instance that pointed to a
   schema that does not exist.
+- A type alias without `@openapi` used as a type argument stands for its
+  target: `Page<Owner>` with `type Owner = User;` is the instance
+  `Page_User` (it was a second, identical `Page_Owner`), and
+  `Page<List<User>>` with `type List<T> = Vec<T>;` is `Page_Vec_User`.
+  `AliasItem` has the new field `target`.
 
 ## [0.2.0] — 2026-10-21
 

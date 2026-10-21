@@ -677,6 +677,13 @@ impl TypeMapper {
         format!("{template}<{}>", args.join(", "))
     }
 
+    /// `ty` as a generic argument of a raw reference (`$User`,
+    /// `$Vec<$T>`): what [`Self::generic_arg`] makes of it, without
+    /// findings (where the type is used, its schema reports them).
+    pub(crate) fn type_text(&self, ty: &TypeExpr) -> String {
+        self.generic_arg(ty, &mut Vec::new())
+    }
+
     /// A generic argument of a raw reference. Named types carry a `$`
     /// (`$Page<$T>`, `$Page<$Vec<$T>>`), so that the generics stage
     /// substitutes the type parameters of a blueprint also inside nested
