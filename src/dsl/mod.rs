@@ -965,7 +965,7 @@ impl Compiler<'_, '_> {
 
     /// Adds the parameter of `@param <location> rest` (and its short forms).
     /// An unknown location or a malformed declaration is reported and
-    /// skipped; unknown flags are reported and ignored.
+    /// skipped; unknown and contradicting flags are reported and ignored.
     fn parameter(&mut self, b: &mut Builder, index: Option<usize>, location: &str, rest: &str) {
         if !params::LOCATIONS.contains(&location) {
             self.invalid(
@@ -981,11 +981,8 @@ impl Compiler<'_, '_> {
             );
             return;
         };
-        for token in &parameter.ignored {
-            self.invalid(
-                index,
-                format!("`{token}` is not a parameter flag and was ignored"),
-            );
+        for problem in &parameter.problems {
+            self.invalid(index, problem.clone());
         }
         if location == "path" {
             b.declared.insert(parameter.name);

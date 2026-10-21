@@ -23,9 +23,9 @@ pub(super) struct Parameter {
     pub(super) name: String,
     /// The Parameter object (`name`, `in`, `required`, `schema`, ...).
     pub(super) value: Value,
-    /// Tokens that are neither a known flag nor a quoted description; they
-    /// are reported and ignored.
-    pub(super) ignored: Vec<String>,
+    /// What is wrong with the declaration (unknown flags, contradicting
+    /// flags); reported, the parameter is used without it.
+    pub(super) problems: Vec<String>,
 }
 
 /// Parses `name: Type [flags] ["description"]` for location `location`;
@@ -58,6 +58,7 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
     let mut ignored = Vec::new();
     let mut has_default = false;
     let mut explicitly_required = false;
+    let mut explicitly_optional = false;
     for token in flags {
         // A quoted description is one token; flags may follow it.
         if token.starts_with('"') {
@@ -71,6 +72,7 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
         let parsed = || value.map(scalar);
         match (flag, value) {
             ("required", None) => explicitly_required = true,
+            ("optional", None) => explicitly_optional = true,
             ("deprecated", None) => {
                 parameter.insert("deprecated".into(), json!(true));
             }
@@ -126,8 +128,20 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
         Constraints::new(rules).apply(schema);
     });
 
-    // A parameter with a default may be left out, unless marked `required`.
-    required = (required && !has_default) || explicitly_required || location == "path";
+    let mut problems: Vec<String> = ignored
+        .iter()
+        .map(|token| format!("`{token}` is not a parameter flag and was ignored"))
+        .collect();
+    if explicitly_optional && location == "path" {
+        problems.push("path parameters are always required; `optional` is ignored".into());
+    } else if explicitly_optional && explicitly_required {
+        problems.push("a parameter cannot be `required` and `optional`; `required` wins".into());
+    }
+    // A parameter with a default may be left out, and an `optional` one,
+    // unless marked `required`.
+    required = (required && !has_default && !explicitly_optional)
+        || explicitly_required
+        || location == "path";
     let mut value = Map::new();
     value.insert("name".into(), json!(name));
     value.insert("in".into(), json!(location));
@@ -151,7 +165,7 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
     Some(Parameter {
         name: name.to_string(),
         value: Value::Object(value),
-        ignored,
+        problems,
     })
 }
 
@@ -212,7 +226,7 @@ fn is_flag(token: &str) -> bool {
     token.starts_with('"')
         || matches!(
             token,
-            "required" | "deprecated" | "explode" | "allow-reserved" | "allow-empty"
+            "required" | "optional" | "deprecated" | "explode" | "allow-reserved" | "allow-empty"
         )
         || token.split_once('=').is_some_and(|(flag, _)| {
             matches!(

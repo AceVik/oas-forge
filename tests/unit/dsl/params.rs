@@ -511,3 +511,66 @@ fn closing_brackets_inside_quotes_do_not_close() {
     assert_eq!(q["schema"]["enum"], serde_json::json!(["a)", "b"]));
     assert_eq!(q["description"], "Description");
 }
+
+/// `optional`: the counterpart of `required`.
+mod optional_flag {
+    use super::*;
+    use oas_forge::diagnostics::Diagnostics;
+
+    fn required(directive: &str) -> (serde_json::Value, Diagnostics) {
+        let (document, diagnostics) = try_route(&["@route GET /x/{id: u64}", directive]);
+        let op = &document.unwrap()["paths"]["/x/{id}"]["get"];
+        let last = op["parameters"].as_array().unwrap().last().unwrap().clone();
+        (last["required"].clone(), diagnostics)
+    }
+
+    #[test]
+    fn a_parameter_is_required_unless_option_default_or_optional() {
+        for (directive, expected) in [
+            ("@query-param s: u32 \"Size\"", true),
+            ("@query-param s: Option<u32>", false),
+            ("@query-param s: u32 default=10", false),
+            ("@query-param s: u32 optional \"Size\"", false),
+            ("@query-param s: optional", false),
+            ("@header-param X-Trace: String optional", false),
+            ("@cookie-param session: optional \"Session\"", false),
+            ("@param query s: u32 \"Size\" optional", false),
+            ("@query-param s: Option<u32> required", true),
+        ] {
+            let (required, diagnostics) = required(directive);
+            assert_eq!(required, expected, "{directive}");
+            assert!(diagnostics.is_empty(), "{directive}: {diagnostics:#?}");
+        }
+    }
+
+    #[test]
+    fn optional_without_type_keeps_the_string_type() {
+        let op = operation(&["@route GET /x", "@query-param s: optional"], "/x", "get");
+        assert_eq!(param(&op, "s")["schema"], json!({ "type": "string" }));
+    }
+
+    #[test]
+    fn contradictions_are_reported() {
+        // Path parameters are always required.
+        let (document, diagnostics) =
+            try_route(&["@route GET /x/{id}", "@path-param id: u64 optional"]);
+        assert_eq!(codes(&diagnostics), [Code::InvalidDirective]);
+        assert!(
+            diagnostics
+                .iter()
+                .next()
+                .unwrap()
+                .message()
+                .contains("always required"),
+            "{diagnostics:#?}"
+        );
+        assert_eq!(
+            document.unwrap()["paths"]["/x/{id}"]["get"]["parameters"][0]["required"],
+            true
+        );
+        // `required` wins over `optional`.
+        let (required, diagnostics) = required("@query-param s: u32 optional required");
+        assert_eq!(required, true);
+        assert_eq!(codes(&diagnostics), [Code::InvalidDirective]);
+    }
+}

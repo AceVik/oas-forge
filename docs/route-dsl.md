@@ -154,13 +154,17 @@ reported (`OF2004`) and the directive ignored.
 @query-param name: Type [flags...] ["description"]
 ```
 
-The type defaults to `String`. `Option<T>` makes a parameter optional;
-otherwise query, header and cookie parameters are required unless they have
-a default. Path parameters are always required.
+The type defaults to `String`.
+
+**A query, header or cookie parameter is required unless its type is
+`Option<T>`, it has a `default=…` or it is marked `optional`**, as axum
+rejects a request that lacks a field that is not an `Option`. Path
+parameters are always required (`optional` on one is reported).
 
 | Flag | Effect |
 | :--- | :--- |
 | `required` | `required: true`, even with `Option` or a default |
+| `optional` | `required: false`, whatever the type (`required` wins over it, with a finding) |
 | `deprecated` | `deprecated: true` |
 | `default=VALUE` | `schema.default`; the parameter becomes optional |
 | `example=VALUE` | `example` (quote values with spaces: `example="red shoes"`) |
