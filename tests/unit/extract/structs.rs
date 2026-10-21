@@ -687,6 +687,29 @@ mod serde_fields {
     }
 
     #[test]
+    fn only_object_maps_are_flattened_into_additional_properties() {
+        use oas_forge::schema::TypeMapper;
+        let extra = json!({ "type": "object", "properties": { "a": { "type": "string" } }, "additionalProperties": true });
+        let loose = json!({ "additionalProperties": { "type": "integer" } });
+        let types = TypeMapper::new()
+            .with_type("Extra", extra.clone())
+            .with_type("Loose", loose.clone());
+        let mut diagnostics = oas_forge::diagnostics::Diagnostics::new();
+        let items = oas_forge::extract::extract_str(
+            std::path::Path::new("test.rs"),
+            "/// @openapi\nstruct S {\n  #[serde(flatten)]\n  extra: Extra,\n  #[serde(flatten)]\n  loose: Loose,\n}",
+            oas_forge::extract::Options::new().types(&types),
+            &mut diagnostics,
+        )
+        .unwrap();
+        let s = schema(&items, "S");
+        // An object with properties of its own and a schema without `type`
+        // are flattened structs, not maps.
+        assert_eq!(s["allOf"], json!([extra, loose]));
+        assert!(s.get("unevaluatedProperties").is_none(), "{s}");
+    }
+
+    #[test]
     fn flattened_maps_next_to_flattened_structs_are_unevaluated_properties() {
         // `additionalProperties` would also apply to the fields of `Inner`.
         let items = extract(
@@ -952,6 +975,37 @@ fn structural_overrides_replace_a_nullable_reference() {
     assert_eq!(
         schema(&items, "S")["properties"]["id"],
         json!({ "type": ["string", "null"], "format": "uuid", "description": "The id." })
+    );
+}
+
+#[test]
+fn only_a_reference_or_null_is_a_nullable_reference() {
+    use oas_forge::schema::TypeMapper;
+    let types = TypeMapper::new()
+        .with_type(
+            "RefFirst",
+            json!({ "anyOf": [{ "$ref": "$A" }, { "type": "integer" }] }),
+        )
+        .with_type(
+            "RefSecond",
+            json!({ "anyOf": [{ "type": "integer" }, { "$ref": "$A" }] }),
+        );
+    let mut diagnostics = oas_forge::diagnostics::Diagnostics::new();
+    let items = oas_forge::extract::extract_str(
+        std::path::Path::new("test.rs"),
+        "/// @openapi\nstruct S {\n/// @openapi type: string\na: RefFirst,\n/// @openapi type: string\nb: RefSecond,\n}",
+        oas_forge::extract::Options::new().types(&types),
+        &mut diagnostics,
+    )
+    .unwrap();
+    // Not `Option<T>` of a reference: the override is merged, the
+    // alternatives stay.
+    assert_eq!(
+        schema(&items, "S")["properties"],
+        json!({
+            "a": { "anyOf": [{ "$ref": "$A" }, { "type": "integer" }], "type": "string" },
+            "b": { "anyOf": [{ "type": "integer" }, { "$ref": "$A" }], "type": "string" },
+        })
     );
 }
 

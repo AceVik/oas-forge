@@ -157,6 +157,21 @@ mod instantiation {
         );
     }
 
+    /// A blueprint argument is its concrete name in text and keys too, not
+    /// only in whole values.
+    #[test]
+    fn nested_blueprint_arguments_are_bound_by_their_concrete_name() {
+        let reg = registry(&[
+            ("Wrapper", &["T"], json!({ "x-of": "wraps $T", "$T": true })),
+            ("Inner", &["U"], json!({ "in": "$U" })),
+        ]);
+        let (_, concrete, _) = run(&reg, json!("$Wrapper<$Inner<Item>>"));
+        assert_eq!(
+            concrete["Wrapper_Inner_Item"],
+            json!({ "x-of": "wraps $Inner_Item", "$Inner_Item": true })
+        );
+    }
+
     #[test]
     fn generics_in_instantiated_bodies_are_resolved() {
         let reg = registry(&[
