@@ -349,3 +349,18 @@ fn the_lines_of_a_fence_are_read_once_and_sections_follow_it() {
         .collect();
     assert_eq!(texts, ["{ \"paths\": { \"/a\": {} } }", "x-b: 1"]);
 }
+
+#[test]
+fn scope_lines_after_a_fence_end_the_section_once() {
+    let items = crate::common::extract(
+        "/// @openapi\n/// ```json\n/// { \"paths\": { \"/a\": {} } }\n/// ```\n/// @scope public\n/// @scope admin\nfn f() {}",
+    );
+    let texts: Vec<&str> = document_items(&items)
+        .iter()
+        .map(|d| d.text.as_str())
+        .collect();
+    assert_eq!(
+        texts,
+        ["{ \"paths\": { \"/a\": {} } }\n\n@scope public\n@scope admin"]
+    );
+}

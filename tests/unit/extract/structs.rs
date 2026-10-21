@@ -1958,6 +1958,43 @@ mod fenced_overrides {
             crate::extract::document_items(&items)[0].text,
             "tags: [{ name: Users }]"
         );
+        assert!(schema(&items, "User")["properties"]["id"].is_object());
+    }
+
+    /// `@scope` lines before the fence and after it belong to the document.
+    #[test]
+    fn scope_lines_around_a_fenced_document_of_a_type() {
+        for source in [
+            "/// @openapi document\n/// @scope public\n/// ```yaml\n/// tags: [{ name: Users }]\n/// ```\n/// @openapi\npub struct User { pub id: u64 }",
+            "/// @openapi document\n/// ```yaml\n/// tags: [{ name: Users }]\n/// ```\n/// @scope public\n/// @openapi\npub struct User { pub id: u64 }",
+        ] {
+            let items = extract(source);
+            let text = &crate::extract::document_items(&items)[0].text;
+            assert!(text.contains("@scope public"), "{source}: {text}");
+            assert!(text.contains("tags: [{ name: Users }]"), "{source}: {text}");
+            assert!(!text.contains("```"), "{source}: {text}");
+            assert!(schema(&items, "User")["properties"]["id"].is_object());
+        }
+        // The fence after the `@scope` line holds all of the YAML, also a
+        // key with a space after a blank line (which would end unfenced YAML).
+        let items = extract(
+            "/// @openapi document\n/// @scope public\n/// ```yaml\n/// x-a: 1\n///\n/// x spaced: 2\n/// ```\n/// @openapi\npub struct User { pub id: u64 }",
+        );
+        let text = &crate::extract::document_items(&items)[0].text;
+        assert!(text.ends_with("x spaced: 2"), "{text}");
+        assert!(schema(&items, "User").get("description").is_none());
+    }
+
+    #[test]
+    fn prose_after_a_fenced_document_describes_the_type() {
+        let items = extract(
+            "/// @openapi document\n/// ```yaml\n/// tags: [{ name: Users }]\n/// ```\n/// A user.\n/// @openapi\npub struct User { pub id: u64 }",
+        );
+        assert_eq!(
+            crate::extract::document_items(&items)[0].text,
+            "tags: [{ name: Users }]"
+        );
+        assert_eq!(schema(&items, "User")["description"], "A user.");
     }
 }
 

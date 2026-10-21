@@ -824,6 +824,13 @@ mod serde_attribute {
         );
     }
 
+    /// Only backticks around the whole argument are Markdown for the name.
+    #[test]
+    fn several_code_spans_keep_their_backticks() {
+        let items = extract("/// @openapi rename `A` or `B`\nstruct Printing { set_code: String }");
+        assert_eq!(crate::common::schema_names(&items), ["`A` or `B`"]);
+    }
+
     #[test]
     fn field_rename_beats_the_container_rule() {
         let items = extract(
