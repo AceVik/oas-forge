@@ -434,3 +434,167 @@ fn inputs_given_with_dots_find_their_modules() {
     let name = holder["a"]["$ref"].as_str().unwrap();
     assert!(name.ends_with(".api.User"), "{name}");
 }
+
+/// Edges of the resolution.
+mod edges {
+    use super::*;
+
+    #[test]
+    fn re_export_cycles_end() {
+        let (document, diagnostics) = pipeline(&[
+            ("lib.rs", "mod a;\nmod b;\nmod c;"),
+            ("a.rs", "pub use crate::b::User;"),
+            ("b.rs", "pub use crate::a::User;"),
+            (
+                "c.rs",
+                "/// @openapi\npub struct User { pub id: u64 }\n/// @openapi\npub struct S { pub u: crate::a::User }",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            document["components"]["schemas"]["S"]["properties"]["u"],
+            reference("User"),
+            "the one documented `User`"
+        );
+    }
+
+    #[test]
+    fn a_path_of_a_crate_finds_the_type_of_a_module_it_does_not_show() {
+        let project = crates();
+        project.file(
+            "gw/src/lib.rs",
+            &format!("{ROOT}/// @openapi\npub struct Pool {{ pub p: baylee_catalog::Printing }}\n"),
+        );
+        // Only the module of the catalog is scanned, not its `pub use`.
+        let (document, codes) = document(
+            &project,
+            &["catalog/src/model.rs", "cardtext/src", "gw/src"],
+        );
+        assert!(codes.is_empty(), "{codes:?}");
+        assert_eq!(
+            document["components"]["schemas"]["Pool"]["properties"]["p"],
+            reference("CatalogPrinting")
+        );
+    }
+
+    #[test]
+    fn two_glob_imports_with_the_name_are_ambiguous() {
+        let (document, diagnostics) = pipeline(&[
+            ("lib.rs", "mod a;\nmod b;\nmod c;"),
+            ("a.rs", "/// @openapi\npub struct User { pub id: u64 }"),
+            ("b.rs", "/// @openapi\npub struct User { pub name: String }"),
+            (
+                "c.rs",
+                "use crate::a::*;\nuse crate::b::*;\n/// @openapi\npub struct S { pub u: User, pub again: User }",
+            ),
+        ]);
+        assert_eq!(
+            document["components"]["schemas"]["S"]["properties"]["u"],
+            json!({})
+        );
+        let findings: Vec<String> = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::AmbiguousTypeName)
+            .map(|d| d.message().to_string())
+            .collect();
+        assert_eq!(
+            findings,
+            [
+                "`User` may be any of the documented types `crate::a::User`, `crate::b::User`; write its path or import it with `use`"
+            ],
+            "reported once for the item"
+        );
+    }
+
+    #[test]
+    fn a_transparent_alias_of_the_module_is_replaced_later() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "a.rs",
+                "type Status = u8;\n/// @openapi\npub struct S { pub status: Status }",
+            ),
+            ("b.rs", "/// @openapi\npub struct Status { pub code: u16 }"),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            document["components"]["schemas"]["S"]["properties"]["status"]["maximum"],
+            255
+        );
+    }
+
+    #[test]
+    fn modules_of_directories_inline_blocks_and_renamed_self_imports() {
+        let (document, diagnostics) = pipeline(&[
+            ("src/lib.rs", "mod models;\nmod api;"),
+            (
+                "src/models/mod.rs",
+                "/// @openapi\npub struct User { pub id: u64 }",
+            ),
+            (
+                "src/other.rs",
+                "/// @openapi\npub struct User { pub name: String }",
+            ),
+            (
+                "src/api.rs",
+                r#"
+                use crate::{models::{self as m}};
+                mod outer {
+                    pub mod inner {
+                        /// @openapi
+                        pub struct Deep { pub u: super::super::m::User, pub n: Note }
+                        /// @openapi
+                        pub struct Note { pub text: String }
+                    }
+                }
+                "#,
+            ),
+        ]);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|d| d.code() == Code::DuplicateSchema),
+            "{diagnostics:?}"
+        );
+        let deep = &document["components"]["schemas"]["Deep"]["properties"];
+        assert_eq!(deep["u"], reference("crate.models.User"));
+        assert_eq!(deep["n"], reference("Note"));
+    }
+
+    #[test]
+    fn templates_of_one_name_are_not_qualified() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "a.rs",
+                "/// @openapi\npub struct Page<T> { pub items: Vec<T> }",
+            ),
+            (
+                "b.rs",
+                "/// @openapi\npub struct Page<T> { pub entries: Vec<T> }\n/// @openapi\npub struct S { pub p: Page<u8> }",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert!(document["components"]["schemas"].get("Page_u8").is_some());
+    }
+
+    #[test]
+    fn crate_directories_are_identifiers() {
+        let project = Project::new();
+        project
+            .file("2024-api/src/lib.rs", &format!("{ROOT}mod a;\nmod b;"))
+            .file(
+                "2024-api/src/a.rs",
+                "/// @openapi\npub struct User { pub id: u64 }",
+            )
+            .file(
+                "2024-api/src/b.rs",
+                "/// @openapi\npub struct User { pub name: String }",
+            );
+        let (document, _) = document(&project, &["2024-api/src"]);
+        assert!(
+            document["components"]["schemas"]
+                .get("_2024_api.a.User")
+                .is_some(),
+            "{document}"
+        );
+    }
+}

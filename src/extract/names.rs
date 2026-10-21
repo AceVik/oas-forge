@@ -473,22 +473,40 @@ impl NameTable {
         if let Some(documented) = self.documented.get(path) {
             return Some(Resolved::Component(documented.component.clone()));
         }
+        if depth >= MAX_DEPTH {
+            return None;
+        }
         let (name, parent) = path.split_last()?;
-        let module = self.modules.get(parent)?;
+        let parent = self.module_path(parent, depth)?;
+        let module = self.modules.get(&parent)?;
         if let Some(definition) = module.defined.get(name) {
-            return Some(self.defined(path, *definition));
+            let mut path = parent.clone();
+            path.push(name.clone());
+            return Some(self.defined(&path, *definition));
+        }
+        if let Some(target) = module.uses.get(name) {
+            return self.follow(&self.absolute(&parent, target), depth + 1);
+        }
+        module.globs.iter().find_map(|glob| {
+            let mut candidate = self.absolute(&parent, glob);
+            candidate.push(name.clone());
+            self.follow(&candidate, depth + 1)
+        })
+    }
+
+    /// The scanned module `path` names, also through `use` declarations of
+    /// modules (`use crate::models as m;` then `m::User`).
+    fn module_path(&self, path: &[String], depth: usize) -> Option<Segments> {
+        if self.modules.contains_key(path) {
+            return Some(path.to_vec());
         }
         if depth >= MAX_DEPTH {
             return None;
         }
-        if let Some(target) = module.uses.get(name) {
-            return self.follow(&self.absolute(parent, target), depth + 1);
-        }
-        module.globs.iter().find_map(|glob| {
-            let mut candidate = self.absolute(parent, glob);
-            candidate.push(name.clone());
-            self.follow(&candidate, depth + 1)
-        })
+        let (last, prefix) = path.split_last()?;
+        let prefix = self.module_path(prefix, depth + 1)?;
+        let target = self.modules.get(&prefix)?.uses.get(last)?;
+        self.module_path(&self.absolute(&prefix, target), depth + 1)
     }
 
     /// The documented types whose full paths end with `path` (without its
@@ -545,11 +563,7 @@ impl NameTable {
         {
             let mut local = scope.to_vec();
             local.push(first.clone());
-            let defined = self
-                .modules
-                .get(scope)
-                .is_some_and(|module| module.defined.contains_key(first));
-            if self.modules.contains_key(&local) || defined {
+            if self.modules.contains_key(&local) {
                 local.extend(path.segments.iter().skip(1).cloned());
                 return local;
             }
