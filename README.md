@@ -47,6 +47,13 @@ command line: no proc macros, no runtime dependency, nothing in your binary.
 - **Reuse.** Generic types (`Page<User>` becomes `Page_User`), shared YAML
   fragments, `{{CARGO_PKG_VERSION}}` and `{{env:NAME}}` variables, and
   templates shared across crates of a workspace.
+- **Several documents from one source.** `@scope` splits one code base into
+  separate documents, such as a public API, an admin listener and a second
+  service, each with its own root and only the schemas it uses.
+- **Written like Rust docs.** Annotations live in doc comments and can use
+  backticks and fenced YAML, so they render well in rustdoc and pass
+  `clippy::doc_markdown`; `@internal` keeps developer notes out of the
+  public document.
 - **Built for CI.** Byte-identical output on every platform, files written
   only when they change, `--check` for stale documents, diagnostics with
   stable codes (`--message-format json`), and every generated document
@@ -336,7 +343,10 @@ including templates shared by the crates of a workspace.
 ### Events
 
 `@channel` blocks document message-driven APIs as AsyncAPI 3, sharing the
-component schemas with the OpenAPI document; see
+component schemas with the OpenAPI document: WebSocket handshakes
+(`@ws-query ticket: String required`), JSON messages from serde types and
+protobuf messages straight from your `.proto` files
+(`@send Frame: proto(app.v1.Envelope)`); see
 [AsyncAPI](https://github.com/AceVik/oas-forge/blob/main/docs/asyncapi.md).
 
 ## Outputs
