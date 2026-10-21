@@ -88,6 +88,10 @@ the OpenAPI outputs are not affected.
   `receive_{channel}`.
 - Message types use the [DSL type syntax](route-dsl.md#types): `$Order`,
   `Vec<$Item>`, `u64` or inline YAML.
+- A channel has one message per name. `@send` and `@receive` of the same
+  message (same type and description) share it; the same name with other
+  content in one channel is reported (`OF4001`) and the later definition
+  is used: give the messages distinct names.
 - Media types after the type set the message's `contentType` (the first
   one): `@send Snapshot: Vec<$Job> application/x-ndjson`. Without one, the
   document's `defaultContentType` applies. A message may have a media
@@ -244,7 +248,7 @@ next directive:
 | Block | Target |
 | :--- | :--- |
 | `@openapi` or `@openapi channel` | the Channel Object |
-| `@openapi message Name` | `components.messages.Name` (also a message of another block) |
+| `@openapi message Name` | the message `Name`, which the block must `@send` or `@receive` (otherwise `OF2004`; the YAML is ignored) |
 | `@openapi operation` | every operation of the block |
 | `@openapi document` | the AsyncAPI document |
 

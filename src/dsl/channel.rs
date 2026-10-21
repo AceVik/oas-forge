@@ -248,6 +248,8 @@ pub fn compile_channel(
     // The YAML section a field-name line started, which prose after a blank
     // line ends.
     let mut implicit = ImplicitYaml::default();
+    // The `@openapi message Name` lines: the name and the entry.
+    let mut message_sections: Vec<(String, usize)> = Vec::new();
 
     for (index, line) in source.lines.iter().enumerate() {
         let trimmed = line.trim();
@@ -362,7 +364,12 @@ pub fn compile_channel(
                         object.insert("description".into(), json!(text));
                     }
                     object.insert("x-protobuf-message".into(), json!(name));
-                    messages.push((action, message.to_string(), Value::Object(object)));
+                    add_message(
+                        &mut messages,
+                        (action, message, Value::Object(object)),
+                        at(index),
+                        diagnostics,
+                    );
                     continue;
                 }
                 if !type_text.is_empty() {
@@ -381,7 +388,12 @@ pub fn compile_channel(
                 if let Some(text) = text {
                     object.insert("description".into(), json!(text));
                 }
-                messages.push((action, message.to_string(), Value::Object(object)));
+                add_message(
+                    &mut messages,
+                    (action, message, Value::Object(object)),
+                    at(index),
+                    diagnostics,
+                );
             }
             "tag" => tags.extend(
                 rest.split(',')
@@ -408,11 +420,15 @@ pub fn compile_channel(
                 }
             }
             "openapi" => {
-                section = Some(yaml_target(rest).unwrap_or_else(|message| {
+                let target = yaml_target(rest).unwrap_or_else(|message| {
                     diagnostics
                         .push(Diagnostic::new(Code::InvalidDirective, message).at(at(index)));
                     Target::Ignored
-                }));
+                });
+                if let Target::Message(name) = &target {
+                    message_sections.push((name.clone(), index));
+                }
+                section = Some(target);
             }
             "summary" => prose.summary(rest),
             "description" => prose.description(prose::margin(line), rest),
@@ -475,11 +491,13 @@ pub fn compile_channel(
             (Some(id), _) => format!("{id}_{action}"),
             (None, _) => format!("{action}_{id}"),
         };
-        let refs: Vec<Value> = messages
-            .iter()
-            .filter(|(a, _, _)| a == action)
-            .map(|(_, name, _)| json!({ "$ref": format!("#/channels/{id}/messages/{name}") }))
-            .collect();
+        let mut refs: Vec<Value> = Vec::new();
+        for (_, name, _) in messages.iter().filter(|(a, _, _)| a == action) {
+            let reference = json!({ "$ref": format!("#/channels/{id}/messages/{name}") });
+            if !refs.contains(&reference) {
+                refs.push(reference);
+            }
+        }
         let mut operation = Map::new();
         operation.insert("action".into(), json!(action));
         operation.insert(
@@ -515,7 +533,22 @@ pub fn compile_channel(
         prose: block_prose,
     };
     embedded.merge_into(&Target::Channel, &mut channel_object, diagnostics);
+    // YAML for a message the block does not send or receive is ignored.
+    for (name, index) in &message_sections {
+        if !messages.iter().any(|(_, declared, _)| declared == name) {
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::InvalidDirective,
+                    format!("`@openapi message {name}` names no `@send` or `@receive` message of this block; its YAML is ignored"),
+                )
+                .at(at(*index)),
+            );
+        }
+    }
     for name in embedded.messages() {
+        if !messages.iter().any(|(_, declared, _)| *declared == name) {
+            continue;
+        }
         let mut message = component_messages
             .get(&name)
             .cloned()
@@ -558,6 +591,30 @@ pub fn compile_channel(
         scopes,
         document,
     })
+}
+
+/// Adds a message of `@send` or `@receive` (action, name, Message Object)
+/// at `location`. The same name with other content is reported: the
+/// channel has one message per name, and the later definition is used.
+fn add_message(
+    messages: &mut Vec<(&'static str, String, Value)>,
+    (action, name, object): (&'static str, &str, Value),
+    location: Location,
+    diagnostics: &mut Diagnostics,
+) {
+    let differs = messages
+        .iter()
+        .any(|(_, other, existing)| other == name && *existing != object);
+    if differs {
+        diagnostics.push(
+            Diagnostic::new(
+                Code::MergeConflict,
+                format!("message `{name}` is defined again in this channel with other content; the later definition is used (give the messages distinct names)"),
+            )
+            .at(location),
+        );
+    }
+    messages.push((action, name.to_string(), object));
 }
 
 /// The message name of a `proto(package.Message)` type, `None` for other

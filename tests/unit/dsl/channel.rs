@@ -445,8 +445,8 @@ mod embedded_yaml {
             "@openapi message Tick",
             "title: A tick",
             "headers: { type: object }",
-            "@openapi message Extra",
-            "payload: { type: string }",
+            "@openapi message Hello",
+            "summary: A greeting",
             "@openapi operation",
             "security: [{ $ref: '#/components/securitySchemes/token' }]",
             "@openapi document",
@@ -477,10 +477,7 @@ mod embedded_yaml {
                 "headers": { "type": "object" },
             })
         );
-        assert_eq!(
-            messages["Extra"],
-            json!({ "payload": { "type": "string" } })
-        );
+        assert_eq!(messages["Hello"]["summary"], "A greeting");
         for operation in ["op_send", "op_receive"] {
             assert_eq!(
                 document["operations"][operation]["security"],
@@ -556,31 +553,48 @@ mod embedded_yaml {
     fn invalid_yaml_is_reported_and_ignored() {
         let (document, diagnostics) = numbered(&[
             "@channel live",
+            "@send Tick: u8",
             "bindings:",
             "  ws: [",
             "@openapi message Tick",
             "- a list",
-            "@openapi operation",
-            "x-a: 1",
         ]);
         let findings = findings(&diagnostics);
-        assert_eq!(findings.len(), 3, "{findings:#?}");
+        assert_eq!(findings.len(), 2, "{findings:#?}");
         assert!(
-            findings[0].starts_with("3: OF2005 embedded AsyncAPI YAML is invalid and was ignored"),
+            findings[0].starts_with("4: OF2005 embedded AsyncAPI YAML is invalid and was ignored"),
             "{findings:#?}"
         );
         assert_eq!(
             findings[1],
-            "5: OF2005 embedded AsyncAPI YAML must be a mapping and was ignored"
-        );
-        assert_eq!(
-            findings[2],
-            "7: OF2005 `@openapi operation` needs a `@send` or `@receive` in the block; the YAML is ignored"
+            "6: OF2005 embedded AsyncAPI YAML must be a mapping and was ignored"
         );
         let document = document.unwrap();
         assert!(document["channels"]["live"].get("bindings").is_none());
-        // The ignored message section leaves no empty message behind.
-        assert!(document.get("components").is_none(), "{document:#}");
+        assert_eq!(
+            document["components"]["messages"]["Tick"],
+            json!({ "name": "Tick", "payload": { "type": "integer", "format": "int32", "minimum": 0, "maximum": 255 } })
+        );
+    }
+
+    #[test]
+    fn yaml_for_operations_or_messages_the_block_lacks_is_reported_and_ignored() {
+        let (document, diagnostics) = numbered(&[
+            "@channel live",
+            "@openapi message Nope",
+            "x-foo: 1",
+            "@openapi operation",
+            "x-a: 1",
+        ]);
+        assert_eq!(
+            findings(&diagnostics),
+            [
+                "2: OF2004 `@openapi message Nope` names no `@send` or `@receive` message of this block; its YAML is ignored",
+                "5: OF2005 `@openapi operation` needs a `@send` or `@receive` in the block; the YAML is ignored",
+            ]
+        );
+        // No message is left behind.
+        assert!(document.unwrap().get("components").is_none());
     }
 
     #[test]
@@ -941,5 +955,50 @@ mod channel_yaml_notes {
             "summary: Other",
         ]);
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+}
+
+mod message_names {
+    use super::*;
+
+    #[test]
+    fn one_name_with_other_content_in_one_channel_is_reported() {
+        let (document, diagnostics) = numbered(&[
+            "Seat",
+            "@channel seat /games/{id}/ws",
+            r#"@send HelloAck: u8 "seat ack""#,
+            r#"@receive HelloAck: String "different payload, same name""#,
+        ]);
+        assert_eq!(
+            findings(&diagnostics),
+            [
+                "4: OF4001 message `HelloAck` is defined again in this channel with other content; the later definition is used (give the messages distinct names)"
+            ]
+        );
+        let document = document.unwrap();
+        assert_eq!(
+            document["components"]["messages"]["HelloAck"]["description"],
+            "different payload, same name"
+        );
+    }
+
+    #[test]
+    fn one_message_sent_and_received_is_fine_and_referenced_once() {
+        let (document, diagnostics) = numbered(&[
+            "@channel echo",
+            "@send Ping: u8",
+            "@receive Ping: u8",
+            "@send Ping: u8",
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let document = document.unwrap();
+        assert_eq!(
+            document["operations"]["op_send"]["messages"],
+            json!([{ "$ref": "#/channels/echo/messages/Ping" }])
+        );
+        assert_eq!(
+            document["operations"]["op_receive"]["messages"],
+            json!([{ "$ref": "#/channels/echo/messages/Ping" }])
+        );
     }
 }
