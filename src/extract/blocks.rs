@@ -8,8 +8,8 @@
 use super::{ChannelItem, DocumentItem, FragmentItem, Item, NamedSchemaItem, RouteItem};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::docs::{
-    DocLine, closes_fence, doc_parts, doc_text, fenced, join, line_of, starts_yaml, unindent,
-    yaml_fence,
+    DocLine, closes_fence, doc_parts, doc_text, fenced, fenced_section, join, line_of, starts_yaml,
+    unindent, yaml_fence,
 };
 use crate::dsl;
 use crate::yaml;
@@ -89,9 +89,10 @@ pub(super) fn item_blocks(
             }
             body.clear();
             let header_line = DocLine::new(trimmed, line.line);
-            // A fenced code block right after the header is the section's
-            // YAML, and the section ends with it.
-            match lines.get(index + 1..).and_then(fenced) {
+            // A fenced code block right after the header (or after its
+            // `@scope` lines) is the section's YAML, and the section ends
+            // with it and the `@scope` lines right after it.
+            match lines.get(index + 1..).and_then(fenced_section) {
                 Some((yaml, taken)) => {
                     section(path, &header_line, &yaml, tags, diagnostics, &mut items);
                     skip = taken;
@@ -316,10 +317,12 @@ pub(super) fn file_blocks(
                 block.push(line);
                 continue;
             }
-            let opens_fence = std::mem::replace(
-                &mut after_openapi,
-                trimmed.starts_with("@openapi") || trimmed == ASYNCAPI,
-            );
+            // `@scope` lines between the header and the fence belong to the
+            // block.
+            let opens_fence = after_openapi;
+            after_openapi = trimmed.starts_with("@openapi")
+                || trimmed == ASYNCAPI
+                || (after_openapi && crate::scope::directive(trimmed).is_some());
             if let Some(open) = yaml_fence(trimmed).filter(|_| opens_fence && !block.is_empty()) {
                 fence = Some(open.to_string());
                 block.push(line);

@@ -134,6 +134,9 @@ impl ItemDocs {
         // what a fence on the next line would hold.
         let mut fence: Option<(String, Fenced)> = None;
         let mut fence_target: Option<Fenced> = None;
+        // Whether `@scope` lines still belong to the open document block:
+        // right after its header or its closing fence.
+        let mut document_scopes = false;
 
         for line in lines {
             let trimmed = line.trimmed();
@@ -143,6 +146,25 @@ impl ItemDocs {
             // `///` groups), like the blocks of file comments.
             let gap = last_line.is_some_and(|last| line.line > last + 1);
             last_line = Some(line.line);
+            // `@scope` lines of a document block (taken out of its YAML
+            // later), also between its header and its fence and right after
+            // its closing fence.
+            let is_scope = crate::scope::directive(trimmed).is_some();
+            if is_scope
+                && fence.is_none()
+                && (std::mem::take(&mut document_scopes)
+                    || matches!(section, Section::Document { .. }))
+            {
+                if let Some(document) = docs.documents.last_mut() {
+                    document.push(line.clone());
+                }
+                document_scopes = true;
+                if fence_target.take() == Some(Fenced::Document) {
+                    fence_target = Some(Fenced::Document);
+                }
+                continue;
+            }
+            document_scopes = false;
             // A fenced code block right after an `@openapi…` line is its
             // YAML (rendered as code by rustdoc); the section ends with it.
             if let Some((open, target)) = &fence {
@@ -151,11 +173,13 @@ impl ItemDocs {
                         Fenced::Fragment => docs.fragments.extend(fragment.take()),
                         // A document block keeps its fences for
                         // `item_blocks`, which reads it like a function's.
-                        Fenced::Document => docs
-                            .documents
-                            .last_mut()
-                            .into_iter()
-                            .for_each(|lines| lines.push(line.clone())),
+                        Fenced::Document => {
+                            docs.documents
+                                .last_mut()
+                                .into_iter()
+                                .for_each(|lines| lines.push(line.clone()));
+                            document_scopes = true;
+                        }
                         Fenced::Override => {}
                     }
                     fence = None;
@@ -260,6 +284,7 @@ impl ItemDocs {
                 };
                 docs.documents.push(vec![DocLine::new(trimmed, line.line)]);
                 fence_target = Some(Fenced::Document);
+                document_scopes = true;
             } else if let Some(rest) = trimmed.strip_prefix("@openapi") {
                 section = Section::Yaml {
                     indent: indentation(&line.text),

@@ -157,6 +157,41 @@ pub(crate) fn fenced(lines: &[DocLine]) -> Option<(Vec<DocLine>, usize)> {
     Some((unindent(body), taken))
 }
 
+/// [`fenced`] for the section after a header line: `@scope` lines (block
+/// directives that are taken out of the YAML later) may stand before the
+/// opening fence and right after the closing one, and belong to the
+/// section. The section's lines, the fences as blank lines (so that every
+/// line keeps its offset), and how many lines it takes.
+pub(crate) fn fenced_section(lines: &[DocLine]) -> Option<(Vec<DocLine>, usize)> {
+    let is_scope = |line: &&DocLine| crate::scope::directive(line.trimmed()).is_some();
+    let before = lines.iter().take_while(is_scope).count();
+    let block = lines.get(before..)?;
+    let (yaml, taken) = fenced(block)?;
+    let mut section: Vec<DocLine> = lines.get(..before).unwrap_or_default().to_vec();
+    let blank = |line: Option<&DocLine>| line.map(|l| DocLine::new("", l.line));
+    section.extend(blank(block.first()));
+    section.extend(yaml);
+    // The closing fence, unless the block runs to the end without one.
+    let closing = block
+        .get(1..taken)
+        .and_then(<[DocLine]>::last)
+        .filter(|last| {
+            yaml_fence(block.first().map_or("", DocLine::trimmed))
+                .is_some_and(|fence| closes_fence(last.trimmed(), fence))
+        });
+    section.extend(blank(closing));
+    let after: Vec<DocLine> = block
+        .get(taken..)
+        .unwrap_or_default()
+        .iter()
+        .take_while(is_scope)
+        .cloned()
+        .collect();
+    let used = before + taken + after.len();
+    section.extend(after);
+    Some((section, used))
+}
+
 /// Joins lines with `\n`.
 pub(crate) fn join(lines: &[DocLine]) -> String {
     lines

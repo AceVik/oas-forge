@@ -3181,3 +3181,86 @@ mod fenced_yaml {
         assert_eq!(with_fences["paths"]["/status"]["get"]["x-internal"], false);
     }
 }
+
+/// `@scope` lines next to fenced YAML: before the opening fence or right
+/// after the closing one, they belong to the block.
+mod fenced_scopes {
+    use super::*;
+
+    const SOURCES: &str = r#"//! @openapi
+//! @scope public
+//! ```yaml
+//! openapi: 3.1.0
+//! info: { title: Public, version: 1.0.0 }
+//! ```
+//!
+//! @openapi
+//! ```yaml
+//! openapi: 3.1.0
+//! info: { title: Admin, version: 1.0.0 }
+//! ```
+//! @scope admin
+
+/// @openapi
+/// @scope admin
+/// ```yaml
+/// paths:
+///   /admin: { get: { responses: { '204': { description: Fine } } } }
+/// ```
+pub fn admin_paths() {}
+
+/// @openapi
+/// ```yaml
+/// paths:
+///   /public: { get: { responses: { '204': { description: Fine } } } }
+/// ```
+/// @scope public
+pub fn public_paths() {}
+
+/// @openapi document
+/// @scope admin
+/// ```yaml
+/// components:
+///   securitySchemes:
+///     adminKey: { type: apiKey, in: header, name: X-Admin }
+/// ```
+/// @openapi
+pub struct User { pub id: u64 }
+"#;
+
+    #[test]
+    fn scope_lines_before_and_after_the_fences_apply() {
+        let project = Project::new();
+        project.file("src/lib.rs", SOURCES);
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .output_scoped("public", OutputKind::Full, project.path("out/public.yaml"))
+            .output_scoped("admin", OutputKind::Full, project.path("out/admin.yaml"))
+            .build()
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            spec.diagnostics().iter().all(|d| !d.is_error()),
+            "{:#?}",
+            spec.diagnostics()
+        );
+        let public = spec.render_scoped(OutputKind::Full, "public").unwrap();
+        assert_eq!(public["info"]["title"], "Public");
+        assert!(public["paths"]["/public"]["get"].is_object(), "{public:#}");
+        assert!(public["paths"].get("/admin").is_none());
+        assert!(
+            public
+                .pointer("/components/securitySchemes/adminKey")
+                .is_none()
+        );
+        let admin = spec.render_scoped(OutputKind::Full, "admin").unwrap();
+        assert_eq!(admin["info"]["title"], "Admin");
+        assert!(admin["paths"]["/admin"]["get"].is_object(), "{admin:#}");
+        assert!(admin["paths"].get("/public").is_none());
+        assert!(
+            admin
+                .pointer("/components/securitySchemes/adminKey")
+                .is_some()
+        );
+    }
+}

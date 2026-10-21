@@ -233,6 +233,8 @@ well in rustdoc and pass the lint, and the document stays the same:
   ```` ``` ````, `~~~`) right after an `@openapi…`, `@asyncapi` or
   `@openapi-fragment` line, also after `@openapi` in route and channel
   blocks: the fences are removed, and the section ends at the closing fence.
+  `@scope` lines of the block may stand between the header and the fence
+  or right after the closing fence.
 - Arguments of directives in backticks: `` @return 200: `Vec<$Art>` ``,
   `` @route GET `/art` ``, `` @insert `Paging(100)` ``, flag values and list
   items (`` enum=[`art_crop`, `art_full`] ``), and URLs as autolinks

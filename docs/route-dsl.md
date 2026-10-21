@@ -460,7 +460,9 @@ pub mod admin {
   `@channel` blocks and as a line of a YAML block (`@openapi`, `@asyncapi`,
   root blocks included), so each scope can have its own root with its own
   title and servers. Names consist of letters, digits, `.`, `-` and `_`;
-  several lines add up.
+  several lines add up. When the YAML is a fenced code block, the `@scope`
+  lines may stand between the header and the opening fence or right after
+  the closing fence (`@openapi document` blocks on types included).
 - A block without `@scope` is shared: it is part of every scope's document.
   Reflected types, `@openapi-type` schemas, templates, fragments and YAML
   files are always shared.

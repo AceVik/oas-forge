@@ -266,3 +266,22 @@ mod fenced_yaml {
         assert!(document_items(&items)[0].text.starts_with("```rust"));
     }
 }
+
+#[test]
+fn scope_lines_around_a_fence_stay_in_the_block() {
+    for source in [
+        "//! @openapi\n//! @scope public\n//! ```yaml\n//! openapi: 3.1.0\n//! ```\n\nfn main() {}",
+        "//! @openapi\n//! ```yaml\n//! openapi: 3.1.0\n//! ```\n//! @scope public\n\nfn main() {}",
+        "//! @openapi-fragment Shared\n//! @scope public\n//! ```yaml\n//! openapi: 3.1.0\n//! ```\n\nfn main() {}",
+    ] {
+        let items = extract(source);
+        let text = match &items[..] {
+            [oas_forge::extract::Item::Document(document)] => document.text.clone(),
+            [oas_forge::extract::Item::Fragment(fragment)] => fragment.body.clone(),
+            other => panic!("{other:#?}"),
+        };
+        assert!(text.contains("@scope public"), "{source}: {text}");
+        assert!(text.contains("openapi: 3.1.0"), "{source}: {text}");
+        assert!(!text.contains("```"), "{source}: {text}");
+    }
+}
