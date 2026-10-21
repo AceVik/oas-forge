@@ -1,0 +1,454 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/guide_rustdoc/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Guide: annotations written for rustdoc and `clippy::doc_markdown` (YAML in fenced code blocks, arguments in backticks, autolinks) give the same document as plain ones",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Art": {
+            "description": "A piece of art.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title"
+            ],
+            "type": "object",
+            "x-table": "art"
+          }
+        },
+        "x-oas-forge-format": 1,
+        "x-oas-forge-fragments": {
+          "Paging": {
+            "body": "- name: page\n  in: query\n  schema: { type: integer, minimum: 1, maximum: {{max}} }",
+            "params": [
+              "max"
+            ]
+          }
+        }
+      },
+      "paths": {
+        "/art": {
+          "get": {
+            "externalDocs": {
+              "url": "https://example.com/art"
+            },
+            "operationId": "list_art",
+            "parameters": [
+              {
+                "description": "Crop",
+                "in": "query",
+                "name": "crop",
+                "required": false,
+                "schema": {
+                  "default": "art_full",
+                  "enum": [
+                    "art_crop",
+                    "art_full"
+                  ],
+                  "type": "string"
+                }
+              },
+              {
+                "in": "query",
+                "name": "page",
+                "schema": {
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Art"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "The art"
+              }
+            },
+            "summary": "List the art"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Art": {
+            "description": "A piece of art.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title"
+            ],
+            "type": "object",
+            "x-table": "art"
+          }
+        }
+      },
+      "info": {
+        "title": "Gallery",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/art": {
+          "get": {
+            "externalDocs": {
+              "url": "https://example.com/art"
+            },
+            "operationId": "list_art",
+            "parameters": [
+              {
+                "description": "Crop",
+                "in": "query",
+                "name": "crop",
+                "required": false,
+                "schema": {
+                  "default": "art_full",
+                  "enum": [
+                    "art_crop",
+                    "art_full"
+                  ],
+                  "type": "string"
+                }
+              },
+              {
+                "in": "query",
+                "name": "page",
+                "schema": {
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Art"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "The art"
+              }
+            },
+            "summary": "List the art"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Art": {
+          "description": "A piece of art.",
+          "properties": {
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title"
+          ],
+          "type": "object",
+          "x-table": "art"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Art": {
+            "description": "A piece of art.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title"
+            ],
+            "type": "object",
+            "x-table": "art"
+          }
+        }
+      },
+      "info": {
+        "title": "Gallery",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/art": {
+          "get": {
+            "externalDocs": {
+              "url": "https://example.com/art"
+            },
+            "operationId": "list_art",
+            "parameters": [
+              {
+                "description": "Crop",
+                "in": "query",
+                "name": "crop",
+                "required": false,
+                "schema": {
+                  "default": "art_full",
+                  "enum": [
+                    "art_crop",
+                    "art_full"
+                  ],
+                  "type": "string"
+                }
+              },
+              {
+                "in": "query",
+                "name": "page",
+                "schema": {
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Art"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "The art"
+              }
+            },
+            "summary": "List the art"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/art": {
+        "get": {
+          "externalDocs": {
+            "url": "https://example.com/art"
+          },
+          "operationId": "list_art",
+          "parameters": [
+            {
+              "description": "Crop",
+              "in": "query",
+              "name": "crop",
+              "required": false,
+              "schema": {
+                "default": "art_full",
+                "enum": [
+                  "art_crop",
+                  "art_full"
+                ],
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/Art"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "The art"
+            }
+          },
+          "summary": "List the art"
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Art": {
+        "description": "A piece of art.",
+        "properties": {
+          "id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "type": "object",
+        "x-table": "art"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "Art": {
+          "description": "A piece of art.",
+          "properties": {
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title"
+          ],
+          "type": "object",
+          "x-table": "art"
+        }
+      },
+      "info": {
+        "title": "Gallery",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/art": {
+          "get": {
+            "externalDocs": {
+              "url": "https://example.com/art"
+            },
+            "operationId": "list_art",
+            "parameters": [
+              {
+                "default": "art_full",
+                "description": "Crop",
+                "enum": [
+                  "art_crop",
+                  "art_full"
+                ],
+                "in": "query",
+                "name": "crop",
+                "required": false,
+                "type": "string"
+              },
+              {
+                "in": "query",
+                "maximum": 100,
+                "minimum": 1,
+                "name": "page",
+                "type": "integer"
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "The art",
+                "schema": {
+                  "items": {
+                    "$ref": "#/definitions/Art"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "summary": "List the art"
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

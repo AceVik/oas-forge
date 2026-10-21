@@ -1868,3 +1868,41 @@ fn a_lifted_required_keeps_the_order_of_the_other_keys() {
     let keys: Vec<&String> = a.as_object().unwrap().keys().collect();
     assert_eq!(keys, ["type", "minLength", "maxLength"]);
 }
+
+/// `@openapi` overrides in fenced code blocks.
+mod fenced_overrides {
+    use super::*;
+    use crate::extract::fragment;
+
+    #[test]
+    fn fenced_overrides_of_types_and_fields() {
+        let fenced = extract(
+            "/// A user.\n/// @openapi\n/// ```yaml\n/// x-table: users\n/// ```\n/// More about users.\npub struct User {\n    /// @openapi\n    /// ```yaml\n    /// format: email\n    /// ```\n    pub email: String,\n}\n\n/// @openapi<T>\n/// ~~~yaml\n/// x-page: true\n/// ~~~\npub struct Page<T> { pub items: Vec<T> }",
+        );
+        let plain = extract(
+            "/// A user.\n///\n/// More about users.\n/// @openapi\n/// x-table: users\npub struct User {\n    /// @openapi\n    /// format: email\n    pub email: String,\n}\n\n/// @openapi<T>\n/// x-page: true\npub struct Page<T> { pub items: Vec<T> }",
+        );
+        assert_eq!(schema(&fenced, "User"), schema(&plain, "User"));
+        assert_eq!(schema(&fenced, "User")["x-table"], "users");
+        assert_eq!(
+            schema(&fenced, "User")["properties"]["email"]["format"],
+            "email"
+        );
+        let blueprint = |items: &[oas_forge::extract::Item]| {
+            crate::extract::blueprint(items, "Page").schema.clone()
+        };
+        assert_eq!(blueprint(&fenced), blueprint(&plain));
+    }
+
+    #[test]
+    fn fenced_fragments_and_documents_on_types() {
+        let items = extract(
+            "/// @openapi-fragment Audit\n/// ```yaml\n/// x-audit: true\n/// ```\n///\n/// @openapi document\n/// ```yaml\n/// tags: [{ name: Users }]\n/// ```\n/// @openapi\npub struct User { pub id: u64 }",
+        );
+        assert_eq!(fragment(&items, "Audit").body, "x-audit: true");
+        assert_eq!(
+            crate::extract::document_items(&items)[0].text,
+            "tags: [{ name: Users }]"
+        );
+    }
+}

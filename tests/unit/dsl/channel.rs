@@ -739,3 +739,76 @@ mod protobuf {
         assert_eq!(codes(&diagnostics), [Code::UnknownProtoMessage]);
     }
 }
+
+#[test]
+fn fenced_yaml_after_openapi_in_a_channel_block() {
+    let fenced = compile(
+        &[
+            "@channel pings",
+            "@send Ping: u8",
+            "@openapi message Ping",
+            "```yaml",
+            "title: A ping",
+            "```",
+            "Pings the server.",
+        ],
+        None,
+    );
+    let plain = compile(
+        &[
+            "Pings the server.",
+            "@channel pings",
+            "@send Ping: u8",
+            "@openapi message Ping",
+            "title: A ping",
+        ],
+        None,
+    );
+    assert_eq!(fenced.0, plain.0);
+    assert!(fenced.1.is_empty(), "{:#?}", fenced.1);
+}
+
+#[test]
+fn only_a_fence_right_after_openapi_opens_fenced_yaml() {
+    // The fence is no YAML fence here: it is part of the description.
+    let (document, _) = compile(
+        &[
+            "@channel pings",
+            "@send Ping: u8",
+            "@openapi message Ping",
+            "title: A ping",
+            "@description Example:",
+            "```yaml",
+            "a: 1",
+            "```",
+        ],
+        None,
+    );
+    let document = document.unwrap();
+    assert_eq!(
+        document["components"]["messages"]["Ping"]["title"],
+        "A ping"
+    );
+    assert_eq!(
+        document["operations"]["send_pings"]["description"],
+        "Example:\n```yaml\na: 1\n```"
+    );
+}
+
+#[test]
+fn a_fence_inside_open_yaml_is_yaml_text() {
+    let (_, diagnostics) = compile(
+        &[
+            "@channel pings",
+            "@send Ping: u8",
+            "@openapi message Ping",
+            "title: A ping",
+            "```",
+            "x-a: 1",
+            "```",
+        ],
+        None,
+    );
+    // Not a fenced section: the backticks are (invalid) YAML of the open one.
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+}

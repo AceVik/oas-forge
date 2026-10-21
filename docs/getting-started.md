@@ -223,6 +223,65 @@ fn main() {
 document, every diagnostic, `render(kind)` for any output in memory,
 `write()` and `check()`.
 
+## Annotations that rustdoc renders as code
+
+The annotations are doc comments, so rustdoc renders them and
+`clippy::doc_markdown` (pedantic) checks them. Written like code, they read
+well in rustdoc and pass the lint, and the document stays the same:
+
+- YAML in a fenced code block (```` ```yaml ````, ```` ```yml ````,
+  ```` ``` ````, `~~~`) right after an `@openapi…`, `@asyncapi` or
+  `@openapi-fragment` line, also after `@openapi` in route and channel
+  blocks: the fences are removed, and the section ends at the closing fence.
+- Arguments of directives in backticks: `` @return 200: `Vec<$Art>` ``,
+  `` @route GET `/art` ``, `` @insert `Paging(100)` ``, flag values and list
+  items (`` enum=[`art_crop`, `art_full`] ``), and URLs as autolinks
+  (`<https://example.com/art>`).
+
+<!-- corpus: guide_rustdoc -->
+```rust
+//! @openapi
+//! ```yaml
+//! openapi: 3.1.0
+//! info:
+//!   title: Gallery
+//!   version: 1.0.0
+//! ```
+//!
+//! @openapi-fragment `Paging(max)`
+//! ```yaml
+//! - name: page
+//!   in: query
+//!   schema: { type: integer, minimum: 1, maximum: {{max}} }
+//! ```
+
+use serde::Serialize;
+
+/// A piece of art.
+/// @openapi
+/// ```yaml
+/// x-table: art
+/// ```
+#[derive(Serialize)]
+pub struct Art {
+    pub id: u64,
+    pub title: String,
+}
+
+/// List the art
+///
+/// @route GET `/art`
+/// @query-param crop: `String` enum=[`art_crop`, `art_full`] default=`art_full` "Crop"
+/// @return 200: `Vec<$Art>` "The art"
+/// @external-docs <https://example.com/art>
+/// @openapi
+/// ```yaml
+/// parameters:
+///   @insert `Paging(100)`
+/// ```
+pub async fn list_art() {}
+```
+
 ## In CI
 
 ```bash

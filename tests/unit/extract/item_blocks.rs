@@ -310,3 +310,12 @@ fn fragment_names_may_be_in_backticks() {
     assert_eq!(paged.params, ["limit", "offset"]);
     assert_eq!(fragment(&items, "Plain").body, "a: 1");
 }
+
+#[test]
+fn fenced_yaml_on_functions_and_modules() {
+    let items = crate::common::extract(
+        "/// Health.\n///\n/// @openapi\n/// ```yaml\n/// paths:\n///   /health: {}\n/// ```\n///\n/// Not YAML.\nfn health() {}\n\n/// @openapi-fragment Limits\n/// ```yaml\n/// x-limit: 1\n/// ```\n/// More docs.\nmod limits {}",
+    );
+    assert_eq!(document_items(&items)[0].text, "paths:\n  /health: {}");
+    assert_eq!(fragment(&items, "Limits").body, "x-limit: 1");
+}

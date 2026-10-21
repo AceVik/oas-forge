@@ -215,3 +215,54 @@ fn asyncapi_and_channel_blocks() {
     );
     assert_eq!(kinds(&items), ["asyncapi", "channel:-", "document"]);
 }
+
+/// YAML in fenced code blocks right after a header (rustdoc renders it as
+/// code): the fences are removed and the block ends at the closing fence.
+mod fenced_yaml {
+    use super::*;
+    use crate::extract::fragment;
+
+    #[test]
+    fn a_fenced_block_is_the_yaml_of_its_header() {
+        for (open, close) in [
+            ("```yaml", "```"),
+            ("```yml", "```"),
+            ("```", "```"),
+            ("~~~", "~~~"),
+            ("````json", "````"),
+        ] {
+            let items = extract(&format!(
+                "//! @openapi\n//! {open}\n//! openapi: 3.1.0\n//! info:\n//!   title: T\n//! ### a YAML comment, no separator\n//! {close}\n//! Prose after the block.\n\nfn main() {{}}"
+            ));
+            assert_eq!(
+                document_items(&items)[0].text,
+                "openapi: 3.1.0\ninfo:\n  title: T\n### a YAML comment, no separator",
+                "{open}"
+            );
+            assert_eq!(document_items(&items)[0].location.line(), 3);
+        }
+    }
+
+    #[test]
+    fn fragments_named_schemas_and_asyncapi_blocks_take_fences() {
+        let items = extract(
+            "//! @openapi-fragment Paging(max)\n//! ```yaml\n//! - name: limit\n//!   schema: { maximum: {{max}} }\n//! ```\n//!\n//! @openapi-type Money\n//! ```yaml\n//! type: string\n//! ```\n//!\n//! @asyncapi\n//! ```yaml\n//! asyncapi: 3.0.0\n//! ```\n\nfn main() {}",
+        );
+        assert_eq!(
+            fragment(&items, "Paging").body,
+            "- name: limit\n  schema: { maximum: {{max}} }"
+        );
+        assert_eq!(schema(&items, "Money"), json!({ "type": "string" }));
+        assert!(
+            kinds(&items).contains(&"asyncapi".to_string()),
+            "{items:#?}"
+        );
+    }
+
+    #[test]
+    fn a_code_block_in_another_language_is_no_yaml_fence() {
+        let items = extract("//! @openapi\n//! ```rust\n//! x-a: 1\n//! ```\n\nfn main() {}");
+        // As before: the fences are part of the (invalid) YAML text.
+        assert!(document_items(&items)[0].text.starts_with("```rust"));
+    }
+}

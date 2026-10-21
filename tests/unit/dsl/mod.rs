@@ -1372,3 +1372,71 @@ mod scope_directive {
         }
     }
 }
+
+/// Embedded YAML in fenced code blocks right after `@openapi`.
+mod fenced_yaml {
+    use super::*;
+
+    #[test]
+    fn a_fence_after_openapi_is_its_yaml_and_ends_it() {
+        let fenced = route(&[
+            "Get x",
+            "@route GET /x",
+            "@openapi",
+            "```yaml",
+            "responses:",
+            "  '200': { description: Fine }",
+            "```",
+            "Description after the block.",
+            "@openapi path",
+            "~~~",
+            "x-scope: path",
+            "~~~",
+        ]);
+        let plain = route(&[
+            "Get x",
+            "Description after the block.",
+            "@route GET /x",
+            "@openapi",
+            "responses:",
+            "  '200': { description: Fine }",
+            "@openapi path",
+            "x-scope: path",
+        ]);
+        assert_eq!(fenced, plain);
+    }
+
+    #[test]
+    fn fences_are_classified_as_no_yaml_and_their_body_as_yaml() {
+        let block = lines(&[
+            "@route GET /x",
+            "@openapi",
+            "```yaml",
+            "x-a: 1",
+            "",
+            "```",
+            "Prose: 1",
+        ]);
+        assert_eq!(
+            dsl::yaml_lines(&block),
+            [false, false, false, true, true, false, false]
+        );
+    }
+
+    #[test]
+    fn a_fence_elsewhere_is_part_of_the_description() {
+        let op = operation(
+            &[
+                "Get x",
+                "@route GET /x",
+                "@description Example:",
+                "```yaml",
+                "a: 1",
+                "```",
+            ],
+            "/x",
+            "get",
+        );
+        assert_eq!(op["description"], "Example:\n```yaml\na: 1\n```");
+    }
+}

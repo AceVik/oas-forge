@@ -297,6 +297,11 @@ pub async fn upload_avatar() {}
 | `@openapi path` | the Path Item (`servers`, shared `parameters`, `summary`) |
 | `@openapi document` | the whole document (e.g. `components` that only this route needs) |
 
+Right after `@openapi`, the YAML may be a fenced code block
+(```` ```yaml ````, ```` ``` ````, `~~~`) for rustdoc: the fences are removed
+and the YAML ends at the closing fence; plain lines after it are prose
+again.
+
 The YAML is merged with what the directives produced: parameters by name and
 location, responses by status code, everything else key by key. When both
 set the same value differently, the YAML wins and a note is reported at the

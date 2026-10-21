@@ -25,6 +25,7 @@ pub use channel::{ChannelSource, CompiledChannel, compile_channel, is_channel};
 pub(crate) use params::EXPAND_KEY;
 
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
+use crate::docs::{closes_fence, yaml_fence};
 use crate::merge::{Policy, merge};
 use crate::schema::{MappedType, TypeExpr, TypeMapper, shadow};
 use crate::scope;
@@ -563,7 +564,7 @@ enum At {
 /// `@internal` note). The compiler and
 /// [`yaml_lines`] read lines with it, so the lexical stage quotes
 /// placeholders on exactly the lines the compiler parses as YAML.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 struct Structure {
     /// The embedded YAML section that is open; `None` in prose.
     scope: Option<Scope>,
@@ -571,6 +572,12 @@ struct Structure {
     /// note, lines such as `tags: …` are text, not YAML. Ends at the next
     /// directive.
     text: Text,
+    /// Whether the line before was an `@openapi` directive: a YAML code
+    /// fence after it opens a fenced YAML section.
+    after_openapi: bool,
+    /// The fence of the open fenced YAML section (rendered as code by
+    /// rustdoc), which ends at the closing fence.
+    fence: Option<String>,
 }
 
 /// What a line of a block is, as [`Structure::read`] sees it.
@@ -587,6 +594,8 @@ enum Line<'l> {
     Yaml(Scope),
     /// The summary or a line of the description.
     Prose,
+    /// A fence of a fenced YAML section: neither YAML nor prose.
+    Fence,
 }
 
 impl Structure {
@@ -597,11 +606,25 @@ impl Structure {
     /// continues a `@description` or an `@internal` note.
     fn read<'l>(&mut self, line: &'l str) -> Line<'l> {
         let trimmed = line.trim();
+        if let Some(fence) = &self.fence {
+            if closes_fence(trimmed, fence) {
+                self.fence = None;
+                self.scope = None;
+                return Line::Fence;
+            }
+            return self.scope.map_or(Line::Fence, Line::Yaml);
+        }
+        let after_openapi = std::mem::take(&mut self.after_openapi);
+        if let Some(fence) = yaml_fence(trimmed).filter(|_| after_openapi) {
+            self.fence = Some(fence.to_string());
+            return Line::Fence;
+        }
         if trimmed.is_empty() {
             return Line::Blank;
         }
         if let Some(directive) = trimmed.strip_prefix('@') {
             let (name, rest) = split_directive(directive);
+            self.after_openapi = name == "openapi";
             self.text = Text::after(name);
             // An unknown scope is reported and taken for the operation.
             self.scope =
@@ -674,7 +697,7 @@ pub fn yaml_lines(lines: &[String]) -> Vec<bool> {
         .map(|line| match structure.read(line) {
             Line::Blank => structure.scope.is_some(),
             Line::Marker | Line::Yaml(_) => true,
-            Line::Directive(_) | Line::Prose => false,
+            Line::Directive(_) | Line::Prose | Line::Fence => false,
         })
         .collect()
 }
@@ -909,6 +932,7 @@ impl Compiler<'_, '_> {
             Line::Marker => b.yaml.push((Scope::Operation, at, line.to_string())),
             Line::Yaml(scope) => b.yaml.push((scope, at, line.to_string())),
             Line::Prose => b.prose.line(b.structure.text, line),
+            Line::Fence => {}
         }
     }
 

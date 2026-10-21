@@ -1,0 +1,59 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/guide_rustdoc/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Gallery
+  version: "1.0.0"
+paths:
+  /art:
+    get:
+      summary: List the art
+      operationId: list_art
+      parameters:
+      - name: crop
+        in: query
+        required: false
+        description: Crop
+        schema:
+          type: string
+          enum:
+          - art_crop
+          - art_full
+          default: art_full
+      - name: page
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      externalDocs:
+        url: https://example.com/art
+      responses:
+        "200":
+          description: The art
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Art"
+components:
+  schemas:
+    Art:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+        title:
+          type: string
+      required:
+      - id
+      - title
+      description: A piece of art.
+      x-table: art

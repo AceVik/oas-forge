@@ -7,7 +7,10 @@
 
 use super::{ChannelItem, DocumentItem, FragmentItem, Item, NamedSchemaItem, RouteItem};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
-use crate::docs::{DocLine, doc_parts, doc_text, join, line_of, starts_yaml, unindent};
+use crate::docs::{
+    DocLine, closes_fence, doc_parts, doc_text, fenced, join, line_of, starts_yaml, unindent,
+    yaml_fence,
+};
 use crate::dsl;
 use crate::yaml;
 use std::path::Path;
@@ -43,8 +46,15 @@ pub(super) fn item_blocks(
     // Whether the line before was blank: a paragraph of prose after it ends
     // the YAML of the open section.
     let mut after_blank = false;
+    // The lines of a fenced code block still to skip (see below).
+    let mut skip = 0;
 
-    for line in lines {
+    for (index, line) in lines.iter().enumerate() {
+        if skip > 0 {
+            skip -= 1;
+            continue;
+        }
+        let line = line.clone();
         let trimmed = line.trimmed();
         let paragraph = std::mem::replace(&mut after_blank, trimmed.is_empty());
         if paragraph
@@ -77,8 +87,18 @@ pub(super) fn item_blocks(
             if let Some(h) = header.take() {
                 section(path, &h, &body, tags, diagnostics, &mut items);
             }
-            header = Some(DocLine::new(trimmed, line.line));
             body.clear();
+            let header_line = DocLine::new(trimmed, line.line);
+            // A fenced code block right after the header is the section's
+            // YAML, and the section ends with it.
+            match lines.get(index + 1..).and_then(fenced) {
+                Some((yaml, taken)) => {
+                    section(path, &header_line, &yaml, tags, diagnostics, &mut items);
+                    skip = taken;
+                    last_line = lines.get(index + taken).map(|l| l.line);
+                }
+                None => header = Some(header_line),
+            }
         } else if trimmed.starts_with('{') && header.is_none() {
             header = Some(DocLine::new("@json", line.line));
             body.clear();
@@ -261,11 +281,16 @@ pub(super) fn file_blocks(
     let mut items = Vec::new();
     let mut block: Vec<DocLine> = Vec::new();
     let mut last_line: Option<usize> = None;
+    // The fence of a YAML code block in the open block, and whether the line
+    // before was an `@openapi…` line (after which a fence opens one).
+    let mut fence: Option<String> = None;
+    let mut after_openapi = false;
 
     for attr in attrs {
         if !attr.path().is_ident("doc") {
             close(path, &mut block, &mut items, diagnostics);
             last_line = None;
+            fence = None;
             continue;
         }
         let start = line_of(attr.span());
@@ -278,10 +303,28 @@ pub(super) fn file_blocks(
             let line = DocLine::new(part, start + offset);
             if last_line.is_some_and(|last| line.line > last + 1) {
                 close(path, &mut block, &mut items, diagnostics);
+                fence = None;
             }
             last_line = Some(line.line);
 
             let trimmed = line.trimmed();
+            // Inside a YAML code block, headers and separators are YAML.
+            if let Some(open) = &fence {
+                if closes_fence(trimmed, open) {
+                    fence = None;
+                }
+                block.push(line);
+                continue;
+            }
+            let opens_fence = std::mem::replace(
+                &mut after_openapi,
+                trimmed.starts_with("@openapi") || trimmed == ASYNCAPI,
+            );
+            if let Some(open) = yaml_fence(trimmed).filter(|_| opens_fence && !block.is_empty()) {
+                fence = Some(open.to_string());
+                block.push(line);
+                continue;
+            }
             if is_header(trimmed) {
                 close(path, &mut block, &mut items, diagnostics);
                 block.push(line);
@@ -354,7 +397,7 @@ fn close(path: &Path, block: &mut Vec<DocLine>, items: &mut Vec<Item>, diags: &m
             location: Location::new(path, header.line),
         }));
     } else if let Some(name) = trimmed.strip_prefix("@openapi-type") {
-        let body = unindent(rest);
+        let body = fenced(rest).map_or_else(|| unindent(rest), |(yaml, _)| yaml);
         let text = join(&body).trim().to_string();
         if !text.is_empty() {
             let line = body

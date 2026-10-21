@@ -2,7 +2,7 @@
 //! variants and type aliases.
 
 use super::rename::RenameRule;
-use crate::docs::{DocLine, description, starts_yaml};
+use crate::docs::{DocLine, closes_fence, description, starts_yaml, yaml_fence};
 
 /// What the doc comment of a schema item (or of one of its fields/variants) says.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -91,6 +91,18 @@ fn is_directive(trimmed: &str) -> bool {
         && argument(trimmed, "@extend").is_none()
 }
 
+/// What the lines of a fenced YAML code block right after an `@openapi…`
+/// line are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fenced {
+    /// The item's override (`@openapi`, `@openapi<T>`).
+    Override,
+    /// A free document block (`@openapi document`).
+    Document,
+    /// The body of an `@openapi-fragment`.
+    Fragment,
+}
+
 /// Whether `trimmed` ends an `@openapi-fragment` body: the directives of
 /// the item itself (a fragment may hold route directives).
 fn ends_fragment(trimmed: &str) -> bool {
@@ -118,6 +130,10 @@ impl ItemDocs {
         let mut fragment: Option<(DocLine, Vec<DocLine>)> = None;
         let mut last_line: Option<usize> = None;
         let mut after_blank = false;
+        // An open fenced YAML block: its fence and what its lines are; and
+        // what a fence on the next line would hold.
+        let mut fence: Option<(String, Fenced)> = None;
+        let mut fence_target: Option<Fenced> = None;
 
         for line in lines {
             let trimmed = line.trimmed();
@@ -127,6 +143,47 @@ impl ItemDocs {
             // `///` groups), like the blocks of file comments.
             let gap = last_line.is_some_and(|last| line.line > last + 1);
             last_line = Some(line.line);
+            // A fenced code block right after an `@openapi…` line is its
+            // YAML (rendered as code by rustdoc); the section ends with it.
+            if let Some((open, target)) = &fence {
+                if closes_fence(trimmed, open) {
+                    match target {
+                        Fenced::Fragment => docs.fragments.extend(fragment.take()),
+                        // A document block keeps its fences for
+                        // `item_blocks`, which reads it like a function's.
+                        Fenced::Document => docs
+                            .documents
+                            .last_mut()
+                            .into_iter()
+                            .for_each(|lines| lines.push(line.clone())),
+                        Fenced::Override => {}
+                    }
+                    fence = None;
+                    section = Section::Prose;
+                    // The code block ends a paragraph of the prose.
+                    prose.push("");
+                    continue;
+                }
+                let lines = match target {
+                    Fenced::Override => docs.overrides.last_mut(),
+                    Fenced::Document => docs.documents.last_mut(),
+                    Fenced::Fragment => fragment.as_mut().map(|(_, body)| body),
+                };
+                lines.into_iter().for_each(|lines| lines.push(line.clone()));
+                continue;
+            }
+            if let Some(target) = fence_target.take()
+                && let Some(open) = yaml_fence(trimmed)
+            {
+                if target == Fenced::Document {
+                    docs.documents
+                        .last_mut()
+                        .into_iter()
+                        .for_each(|lines| lines.push(line.clone()));
+                }
+                fence = Some((open.to_string(), target));
+                continue;
+            }
             if let Some((header, mut body)) = fragment.take() {
                 if gap || ends_fragment(trimmed) {
                     docs.fragments.push((header, body));
@@ -173,6 +230,7 @@ impl ItemDocs {
             section = Section::Prose;
             if trimmed.starts_with("@openapi-fragment") {
                 fragment = Some((DocLine::new(trimmed, line.line), Vec::new()));
+                fence_target = Some(Fenced::Fragment);
             } else if let Some(example) = argument(trimmed, "@example") {
                 docs.examples.push(DocLine::new(example, line.line));
             } else if let Some(text) = argument(trimmed, "@description") {
@@ -201,11 +259,13 @@ impl ItemDocs {
                     indent: indentation(&line.text),
                 };
                 docs.documents.push(vec![DocLine::new(trimmed, line.line)]);
+                fence_target = Some(Fenced::Document);
             } else if let Some(rest) = trimmed.strip_prefix("@openapi") {
                 section = Section::Yaml {
                     indent: indentation(&line.text),
                 };
                 docs.header(rest.trim_start(), line.line, kind);
+                fence_target = Some(Fenced::Override);
             } else {
                 // An unknown directive is prose (`@see`, `@note`).
                 prose.push(line.text.as_str());

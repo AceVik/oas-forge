@@ -3159,3 +3159,25 @@ mod response_order {
         );
     }
 }
+
+/// YAML in fenced code blocks gives the same document as without fences.
+mod fenced_yaml {
+    use super::*;
+
+    #[test]
+    fn the_root_with_variables_and_fragments_in_fences() {
+        let fenced = "//! @openapi-fragment Local\n//! ```yaml\n//! - url: http://127.0.0.1:28766\n//! ```\n//!\n//! @openapi\n//! ```yaml\n//! openapi: 3.1.0\n//! info: { title: Baylee gateway, version: '{{CARGO_PKG_VERSION}}' }\n//! servers:\n//!   @insert Local\n//! ```\n\n/// Get the status\n/// @route GET /status\n/// @openapi\n/// ```yaml\n/// x-internal: false\n/// ```\npub fn status() {}\n";
+        let plain = "//! @openapi-fragment Local\n//! - url: http://127.0.0.1:28766\n//!\n//! @openapi\n//! openapi: 3.1.0\n//! info: { title: Baylee gateway, version: '{{CARGO_PKG_VERSION}}' }\n//! servers:\n//!   @insert Local\n\n/// Get the status\n/// @route GET /status\n/// @openapi\n/// x-internal: false\npub fn status() {}\n";
+        let (with_fences, diagnostics) = pipeline(&[("lib.rs", fenced)]);
+        assert!(
+            diagnostics.iter().all(|d| !d.is_error()),
+            "{diagnostics:#?}"
+        );
+        assert_eq!(with_fences, pipeline(&[("lib.rs", plain)]).0);
+        assert_eq!(
+            with_fences["servers"],
+            json!([{ "url": "http://127.0.0.1:28766" }])
+        );
+        assert_eq!(with_fences["paths"]["/status"]["get"]["x-internal"], false);
+    }
+}

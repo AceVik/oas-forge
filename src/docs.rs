@@ -122,6 +122,41 @@ pub(crate) fn starts_yaml(trimmed: &str) -> bool {
     })
 }
 
+/// The fence of a fenced code block that holds YAML, if `trimmed` opens one:
+/// three or more backticks or tildes followed by nothing, `yaml`, `yml` or
+/// `json`. Right after an `@openapi…` line, such a block is the YAML of the
+/// section (so that rustdoc renders it as code).
+pub(crate) fn yaml_fence(trimmed: &str) -> Option<&str> {
+    let fence = ['`', '~'].iter().find_map(|mark| {
+        let length = trimmed.chars().take_while(|c| c == mark).count();
+        trimmed.get(..length).filter(|_| length >= 3)
+    })?;
+    let info = trimmed.get(fence.len()..)?.trim();
+    matches!(info, "" | "yaml" | "yml" | "json").then_some(fence)
+}
+
+/// Whether `trimmed` closes the code block opened by `fence`: the same
+/// character at least as often, and nothing else.
+pub(crate) fn closes_fence(trimmed: &str, fence: &str) -> bool {
+    let Some(mark) = fence.chars().next() else {
+        return false;
+    };
+    trimmed.len() >= fence.len() && trimmed.chars().all(|c| c == mark)
+}
+
+/// When `lines` start with a YAML fence ([`yaml_fence`]): the lines inside
+/// it (with their shared indentation removed) and how many lines the block
+/// takes, fences included; without closing fence it takes the rest.
+pub(crate) fn fenced(lines: &[DocLine]) -> Option<(Vec<DocLine>, usize)> {
+    let fence = yaml_fence(lines.first()?.trimmed())?;
+    let rest = lines.get(1..).unwrap_or_default();
+    let (body, taken) = match rest.iter().position(|l| closes_fence(l.trimmed(), fence)) {
+        Some(end) => (rest.get(..end).unwrap_or_default(), end + 2),
+        None => (rest, lines.len()),
+    };
+    Some((unindent(body), taken))
+}
+
 /// Joins lines with `\n`.
 pub(crate) fn join(lines: &[DocLine]) -> String {
     lines

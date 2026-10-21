@@ -18,6 +18,7 @@ use super::responses::{split_media, type_schema};
 use super::tokens::{split_directive, trailing_description};
 use super::{SCOPE_SYNTAX, conflict_line, params};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
+use crate::docs::{closes_fence, yaml_fence};
 use crate::merge::{Policy, merge};
 use crate::proto::{self, PROTOBUF_MEDIA_TYPE, ProtoIndex};
 use crate::schema::TypeMapper;
@@ -238,9 +239,28 @@ pub fn compile_channel(
     // Embedded YAML: the open section and every line with its target.
     let mut section: Option<Target> = None;
     let mut yaml: Vec<(Target, usize, String)> = Vec::new();
+    // The fence of a fenced YAML section (rendered as code by rustdoc), and
+    // whether the line before was `@openapi …`, after which a fence opens
+    // one.
+    let mut fence: Option<String> = None;
+    let mut after_openapi = false;
 
     for (index, line) in source.lines.iter().enumerate() {
         let trimmed = line.trim();
+        if let Some(open) = &fence {
+            if closes_fence(trimmed, open) {
+                fence = None;
+                section = None;
+            } else if let Some(target) = &section {
+                yaml.push((target.clone(), index, line.clone()));
+            }
+            continue;
+        }
+        let opens_fence = std::mem::take(&mut after_openapi) && section.is_some();
+        if let Some(open) = yaml_fence(trimmed).filter(|_| opens_fence) {
+            fence = Some(open.to_string());
+            continue;
+        }
         let Some(directive) = trimmed.strip_prefix('@') else {
             if section.is_none() && starts_channel_yaml(trimmed) {
                 section = Some(Target::Channel);
@@ -256,6 +276,7 @@ pub fn compile_channel(
         let (name, arguments) = split_directive(directive);
         let rest: &str = &arguments;
         text = Text::after(name);
+        after_openapi = name == "openapi";
         match name {
             "channel" => {
                 channel_line = true;

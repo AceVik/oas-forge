@@ -37,6 +37,12 @@ pub async fn health() {}
 - Snippets must be mappings at the top level; anything else is an error with
   its location.
 - `$Name` values are [smart references](schemas.md#references-in-yaml).
+- The YAML may be a fenced code block right after the header line
+  (```` ```yaml ````, ```` ``` ````, `~~~`), so that rustdoc renders it as
+  code: the fences are removed and the block ends at the closing fence (see
+  [rustdoc-friendly annotations](getting-started.md#annotations-that-rustdoc-renders-as-code)).
+  This works for every `@openapi…` header, `@asyncapi`, `@openapi-fragment`
+  and `@openapi-type`, and for overrides of types and fields.
 
 ## Root documents
 
