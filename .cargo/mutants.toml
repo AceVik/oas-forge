@@ -38,6 +38,8 @@ exclude_re = [
     "src/generator.rs:.*delete match arm Some\\(\\(_, Some\\(ast\\)\\)\\) in prepare",
     # Any empty set is the same empty set of documented names.
     "src/template/refs.rs:.*replace KnownSchemas::none -> &'static Self with Box::leak",
+    # The built-in type table is the empty mapper; a leaked default is equal.
+    "src/schema/types.rs:.*replace TypeMapper::builtin -> &'static Self with Box::leak",
     # The guard admits exactly the extractors the `match` after it reads; any
     # other `Option<T>` argument is ignored with or without unwrapping.
     "src/extract/signature.rs:.*replace match guard matches!\\( inner.name\\(\\), .* with true in infer",

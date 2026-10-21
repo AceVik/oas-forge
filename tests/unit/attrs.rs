@@ -674,15 +674,17 @@ mod bounds {
     #[test]
     fn unusable_values_are_reported_with_the_reason() {
         let (_, diagnostics) = extract_with_diagnostics(
-            "/// @openapi\nstruct S {\n#[validate(length(min = 99999999999999999999), range(max = -99999999999999999999))]\na: String,\n#[garde(length(max = MAX), pattern(Regex::new(\"x\").unwrap()))]\nb: String,\n#[validate(length(max = (99999999999999999999)))]\nc: String,\n}",
+            "/// @openapi\nstruct S {\n#[validate(length(min = 99999999999999999999), range(max = -99999999999999999999))]\na: String,\n#[garde(length(max = MAX), pattern(Regex::new(\"x\").unwrap()))]\nb: String,\n#[validate(length(max = (99999999999999999999)))]\nc: String,\n#[validate(range(min = -(99999999999999999999)))]\nd: i64,\n}",
         );
-        assert_eq!(codes(&diagnostics), [Code::NonLiteralConstraint; 5]);
+        assert_eq!(codes(&diagnostics), [Code::NonLiteralConstraint; 6]);
         let messages: Vec<&str> = diagnostics.iter().map(|d| d.message()).collect();
         assert!(messages[0].contains("is out of range"), "{messages:?}");
         assert!(messages[1].contains("is out of range"), "{messages:?}");
         assert!(messages[2].contains("is not a literal"), "{messages:?}");
         assert!(messages[3].contains("`pattern` argument"), "{messages:?}");
         assert!(messages[4].contains("is out of range"), "{messages:?}");
+        // A negated expression, not a negative literal.
+        assert!(messages[5].contains("is out of range"), "{messages:?}");
     }
 }
 
