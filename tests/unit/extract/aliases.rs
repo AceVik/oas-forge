@@ -404,10 +404,11 @@ mod transparent {
             }
             "#,
         )]);
-        // An alias as a type argument names the instance (`Page_List_User`).
+        // An alias as a type argument stands for its target: the instance
+        // is named as for `Page<Vec<User>>`.
         assert_eq!(
             names(&schemas),
-            ["H", "Page_List_User", "Page_User", "User"],
+            ["H", "Page_User", "Page_Vec_User", "User"],
             "no `Paged_User`, no `Result`"
         );
         let h = &schemas["H"]["properties"];
@@ -418,11 +419,180 @@ mod transparent {
         );
         assert_eq!(
             h["n"],
-            json!({ "$ref": "#/components/schemas/Page_List_User" })
+            json!({ "$ref": "#/components/schemas/Page_Vec_User" })
         );
         assert_eq!(
-            schemas["Page_List_User"]["properties"]["items"]["items"],
+            schemas["Page_Vec_User"]["properties"]["items"]["items"],
             json!({ "type": "array", "items": { "$ref": "#/components/schemas/User" } })
+        );
+    }
+
+    #[test]
+    fn an_alias_of_an_option_is_optional_like_an_option() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "lib.rs",
+                r#"
+            pub type MaybeId = Option<u64>;
+            pub type Chained = MaybeId;
+            pub type Maybe<T> = Option<T>;
+            pub type Full = std::option::Option<bool>;
+            // No `std::option::Option`: not optional.
+            pub type NotStd = crate::option::Option<u8>;
+            pub type Odd = std::other::Option<u8>;
+            use crate::types::*;
+            /// @openapi
+            pub struct User { pub id: u64 }
+            /// @openapi
+            #[derive(Serialize, Deserialize)]
+            pub struct Both {
+                pub id: MaybeId,
+                pub chained: Chained,
+                pub user: Maybe<User>,
+                pub full: Full,
+                pub note: models::Note,
+                pub plain: Option<u64>,
+                pub glob: GlobId,
+                pub required: u64,
+                pub not_std: NotStd,
+                pub odd: Odd,
+            }
+            /// @openapi
+            #[derive(Serialize)]
+            pub struct Out {
+                pub id: MaybeId,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                pub skipped: MaybeId,
+            }
+            /// List
+            /// @route GET /items
+            /// @query-param id: MaybeId "Filter"
+            /// @return 204:
+            pub async fn list() {}
+            "#,
+            ),
+            // The target of an alias is read in its own file.
+            (
+                "models.rs",
+                "pub type Note = Option<Text>;\n/// @openapi\npub struct Text { pub body: String }",
+            ),
+            ("types.rs", "pub type GlobId = Option<u32>;"),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let schemas = &document["components"]["schemas"];
+        let both = &schemas["Both"];
+        assert_eq!(both["required"], json!(["required", "not_std", "odd"]));
+        let properties = &both["properties"];
+        assert_eq!(
+            properties["id"],
+            json!({ "type": ["integer", "null"], "format": "int64", "minimum": 0 })
+        );
+        assert_eq!(properties["chained"], properties["id"]);
+        assert_eq!(properties["plain"], properties["id"]);
+        let nullable = |name: &str| json!({ "anyOf": [{ "$ref": format!("#/components/schemas/{name}") }, { "type": "null" }] });
+        assert_eq!(properties["user"], nullable("User"));
+        assert_eq!(properties["note"], nullable("Text"));
+        assert_eq!(properties["full"], json!({ "type": ["boolean", "null"] }));
+        assert_eq!(
+            properties["glob"],
+            json!({ "type": ["integer", "null"], "format": "int64", "minimum": 0, "maximum": u32::MAX })
+        );
+        // An output type requires every field it writes; `skip_serializing_if`
+        // leaves `None` out, so that value is not nullable.
+        let out = &schemas["Out"];
+        assert_eq!(out["required"], json!(["id"]));
+        assert_eq!(
+            out["properties"]["skipped"],
+            json!({ "type": "integer", "format": "int64", "minimum": 0 })
+        );
+        let parameter = &document["paths"]["/items"]["get"]["parameters"][0];
+        assert_eq!(parameter["required"], json!(false));
+    }
+
+    #[test]
+    fn aliases_as_type_arguments_name_the_instance_by_their_target() {
+        let schemas = schemas(&[
+            (
+                "lib.rs",
+                r#"
+            pub type Owner = User;
+            pub type Chain = Owner;
+            pub type Maybe = Option<u64>;
+            pub type Pair = (u8, u8);
+            /// @openapi
+            pub struct Page<T> { pub items: Vec<T> }
+            /// @openapi
+            pub struct User { pub id: u64 }
+            /// @openapi
+            pub struct H {
+                pub a: Page<Owner>,
+                pub b: Page<Chain>,
+                pub c: Page<User>,
+                pub d: Page<Maybe>,
+                pub e: Page<Pair>,
+                pub f: Page<models::Member>,
+            }
+            "#,
+            ),
+            // The target of an alias is read in its own file.
+            (
+                "models.rs",
+                "pub type Member = Account;\n/// @openapi\npub struct Account { pub id: u64 }",
+            ),
+        ]);
+        assert_eq!(
+            names(&schemas),
+            [
+                "Account",
+                "H",
+                "Page_Account",
+                "Page_Option_u64",
+                "Page_Pair",
+                "Page_User",
+                "User"
+            ]
+        );
+        let h = &schemas["H"]["properties"];
+        for field in ["a", "b", "c"] {
+            assert_eq!(
+                h[field],
+                json!({ "$ref": "#/components/schemas/Page_User" }),
+                "{field}"
+            );
+        }
+        assert_eq!(
+            schemas["Page_Option_u64"]["properties"]["items"]["items"]["type"],
+            json!(["integer", "null"])
+        );
+    }
+
+    #[test]
+    fn alias_cycles_as_type_arguments_keep_their_name() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            r#"
+            pub type A = B;
+            pub type B = A;
+            pub type Owner = User;
+            /// @openapi
+            pub struct Page<T> { pub items: Vec<T> }
+            /// @openapi
+            pub struct Pair<L, R> { pub left: L, pub right: R }
+            /// @openapi
+            pub struct User { pub id: u64 }
+            /// @openapi
+            pub struct H { pub cycle: Page<A>, pub twice: Pair<Owner, Owner> }
+            "#,
+        )]);
+        let h = &document["components"]["schemas"]["H"]["properties"];
+        assert_eq!(h["cycle"], json!({ "$ref": "#/components/schemas/Page_A" }));
+        assert_eq!(
+            h["twice"],
+            json!({ "$ref": "#/components/schemas/Pair_User_User" })
+        );
+        assert!(
+            codes(&diagnostics).contains(&Code::AliasCycle),
+            "{diagnostics:?}"
         );
     }
 

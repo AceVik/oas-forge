@@ -710,6 +710,7 @@ impl<'a> Reflector<'a> {
                 rust_name,
                 params: type_params(&item.generics).unwrap_or_default(),
                 schema,
+                target: self.types.type_text(&ty),
                 undocumentable: ty.undocumentable(),
                 location: self.location(line_of(item.span())),
             }));

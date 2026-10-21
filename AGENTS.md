@@ -67,7 +67,9 @@ The pipeline is described in `docs/architecture.md`.
 ## Rules that must not be broken
 
 1. **No panics on user input.** Report a `Diagnostic` (with a new, unique
-   code if needed) or return an `Error` with a location. Never log; never
+   code if needed, appended at the end of the `codes!` list in
+   `src/diagnostics.rs`: a variant's position is its discriminant) or
+   return an `Error` with a location. Never log; never
    drop input silently. The crates deny `clippy::indexing_slicing`,
    `string_slice` and `unwrap_used`: use `get`, `split_once`, `strip_prefix`
    and friends; `expect("reason")` only for real invariants such as constant

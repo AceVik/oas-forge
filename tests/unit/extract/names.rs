@@ -318,6 +318,48 @@ fn a_module_path_attribute_moves_the_module() {
 }
 
 #[test]
+fn module_files_are_found_as_rustc_finds_them() {
+    // `#[path]` inside inline modules (of a root and of a module file),
+    // `#[path]` on an inline module, and a file declared by a moved file.
+    let user = |field: &str| format!("/// @openapi\npub struct User {{ pub {field}: u64 }}");
+    let (document, diagnostics) = pipeline(&[
+        (
+            "src/lib.rs",
+            "pub mod outer;\npub mod nested {\n    #[path = \"renamed.rs\"]\n    pub mod inner;\n}\n#[path = \"gen/types.rs\"]\nmod api;\n#[path = \"thread_files\"]\nmod thread {\n    #[path = \"tls.rs\"]\n    mod local;\n}",
+        ),
+        ("src/nested/renamed.rs", &user("a")),
+        (
+            "src/outer.rs",
+            "pub mod inline {\n    #[path = \"deep.rs\"]\n    pub mod deep_mod;\n}",
+        ),
+        ("src/outer/inline/deep.rs", &user("b")),
+        // rustc reads a file that `#[path]` names like a `mod.rs`: its
+        // modules are next to it, also those of its inline blocks.
+        (
+            "src/gen/types.rs",
+            "mod child;\nmod block {\n    mod deep;\n}",
+        ),
+        ("src/gen/child.rs", &user("c")),
+        ("src/gen/block/deep.rs", &user("e")),
+        ("src/thread_files/tls.rs", &user("d")),
+    ]);
+    let schemas = document["components"]["schemas"].as_object().unwrap();
+    let mut names: Vec<&str> = schemas.keys().map(String::as_str).collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        [
+            "crate.api.block.deep.User",
+            "crate.api.child.User",
+            "crate.nested.inner.User",
+            "crate.outer.inline.deep_mod.User",
+            "crate.thread.local.User",
+        ]
+    );
+    assert_eq!(codes(&diagnostics), [Code::DuplicateSchema; 5]);
+}
+
+#[test]
 fn projects_without_collisions_are_unchanged() {
     let (document, diagnostics) = pipeline(&[
         (
@@ -459,6 +501,46 @@ mod edges {
     }
 
     #[test]
+    fn glob_re_export_cycles_end() {
+        let (document, diagnostics) = pipeline(&[
+            ("lib.rs", "mod a;\nmod b;\nmod c;"),
+            ("a.rs", "pub use crate::b::*;"),
+            ("b.rs", "pub use crate::a::*;"),
+            (
+                "c.rs",
+                "/// @openapi\npub struct User { pub id: u64 }\n/// @openapi\npub struct S { pub u: crate::a::User }",
+            ),
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            document["components"]["schemas"]["S"]["properties"]["u"],
+            reference("User"),
+            "the one documented `User`"
+        );
+    }
+
+    #[test]
+    fn a_file_declared_before_its_declaring_file_is_found_in_a_later_pass() {
+        // `src/a.rs` keeps its module but is named by `#[path]`, so its
+        // modules are next to it; it is read before `src/lib.rs` marks it.
+        let (document, _) = pipeline(&[
+            ("src/x.rs", "/// @openapi\npub struct User { pub id: u64 }"),
+            ("src/a.rs", "mod x;"),
+            (
+                "src/lib.rs",
+                "#[path = \"a.rs\"]\nmod a;\n/// @openapi\npub struct User { pub name: String }",
+            ),
+        ]);
+        let mut names: Vec<&String> = document["components"]["schemas"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect();
+        names.sort_unstable();
+        assert_eq!(names, ["crate.User", "crate.a.x.User"]);
+    }
+
+    #[test]
     fn a_path_of_a_crate_finds_the_type_of_a_module_it_does_not_show() {
         let project = crates();
         project.file(
@@ -561,19 +643,208 @@ mod edges {
     }
 
     #[test]
-    fn templates_of_one_name_are_not_qualified() {
+    fn colliding_templates_are_qualified_and_each_use_picks_its_own() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "a.rs",
+                "/// @openapi\npub struct Page<T> { pub items: Vec<T> }\n/// @openapi\npub struct A { pub p: Page<u8> }",
+            ),
+            (
+                "b.rs",
+                "/// @openapi\npub struct Page<T> { pub entries: Vec<T> }\n/// @openapi\npub struct B { pub p: Page<u8> }",
+            ),
+            (
+                "c.rs",
+                "/// @openapi\npub struct C { pub a: crate::a::Page<bool>, pub b: crate::b::Page<bool> }",
+            ),
+        ]);
+        let schemas = &document["components"]["schemas"];
+        assert_eq!(
+            schemas["A"]["properties"]["p"],
+            reference("crate.a.Page_u8")
+        );
+        assert_eq!(
+            schemas["B"]["properties"]["p"],
+            reference("crate.b.Page_u8")
+        );
+        assert_eq!(
+            schemas["C"]["properties"]["a"],
+            reference("crate.a.Page_bool")
+        );
+        assert_eq!(
+            schemas["C"]["properties"]["b"],
+            reference("crate.b.Page_bool")
+        );
+        assert!(
+            schemas["crate.a.Page_u8"]["properties"]
+                .get("items")
+                .is_some()
+        );
+        assert!(
+            schemas["crate.b.Page_u8"]["properties"]
+                .get("entries")
+                .is_some()
+        );
+        let messages: Vec<&str> = diagnostics.iter().map(|d| d.message()).collect();
+        assert_eq!(
+            codes(&diagnostics),
+            [Code::DuplicateSchema; 2],
+            "{messages:?}"
+        );
+        assert!(messages[0].starts_with("template `Page` is defined by several types"));
+    }
+
+    #[test]
+    fn a_template_and_a_schema_of_one_name_do_not_collide() {
         let (document, diagnostics) = pipeline(&[
             (
                 "a.rs",
                 "/// @openapi\npub struct Page<T> { pub items: Vec<T> }",
             ),
+            ("b.rs", "/// @openapi\npub struct Page { pub number: u32 }"),
             (
-                "b.rs",
-                "/// @openapi\npub struct Page<T> { pub entries: Vec<T> }\n/// @openapi\npub struct S { pub p: Page<u8> }",
+                "c.rs",
+                "/// @openapi\npub struct C { pub list: Page<u8>, pub page: Page }",
             ),
         ]);
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
-        assert!(document["components"]["schemas"].get("Page_u8").is_some());
+        let schemas = &document["components"]["schemas"];
+        assert_eq!(schemas["C"]["properties"]["list"], reference("Page_u8"));
+        assert_eq!(schemas["C"]["properties"]["page"], reference("Page"));
+    }
+
+    #[test]
+    fn an_ambiguous_template_or_type_argument_is_reported_and_not_instantiated() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "a.rs",
+                "/// @openapi\npub struct User { pub id: u64 }\n/// @openapi\npub struct Page<T> { pub items: Vec<T> }",
+            ),
+            (
+                "b.rs",
+                "/// @openapi\npub struct User { pub name: String }\n/// @openapi\npub struct Page<T> { pub entries: Vec<T> }",
+            ),
+            (
+                "c.rs",
+                "use crate::a::Page;\n/// @openapi\npub struct Listing { pub users: Page<Vec<User>> }",
+            ),
+            (
+                "d.rs",
+                "/// @openapi\npub struct Shelf { pub books: Page<u8> }",
+            ),
+            (
+                "e.rs",
+                "pub struct Page<T>(T);\n/// @openapi\npub struct Local { pub own: Option<Page<u8>> }",
+            ),
+        ]);
+        let schemas = &document["components"]["schemas"];
+        // Nothing is instantiated for a name that is not clear.
+        let names: Vec<&String> = schemas.as_object().unwrap().keys().collect();
+        assert!(
+            names
+                .iter()
+                .all(|name| !name.contains("_User") && !name.ends_with("Page_u8")),
+            "{names:?}"
+        );
+        assert_eq!(schemas["Listing"]["properties"]["users"], json!({}));
+        assert_eq!(schemas["Shelf"]["properties"]["books"], json!({}));
+        assert_eq!(
+            schemas["Local"]["properties"]["own"],
+            json!({ "anyOf": [{}, { "type": "null" }] })
+        );
+        let findings: Vec<(Code, &str)> = diagnostics
+            .iter()
+            .map(|d| (d.code(), d.message()))
+            .filter(|(code, _)| *code == Code::AmbiguousTypeName)
+            .collect();
+        assert_eq!(findings.len(), 3, "{findings:?}");
+        assert!(findings.iter().any(|(_, m)| *m == "`Page` is `crate::e::Page` here, which is not documented; document it with `@openapi`"));
+        assert!(findings.iter().any(|(_, m)| m.starts_with(
+            "`User` may be any of the documented types `crate::a::User`, `crate::b::User`"
+        )));
+        assert!(findings.iter().any(|(_, m)| m.starts_with(
+            "`Page` may be any of the documented types `crate::a::Page`, `crate::b::Page`"
+        )));
+        // No follow-up findings about the names that were left out.
+        assert!(
+            !codes(&diagnostics).iter().any(|code| matches!(
+                code,
+                Code::UnresolvedReference | Code::DanglingReference | Code::UnknownBlueprint
+            )),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_manifest_is_reported_once_and_the_directory_names_the_crate() {
+        let project = Project::new();
+        project
+            .file("shop-api/Cargo.toml", "[package\nname = \"shop\"\n")
+            .file("shop-api/src/lib.rs", &format!("{ROOT}mod a;\nmod b;"))
+            .file(
+                "shop-api/src/a.rs",
+                "/// @openapi\npub struct User { pub id: u64 }",
+            )
+            .file(
+                "shop-api/src/b.rs",
+                "/// @openapi\npub struct User { pub name: String }",
+            )
+            .file("nameless/Cargo.toml", "[package]\nversion = \"1.0.0\"\n")
+            .file(
+                "nameless/src/lib.rs",
+                "/// @openapi\npub struct Tag { pub name: String }",
+            );
+        let spec = Generator::new()
+            .without_package()
+            .input(project.path("shop-api/src"))
+            .input(project.path("nameless/src"))
+            .build()
+            .unwrap();
+        let schemas = &spec.document()["components"]["schemas"];
+        assert!(schemas.get("shop_api.a.User").is_some(), "{schemas}");
+        assert!(schemas.get("Tag").is_some(), "{schemas}");
+        let unreadable: Vec<_> = spec
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code() == Code::UnreadableManifest)
+            .collect();
+        assert_eq!(unreadable.len(), 2, "{:?}", spec.diagnostics());
+        let files: Vec<_> = unreadable
+            .iter()
+            .map(|d| d.location().unwrap().file().to_path_buf())
+            .collect();
+        assert!(
+            files.contains(&project.path("shop-api/Cargo.toml")),
+            "{files:?}"
+        );
+        assert!(
+            files.contains(&project.path("nameless/Cargo.toml")),
+            "{files:?}"
+        );
+        let messages: Vec<&str> = unreadable.iter().map(|d| d.message()).collect();
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("TOML parse error at line 1")
+                    && m.ends_with("the crate is named `shop_api` after its directory")
+                    && !m.contains('\n')),
+            "{messages:?}"
+        );
+        assert!(
+            messages.iter().any(|m| m.contains("has no `name`")
+                && m.ends_with("the crate is named `nameless` after its directory")),
+            "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn a_file_that_declares_itself_ends() {
+        // rustc rejects it ("circular modules"); the table stops moving it.
+        let (document, _) = pipeline(&[(
+            "src/lib.rs",
+            "#[path = \"lib.rs\"]\nmod again;\n/// @openapi\npub struct Tag { pub name: String }",
+        )]);
+        assert!(document["components"]["schemas"].get("Tag").is_some());
     }
 
     #[test]
