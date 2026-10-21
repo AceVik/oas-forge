@@ -31,8 +31,6 @@ paths:
           description: Moved
         "304":
           description: Not modified
-        "404":
-          description: Missing
         "400":
           description: Bad request
           content:
@@ -42,6 +40,8 @@ paths:
                 properties:
                   reason:
                     type: string
+        "404":
+          description: Missing
         "409":
           description: Conflict
           content:

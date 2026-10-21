@@ -3088,3 +3088,74 @@ pub mod admin {
         assert_eq!(b["info"]["title"], "shop");
     }
 }
+
+/// The responses of every operation are sorted by status (ADR 0007).
+mod response_order {
+    use super::*;
+
+    fn keys(value: &Value) -> Vec<&str> {
+        value
+            .as_object()
+            .map(|map| map.keys().map(String::as_str).collect())
+            .unwrap_or_default()
+    }
+
+    /// Every kind of key, in an order that is wrong in every way.
+    /// `2000` and `20X` are no statuses; they stay with the extensions.
+    const SCRAMBLED: &str = "{ x-note: { a: 1 }, default: { description: d }, 4xx: { description: c }, '503': { description: e }, '2000': 1, '404': { description: n }, 2Xx: { description: r }, '200': { description: o }, '1XX': { description: i }, '400': { description: b }, '201': { description: c }, x-first: 1, '204': { description: n }, 20X: 1 }";
+    const SORTED: [&str; 14] = [
+        "1XX", "200", "201", "204", "2Xx", "400", "404", "4xx", "503", "default", "x-note", "2000",
+        "x-first", "20X",
+    ];
+
+    #[test]
+    fn statuses_ascend_with_ranges_after_their_class_and_default_last() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            &format!(
+                "/// @openapi\n/// openapi: 3.2.0\n/// info: {{ title: T, version: '1' }}\n/// paths:\n///   /a:\n///     get:\n///       responses: {SCRAMBLED}\n///       callbacks:\n///         onEvent:\n///           '{{$request.body#/url}}':\n///             post:\n///               responses: {SCRAMBLED}\n///     additionalOperations:\n///       PURGE:\n///         responses: {SCRAMBLED}\n/// webhooks:\n///   ping:\n///     post:\n///       responses: {SCRAMBLED}\n/// components:\n///   pathItems:\n///     Shared:\n///       put:\n///         responses: {SCRAMBLED}\n///   callbacks:\n///     Hook:\n///       '{{$request.body#/hook}}':\n///         delete:\n///           responses: {SCRAMBLED}\n///   responses: {SCRAMBLED}\nfn docs() {{}}"
+            ),
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        for pointer in [
+            "/paths/~1a/get/responses",
+            "/paths/~1a/get/callbacks/onEvent/{$request.body#~1url}/post/responses",
+            "/paths/~1a/additionalOperations/PURGE/responses",
+            "/webhooks/ping/post/responses",
+            "/components/pathItems/Shared/put/responses",
+            "/components/callbacks/Hook/{$request.body#~1hook}/delete/responses",
+        ] {
+            assert_eq!(
+                keys(document.pointer(pointer).unwrap()),
+                SORTED,
+                "{pointer}"
+            );
+        }
+        // `components.responses` maps names, not statuses.
+        assert_eq!(
+            keys(&document["components"]["responses"]),
+            [
+                "x-note", "default", "4xx", "503", "2000", "404", "2Xx", "200", "1XX", "400",
+                "201", "x-first", "204", "20X"
+            ]
+        );
+    }
+
+    /// Fragment codes first, then the block's own codes.
+    #[test]
+    fn route_responses_are_sorted_in_the_written_file() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC).file(
+            "src/a.rs",
+            "/// @openapi-fragment Errors\n/// @return 401: \"Unauthorized\"\n/// @return 403: \"Forbidden\"\nfn errors() {}\n\n/// Get a tag\n/// @route GET /tags/{id: u64}\n/// @insert Errors\n/// @return 503: \"Unavailable\"\n/// @return 204: \"Gone\"\n/// @return 429: \"Slow down\"\npub async fn get_tag() -> Json<String> { todo!() }\n",
+        );
+        let spec = build(&project);
+        let responses = &spec.document()["paths"]["/tags/{id}"]["get"]["responses"];
+        assert_eq!(keys(responses), ["204", "401", "403", "429", "503"]);
+        let full = spec.render(OutputKind::Full).unwrap();
+        assert_eq!(
+            keys(&full["paths"]["/tags/{id}"]["get"]["responses"]),
+            ["204", "401", "403", "429", "503"]
+        );
+    }
+}

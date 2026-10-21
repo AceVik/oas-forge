@@ -2544,6 +2544,83 @@ fn normalize(document: &mut Value, diagnostics: &mut Diagnostics) {
         *tags = merge_tags(std::mem::take(tags), diagnostics);
     }
     remove_extend_markers(document);
+    sort_all_responses(document);
+}
+
+/// Sorts the `responses` of every operation by status ([`status_rank`],
+/// ADR 0007): in `paths`, `webhooks` and `components.pathItems`, in
+/// callbacks and `components.callbacks`. `components.responses` maps names
+/// and keeps its order.
+fn sort_all_responses(document: &mut Value) {
+    for section in ["paths", "webhooks"] {
+        if let Some(Value::Object(items)) = document.get_mut(section) {
+            items.values_mut().for_each(sort_path_item_responses);
+        }
+    }
+    if let Some(Value::Object(components)) = document.get_mut("components") {
+        if let Some(Value::Object(items)) = components.get_mut("pathItems") {
+            items.values_mut().for_each(sort_path_item_responses);
+        }
+        if let Some(Value::Object(callbacks)) = components.get_mut("callbacks") {
+            callbacks.values_mut().for_each(sort_callback_responses);
+        }
+    }
+}
+
+/// Sorts the responses of the operations of a path item (also those of
+/// `additionalOperations`) and of their callbacks.
+fn sort_path_item_responses(item: &mut Value) {
+    let Some(item) = item.as_object_mut() else {
+        return;
+    };
+    let mut operations: Vec<&mut Value> = Vec::new();
+    for (key, value) in item.iter_mut() {
+        if key == "additionalOperations" {
+            if let Value::Object(additional) = value {
+                operations.extend(additional.values_mut());
+            }
+        } else if dsl::METHODS.contains(&key.as_str()) {
+            operations.push(value);
+        }
+    }
+    for operation in operations.into_iter().filter_map(Value::as_object_mut) {
+        if let Some(Value::Object(responses)) = operation.get_mut("responses") {
+            let mut entries: Vec<(String, Value)> = std::mem::take(responses).into_iter().collect();
+            // Stable: keys of the same rank keep their order.
+            entries.sort_by_key(|(status, _)| status_rank(status));
+            responses.extend(entries);
+        }
+        if let Some(Value::Object(callbacks)) = operation.get_mut("callbacks") {
+            callbacks.values_mut().for_each(sort_callback_responses);
+        }
+    }
+}
+
+/// Sorts the responses of the path items of a callback.
+fn sort_callback_responses(callback: &mut Value) {
+    if let Value::Object(expressions) = callback {
+        expressions.values_mut().for_each(sort_path_item_responses);
+    }
+}
+
+/// Where a key of a Responses Object goes: status codes ascending, a range
+/// (`2XX`, in any case) right after the codes of its class, then `default`,
+/// then everything else (extensions) in its order.
+fn status_rank(key: &str) -> (u8, u8, u8, u16) {
+    match key.as_bytes() {
+        [class @ b'0'..=b'9', rest @ ..] if rest.len() == 2 => {
+            let class = class - b'0';
+            if rest.iter().all(u8::is_ascii_digit) {
+                (0, class, 0, key.parse().unwrap_or_default())
+            } else if rest.eq_ignore_ascii_case(b"XX") {
+                (0, class, 1, 0)
+            } else {
+                (2, 0, 0, 0)
+            }
+        }
+        b"default" => (1, 0, 0, 0),
+        _ => (2, 0, 0, 0),
+    }
 }
 
 /// Top-level tags as unique objects: `tags: [A, B]` declared on modules

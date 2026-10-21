@@ -83,8 +83,10 @@ file order: inputs are read in sorted order, the top-level keys follow the
 specification order (`openapi`, `$self`, `info`, `jsonSchemaDialect`, `servers`,
 `paths`, `webhooks`, `components`, `security`, `tags`, `externalDocs`), the
 entries of every `components` section (and of the schemas output) are
-sorted by name, and everything
-else keeps the order of the sources. See
+sorted by name, the `responses` of every operation (also in webhooks and
+callbacks) are sorted by status (codes ascending, a range such as `2XX`
+right after the codes of its class, `default` last, extensions after it),
+and everything else keeps the order of the sources. See
 [ADR 0007](adr/0007-determinism-and-key-order.md).
 
 ## Versions
