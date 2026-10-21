@@ -213,8 +213,8 @@ impl ProtoIndex {
 
     /// Indexes a `.proto` file. A file that cannot be read (an unclosed
     /// comment, string or brace, a second `package`, …) is reported and
-    /// left out; a message name another file defined already is reported
-    /// and keeps the first definition.
+    /// left out; a message name declared before (in this or another file)
+    /// is reported and keeps the first declaration.
     ///
     /// # Examples
     ///
@@ -252,6 +252,16 @@ impl ProtoIndex {
         let position = self.files.len();
         let mut names = Vec::with_capacity(scanned.messages.len());
         for (name, line) in &scanned.messages {
+            if names.contains(name) {
+                diagnostics.push(
+                    Diagnostic::new(
+                        Code::InvalidProto,
+                        format!("message `{name}` is declared twice; the first is used"),
+                    )
+                    .at(Location::new(file.path(), *line)),
+                );
+                continue;
+            }
             let qualified = match &scanned.package {
                 Some(package) => format!("{package}.{name}"),
                 None => name.clone(),

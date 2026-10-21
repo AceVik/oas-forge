@@ -127,13 +127,13 @@ pub(crate) fn prune(document: &mut Value) {
             }
         }
         for section in &emptied {
-            components.remove(section);
+            components.shift_remove(section);
         }
         if components.is_empty()
             && !emptied.is_empty()
             && let Some(map) = document.as_object_mut()
         {
-            map.remove("components");
+            map.shift_remove("components");
         }
     }
     prune_tags(document);
@@ -172,6 +172,6 @@ fn prune_tags(document: &mut Value) {
     let before = tags.len();
     tags.retain(|tag| name(tag).is_some_and(|n| used.contains(&n)));
     if tags.is_empty() && before > 0 {
-        map.remove("tags");
+        map.shift_remove("tags");
     }
 }

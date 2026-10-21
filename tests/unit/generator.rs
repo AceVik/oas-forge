@@ -2656,6 +2656,12 @@ pub async fn users() {}
 /// @tag Admin
 /// @scope admin
 pub async fn admin() {}
+
+/// Lonely
+/// @route GET /lonely
+/// @scope lonely
+/// @return 200: { $ref: '#/components/schemas/Lonely' }
+pub async fn lonely() {}
 "#,
         );
         let spec = Generator::new()
@@ -2688,6 +2694,10 @@ pub async fn admin() {}
                 "x-internal": { "anything": true },
             })
         );
+        // Sections keep their order when others are removed.
+        let lonely = spec.render_scoped(OutputKind::Full, "lonely").unwrap();
+        let sections: Vec<&String> = lonely["components"].as_object().unwrap().keys().collect();
+        assert_eq!(sections, ["securitySchemes", "schemas", "x-internal"]);
         // A scope without operations keeps no tag and only what always stays.
         let other = spec.render_scoped(OutputKind::Full, "other").unwrap();
         assert!(other.get("tags").is_none(), "{other:#}");

@@ -190,6 +190,22 @@ fn a_message_defined_twice_keeps_the_first_file() {
 }
 
 #[test]
+fn a_message_declared_twice_in_one_file_keeps_the_first() {
+    let (index, diagnostics) = index(&[("a.proto", "message M {}\nmessage N {}\nmessage M {}")]);
+    assert_eq!(codes(&diagnostics), [Code::InvalidProto]);
+    let finding = diagnostics.iter().next().unwrap();
+    assert_eq!(
+        finding.message(),
+        "message `M` is declared twice; the first is used"
+    );
+    assert_eq!(finding.location().map(|l| l.line()), Some(3));
+    assert_eq!(
+        index.message("M").map(|f| f.messages()),
+        Some(&["M".to_string(), "N".to_string()][..])
+    );
+}
+
+#[test]
 fn messages_without_package_are_found_by_their_name() {
     let (index, _) = index(&[("a.proto", "message _Private1 {}")]);
     assert!(index.message("_Private1").is_some());
