@@ -1,0 +1,487 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/root_openapi_31_components_drop_32/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "OpenAPI 3.1 root: 3.2-only features in components.pathItems, components.responses, components.requestBodies and callbacks are removed with a warning",
+  "diagnostics": [
+    "warning[OF6002]: `QUERY` operations need OpenAPI 3.2 or newer and were left out of the OpenAPI 3.1 document",
+    "warning[OF6002]: `additionalOperations` need OpenAPI 3.2 or newer and were left out of the OpenAPI 3.1 document",
+    "warning[OF6002]: `querystring` parameters need OpenAPI 3.2 or newer and were left out of the OpenAPI 3.1 document",
+    "warning[OF6002]: streamed responses (`itemSchema`) need OpenAPI 3.2 or newer and were left out of the OpenAPI 3.1 document"
+  ],
+  "fragments": {
+    "document": {
+      "components": {
+        "callbacks": {
+          "Notify": {
+            "{$request.body#/callback}": {
+              "additionalOperations": {
+                "NOTIFY": {
+                  "responses": {
+                    "200": {
+                      "description": "Notified"
+                    }
+                  }
+                }
+              },
+              "post": {
+                "requestBody": {
+                  "$ref": "#/components/requestBodies/Upload"
+                },
+                "responses": {
+                  "200": {
+                    "description": "Received"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "pathItems": {
+          "Search": {
+            "get": {
+              "parameters": [
+                {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "in": "querystring",
+                  "name": "filter"
+                },
+                {
+                  "in": "query",
+                  "name": "page",
+                  "schema": {
+                    "type": "integer"
+                  }
+                }
+              ],
+              "responses": {
+                "200": {
+                  "$ref": "#/components/responses/Events"
+                }
+              }
+            },
+            "query": {
+              "responses": {
+                "200": {
+                  "description": "Found"
+                }
+              }
+            }
+          }
+        },
+        "requestBodies": {
+          "Upload": {
+            "content": {
+              "application/jsonl": {
+                "itemSchema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "Events": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            },
+            "description": "Server-sent events"
+          }
+        },
+        "schemas": {
+          "Event": {
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "paths": {
+        "/subscriptions": {
+          "post": {
+            "callbacks": {
+              "onEvent": {
+                "{$request.body#/callback}": {
+                  "post": {
+                    "requestBody": {
+                      "content": {
+                        "application/jsonl": {
+                          "itemSchema": {
+                            "$ref": "#/components/schemas/Event"
+                          }
+                        }
+                      }
+                    },
+                    "responses": {
+                      "200": {
+                        "description": "Received"
+                      }
+                    }
+                  }
+                }
+              },
+              "shared": {
+                "$ref": "#/components/callbacks/Notify"
+              }
+            },
+            "operationId": "subscribe",
+            "responses": {
+              "201": {
+                "description": "Subscribed"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "callbacks": {
+          "Notify": {
+            "{$request.body#/callback}": {
+              "post": {
+                "requestBody": {
+                  "$ref": "#/components/requestBodies/Upload"
+                },
+                "responses": {
+                  "200": {
+                    "description": "Received"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "pathItems": {
+          "Search": {
+            "get": {
+              "parameters": [
+                {
+                  "in": "query",
+                  "name": "page",
+                  "schema": {
+                    "type": "integer"
+                  }
+                }
+              ],
+              "responses": {
+                "200": {
+                  "$ref": "#/components/responses/Events"
+                }
+              }
+            }
+          }
+        },
+        "requestBodies": {
+          "Upload": {
+            "content": {
+              "application/jsonl": {}
+            }
+          }
+        },
+        "responses": {
+          "Events": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Server-sent events"
+          }
+        },
+        "schemas": {
+          "Event": {
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Modern components",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/subscriptions": {
+          "post": {
+            "callbacks": {
+              "onEvent": {
+                "{$request.body#/callback}": {
+                  "post": {
+                    "requestBody": {
+                      "content": {
+                        "application/jsonl": {}
+                      }
+                    },
+                    "responses": {
+                      "200": {
+                        "description": "Received"
+                      }
+                    }
+                  }
+                }
+              },
+              "shared": {
+                "$ref": "#/components/callbacks/Notify"
+              }
+            },
+            "operationId": "subscribe",
+            "responses": {
+              "201": {
+                "description": "Subscribed"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Event": {
+          "properties": {
+            "kind": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "diagnostics": [
+      "warning[OF6002]: `additionalOperations` need OpenAPI 3.2 or newer and were left out of the OpenAPI 3.0 document",
+      "warning[OF6002]: streamed responses (`itemSchema`) need OpenAPI 3.2 or newer and were left out of the OpenAPI 3.0 document",
+      "warning[OF6002]: OpenAPI 3.0 has no `components.pathItems`/`mediaTypes`; they were left out of the 3.0 export"
+    ],
+    "document": {
+      "components": {
+        "callbacks": {
+          "Notify": {
+            "{$request.body#/callback}": {
+              "post": {
+                "requestBody": {
+                  "$ref": "#/components/requestBodies/Upload"
+                },
+                "responses": {
+                  "200": {
+                    "description": "Received"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBodies": {
+          "Upload": {
+            "content": {
+              "application/jsonl": {}
+            }
+          }
+        },
+        "responses": {
+          "Events": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Server-sent events"
+          }
+        },
+        "schemas": {
+          "Event": {
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Modern components",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/subscriptions": {
+          "post": {
+            "callbacks": {
+              "onEvent": {
+                "{$request.body#/callback}": {
+                  "post": {
+                    "requestBody": {
+                      "content": {
+                        "application/jsonl": {}
+                      }
+                    },
+                    "responses": {
+                      "200": {
+                        "description": "Received"
+                      }
+                    }
+                  }
+                }
+              },
+              "shared": {
+                "$ref": "#/components/callbacks/Notify"
+              }
+            },
+            "operationId": "subscribe",
+            "responses": {
+              "201": {
+                "description": "Subscribed"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/subscriptions": {
+        "post": {
+          "callbacks": {
+            "onEvent": {
+              "{$request.body#/callback}": {
+                "post": {
+                  "requestBody": {
+                    "content": {
+                      "application/jsonl": {}
+                    }
+                  },
+                  "responses": {
+                    "200": {
+                      "description": "Received"
+                    }
+                  }
+                }
+              }
+            },
+            "shared": {
+              "$ref": "#/components/callbacks/Notify"
+            }
+          },
+          "operationId": "subscribe",
+          "responses": {
+            "201": {
+              "description": "Subscribed"
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Event": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "diagnostics": [
+      "warning[OF6002]: `QUERY` operations need OpenAPI 3.2 or newer and were left out of the Swagger 2.0 document",
+      "warning[OF6002]: `additionalOperations` need OpenAPI 3.2 or newer and were left out of the Swagger 2.0 document",
+      "warning[OF6002]: `querystring` parameters need OpenAPI 3.2 or newer and were left out of the Swagger 2.0 document",
+      "warning[OF6002]: streamed responses (`itemSchema`) need OpenAPI 3.2 or newer and were left out of the Swagger 2.0 document",
+      "note[OF6001]: Swagger 2.0 has no `components.callbacks`; the export leaves them out or approximates them",
+      "note[OF6001]: Swagger 2.0 has no `components.pathItems`; the export leaves them out or approximates them",
+      "note[OF6001]: Swagger 2.0 has no callbacks; the export leaves them out or approximates them"
+    ],
+    "document": {
+      "definitions": {
+        "Event": {
+          "properties": {
+            "kind": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "Modern components",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/subscriptions": {
+          "post": {
+            "operationId": "subscribe",
+            "responses": {
+              "201": {
+                "description": "Subscribed"
+              }
+            }
+          }
+        }
+      },
+      "responses": {
+        "Events": {
+          "description": "Server-sent events"
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

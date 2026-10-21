@@ -191,7 +191,9 @@ const SCHEMA_20: &[&str] = &[
 ///
 /// Operations and fields that need a newer version (OpenAPI 3.2: `query`,
 /// `additionalOperations`, `querystring` parameters, `itemSchema`; 3.1:
-/// `webhooks`) are removed and reported as [`Code::UnsupportedFeature`].
+/// `webhooks`) are removed and reported as [`Code::UnsupportedFeature`],
+/// wherever they occur: in `paths`, `webhooks`, `components.pathItems`,
+/// callbacks, `components.responses` and `components.requestBodies`.
 /// Schemas are rewritten for the dialect; constructs without an equivalent
 /// are approximated and reported once per kind as [`Code::LossyLowering`].
 /// The `openapi` version field is left to the caller.
@@ -318,9 +320,14 @@ fn lower_schema(schema: &mut Map<String, Value>, dialect: Dialect, lost: &mut BT
     }
 }
 
-/// Removes what `dialect` cannot express, reporting each kind once.
+/// What [`restrict`] removed: the construct and the OpenAPI version it needs.
+type Removed = BTreeSet<(&'static str, &'static str)>;
+
+/// Removes what `dialect` cannot express, reporting each kind once: from the
+/// path items of `paths`, `webhooks` and `components.pathItems`, from every
+/// callback, and from `components.responses` and `components.requestBodies`.
 fn restrict(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnostics) {
-    let mut removed = BTreeSet::new();
+    let mut removed = Removed::new();
     if !dialect.has_webhooks()
         && let Some(map) = document.as_object_mut()
         && map.remove("webhooks").is_some()
@@ -328,26 +335,25 @@ fn restrict(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnostic
         removed.insert(("webhooks", "3.1"));
     }
     for section in ["paths", "webhooks"] {
-        let Some(items) = document.get_mut(section).and_then(Value::as_object_mut) else {
-            continue;
-        };
-        for item in items.values_mut().filter_map(Value::as_object_mut) {
-            if item.remove("query").is_some() {
-                removed.insert(("`QUERY` operations", "3.2"));
+        if let Some(items) = document.get_mut(section).and_then(Value::as_object_mut) {
+            for item in items.values_mut() {
+                restrict_path_item(item, &mut removed);
             }
-            if item.remove("additionalOperations").is_some() {
-                removed.insert(("`additionalOperations`", "3.2"));
-            }
-            for (key, value) in item.iter_mut() {
-                if key == "parameters" {
-                    remove_querystring(value, &mut removed);
-                }
-                if let Some(operation) = value.as_object_mut() {
-                    if let Some(parameters) = operation.get_mut("parameters") {
-                        remove_querystring(parameters, &mut removed);
-                    }
-                    remove_item_schemas(operation, &mut removed);
-                }
+        }
+    }
+    if let Some(Value::Object(components)) = document.get_mut("components") {
+        for (section, entries) in components.iter_mut() {
+            let Value::Object(entries) = entries else {
+                continue;
+            };
+            let restrict_entry: fn(&mut Value, &mut Removed) = match section.as_str() {
+                "pathItems" => restrict_path_item,
+                "callbacks" => restrict_callback,
+                "responses" | "requestBodies" => remove_media_item_schemas,
+                _ => continue,
+            };
+            for entry in entries.values_mut() {
+                restrict_entry(entry, &mut removed);
             }
         }
     }
@@ -362,12 +368,63 @@ fn restrict(document: &mut Value, dialect: Dialect, diagnostics: &mut Diagnostic
     }
 }
 
+/// Removes the OpenAPI 3.2 features of a path item: `query` and
+/// `additionalOperations`, `querystring` parameters, `itemSchema` in request
+/// bodies and responses, also in the callbacks of its operations.
+fn restrict_path_item(item: &mut Value, removed: &mut Removed) {
+    let Some(item) = item.as_object_mut() else {
+        return;
+    };
+    if item.remove("query").is_some() {
+        removed.insert(("`QUERY` operations", "3.2"));
+    }
+    if item.remove("additionalOperations").is_some() {
+        removed.insert(("`additionalOperations`", "3.2"));
+    }
+    for (key, value) in item.iter_mut() {
+        if key == "parameters" {
+            remove_querystring(value, removed);
+        }
+        if key.starts_with("x-") {
+            continue;
+        }
+        if let Some(operation) = value.as_object_mut() {
+            if let Some(parameters) = operation.get_mut("parameters") {
+                remove_querystring(parameters, removed);
+            }
+            if let Some(body) = operation.get_mut("requestBody") {
+                remove_media_item_schemas(body, removed);
+            }
+            if let Some(Value::Object(responses)) = operation.get_mut("responses") {
+                for response in responses.values_mut() {
+                    remove_media_item_schemas(response, removed);
+                }
+            }
+            if let Some(Value::Object(callbacks)) = operation.get_mut("callbacks") {
+                for callback in callbacks.values_mut() {
+                    restrict_callback(callback, removed);
+                }
+            }
+        }
+    }
+}
+
+/// Restricts the path items of a callback (a map of runtime expressions to
+/// path items); a reference has none.
+fn restrict_callback(callback: &mut Value, removed: &mut Removed) {
+    let Some(expressions) = callback.as_object_mut() else {
+        return;
+    };
+    for (expression, item) in expressions.iter_mut() {
+        if !expression.starts_with("x-") {
+            restrict_path_item(item, removed);
+        }
+    }
+}
+
 /// Removes the `in: querystring` parameters (OpenAPI 3.2) of a `parameters`
 /// array.
-fn remove_querystring(
-    parameters: &mut Value,
-    removed: &mut BTreeSet<(&'static str, &'static str)>,
-) {
+fn remove_querystring(parameters: &mut Value, removed: &mut Removed) {
     if let Value::Array(list) = parameters {
         let before = list.len();
         list.retain(|p| p.get("in").and_then(Value::as_str) != Some("querystring"));
@@ -377,27 +434,16 @@ fn remove_querystring(
     }
 }
 
-/// Removes `itemSchema` from the media types of the request body and the
-/// responses of an operation.
-fn remove_item_schemas(
-    operation: &mut Map<String, Value>,
-    removed: &mut BTreeSet<(&'static str, &'static str)>,
-) {
-    let mut strip = |container: &mut Value| {
-        let Some(Value::Object(content)) = container.get_mut("content") else {
-            return;
-        };
-        for media in content.values_mut().filter_map(Value::as_object_mut) {
-            if media.remove("itemSchema").is_some() {
-                removed.insert(("streamed responses (`itemSchema`)", "3.2"));
-            }
-        }
+/// Removes `itemSchema` from the media types of a request body or a
+/// response.
+fn remove_media_item_schemas(container: &mut Value, removed: &mut Removed) {
+    let Some(Value::Object(content)) = container.get_mut("content") else {
+        return;
     };
-    if let Some(body) = operation.get_mut("requestBody") {
-        strip(body);
-    }
-    if let Some(Value::Object(responses)) = operation.get_mut("responses") {
-        responses.values_mut().for_each(&mut strip);
+    for media in content.values_mut().filter_map(Value::as_object_mut) {
+        if media.remove("itemSchema").is_some() {
+            removed.insert(("streamed responses (`itemSchema`)", "3.2"));
+        }
     }
 }
 

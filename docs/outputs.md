@@ -95,7 +95,7 @@ Schemas are generated in JSON Schema 2020-12, the dialect of OpenAPI 3.1 and
 | Root | Schemas | Other differences |
 | :--- | :--- | :--- |
 | `3.2.x` | 2020-12 | everything is kept |
-| `3.1.x` | 2020-12 | 3.2 features are removed with a warning (`OF6002`): `QUERY` and `additionalOperations`, `querystring` parameters, streamed responses |
+| `3.1.x` | 2020-12 | 3.2 features are removed with a warning (`OF6002`): `QUERY` and `additionalOperations`, `querystring` parameters, streamed responses (`itemSchema`); in `paths` and `webhooks` as well as in `components.pathItems`, callbacks, `components.responses` and `components.requestBodies` |
 | `3.0.x` | 3.0 (see below) | additionally webhooks are removed (`OF6002`) |
 
 This applies to the full, schemas and paths outputs. The fragments output

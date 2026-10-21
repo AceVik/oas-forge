@@ -339,3 +339,198 @@ fn asyncapi_lowering_leaves_multi_format_payloads_alone() {
     assert_eq!(document["components"]["messages"]["A"]["payload"], payload);
     assert!(diagnostics.is_empty());
 }
+
+/// OpenAPI 3.2 features below `components` and in callbacks are removed like
+/// those of `paths` when lowering to 3.1.
+mod components_and_callbacks {
+    use super::*;
+
+    /// A path item with every OpenAPI 3.2 feature, and an extension that
+    /// holds look-alike data.
+    fn modern_path_item() -> Value {
+        json!({
+            "parameters": [
+                { "name": "filter", "in": "querystring", "content": { "application/json": {} } },
+                { "name": "page", "in": "query" },
+            ],
+            "query": { "responses": {} },
+            "additionalOperations": { "PURGE": { "responses": {} } },
+            "post": {
+                "parameters": [{ "name": "q", "in": "querystring", "content": { "application/json": {} } }],
+                "requestBody": { "content": { "application/jsonl": { "itemSchema": { "type": "string" } } } },
+                "responses": { "200": {
+                    "description": "Events",
+                    "content": { "text/event-stream": { "itemSchema": { "type": "string" } } },
+                }},
+            },
+            "x-meta": { "parameters": [{ "in": "querystring" }], "requestBody": { "content": { "a/b": { "itemSchema": {} } } } },
+        })
+    }
+
+    /// `modern_path_item` without its 3.2 features.
+    fn restricted_path_item() -> Value {
+        json!({
+            "parameters": [{ "name": "page", "in": "query" }],
+            "post": {
+                "parameters": [],
+                "requestBody": { "content": { "application/jsonl": {} } },
+                "responses": { "200": { "description": "Events", "content": { "text/event-stream": {} } } },
+            },
+            "x-meta": { "parameters": [{ "in": "querystring" }], "requestBody": { "content": { "a/b": { "itemSchema": {} } } } },
+        })
+    }
+
+    fn lowered_31(mut document: Value) -> (Value, Vec<String>) {
+        let mut diagnostics = Diagnostics::new();
+        lower(&mut document, Dialect::OpenApi31, &mut diagnostics);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|d| d.code() == Code::UnsupportedFeature),
+            "{diagnostics:?}"
+        );
+        let messages = diagnostics
+            .iter()
+            .map(|d| d.message().to_string())
+            .collect();
+        (document, messages)
+    }
+
+    const ALL_REMOVED: [&str; 4] = [
+        "`QUERY` operations need OpenAPI 3.2 or newer and were left out of the OpenAPI 3.1 document",
+        "`additionalOperations` need OpenAPI 3.2 or newer and were left out of the OpenAPI 3.1 document",
+        "`querystring` parameters need OpenAPI 3.2 or newer and were left out of the OpenAPI 3.1 document",
+        "streamed responses (`itemSchema`) need OpenAPI 3.2 or newer and were left out of the OpenAPI 3.1 document",
+    ];
+
+    #[test]
+    fn path_items_of_components_are_restricted() {
+        let (document, messages) = lowered_31(json!({
+            "openapi": "3.1.1",
+            "components": { "pathItems": { "Search": modern_path_item(), "Ref": { "$ref": "#/x" } } },
+        }));
+        assert_eq!(
+            document["components"]["pathItems"],
+            json!({ "Search": restricted_path_item(), "Ref": { "$ref": "#/x" } })
+        );
+        assert_eq!(messages, ALL_REMOVED);
+    }
+
+    #[test]
+    fn callbacks_of_operations_are_restricted_at_any_depth() {
+        let mut inner = modern_path_item();
+        inner["post"]["callbacks"] =
+            json!({ "nested": { "{$request.body#/url}": modern_path_item() } });
+        let (document, messages) = lowered_31(json!({
+            "openapi": "3.1.1",
+            "paths": { "/subscribe": { "post": {
+                "responses": {},
+                "callbacks": {
+                    "onEvent": {
+                        "{$request.body#/callback}": inner,
+                        "x-note": { "query": { "responses": {} } },
+                    },
+                    "shared": { "$ref": "#/components/callbacks/Shared" },
+                },
+            }}},
+        }));
+        let callbacks = &document["paths"]["/subscribe"]["post"]["callbacks"];
+        let mut expected = restricted_path_item();
+        expected["post"]["callbacks"] =
+            json!({ "nested": { "{$request.body#/url}": restricted_path_item() } });
+        assert_eq!(callbacks["onEvent"]["{$request.body#/callback}"], expected);
+        assert_eq!(
+            callbacks["onEvent"]["x-note"],
+            json!({ "query": { "responses": {} } }),
+            "extensions are data"
+        );
+        assert_eq!(
+            callbacks["shared"],
+            json!({ "$ref": "#/components/callbacks/Shared" })
+        );
+        assert_eq!(messages, ALL_REMOVED);
+    }
+
+    #[test]
+    fn callbacks_of_components_are_restricted() {
+        let (document, messages) = lowered_31(json!({
+            "openapi": "3.1.1",
+            "components": { "callbacks": {
+                "Shared": { "{$request.body#/url}": modern_path_item() },
+                "Malformed": "not a callback",
+            }},
+        }));
+        assert_eq!(
+            document["components"]["callbacks"],
+            json!({
+                "Shared": { "{$request.body#/url}": restricted_path_item() },
+                "Malformed": "not a callback",
+            })
+        );
+        assert_eq!(messages, ALL_REMOVED);
+    }
+
+    #[test]
+    fn streamed_component_responses_and_request_bodies_lose_item_schemas() {
+        for section in ["responses", "requestBodies"] {
+            let (document, messages) = lowered_31(json!({
+                "openapi": "3.1.1",
+                "components": { section: {
+                    "Events": {
+                        "description": "Events",
+                        "content": {
+                            "text/event-stream": { "itemSchema": { "type": "string" } },
+                            "application/json": { "schema": { "type": "string" } },
+                        },
+                    },
+                    "NoContent": { "description": "None" },
+                }},
+            }));
+            assert_eq!(
+                document["components"][section],
+                json!({
+                    "Events": {
+                        "description": "Events",
+                        "content": {
+                            "text/event-stream": {},
+                            "application/json": { "schema": { "type": "string" } },
+                        },
+                    },
+                    "NoContent": { "description": "None" },
+                }),
+                "{section}"
+            );
+            assert_eq!(messages, [ALL_REMOVED[3]], "{section}");
+        }
+    }
+
+    #[test]
+    fn other_component_sections_are_left_alone() {
+        let components = json!({
+            "schemas": { "S": { "type": "object", "properties": { "query": { "type": "string" } } } },
+            "parameters": { "Q": { "name": "q", "in": "query" } },
+            "headers": { "H": { "schema": { "type": "string" } } },
+            "examples": { "E": { "value": { "itemSchema": 1, "query": 2 } } },
+        });
+        let (document, messages) =
+            lowered_31(json!({ "openapi": "3.1.1", "components": components.clone() }));
+        assert_eq!(document["components"], components);
+        assert!(messages.is_empty(), "{messages:?}");
+    }
+
+    #[test]
+    fn openapi_32_keeps_everything() {
+        let document = json!({
+            "openapi": "3.2.0",
+            "components": {
+                "pathItems": { "Search": modern_path_item() },
+                "callbacks": { "Shared": { "{$request.body#/url}": modern_path_item() } },
+            },
+        });
+        let mut lowered = document.clone();
+        let mut diagnostics = Diagnostics::new();
+        lower(&mut lowered, Dialect::OpenApi32, &mut diagnostics);
+        assert_eq!(lowered, document);
+        assert!(diagnostics.is_empty());
+    }
+}
