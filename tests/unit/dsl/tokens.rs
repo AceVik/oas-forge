@@ -120,6 +120,17 @@ fn backticks_after_an_escaped_quote_stay_in_the_description() {
 }
 
 #[test]
+fn a_backslash_outside_quotes_escapes_nothing() {
+    // A pattern ends at whitespace, also after a backslash: `b` is no flag.
+    let (_, diagnostics) = try_route(&["@route GET /x", r"@query-param q: String pattern=a\ b"]);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    assert!(
+        diagnostics.iter().next().unwrap().message().contains("`b`"),
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
 fn an_unbalanced_quote_is_no_description() {
     // As before: a trailing quote without opening quote is dropped.
     let op = operation(&["@route GET /x", r#"@return 200: String""#], "/x", "get");
