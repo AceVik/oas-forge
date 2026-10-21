@@ -225,8 +225,9 @@ pub fn compile_channel(
         None => source.location.clone(),
     };
     let mut channel: Option<(String, String)> = None;
-    // An invalid `@channel` line is reported where it is.
-    let mut channel_lines = 0;
+    // Whether there is a `@channel` line; an invalid one is reported where
+    // it is.
+    let mut channel_line = false;
     let mut prose = Prose::default();
     // What plain lines continue.
     let mut text = Text::Free;
@@ -257,7 +258,7 @@ pub fn compile_channel(
         text = Text::after(name);
         match name {
             "channel" => {
-                channel_lines += 1;
+                channel_line = true;
                 let tokens: Vec<&str> = rest.split_whitespace().collect();
                 channel = match tokens.as_slice() {
                     [address] => Some((derived_id(address), (*address).to_string())),
@@ -395,7 +396,7 @@ pub fn compile_channel(
     }
 
     let Some((id, address)) = channel else {
-        if channel_lines == 0 {
+        if !channel_line {
             diagnostics.push(
                 Diagnostic::new(Code::InvalidRoute, "`@channel` needs an address")
                     .at(source.location.clone()),

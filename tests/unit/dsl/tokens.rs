@@ -120,6 +120,15 @@ fn backticks_after_an_escaped_quote_stay_in_the_description() {
 }
 
 #[test]
+fn an_escaped_quote_keeps_a_parameter_description_one_token() {
+    let op = op(&[
+        "@route GET /x",
+        r#"@query-param q: String "say \"hi there\"""#,
+    ]);
+    assert_eq!(op["parameters"][0]["description"], r#"say "hi there""#);
+}
+
+#[test]
 fn a_backslash_outside_quotes_escapes_nothing() {
     // A pattern ends at whitespace, also after a backslash: `b` is no flag.
     let (_, diagnostics) = try_route(&["@route GET /x", r"@query-param q: String pattern=a\ b"]);
