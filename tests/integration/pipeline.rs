@@ -312,7 +312,8 @@ fn health() {}
                 assert!(
                     message.starts_with(&format!(
                         "YAML error in {}:4: an OpenAPI snippet must be a mapping at the top level, found a string",
-                        project.path("src/lib.rs").display()
+                        // As the walk joins it: `src\lib.rs` on Windows.
+                        project.path("src").join("lib.rs").display()
                     )),
                     "{message}"
                 );
