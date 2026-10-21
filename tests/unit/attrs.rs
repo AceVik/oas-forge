@@ -329,6 +329,10 @@ mod validator {
             json!({ "type": "integer", "format": "int64", "minimum": -5, "maximum": 5 })
         );
         assert_eq!(
+            field_schema("#[validate(range(min = 1))]", "i64"),
+            json!({ "type": "integer", "format": "int64", "minimum": 1 })
+        );
+        assert_eq!(
             field_schema("#[validate(range(min = 0.5, max = 1.5))]", "f64"),
             json!({ "type": "number", "format": "double", "minimum": 0.5, "maximum": 1.5 })
         );
@@ -537,6 +541,11 @@ mod garde {
         assert_eq!(
             field_schema("#[garde(length(utf16, max = 3))]", "String")["maxLength"],
             3
+        );
+        assert_eq!(
+            field_schema("#[garde(length(utf16, min = 3))]", "String")["minLength"],
+            2,
+            "two UTF-16 units at most per character"
         );
         assert_eq!(
             field_schema("#[garde(length(graphemes, min = 2, max = 9))]", "String"),
