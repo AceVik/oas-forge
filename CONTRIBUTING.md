@@ -55,3 +55,50 @@ tests the newest dependency releases on stable and beta Rust.
 
 By contributing you agree that your work is licensed under the
 [MIT license](LICENSE).
+
+## Releasing
+
+Both crates (`oas-forge` and `oas-forge-cli`) share the workspace version and
+are released together by `.github/workflows/release.yml` when a version tag
+is pushed.
+
+### One-time setup
+
+1. GitHub, *Settings → Environments*: create `crates-io` and restrict its
+   deployments to tags matching `v*` (optionally add required reviewers for
+   a manual approval before anything is published).
+2. GitHub, *Settings → Rules*: protect `main` (pull requests, the CI checks
+   must pass) and `v*` tags (only maintainers may create them).
+3. crates.io, each crate's *Settings → Trusted Publishing*: add GitHub
+   repository `AceVik/oas-forge`, workflow `release.yml`, environment
+   `crates-io`.
+4. A crate that is not on crates.io yet cannot use trusted publishing for its
+   first release. For that release only, create a crates.io API token that
+   may publish both crates, store it as the secret
+   `CRATES_IO_BOOTSTRAP_TOKEN` of the `crates-io` environment, and after the
+   release add the trusted publisher (step 3), delete the secret and revoke
+   the token.
+
+### Each release
+
+1. Set the new version in `[workspace.package]` of the root `Cargo.toml`
+   (for a new minor or major version, also the `oas-forge` requirement in
+   `crates/oas-forge-cli/Cargo.toml`), run `cargo update -w`.
+2. Rename the `Unreleased` section of `CHANGELOG.md` to
+   `## [x.y.z] — YYYY-MM-DD`; it becomes the release notes.
+3. Merge that to `main` through a pull request.
+4. Tag the merge commit and push the tag:
+
+   ```bash
+   git tag -a v0.2.0 -m "oas-forge 0.2.0"
+   git push origin v0.2.0
+   ```
+
+The workflow checks that the tag is the workspace version, that the commit
+is on `main`, that CI passed for it (waiting up to an hour for a running CI)
+and that the changelog has the section. It then builds the CLI for six
+targets, publishes `oas-forge` and `oas-forge-cli` to crates.io and creates
+the GitHub release with the binaries, `SHA256SUMS` and build provenance.
+Every job can be re-run: versions already on crates.io are skipped and an
+existing GitHub release gets its assets replaced. A tag can also be released
+again by hand (*Actions → Release → Run workflow*).
