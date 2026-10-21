@@ -273,6 +273,23 @@ mod fenced_yaml {
     }
 
     #[test]
+    fn fences_after_scope_lines_and_asyncapi_headers_hold_separators_too() {
+        for source in [
+            "//! @openapi\n//! @scope public\n//! ```yaml\n//! info:\n//!   description: |\n//!     Title\n//!     -----\n//! ```\n\nfn main() {}",
+            "//! @asyncapi\n//! ```yaml\n//! info:\n//!   description: |\n//!     Title\n//!     -----\n//! ```\n\nfn main() {}",
+        ] {
+            let (items, diagnostics) = extract_with_diagnostics(source);
+            assert!(diagnostics.is_empty(), "{source}: {diagnostics:?}");
+            let text = match &items[..] {
+                [oas_forge::extract::Item::Document(document)]
+                | [oas_forge::extract::Item::AsyncApi(document)] => document.text.clone(),
+                other => panic!("{other:#?}"),
+            };
+            assert!(text.contains("    -----"), "{source}: {text}");
+        }
+    }
+
+    #[test]
     fn a_fence_after_other_lines_is_no_yaml_fence() {
         let (_, diagnostics) = extract_with_diagnostics(
             "//! @openapi\n//! x-a: 1\n//! ```yaml\n//! -----\n//! ```\n\nfn main() {}",
