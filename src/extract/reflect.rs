@@ -130,7 +130,8 @@ pub(super) struct Reflector<'a> {
     variables: &'a Variables,
     /// Where findings go.
     diagnostics: &'a mut Diagnostics,
-    /// `@openapi-fragment` blocks found in the doc comments read so far.
+    /// `@openapi-fragment` blocks found in the doc comments of the items
+    /// reflected so far, their fields and their variants.
     fragments: Vec<Item>,
 }
 
@@ -150,10 +151,32 @@ impl<'a> Reflector<'a> {
         }
     }
 
-    /// The fragments defined in the doc comments read so far (also of items
-    /// that are not exported).
+    /// The fragments defined in the doc comments of the items reflected so
+    /// far, their fields and their variants (also of items that are not
+    /// exported).
     pub(super) fn take_fragments(&mut self) -> Vec<Item> {
         std::mem::take(&mut self.fragments)
+    }
+
+    /// Keeps the `@openapi-fragment` blocks of an item's doc comment
+    /// (`attrs`) and of its `members` (fields, variants and the fields of
+    /// variants) for [`Self::take_fragments`], in source order. Every member
+    /// is read, also of items that are not exported or not reflected field
+    /// by field (`into`, `transparent`, tuple structs); nothing else of their
+    /// docs is checked here.
+    fn fragments<'m>(
+        &mut self,
+        attrs: &'m [syn::Attribute],
+        members: impl IntoIterator<Item = &'m [syn::Attribute]>,
+    ) {
+        for attrs in std::iter::once(attrs).chain(members) {
+            // The kind only matters for `@openapi<T>`, not for fragments.
+            let docs = ItemDocs::parse(&doc_lines(attrs), ItemKind::Member);
+            for (header, body) in &docs.fragments {
+                self.fragments
+                    .push(super::blocks::item_fragment(self.path, header, body));
+            }
+        }
     }
 
     /// The location of the 1-based `line` of the file.
@@ -163,14 +186,10 @@ impl<'a> Reflector<'a> {
 
     /// Reads the attributes and doc comment of an item, field or variant
     /// (`kind`) named `default` in Rust. Invalid directives are reported;
-    /// fragments in the doc comment are kept for [`Self::take_fragments`].
+    /// fragments are read by [`Self::fragments`].
     fn naming(&mut self, attrs: &[syn::Attribute], default: &str, kind: ItemKind) -> Naming {
         let serde = SerdeAttrs::parse(attrs);
         let docs = ItemDocs::parse(&doc_lines(attrs), kind);
-        for (header, body) in &docs.fragments {
-            self.fragments
-                .push(super::blocks::item_fragment(self.path, header, body));
-        }
         for problem in &docs.problems {
             self.diagnostics.push(
                 Diagnostic::new(Code::InvalidSchemaDirective, problem.text.clone())
@@ -476,6 +495,7 @@ impl<'a> Reflector<'a> {
 
     /// Reflects a struct with an `@openapi` directive.
     pub(super) fn structure(&mut self, item: &syn::ItemStruct) -> Vec<Item> {
+        self.fragments(&item.attrs, item.fields.iter().map(|f| &f.attrs[..]));
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Container);
         if !naming.docs.exported || naming.docs.skip {
@@ -578,6 +598,7 @@ impl<'a> Reflector<'a> {
     /// Reflects a type alias (always exported, unless `@openapi skip`; a
     /// generic alias is a blueprint).
     pub(super) fn alias(&mut self, item: &syn::ItemType) -> Option<Item> {
+        self.fragments(&item.attrs, []);
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Container);
         if naming.docs.skip {
@@ -603,6 +624,10 @@ impl<'a> Reflector<'a> {
 
     /// Reflects an enum with an `@openapi` directive.
     pub(super) fn enumeration(&mut self, item: &syn::ItemEnum) -> Vec<Item> {
+        let members = item.variants.iter().flat_map(|variant| {
+            std::iter::once(&variant.attrs[..]).chain(variant.fields.iter().map(|f| &f.attrs[..]))
+        });
+        self.fragments(&item.attrs, members);
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Container);
         if !naming.docs.exported || naming.docs.skip {

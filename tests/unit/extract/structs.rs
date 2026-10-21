@@ -1158,7 +1158,9 @@ mod fragments {
             }
             "#,
         );
-        assert_eq!(kinds(&items), ["fragment:A", "fragment:B"]);
+        // `C` is on a variant of an enum that is not exported: a fragment
+        // all the same.
+        assert_eq!(kinds(&items), ["fragment:A", "fragment:B", "fragment:C"]);
         assert_eq!(fragment(&items, "B").body, "b: 2");
     }
 
@@ -1174,6 +1176,172 @@ mod fragments {
         assert_eq!(
             schema(&items, "S")["properties"]["a"],
             json!({ "type": "boolean" })
+        );
+    }
+
+    #[test]
+    fn fragments_of_members_of_types_that_are_not_exported_are_registered() {
+        let (items, diagnostics) = extract_with_diagnostics(
+            r#"
+            pub struct Plain {
+                /// @openapi-fragment Named
+                /// a: 1
+                /// @openapi rename
+                pub a: bool,
+            }
+            pub struct Tuple(
+                /// @openapi-fragment Unnamed
+                /// b: 1
+                pub u8,
+            );
+            /// @openapi skip
+            pub enum Skipped {
+                /// @openapi-fragment Variant
+                /// c: 1
+                V {
+                    /// @openapi-fragment VariantField
+                    /// d: 1
+                    f: u8,
+                },
+                W(
+                    /// @openapi-fragment TupleVariantField
+                    /// e: 1
+                    u8,
+                ),
+            }
+            "#,
+        );
+        // Only fragments are read: the directives of members of a type that
+        // is not exported (`@openapi rename` without a name) are not checked.
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            kinds(&items),
+            [
+                "fragment:Named",
+                "fragment:Unnamed",
+                "fragment:Variant",
+                "fragment:VariantField",
+                "fragment:TupleVariantField",
+            ]
+        );
+        assert_eq!(fragment(&items, "Named").body, "a: 1");
+        assert_eq!(fragment(&items, "VariantField").location.line(), 18);
+    }
+
+    #[test]
+    fn fragments_of_members_that_are_not_reflected_one_by_one_are_registered() {
+        let items = extract(
+            r#"
+            /// @openapi
+            pub struct Id(
+                /// @openapi-fragment IdField
+                /// a: 1
+                pub u64,
+            );
+            /// @openapi
+            #[serde(transparent)]
+            pub struct Wrapper {
+                /// @openapi-fragment WrappedField
+                /// b: 1
+                pub inner: u64,
+            }
+            /// @openapi
+            #[derive(Serialize_repr)]
+            #[repr(u8)]
+            pub enum Level {
+                /// @openapi-fragment Low
+                /// c: 1
+                Low = 1,
+            }
+            /// @openapi
+            #[serde(into = "String")]
+            pub enum Code {
+                /// @openapi-fragment Converted
+                /// d: 1
+                A,
+            }
+            "#,
+        );
+        assert_eq!(
+            kinds(&items),
+            [
+                "fragment:IdField",
+                "schema:Id",
+                "fragment:WrappedField",
+                "schema:Wrapper",
+                "fragment:Low",
+                "schema:Level",
+                "fragment:Converted",
+                "schema:Code",
+            ]
+        );
+    }
+
+    #[test]
+    fn fragments_of_enums_are_registered_once_in_source_order() {
+        let items = extract(
+            r#"
+            /// @openapi-fragment Container
+            /// a: 1
+            ///
+            /// @openapi
+            #[serde(tag = "kind")]
+            pub enum Event {
+                /// @openapi-fragment First
+                /// b: 1
+                Created {
+                    /// @openapi-fragment FirstField
+                    /// c: 1
+                    id: u64,
+                },
+                /// @openapi-fragment Second
+                /// d: 1
+                Deleted,
+            }
+            "#,
+        );
+        assert_eq!(
+            kinds(&items),
+            [
+                "fragment:Container",
+                "fragment:First",
+                "fragment:FirstField",
+                "fragment:Second",
+                "schema:EventCreated",
+                "schema:EventDeleted",
+                "schema:Event",
+            ]
+        );
+    }
+
+    #[test]
+    fn fragments_on_fields_of_types_that_are_not_exported_can_be_inserted() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            r#"
+            /// @openapi
+            /// openapi: 3.1.0
+            /// info: { title: T, version: 1.0.0 }
+            pub fn root() {}
+
+            pub struct Query {
+                /// @openapi-fragment Paging
+                /// - name: page
+                ///   in: query
+                ///   schema: { type: integer }
+                pub page: u32,
+            }
+
+            /// @route GET /x
+            /// parameters:
+            ///   - @insert Paging
+            pub async fn x() {}
+            "#,
+        )]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            document["paths"]["/x"]["get"]["parameters"][0]["name"],
+            "page"
         );
     }
 

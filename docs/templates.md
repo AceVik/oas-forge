@@ -141,7 +141,8 @@ pub async fn reports() {}
 ```
 
 - `@openapi-fragment Name(param, …)` defines a fragment, in a file comment
-  or on any item. The parameters are optional; `{{param}}` in the body is
+  or in the doc comment of any item, field or variant (also of a type that
+  is not exported). The parameters are optional; `{{param}}` in the body is
   replaced by the argument. The body ends at the next `@openapi…` line (on
   a type, field or variant also at an `@example` line) or where the doc
   comment is interrupted by a line that is not a doc comment, such as a
