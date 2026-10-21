@@ -1,0 +1,17 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/dsl_impl_methods/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /method:
+    get:
+      operationId: method
+      responses:
+        "200":
+          description: ok

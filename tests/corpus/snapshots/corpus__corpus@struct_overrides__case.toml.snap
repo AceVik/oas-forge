@@ -1,0 +1,320 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/struct_overrides/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Structs: @openapi YAML overrides on structs and fields (inline, multi-line, invalid)",
+  "diagnostics": [
+    "warning[OF1001]: `@openapi` override of field `broken` is not valid YAML: unclosed bracket '[' (<case>/src/lib.rs:19)"
+  ],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Inline": {
+            "description": "inline header override",
+            "properties": {
+              "flag": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "flag"
+            ],
+            "type": "object"
+          },
+          "Overridden": {
+            "description": "Overridden description",
+            "properties": {
+              "broken": {
+                "type": "string"
+              },
+              "code": {
+                "example": "abc",
+                "type": "string"
+              },
+              "count": {
+                "description": "Amount of items.",
+                "example": 42,
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "code",
+              "count",
+              "broken"
+            ],
+            "type": "object",
+            "x-internal": true
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Inline": {
+            "description": "inline header override",
+            "properties": {
+              "flag": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "flag"
+            ],
+            "type": "object"
+          },
+          "Overridden": {
+            "description": "Overridden description",
+            "properties": {
+              "broken": {
+                "type": "string"
+              },
+              "code": {
+                "example": "abc",
+                "type": "string"
+              },
+              "count": {
+                "description": "Amount of items.",
+                "example": 42,
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "code",
+              "count",
+              "broken"
+            ],
+            "type": "object",
+            "x-internal": true
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Inline": {
+          "description": "inline header override",
+          "properties": {
+            "flag": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "flag"
+          ],
+          "type": "object"
+        },
+        "Overridden": {
+          "description": "Overridden description",
+          "properties": {
+            "broken": {
+              "type": "string"
+            },
+            "code": {
+              "example": "abc",
+              "type": "string"
+            },
+            "count": {
+              "description": "Amount of items.",
+              "example": 42,
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "count",
+            "broken"
+          ],
+          "type": "object",
+          "x-internal": true
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Inline": {
+            "description": "inline header override",
+            "properties": {
+              "flag": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "flag"
+            ],
+            "type": "object"
+          },
+          "Overridden": {
+            "description": "Overridden description",
+            "properties": {
+              "broken": {
+                "type": "string"
+              },
+              "code": {
+                "example": "abc",
+                "type": "string"
+              },
+              "count": {
+                "description": "Amount of items.",
+                "example": 42,
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "code",
+              "count",
+              "broken"
+            ],
+            "type": "object",
+            "x-internal": true
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {}
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Inline": {
+        "description": "inline header override",
+        "properties": {
+          "flag": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "flag"
+        ],
+        "type": "object"
+      },
+      "Overridden": {
+        "description": "Overridden description",
+        "properties": {
+          "broken": {
+            "type": "string"
+          },
+          "code": {
+            "example": "abc",
+            "type": "string"
+          },
+          "count": {
+            "description": "Amount of items.",
+            "example": 42,
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "count",
+          "broken"
+        ],
+        "type": "object",
+        "x-internal": true
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "Inline": {
+          "description": "inline header override",
+          "properties": {
+            "flag": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "flag"
+          ],
+          "type": "object"
+        },
+        "Overridden": {
+          "description": "Overridden description",
+          "properties": {
+            "broken": {
+              "type": "string"
+            },
+            "code": {
+              "example": "abc",
+              "type": "string"
+            },
+            "count": {
+              "description": "Amount of items.",
+              "example": 42,
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "count",
+            "broken"
+          ],
+          "type": "object",
+          "x-internal": true
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {},
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

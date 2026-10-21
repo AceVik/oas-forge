@@ -1,0 +1,9 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/error_invalid_rust/case.toml
+---
+{
+  "description": "Errors: a file that is not valid Rust",
+  "error": "Rust syntax error in <case>/src/lib.rs:1:12: cannot parse string into token stream"
+}

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-labelledby="title desc">
+  <title id="title">oas-forge</title>
+  <desc id="desc">Compile-time OpenAPI for Rust: OpenAPI 3.2, 3.1 and 3.0, Swagger 2.0, JSON Schema and AsyncAPI 3 from Rust code and doc comments, without macros or runtime cost.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#16213d"/>
+    </linearGradient>
+    <linearGradient id="fire" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#ea580c"/>
+      <stop offset="1" stop-color="#fbbf24"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.2" cy="0.45" r="0.5">
+      <stop offset="0" stop-color="#f97316" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#f97316" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#ffffff" stroke-opacity="0.04"/>
+    </pattern>
+  </defs>
+
+  <rect width="1280" height="360" rx="24" fill="url(#bg)"/>
+  <rect width="1280" height="360" rx="24" fill="url(#grid)"/>
+  <rect width="1280" height="360" rx="24" fill="url(#glow)"/>
+
+  <!-- Mark: braces forged on an anvil, with sparks -->
+  <g transform="translate(52 70) scale(0.9)">
+    <text x="104" y="118" text-anchor="middle" font-family="SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="120" font-weight="700" fill="url(#fire)">{ }</text>
+    <path d="M0 140 C30 140 40 134 46 132 L196 132 L196 162 L170 162 C158 162 150 172 150 186 L150 194 L176 194 L184 220 L36 220 L44 194 L70 194 L70 186 C70 172 62 162 50 162 L40 162 C24 162 10 154 0 140 Z" fill="#334155" stroke="#475569" stroke-width="2"/>
+    <rect x="46" y="132" width="150" height="6" fill="#64748b"/>
+    <g fill="#fbbf24">
+      <circle cx="196" cy="34" r="5"/>
+      <circle cx="214" cy="60" r="3.5"/>
+      <circle cx="182" cy="12" r="3"/>
+      <circle cx="16" cy="44" r="3"/>
+      <circle cx="4" cy="70" r="2.5"/>
+    </g>
+  </g>
+
+  <g font-family="'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif">
+    <text x="300" y="158" font-size="88" font-weight="700" fill="#ffffff" letter-spacing="-1">oas-forge</text>
+    <text x="304" y="210" font-size="32" fill="#cbd5e1">Compile-time OpenAPI for Rust</text>
+
+    <g font-size="19" font-weight="600">
+      <g transform="translate(304 248)">
+        <rect width="244" height="40" rx="20" fill="#f97316" fill-opacity="0.16" stroke="#f97316" stroke-opacity="0.6"/>
+        <text x="122" y="27" text-anchor="middle" fill="#fed7aa">OpenAPI 3.2 · 3.1 · 3.0</text>
+      </g>
+      <g transform="translate(560 248)">
+        <rect width="150" height="40" rx="20" fill="#38bdf8" fill-opacity="0.14" stroke="#38bdf8" stroke-opacity="0.6"/>
+        <text x="75" y="27" text-anchor="middle" fill="#bae6fd">Swagger 2.0</text>
+      </g>
+      <g transform="translate(722 248)">
+        <rect width="156" height="40" rx="20" fill="#a78bfa" fill-opacity="0.14" stroke="#a78bfa" stroke-opacity="0.6"/>
+        <text x="78" y="27" text-anchor="middle" fill="#ddd6fe">JSON Schema</text>
+      </g>
+      <g transform="translate(890 248)">
+        <rect width="142" height="40" rx="20" fill="#34d399" fill-opacity="0.14" stroke="#34d399" stroke-opacity="0.6"/>
+        <text x="71" y="27" text-anchor="middle" fill="#a7f3d0">AsyncAPI 3</text>
+      </g>
+    </g>
+    <text x="304" y="324" font-size="20" fill="#94a3b8">From serde types, doc comments and axum / actix-web handlers · no macros · no runtime cost</text>
+  </g>
+</svg>

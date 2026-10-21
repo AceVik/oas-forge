@@ -1,0 +1,4 @@
+description = "Fragments used with @extend get the full text stage (variables, nested @insert and @extend, escapes); cycles are reported; regex escapes and block scalars are kept"
+
+[variables]
+VERSION = "1.10"

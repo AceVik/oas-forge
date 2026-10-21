@@ -1,0 +1,424 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/fragment_text_stage/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Fragments used with @extend get the full text stage (variables, nested @insert and @extend, escapes); cycles are reported; regex escapes and block scalars are kept",
+  "diagnostics": [
+    "warning[OF3010]: fragment `Loop` extends itself (Loop → Loop); the extend is skipped (<case>/src/lib.rs:43)"
+  ],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Price": {
+            "pattern": "^\\$\\d+\\.\\d{2}$",
+            "type": "string"
+          }
+        },
+        "x-oas-forge-format": 1,
+        "x-oas-forge-fragments": {
+          "Listing": {
+            "body": "parameters:\n  @insert Paging\n@extend Versioned",
+            "params": []
+          },
+          "Loop": {
+            "body": "x-loop: true\n@extend Loop",
+            "params": []
+          },
+          "Paging": {
+            "body": "- name: page\n  in: query\n  schema: { type: integer }",
+            "params": []
+          },
+          "Versioned": {
+            "body": "x-api-version: {{VERSION}}\nx-price-hint: \\$5 per call",
+            "params": []
+          }
+        }
+      },
+      "paths": {
+        "/loop": {
+          "get": {
+            "operationId": "looping",
+            "responses": {
+              "204": {
+                "description": "No Content"
+              }
+            },
+            "summary": "Loops",
+            "x-loop": true
+          }
+        },
+        "/prices": {
+          "get": {
+            "description": "Prices are strings such as `$5.00`.",
+            "operationId": "list_prices",
+            "parameters": [
+              {
+                "description": "Upper bound",
+                "in": "query",
+                "name": "below",
+                "required": true,
+                "schema": {
+                  "pattern": "^\\$\\d+$",
+                  "type": "string"
+                }
+              },
+              {
+                "in": "query",
+                "name": "page",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Price"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "List prices",
+            "x-api-version": "1.10",
+            "x-price-hint": "$5 per call"
+          }
+        }
+      },
+      "x-releases": [
+        {
+          "version": "1.10"
+        }
+      ]
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Price": {
+            "pattern": "^\\$\\d+\\.\\d{2}$",
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "description": "Release notes\n\nVersion: 1.10\n",
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/loop": {
+          "get": {
+            "operationId": "looping",
+            "responses": {
+              "204": {
+                "description": "No Content"
+              }
+            },
+            "summary": "Loops",
+            "x-loop": true
+          }
+        },
+        "/prices": {
+          "get": {
+            "description": "Prices are strings such as `$5.00`.",
+            "operationId": "list_prices",
+            "parameters": [
+              {
+                "description": "Upper bound",
+                "in": "query",
+                "name": "below",
+                "required": true,
+                "schema": {
+                  "pattern": "^\\$\\d+$",
+                  "type": "string"
+                }
+              },
+              {
+                "in": "query",
+                "name": "page",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Price"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "List prices",
+            "x-api-version": "1.10",
+            "x-price-hint": "$5 per call"
+          }
+        }
+      },
+      "x-releases": [
+        {
+          "version": "1.10"
+        }
+      ]
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Price": {
+          "pattern": "^\\$\\d+\\.\\d{2}$",
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Price": {
+            "pattern": "^\\$\\d+\\.\\d{2}$",
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "description": "Release notes\n\nVersion: 1.10\n",
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/loop": {
+          "get": {
+            "operationId": "looping",
+            "responses": {
+              "204": {
+                "description": "No Content"
+              }
+            },
+            "summary": "Loops",
+            "x-loop": true
+          }
+        },
+        "/prices": {
+          "get": {
+            "description": "Prices are strings such as `$5.00`.",
+            "operationId": "list_prices",
+            "parameters": [
+              {
+                "description": "Upper bound",
+                "in": "query",
+                "name": "below",
+                "required": true,
+                "schema": {
+                  "pattern": "^\\$\\d+$",
+                  "type": "string"
+                }
+              },
+              {
+                "in": "query",
+                "name": "page",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Price"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "List prices",
+            "x-api-version": "1.10",
+            "x-price-hint": "$5 per call"
+          }
+        }
+      },
+      "x-releases": [
+        {
+          "version": "1.10"
+        }
+      ]
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/loop": {
+        "get": {
+          "operationId": "looping",
+          "responses": {
+            "204": {
+              "description": "No Content"
+            }
+          },
+          "summary": "Loops",
+          "x-loop": true
+        }
+      },
+      "/prices": {
+        "get": {
+          "description": "Prices are strings such as `$5.00`.",
+          "operationId": "list_prices",
+          "parameters": [
+            {
+              "description": "Upper bound",
+              "in": "query",
+              "name": "below",
+              "required": true,
+              "schema": {
+                "pattern": "^\\$\\d+$",
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/Price"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          },
+          "summary": "List prices",
+          "x-api-version": "1.10",
+          "x-price-hint": "$5 per call"
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Price": {
+        "pattern": "^\\$\\d+\\.\\d{2}$",
+        "type": "string"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "Price": {
+          "pattern": "^\\$\\d+\\.\\d{2}$",
+          "type": "string"
+        }
+      },
+      "info": {
+        "description": "Release notes\n\nVersion: 1.10\n",
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/loop": {
+          "get": {
+            "operationId": "looping",
+            "responses": {
+              "204": {
+                "description": "No Content"
+              }
+            },
+            "summary": "Loops",
+            "x-loop": true
+          }
+        },
+        "/prices": {
+          "get": {
+            "description": "Prices are strings such as `$5.00`.",
+            "operationId": "list_prices",
+            "parameters": [
+              {
+                "description": "Upper bound",
+                "in": "query",
+                "name": "below",
+                "pattern": "^\\$\\d+$",
+                "required": true,
+                "type": "string"
+              },
+              {
+                "in": "query",
+                "name": "page",
+                "type": "integer"
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "items": {
+                    "$ref": "#/definitions/Price"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "summary": "List prices",
+            "x-api-version": "1.10",
+            "x-price-hint": "$5 per call"
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

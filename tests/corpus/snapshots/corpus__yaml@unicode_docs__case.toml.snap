@@ -1,0 +1,50 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/unicode_docs/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  "/kunden/{id}":
+    get:
+      summary: Größe abfragen – liefert $Kunde
+      operationId: kunde
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Kunden-Nr.
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      responses:
+        "200":
+          description: Gefunden ✓
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Kunde"
+components:
+  schemas:
+    Adresse:
+      type: object
+      properties:
+        ort:
+          type: string
+      required:
+      - ort
+    Kunde:
+      type: object
+      properties:
+        adresse:
+          $ref: "#/components/schemas/Adresse"
+          description: Wohnort des Kunden
+      required:
+      - adresse
+      description: Kundendaten für die Größenberechnung – „ÄÖÜ“ 🚀

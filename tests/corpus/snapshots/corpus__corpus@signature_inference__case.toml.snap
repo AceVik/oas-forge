@@ -1,0 +1,1584 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/signature_inference/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Signature inference for axum and actix-web handlers: Path, Query, Json, Form, Multipart and Json responses; explicit DSL wins",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "ListParams": {
+            "properties": {
+              "cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "limit": {
+                "description": "Maximum number of users.",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "NewUser": {
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "OrgUser": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "org": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "org",
+              "id"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "paths": {
+        "/explicit/{id}": {
+          "get": {
+            "operationId": "explicit",
+            "parameters": [
+              {
+                "description": "Explicit wins",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/login": {
+          "post": {
+            "operationId": "login",
+            "requestBody": {
+              "content": {
+                "application/x-www-form-urlencoded": {
+                  "schema": {
+                    "$ref": "#/components/schemas/NewUser"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            }
+          }
+        },
+        "/orgs/{org}/users/{id}": {
+          "get": {
+            "operationId": "org_user",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "org",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/upload": {
+          "post": {
+            "operationId": "upload",
+            "requestBody": {
+              "content": {
+                "multipart/form-data": {
+                  "schema": {
+                    "type": "object"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/users": {
+          "get": {
+            "operationId": "list_users",
+            "parameters": [
+              {
+                "description": "Maximum number of users.",
+                "in": "query",
+                "name": "limit",
+                "required": false,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              {
+                "in": "query",
+                "name": "cursor",
+                "required": false,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/User"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            }
+          },
+          "post": {
+            "operationId": "create_user",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/NewUser"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "201": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                },
+                "description": "Created"
+              }
+            }
+          }
+        },
+        "/users/{id}": {
+          "get": {
+            "operationId": "get_user",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Get a user."
+          }
+        },
+        "/v2/orgs/{org}/users/{id}": {
+          "get": {
+            "operationId": "org_user_struct",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "org",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "ListParams": {
+            "properties": {
+              "cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "limit": {
+                "description": "Maximum number of users.",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "NewUser": {
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "OrgUser": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "org": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "org",
+              "id"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/explicit/{id}": {
+          "get": {
+            "operationId": "explicit",
+            "parameters": [
+              {
+                "description": "Explicit wins",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/login": {
+          "post": {
+            "operationId": "login",
+            "requestBody": {
+              "content": {
+                "application/x-www-form-urlencoded": {
+                  "schema": {
+                    "$ref": "#/components/schemas/NewUser"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            }
+          }
+        },
+        "/orgs/{org}/users/{id}": {
+          "get": {
+            "operationId": "org_user",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "org",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/upload": {
+          "post": {
+            "operationId": "upload",
+            "requestBody": {
+              "content": {
+                "multipart/form-data": {
+                  "schema": {
+                    "type": "object"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/users": {
+          "get": {
+            "operationId": "list_users",
+            "parameters": [
+              {
+                "description": "Maximum number of users.",
+                "in": "query",
+                "name": "limit",
+                "required": false,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              {
+                "in": "query",
+                "name": "cursor",
+                "required": false,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/User"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            }
+          },
+          "post": {
+            "operationId": "create_user",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/NewUser"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "201": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                },
+                "description": "Created"
+              }
+            }
+          }
+        },
+        "/users/{id}": {
+          "get": {
+            "operationId": "get_user",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Get a user."
+          }
+        },
+        "/v2/orgs/{org}/users/{id}": {
+          "get": {
+            "operationId": "org_user_struct",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "org",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "ListParams": {
+          "properties": {
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "limit": {
+              "description": "Maximum number of users.",
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "NewUser": {
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "OrgUser": {
+          "properties": {
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "org": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "org",
+            "id"
+          ],
+          "type": "object"
+        },
+        "User": {
+          "properties": {
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "ListParams": {
+            "properties": {
+              "cursor": {
+                "nullable": true,
+                "type": "string"
+              },
+              "limit": {
+                "description": "Maximum number of users.",
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "nullable": true,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "NewUser": {
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "OrgUser": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "org": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "org",
+              "id"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/explicit/{id}": {
+          "get": {
+            "operationId": "explicit",
+            "parameters": [
+              {
+                "description": "Explicit wins",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/login": {
+          "post": {
+            "operationId": "login",
+            "requestBody": {
+              "content": {
+                "application/x-www-form-urlencoded": {
+                  "schema": {
+                    "$ref": "#/components/schemas/NewUser"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            }
+          }
+        },
+        "/orgs/{org}/users/{id}": {
+          "get": {
+            "operationId": "org_user",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "org",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/upload": {
+          "post": {
+            "operationId": "upload",
+            "requestBody": {
+              "content": {
+                "multipart/form-data": {
+                  "schema": {
+                    "type": "object"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/users": {
+          "get": {
+            "operationId": "list_users",
+            "parameters": [
+              {
+                "description": "Maximum number of users.",
+                "in": "query",
+                "name": "limit",
+                "required": false,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              {
+                "in": "query",
+                "name": "cursor",
+                "required": false,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/User"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            }
+          },
+          "post": {
+            "operationId": "create_user",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/NewUser"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "201": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                },
+                "description": "Created"
+              }
+            }
+          }
+        },
+        "/users/{id}": {
+          "get": {
+            "operationId": "get_user",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Get a user."
+          }
+        },
+        "/v2/orgs/{org}/users/{id}": {
+          "get": {
+            "operationId": "org_user_struct",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "org",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/explicit/{id}": {
+        "get": {
+          "operationId": "explicit",
+          "parameters": [
+            {
+              "description": "Explicit wins",
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "default": {
+              "description": "Default response"
+            }
+          }
+        }
+      },
+      "/login": {
+        "post": {
+          "operationId": "login",
+          "requestBody": {
+            "content": {
+              "application/x-www-form-urlencoded": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewUser"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          }
+        }
+      },
+      "/orgs/{org}/users/{id}": {
+        "get": {
+          "operationId": "org_user",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "org",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "default": {
+              "description": "Default response"
+            }
+          }
+        }
+      },
+      "/upload": {
+        "post": {
+          "operationId": "upload",
+          "requestBody": {
+            "content": {
+              "multipart/form-data": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "default": {
+              "description": "Default response"
+            }
+          }
+        }
+      },
+      "/users": {
+        "get": {
+          "operationId": "list_users",
+          "parameters": [
+            {
+              "description": "Maximum number of users.",
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            {
+              "in": "query",
+              "name": "cursor",
+              "required": false,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/User"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          }
+        },
+        "post": {
+          "operationId": "create_user",
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewUser"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "201": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              },
+              "description": "Created"
+            }
+          }
+        }
+      },
+      "/users/{id}": {
+        "get": {
+          "operationId": "get_user",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          },
+          "summary": "Get a user."
+        }
+      },
+      "/v2/orgs/{org}/users/{id}": {
+        "get": {
+          "operationId": "org_user_struct",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "org",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "default": {
+              "description": "Default response"
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "ListParams": {
+        "properties": {
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Maximum number of users.",
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "NewUser": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "OrgUser": {
+        "properties": {
+          "id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "org": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org",
+          "id"
+        ],
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "diagnostics": [
+      "note[OF6001]: Swagger 2.0 has no form bodies that are not objects; the export leaves them out or approximates them"
+    ],
+    "document": {
+      "definitions": {
+        "ListParams": {
+          "properties": {
+            "cursor": {
+              "type": "string",
+              "x-nullable": true
+            },
+            "limit": {
+              "description": "Maximum number of users.",
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer",
+              "x-nullable": true
+            }
+          },
+          "type": "object"
+        },
+        "NewUser": {
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "OrgUser": {
+          "properties": {
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "org": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "org",
+            "id"
+          ],
+          "type": "object"
+        },
+        "User": {
+          "properties": {
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ],
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/explicit/{id}": {
+          "get": {
+            "operationId": "explicit",
+            "parameters": [
+              {
+                "description": "Explicit wins",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "type": "string"
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/login": {
+          "post": {
+            "consumes": [
+              "application/x-www-form-urlencoded"
+            ],
+            "operationId": "login",
+            "parameters": [
+              {
+                "in": "formData",
+                "name": "name",
+                "required": true,
+                "type": "string"
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "$ref": "#/definitions/User"
+                }
+              }
+            }
+          }
+        },
+        "/orgs/{org}/users/{id}": {
+          "get": {
+            "operationId": "org_user",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "org",
+                "required": true,
+                "type": "string"
+              },
+              {
+                "format": "int64",
+                "in": "path",
+                "minimum": 0,
+                "name": "id",
+                "required": true,
+                "type": "integer"
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/upload": {
+          "post": {
+            "consumes": [
+              "multipart/form-data"
+            ],
+            "operationId": "upload",
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        },
+        "/users": {
+          "get": {
+            "operationId": "list_users",
+            "parameters": [
+              {
+                "description": "Maximum number of users.",
+                "format": "int64",
+                "in": "query",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "name": "limit",
+                "required": false,
+                "type": "integer"
+              },
+              {
+                "in": "query",
+                "name": "cursor",
+                "required": false,
+                "type": "string"
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "items": {
+                    "$ref": "#/definitions/User"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "post": {
+            "consumes": [
+              "application/json"
+            ],
+            "operationId": "create_user",
+            "parameters": [
+              {
+                "in": "body",
+                "name": "body",
+                "required": true,
+                "schema": {
+                  "$ref": "#/definitions/NewUser"
+                }
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "201": {
+                "description": "Created",
+                "schema": {
+                  "$ref": "#/definitions/User"
+                }
+              }
+            }
+          }
+        },
+        "/users/{id}": {
+          "get": {
+            "operationId": "get_user",
+            "parameters": [
+              {
+                "format": "int64",
+                "in": "path",
+                "minimum": 0,
+                "name": "id",
+                "required": true,
+                "type": "integer"
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "$ref": "#/definitions/User"
+                }
+              }
+            },
+            "summary": "Get a user."
+          }
+        },
+        "/v2/orgs/{org}/users/{id}": {
+          "get": {
+            "operationId": "org_user_struct",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "org",
+                "required": true,
+                "type": "string"
+              },
+              {
+                "format": "int64",
+                "in": "path",
+                "minimum": 0,
+                "name": "id",
+                "required": true,
+                "type": "integer"
+              }
+            ],
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            }
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

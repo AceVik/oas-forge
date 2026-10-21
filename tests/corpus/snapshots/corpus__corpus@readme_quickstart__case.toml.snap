@@ -1,0 +1,830 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/readme_quickstart/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "README: quick start (types, routes and the root generated from the package)",
+  "diagnostics": [
+    "note[OF0004]: no `openapi`/`info` root in the sources; it was generated from package `shop`"
+  ],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "ProblemDetails": {
+            "description": "Problem details (RFC 9457).",
+            "properties": {
+              "detail": {
+                "description": "An explanation specific to this occurrence.",
+                "type": "string"
+              },
+              "instance": {
+                "description": "A URI reference that identifies this occurrence.",
+                "format": "uri-reference",
+                "type": "string"
+              },
+              "status": {
+                "description": "The HTTP status code.",
+                "format": "int32",
+                "maximum": 599,
+                "minimum": 100,
+                "type": "integer"
+              },
+              "title": {
+                "description": "A short summary of the problem type.",
+                "type": "string"
+              },
+              "type": {
+                "default": "about:blank",
+                "description": "A URI reference that identifies the problem type.",
+                "format": "uri-reference",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "Product": {
+            "description": "A product in the catalog.",
+            "properties": {
+              "displayName": {
+                "description": "Shown in the shop.",
+                "type": "string"
+              },
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "priceCents": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "displayName"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "paths": {
+        "/products": {
+          "get": {
+            "description": "Returns one page of the catalog.",
+            "operationId": "list_products",
+            "parameters": [
+              {
+                "description": "Page number",
+                "in": "query",
+                "name": "page",
+                "required": false,
+                "schema": {
+                  "default": 1,
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Product"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "List products"
+          }
+        },
+        "/products/{id}": {
+          "get": {
+            "operationId": "get_product",
+            "parameters": [
+              {
+                "description": "Product id",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Product"
+                    }
+                  }
+                },
+                "description": "OK"
+              },
+              "404": {
+                "content": {
+                  "application/problem+json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    }
+                  }
+                },
+                "description": "No such product"
+              }
+            },
+            "summary": "Get a product"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "ProblemDetails": {
+            "description": "Problem details (RFC 9457).",
+            "properties": {
+              "detail": {
+                "description": "An explanation specific to this occurrence.",
+                "type": "string"
+              },
+              "instance": {
+                "description": "A URI reference that identifies this occurrence.",
+                "format": "uri-reference",
+                "type": "string"
+              },
+              "status": {
+                "description": "The HTTP status code.",
+                "format": "int32",
+                "maximum": 599,
+                "minimum": 100,
+                "type": "integer"
+              },
+              "title": {
+                "description": "A short summary of the problem type.",
+                "type": "string"
+              },
+              "type": {
+                "default": "about:blank",
+                "description": "A URI reference that identifies the problem type.",
+                "format": "uri-reference",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "Product": {
+            "description": "A product in the catalog.",
+            "properties": {
+              "displayName": {
+                "description": "Shown in the shop.",
+                "type": "string"
+              },
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "priceCents": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "displayName"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "shop",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.1",
+      "paths": {
+        "/products": {
+          "get": {
+            "description": "Returns one page of the catalog.",
+            "operationId": "list_products",
+            "parameters": [
+              {
+                "description": "Page number",
+                "in": "query",
+                "name": "page",
+                "required": false,
+                "schema": {
+                  "default": 1,
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Product"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "List products"
+          }
+        },
+        "/products/{id}": {
+          "get": {
+            "operationId": "get_product",
+            "parameters": [
+              {
+                "description": "Product id",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Product"
+                    }
+                  }
+                },
+                "description": "OK"
+              },
+              "404": {
+                "content": {
+                  "application/problem+json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    }
+                  }
+                },
+                "description": "No such product"
+              }
+            },
+            "summary": "Get a product"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "ProblemDetails": {
+          "description": "Problem details (RFC 9457).",
+          "properties": {
+            "detail": {
+              "description": "An explanation specific to this occurrence.",
+              "type": "string"
+            },
+            "instance": {
+              "description": "A URI reference that identifies this occurrence.",
+              "format": "uri-reference",
+              "type": "string"
+            },
+            "status": {
+              "description": "The HTTP status code.",
+              "format": "int32",
+              "maximum": 599,
+              "minimum": 100,
+              "type": "integer"
+            },
+            "title": {
+              "description": "A short summary of the problem type.",
+              "type": "string"
+            },
+            "type": {
+              "default": "about:blank",
+              "description": "A URI reference that identifies the problem type.",
+              "format": "uri-reference",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "Product": {
+          "description": "A product in the catalog.",
+          "properties": {
+            "displayName": {
+              "description": "Shown in the shop.",
+              "type": "string"
+            },
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "priceCents": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "displayName"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "ProblemDetails": {
+            "description": "Problem details (RFC 9457).",
+            "properties": {
+              "detail": {
+                "description": "An explanation specific to this occurrence.",
+                "type": "string"
+              },
+              "instance": {
+                "description": "A URI reference that identifies this occurrence.",
+                "format": "uri-reference",
+                "type": "string"
+              },
+              "status": {
+                "description": "The HTTP status code.",
+                "format": "int32",
+                "maximum": 599,
+                "minimum": 100,
+                "type": "integer"
+              },
+              "title": {
+                "description": "A short summary of the problem type.",
+                "type": "string"
+              },
+              "type": {
+                "default": "about:blank",
+                "description": "A URI reference that identifies the problem type.",
+                "format": "uri-reference",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "Product": {
+            "description": "A product in the catalog.",
+            "properties": {
+              "displayName": {
+                "description": "Shown in the shop.",
+                "type": "string"
+              },
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "priceCents": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "nullable": true,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "displayName"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "shop",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/products": {
+          "get": {
+            "description": "Returns one page of the catalog.",
+            "operationId": "list_products",
+            "parameters": [
+              {
+                "description": "Page number",
+                "in": "query",
+                "name": "page",
+                "required": false,
+                "schema": {
+                  "default": 1,
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "$ref": "#/components/schemas/Product"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "List products"
+          }
+        },
+        "/products/{id}": {
+          "get": {
+            "operationId": "get_product",
+            "parameters": [
+              {
+                "description": "Product id",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Product"
+                    }
+                  }
+                },
+                "description": "OK"
+              },
+              "404": {
+                "content": {
+                  "application/problem+json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    }
+                  }
+                },
+                "description": "No such product"
+              }
+            },
+            "summary": "Get a product"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/products": {
+        "get": {
+          "description": "Returns one page of the catalog.",
+          "operationId": "list_products",
+          "parameters": [
+            {
+              "description": "Page number",
+              "in": "query",
+              "name": "page",
+              "required": false,
+              "schema": {
+                "default": 1,
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/Product"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          },
+          "summary": "List products"
+        }
+      },
+      "/products/{id}": {
+        "get": {
+          "operationId": "get_product",
+          "parameters": [
+            {
+              "description": "Product id",
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Product"
+                  }
+                }
+              },
+              "description": "OK"
+            },
+            "404": {
+              "content": {
+                "application/problem+json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ProblemDetails"
+                  }
+                }
+              },
+              "description": "No such product"
+            }
+          },
+          "summary": "Get a product"
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "ProblemDetails": {
+        "description": "Problem details (RFC 9457).",
+        "properties": {
+          "detail": {
+            "description": "An explanation specific to this occurrence.",
+            "type": "string"
+          },
+          "instance": {
+            "description": "A URI reference that identifies this occurrence.",
+            "format": "uri-reference",
+            "type": "string"
+          },
+          "status": {
+            "description": "The HTTP status code.",
+            "format": "int32",
+            "maximum": 599,
+            "minimum": 100,
+            "type": "integer"
+          },
+          "title": {
+            "description": "A short summary of the problem type.",
+            "type": "string"
+          },
+          "type": {
+            "default": "about:blank",
+            "description": "A URI reference that identifies the problem type.",
+            "format": "uri-reference",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Product": {
+        "description": "A product in the catalog.",
+        "properties": {
+          "displayName": {
+            "description": "Shown in the shop.",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "priceCents": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "displayName"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "ProblemDetails": {
+          "description": "Problem details (RFC 9457).",
+          "properties": {
+            "detail": {
+              "description": "An explanation specific to this occurrence.",
+              "type": "string"
+            },
+            "instance": {
+              "description": "A URI reference that identifies this occurrence.",
+              "format": "uri-reference",
+              "type": "string"
+            },
+            "status": {
+              "description": "The HTTP status code.",
+              "format": "int32",
+              "maximum": 599,
+              "minimum": 100,
+              "type": "integer"
+            },
+            "title": {
+              "description": "A short summary of the problem type.",
+              "type": "string"
+            },
+            "type": {
+              "default": "about:blank",
+              "description": "A URI reference that identifies the problem type.",
+              "format": "uri-reference",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "Product": {
+          "description": "A product in the catalog.",
+          "properties": {
+            "displayName": {
+              "description": "Shown in the shop.",
+              "type": "string"
+            },
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "priceCents": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer",
+              "x-nullable": true
+            }
+          },
+          "required": [
+            "id",
+            "displayName"
+          ],
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "shop",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/products": {
+          "get": {
+            "description": "Returns one page of the catalog.",
+            "operationId": "list_products",
+            "parameters": [
+              {
+                "default": 1,
+                "description": "Page number",
+                "format": "int64",
+                "in": "query",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "name": "page",
+                "required": false,
+                "type": "integer"
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "items": {
+                    "$ref": "#/definitions/Product"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "summary": "List products"
+          }
+        },
+        "/products/{id}": {
+          "get": {
+            "operationId": "get_product",
+            "parameters": [
+              {
+                "description": "Product id",
+                "format": "int64",
+                "in": "path",
+                "minimum": 0,
+                "name": "id",
+                "required": true,
+                "type": "integer"
+              }
+            ],
+            "produces": [
+              "application/json",
+              "application/problem+json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "$ref": "#/definitions/Product"
+                }
+              },
+              "404": {
+                "description": "No such product",
+                "schema": {
+                  "$ref": "#/definitions/ProblemDetails"
+                }
+              }
+            },
+            "summary": "Get a product"
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

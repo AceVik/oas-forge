@@ -1,0 +1,99 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/readme_schemas/case.toml
+---
+# full output
+openapi: "3.1.1"
+info:
+  title: shop
+  version: "1.0.0"
+components:
+  schemas:
+    Address:
+      type: object
+      properties:
+        city:
+          type: string
+        zip:
+          type: string
+      required:
+      - city
+      - zip
+      description: A postal address.
+    Customer:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        tags:
+          type: array
+          items:
+            type: string
+          uniqueItems: true
+          examples:
+          - - vip
+            - newsletter
+        payment:
+          anyOf:
+          - $ref: "#/components/schemas/Payment"
+          - type: "null"
+        fax:
+          type:
+          - string
+          - "null"
+          deprecated: true
+      required:
+      - email
+      - name
+      - tags
+      - payment
+      - fax
+      allOf:
+      - $ref: "#/components/schemas/Address"
+      description: A customer.
+    Payment:
+      type: object
+      oneOf:
+      - $ref: "#/components/schemas/PaymentCard"
+      - $ref: "#/components/schemas/PaymentInvoice"
+      discriminator:
+        propertyName: type
+        mapping:
+          card: "#/components/schemas/PaymentCard"
+          invoice: "#/components/schemas/PaymentInvoice"
+      description: How an order is paid.
+    PaymentCard:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - card
+          description: "Discriminator: card"
+        last4:
+          type: string
+      required:
+      - type
+      - last4
+    PaymentInvoice:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - invoice
+          description: "Discriminator: invoice"
+        due_days:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 65535
+      required:
+      - type
+      - due_days

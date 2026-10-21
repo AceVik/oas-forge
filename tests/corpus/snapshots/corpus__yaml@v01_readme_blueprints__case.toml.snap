@@ -1,0 +1,64 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/readme_blueprints/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /users:
+    get:
+      operationId: users
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedResponse_User"
+components:
+  schemas:
+    PaginatedResponse_User:
+      type: object
+      properties:
+        total_count:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+          example: 100
+        page:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          example: 1
+        limit:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000
+          example: 10
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+      required:
+      - total_count
+      - page
+      - limit
+      - data
+      description: Paginated response wrapper.
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      required:
+      - id

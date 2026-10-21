@@ -1,0 +1,188 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/fragment_extend/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Fragments: @extend structural merge in manual blocks, with conflict",
+  "diagnostics": [
+    "warning[OF5005]: security scheme `oidc` is required but not defined in `components.securitySchemes` (<case>/src/lib.rs:8)"
+  ],
+  "fragments": {
+    "document": {
+      "components": {
+        "x-oas-forge-format": 1,
+        "x-oas-forge-fragments": {
+          "Secured": {
+            "body": "security:\n  - oidc: [{{role}}]\nsummary: From fragment\nresponses:\n  '401':\n    description: Unauthorized",
+            "params": [
+              "role"
+            ]
+          }
+        }
+      },
+      "paths": {
+        "/admin": {
+          "get": {
+            "responses": {
+              "200": {
+                "description": "OK"
+              },
+              "401": {
+                "description": "Unauthorized"
+              }
+            },
+            "security": [
+              {
+                "oidc": [
+                  "admin"
+                ]
+              }
+            ],
+            "summary": "Local summary"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/admin": {
+          "get": {
+            "responses": {
+              "200": {
+                "description": "OK"
+              },
+              "401": {
+                "description": "Unauthorized"
+              }
+            },
+            "security": [
+              {
+                "oidc": [
+                  "admin"
+                ]
+              }
+            ],
+            "summary": "Local summary"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {},
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/admin": {
+          "get": {
+            "responses": {
+              "200": {
+                "description": "OK"
+              },
+              "401": {
+                "description": "Unauthorized"
+              }
+            },
+            "security": [
+              {
+                "oidc": [
+                  "admin"
+                ]
+              }
+            ],
+            "summary": "Local summary"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/admin": {
+        "get": {
+          "responses": {
+            "200": {
+              "description": "OK"
+            },
+            "401": {
+              "description": "Unauthorized"
+            }
+          },
+          "security": [
+            {
+              "oidc": [
+                "admin"
+              ]
+            }
+          ],
+          "summary": "Local summary"
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/admin": {
+          "get": {
+            "responses": {
+              "200": {
+                "description": "OK"
+              },
+              "401": {
+                "description": "Unauthorized"
+              }
+            },
+            "security": [
+              {
+                "oidc": [
+                  "admin"
+                ]
+              }
+            ],
+            "summary": "Local summary"
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

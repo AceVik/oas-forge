@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package baylee.v1;
+
+// Every frame on the gateway socket.
+message Envelope {
+  uint64 sequence = 1;
+  oneof body {
+    Hello hello = 2;
+    Event event = 3;
+  }
+}
+
+message Hello {
+  string client = 1;
+}
+
+message Event {
+  string topic = 1;
+  bytes data = 2;
+}

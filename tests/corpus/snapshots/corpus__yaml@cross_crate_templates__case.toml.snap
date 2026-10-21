@@ -1,0 +1,47 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/cross_crate_templates/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /invoices:
+    get:
+      operationId: list_invoices
+      responses:
+        "200":
+          description: Invoices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Paginated_Invoice"
+  "/invoices/{id}":
+    get:
+      responses:
+        "500":
+          description: Problem internal
+components:
+  schemas:
+    Invoice:
+      type: object
+      properties:
+        amount:
+          $ref: "#/components/schemas/Money"
+      required:
+      - amount
+    Money:
+      type: object
+      properties:
+        cents:
+          type: integer
+    Paginated_Invoice:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Invoice"

@@ -1,0 +1,537 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/root_openapi_32/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "OpenAPI 3.2: QUERY, additional methods, querystring parameters, streamed responses and webhooks",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Event": {
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          "Filter": {
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "paths": {
+        "/cache": {
+          "additionalOperations": {
+            "PURGE": {
+              "operationId": "purge",
+              "responses": {
+                "204": {
+                  "description": "Purged"
+                }
+              }
+            }
+          }
+        },
+        "/events": {
+          "get": {
+            "operationId": "events",
+            "responses": {
+              "200": {
+                "content": {
+                  "text/event-stream": {
+                    "itemSchema": {
+                      "$ref": "#/components/schemas/Event"
+                    }
+                  }
+                },
+                "description": "Server-sent events"
+              },
+              "206": {
+                "content": {
+                  "application/jsonl": {
+                    "itemSchema": {
+                      "$ref": "#/components/schemas/Event"
+                    }
+                  }
+                },
+                "description": "JSON Lines"
+              }
+            }
+          }
+        },
+        "/search": {
+          "query": {
+            "operationId": "search",
+            "parameters": [
+              {
+                "content": {
+                  "application/x-www-form-urlencoded": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Filter"
+                    }
+                  }
+                },
+                "description": "Search filter",
+                "in": "querystring",
+                "name": "filter",
+                "required": true
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            }
+          }
+        }
+      },
+      "webhooks": {
+        "orderCreated": {
+          "post": {
+            "operationId": "order_created",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Received"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Event": {
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          "Filter": {
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Modern API",
+        "version": "1.0.0"
+      },
+      "openapi": "3.2.0",
+      "paths": {
+        "/cache": {
+          "additionalOperations": {
+            "PURGE": {
+              "operationId": "purge",
+              "responses": {
+                "204": {
+                  "description": "Purged"
+                }
+              }
+            }
+          }
+        },
+        "/events": {
+          "get": {
+            "operationId": "events",
+            "responses": {
+              "200": {
+                "content": {
+                  "text/event-stream": {
+                    "itemSchema": {
+                      "$ref": "#/components/schemas/Event"
+                    }
+                  }
+                },
+                "description": "Server-sent events"
+              },
+              "206": {
+                "content": {
+                  "application/jsonl": {
+                    "itemSchema": {
+                      "$ref": "#/components/schemas/Event"
+                    }
+                  }
+                },
+                "description": "JSON Lines"
+              }
+            }
+          }
+        },
+        "/search": {
+          "query": {
+            "operationId": "search",
+            "parameters": [
+              {
+                "content": {
+                  "application/x-www-form-urlencoded": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Filter"
+                    }
+                  }
+                },
+                "description": "Search filter",
+                "in": "querystring",
+                "name": "filter",
+                "required": true
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            }
+          }
+        }
+      },
+      "webhooks": {
+        "orderCreated": {
+          "post": {
+            "operationId": "order_created",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Received"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Event": {
+          "properties": {
+            "kind": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "Filter": {
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "diagnostics": [
+      "warning[OF6002]: `QUERY` operations need OpenAPI 3.2 or newer and were left out of the OpenAPI 3.0 document",
+      "warning[OF6002]: `additionalOperations` need OpenAPI 3.2 or newer and were left out of the OpenAPI 3.0 document",
+      "warning[OF6002]: streamed responses (`itemSchema`) need OpenAPI 3.2 or newer and were left out of the OpenAPI 3.0 document",
+      "warning[OF6002]: webhooks need OpenAPI 3.1 or newer and were left out of the OpenAPI 3.0 document"
+    ],
+    "document": {
+      "components": {
+        "schemas": {
+          "Event": {
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          "Filter": {
+            "properties": {
+              "name": {
+                "nullable": true,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Modern API",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/cache": {},
+        "/events": {
+          "get": {
+            "operationId": "events",
+            "responses": {
+              "200": {
+                "content": {
+                  "text/event-stream": {}
+                },
+                "description": "Server-sent events"
+              },
+              "206": {
+                "content": {
+                  "application/jsonl": {}
+                },
+                "description": "JSON Lines"
+              }
+            }
+          }
+        },
+        "/search": {}
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/cache": {
+        "additionalOperations": {
+          "PURGE": {
+            "operationId": "purge",
+            "responses": {
+              "204": {
+                "description": "Purged"
+              }
+            }
+          }
+        }
+      },
+      "/events": {
+        "get": {
+          "operationId": "events",
+          "responses": {
+            "200": {
+              "content": {
+                "text/event-stream": {
+                  "itemSchema": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              },
+              "description": "Server-sent events"
+            },
+            "206": {
+              "content": {
+                "application/jsonl": {
+                  "itemSchema": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              },
+              "description": "JSON Lines"
+            }
+          }
+        }
+      },
+      "/search": {
+        "query": {
+          "operationId": "search",
+          "parameters": [
+            {
+              "content": {
+                "application/x-www-form-urlencoded": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Filter"
+                  }
+                }
+              },
+              "description": "Search filter",
+              "in": "querystring",
+              "name": "filter",
+              "required": true
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Event": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "Filter": {
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "diagnostics": [
+      "warning[OF6002]: `QUERY` operations need OpenAPI 3.2 or newer and were left out of the Swagger 2.0 document",
+      "warning[OF6002]: `additionalOperations` need OpenAPI 3.2 or newer and were left out of the Swagger 2.0 document",
+      "warning[OF6002]: streamed responses (`itemSchema`) need OpenAPI 3.2 or newer and were left out of the Swagger 2.0 document",
+      "warning[OF6002]: webhooks need OpenAPI 3.1 or newer and were left out of the Swagger 2.0 document"
+    ],
+    "document": {
+      "definitions": {
+        "Event": {
+          "properties": {
+            "kind": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "Filter": {
+          "properties": {
+            "name": {
+              "type": "string",
+              "x-nullable": true
+            }
+          },
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "Modern API",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/cache": {},
+        "/events": {
+          "get": {
+            "operationId": "events",
+            "produces": [
+              "text/event-stream",
+              "application/jsonl"
+            ],
+            "responses": {
+              "200": {
+                "description": "Server-sent events"
+              },
+              "206": {
+                "description": "JSON Lines"
+              }
+            }
+          }
+        },
+        "/search": {}
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

@@ -1,0 +1,2 @@
+description = "Rust type references resolve by module path and `use` across crates; colliding names are qualified"
+inputs = ["catalog/src", "cardtext/src", "gw/src", "cards/src/pool.rs"]

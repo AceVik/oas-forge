@@ -1,0 +1,31 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/static_files/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+servers:
+- url: https://prices.example.com
+paths:
+  /price:
+    get:
+      operationId: price
+      responses:
+        "200":
+          description: Price
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Money"
+components:
+  schemas:
+    Money:
+      type: string
+      pattern: ^\d+\.\d{2}$
+tags:
+- name: Pricing
+  description: Price endpoints

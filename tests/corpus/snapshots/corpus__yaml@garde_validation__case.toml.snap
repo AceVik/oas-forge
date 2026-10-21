@@ -1,0 +1,60 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/garde_validation/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Account:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 20
+          pattern: ^[\x00-\x7F]*$
+        password:
+          type: string
+          minLength: 2
+          maxLength: 64
+        email:
+          type: string
+          format: email
+        age:
+          type: integer
+          format: int32
+          minimum: 18
+          maximum: 130
+        phone:
+          type: string
+          pattern: ^\+
+          maxLength: 16
+        handle:
+          type: string
+          pattern: ^@[a-z0-9_]+$
+        tags:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          maxItems: 5
+        homepage:
+          type: string
+          format: uri
+        unresolved:
+          type: string
+      required:
+      - username
+      - password
+      - email
+      - age
+      - phone
+      - handle
+      - tags
+      - homepage
+      - unresolved

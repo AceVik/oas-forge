@@ -1,0 +1,5 @@
+description = "Route defaults: inner modules replace tags and security, YAML, variables and @extend in defaults, prefixes joined with one slash, inline prefix parameters, webhooks without path parameters"
+
+[variables]
+API_VERSION = "2"
+BASE = "https://api.example.com"

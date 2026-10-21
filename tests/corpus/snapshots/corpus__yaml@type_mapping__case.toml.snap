@@ -1,0 +1,283 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/type_mapping/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    AllTypes:
+      type: object
+      properties:
+        b:
+          type: boolean
+        s:
+          type: string
+        st:
+          type: string
+        c:
+          type: string
+          minLength: 1
+          maxLength: 1
+        i8_:
+          type: integer
+          format: int32
+          minimum: -128
+          maximum: 127
+        i16_:
+          type: integer
+          format: int32
+          minimum: -32768
+          maximum: 32767
+        i32_:
+          type: integer
+          format: int32
+        i64_:
+          type: integer
+          format: int64
+        i128_:
+          type: integer
+        isize_:
+          type: integer
+          format: int64
+        u8_:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 255
+        u16_:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 65535
+        u32_:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+        u64_:
+          type: integer
+          format: int64
+          minimum: 0
+        u128_:
+          type: integer
+          minimum: 0
+        usize_:
+          type: integer
+          format: int64
+          minimum: 0
+        f32_:
+          type: number
+          format: float
+        f64_:
+          type: number
+          format: double
+        uuid:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        date:
+          type: string
+          format: date
+        datetime:
+          type: string
+          format: date-time
+        naive_datetime:
+          type: string
+          format: date-time-local
+        time:
+          type: string
+          format: time-local
+        offset_datetime:
+          type: string
+          format: date-time
+        decimal:
+          type: string
+          format: decimal
+        big_decimal:
+          type: string
+          format: decimal
+        object_id:
+          type: string
+          format: objectid
+        json: {}
+        boxed:
+          type: string
+        arc:
+          type: string
+        rc:
+          type: string
+        cow:
+          type: string
+        vec:
+          type: array
+          items:
+            type: integer
+            format: int32
+        hash_set:
+          type: array
+          items:
+            type: string
+          uniqueItems: true
+        btree_set:
+          type: array
+          items:
+            type: string
+          uniqueItems: true
+        deque:
+          type: array
+          items:
+            type: string
+        linked_list:
+          type: array
+          items:
+            type: string
+        hash_map:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+        btree_map:
+          type: object
+          additionalProperties:
+            type: boolean
+        index_map:
+          type: object
+          additionalProperties:
+            type: string
+        array:
+          type: array
+          items:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 255
+          minItems: 4
+          maxItems: 4
+        slice:
+          type: array
+          items:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 65535
+        tuple:
+          type: array
+          prefixItems:
+          - type: integer
+            format: int32
+          - type: string
+          items: false
+          minItems: 2
+          maxItems: 2
+        optional_vec:
+          type:
+          - array
+          - "null"
+          items:
+            type: string
+        vec_of_optional:
+          type: array
+          items:
+            type:
+            - integer
+            - "null"
+            format: int32
+        non_zero:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+        ip:
+          type: string
+          anyOf:
+          - format: ipv4
+          - format: ipv6
+        ipv4:
+          type: string
+          format: ipv4
+        duration:
+          type: object
+          properties:
+            secs:
+              type: integer
+              format: int64
+              minimum: 0
+            nanos:
+              type: integer
+              format: int64
+              minimum: 0
+              maximum: 999999999
+          required:
+          - secs
+          - nanos
+        path:
+          type: string
+        bytes:
+          type: array
+          items:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 255
+        unit:
+          type: "null"
+      required:
+      - b
+      - s
+      - st
+      - c
+      - i8_
+      - i16_
+      - i32_
+      - i64_
+      - i128_
+      - isize_
+      - u8_
+      - u16_
+      - u32_
+      - u64_
+      - u128_
+      - usize_
+      - f32_
+      - f64_
+      - uuid
+      - url
+      - date
+      - datetime
+      - naive_datetime
+      - time
+      - offset_datetime
+      - decimal
+      - big_decimal
+      - object_id
+      - json
+      - boxed
+      - arc
+      - rc
+      - cow
+      - vec
+      - hash_set
+      - btree_set
+      - deque
+      - linked_list
+      - hash_map
+      - btree_map
+      - index_map
+      - array
+      - slice
+      - tuple
+      - vec_of_optional
+      - non_zero
+      - ip
+      - ipv4
+      - duration
+      - path
+      - bytes
+      - unit

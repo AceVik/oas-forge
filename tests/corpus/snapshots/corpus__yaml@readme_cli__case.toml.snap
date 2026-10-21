@@ -1,0 +1,110 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/readme_cli/case.toml
+---
+# full output
+openapi: "3.1.1"
+info:
+  title: notes
+  version: "0.3.0"
+  description: Notes for the whole team
+  license:
+    name: MIT
+    identifier: MIT
+paths:
+  /notes:
+    get:
+      summary: List notes
+      operationId: list_notes
+      parameters:
+      - name: done
+        in: query
+        required: false
+        description: Only done or only open notes
+        schema:
+          type: boolean
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Note"
+    post:
+      summary: Add a note
+      operationId: add_note
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewNote"
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+        "422":
+          description: The text is empty
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+components:
+  schemas:
+    NewNote:
+      type: object
+      properties:
+        text:
+          type: string
+          examples:
+          - Buy milk
+      required:
+      - text
+      description: What a client sends to add a note.
+    Note:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+        text:
+          type: string
+        done:
+          type: boolean
+      required:
+      - id
+      - text
+      - done
+      description: A note.
+    ProblemDetails:
+      type: object
+      description: Problem details (RFC 9457).
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          default: about:blank
+          description: A URI reference that identifies the problem type.
+        title:
+          type: string
+          description: A short summary of the problem type.
+        status:
+          type: integer
+          format: int32
+          minimum: 100
+          maximum: 599
+          description: The HTTP status code.
+        detail:
+          type: string
+          description: An explanation specific to this occurrence.
+        instance:
+          type: string
+          format: uri-reference
+          description: A URI reference that identifies this occurrence.

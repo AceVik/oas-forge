@@ -1,0 +1,1 @@
+description = "AsyncAPI channel blocks: prose after YAML and description lines stay prose, channel YAML notes, a message name that channels define differently stays in each channel, an undeclared message section, a name clash in one channel, channel parameters checked against the address"

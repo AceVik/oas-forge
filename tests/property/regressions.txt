@@ -1,0 +1,11 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 108dde48c0ed2007afc280649f2967124097e171fb4d948e1b0d1558a1dbace4 # shrinks to text = "$a𑯰"
+cc 65c970302812deeb246d998e64327730d368e86cc7b2e4d43c407cc36c96f90c # shrinks to text = "\u{a8e0}᥄\u{fe20}ોጘꩀa𝔞00$a"
+cc 9f7526021d6fb362b81cc0de6e95875d399e73cd4f99ceb1607b7a06d1302335 # shrinks to text = "\n"
+cc 76096a00e3ef9c86757c58aa91c9a23573039cae080e9575d5c64cff5641dae8 # shrinks to lines = ["@openapi ", " 0"]
+cc 9a1d3c70b1ae7432d47524767c2e5bccf49267abc388e710fca37438b785fb46 # shrinks to lines = [" @route $ $"]

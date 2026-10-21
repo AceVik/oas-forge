@@ -1,0 +1,7 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/guide_websocket/case.toml
+---
+# fragments output
+{}

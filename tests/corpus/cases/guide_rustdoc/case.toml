@@ -1,0 +1,1 @@
+description = "Guide: annotations written for rustdoc and `clippy::doc_markdown` (YAML in fenced code blocks, arguments in backticks, autolinks) give the same document as plain ones"

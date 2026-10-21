@@ -1,0 +1,86 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/enum_adjacently_tagged/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Message:
+      type: object
+      oneOf:
+      - $ref: "#/components/schemas/MessageText"
+      - $ref: "#/components/schemas/MessageMove"
+      - $ref: "#/components/schemas/MessagePing"
+      - $ref: "#/components/schemas/MessageImage"
+      discriminator:
+        propertyName: t
+        mapping:
+          Text: "#/components/schemas/MessageText"
+          Move: "#/components/schemas/MessageMove"
+          Ping: "#/components/schemas/MessagePing"
+          img: "#/components/schemas/MessageImage"
+    MessageImage:
+      type: object
+      properties:
+        t:
+          type: string
+          enum:
+          - img
+          description: "Discriminator: img"
+        c:
+          type: string
+          minLength: 1
+      required:
+      - t
+      - c
+    MessageMove:
+      type: object
+      properties:
+        t:
+          type: string
+          enum:
+          - Move
+          description: "Discriminator: Move"
+        c:
+          type: object
+          properties:
+            x:
+              type: integer
+              format: int32
+            "y":
+              type: integer
+              format: int32
+          required:
+          - x
+          - "y"
+      required:
+      - t
+      - c
+    MessagePing:
+      type: object
+      properties:
+        t:
+          type: string
+          enum:
+          - Ping
+          description: "Discriminator: Ping"
+      required:
+      - t
+    MessageText:
+      type: object
+      properties:
+        t:
+          type: string
+          enum:
+          - Text
+          description: "Discriminator: Text"
+        c:
+          type: string
+      required:
+      - t
+      - c

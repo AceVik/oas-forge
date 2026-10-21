@@ -1,0 +1,91 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/root_openapi_30/case.toml
+---
+# full output
+openapi: "3.0.3"
+info:
+  title: Legacy API
+  version: "1.0.0"
+paths:
+  "/orders/{id}":
+    get:
+      operationId: get_order
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      responses:
+        "200":
+          description: The order, if any
+          content:
+            application/json:
+              schema:
+                nullable: true
+                allOf:
+                - $ref: "#/components/schemas/Order"
+components:
+  schemas:
+    Customer:
+      type: object
+      properties:
+        name:
+          type: string
+      required:
+      - name
+    Order:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+        note:
+          type: string
+          nullable: true
+        customer:
+          nullable: true
+          allOf:
+          - $ref: "#/components/schemas/Customer"
+        position:
+          type: array
+          maxItems: 2
+          items:
+            anyOf:
+            - type: number
+              format: double
+            - type: number
+              format: double
+          minItems: 2
+        discount:
+          type: number
+          format: float
+          exclusiveMinimum: true
+          exclusiveMaximum: true
+          minimum: 0
+          maximum: 100
+        tags:
+          type: array
+          items:
+            type: string
+            nullable: true
+        nothing:
+          enum:
+          - null
+          nullable: true
+      required:
+      - id
+      - position
+      - discount
+      - tags
+      - nothing
+    Reference:
+      nullable: true
+      type: integer
+      format: int64
+      minimum: 0

@@ -2,6 +2,215 @@
 
 All notable changes to `oas-forge` will be documented in this file.
 
+## [0.2.0] — 2026-10-21
+
+A rewrite of the generator around explicit pipeline stages, with full serde,
+validator and garde support, OpenAPI 3.2, a route DSL that embeds any OpenAPI
+YAML, new output formats and diagnostics with stable codes. Everything that
+worked in 0.1 keeps working unless the
+[migration guide](docs/migration-0.2.md) lists it.
+
+### Added
+- **Schemas that match serde:** `rename`/`rename_all` (also
+  `serialize`/`deserialize` forms and `rename_all_fields`), `flatten` for
+  structs and maps, `skip`, `skip_serializing` (`writeOnly`),
+  `skip_deserializing` (`readOnly`), `skip_serializing_if`, `default`,
+  `transparent`, `deny_unknown_fields`, `into`/`from`, known `with` modules,
+  `cfg_attr`, and all four enum representations including untagged variants.
+- **validator and garde:** `length`, `range` (floats, negatives, exclusive
+  bounds), `email`, `url`, `ip`, `contains`, `does_not_contain`, `regex`
+  (resolved from `static`/`LazyLock` constants), `required`, garde length
+  modes and `inner(…)`.
+- **Type table:** integer ranges, `NonZero*`, `i128`/`u128`, `char`, sets
+  with `uniqueItems`, arrays `[T; N]`, tuples, `Duration`, `SystemTime`,
+  `chrono`, `time`, `jiff`, `uuid`, `ulid`, `url`, decimals, `bytes`, IP
+  addresses, `IndexMap`/`IndexSet`; `Generator::map_type` and `[types]` for
+  custom mappings.
+- **Route DSL 2.0:** any Operation Object field as embedded YAML,
+  `@openapi operation|path|document` scopes, `@param <in>`, struct expansion
+  (`@query-params $Paging`), parameter flags (`default`, `enum`, `min`,
+  `max`, `pattern`, `format`, `style`, `explode`, …), `@body` with several
+  media types and `optional`, `@return` with ranges, `default`, media types
+  and `stream<T>`, `@return-header`, `@problem` (RFC 9457), `@summary`,
+  `@description`, `@deprecated`, `@operation-id`, `@external-docs`,
+  `@server`, `@security a + b` and `@security none`, `@extend` in routes.
+- **OpenAPI 3.2:** `QUERY`, `additionalOperations`, `querystring`
+  parameters, streamed responses (`itemSchema`). OpenAPI 3.1 webhooks with
+  `@webhook`.
+- **Module defaults:** `@route-defaults` with `@prefix`, parameters, tags,
+  security and responses for every route in a module.
+- **Signature inference** for axum and actix-web handlers (`Path`, `Query`,
+  `Json`, `Form`, `Multipart`, `Json<T>` return types); `@no-infer`.
+- **Outputs:** OpenAPI 3.0.3 and Swagger 2.0 exports, a JSON Schema 2020-12
+  bundle and AsyncAPI 3 (`@asyncapi` blocks and the `@channel` DSL with
+  `@send`/`@receive`). What a target cannot express is reported.
+- **Root from `Cargo.toml`:** without an `openapi`/`info` root, the root is
+  generated from the package metadata (`Package`).
+- **Generics without `@openapi<T>`:** generic structs and enums are
+  instantiated where they are used (`Page<User>` → `Page_User`).
+- **Directives:** `@openapi skip`, `@example`, `#[deprecated]` on types,
+  fields, variants and handlers; overrides on enum variants.
+- **Variables:** all `CARGO_PKG_*`, `{{env:NAME}}`, `Generator::var`,
+  `[variables]`, `--var`; `cargo:rerun-if-env-changed` for every
+  environment variable used.
+- **Diagnostics** with stable codes (`OF0001`–`OF6002`), severities and
+  source locations; `Diagnostic::to_json`.
+- **Lints:** dangling references, duplicate operationIds, undefined
+  security schemes, path parameter mismatches; strict lints for unused
+  components and missing descriptions.
+- **Library API:** `Generator::build` returns a `Spec` (document,
+  diagnostics, `render`, `write`, `check`, `write_cargo_directives`); every
+  pipeline stage is a public module.
+- **CLI:** `--check`, `--deny-warnings`, `--strict`,
+  `--message-format json`, `--var`, the export flags; the package metadata
+  of `Cargo.toml` is used.
+- **Scopes:** `@scope` on routes, webhooks, channels, module defaults and
+  YAML blocks; `Generator::output_scoped` writes several documents (e.g.
+  public, admin, a second service) from one run, each with its own root and
+  only the components it uses (`Spec::render_scoped`, `--scope`).
+- **WebSocket channels:** `@ws-query` / `@ws-header` (handshake bindings),
+  embedded YAML in `@channel` blocks (`@openapi message Name`, `operation`,
+  `document`) and a media type per message.
+- **protobuf payloads:** `.proto` files are inputs; `proto(pkg.Message)`
+  gives an AsyncAPI multi-format payload with the message's `.proto` text.
+- **Route blocks:** several `@route`/`@webhook` lines in one block;
+  `@description` replaces the prose, `@summary` sets the summary and leaves
+  all prose to the description, `@internal` keeps developer notes out of
+  the document; the same directives on types, fields and variants
+  (`@summary` is the schema `title`); `optional` flag for parameters;
+  `required`/`optional` for response headers (optional by default).
+- **rustdoc-friendly annotations:** directive arguments may be wrapped in
+  backticks, URLs may be autolinks (`<https://…>`), and YAML may sit in
+  fenced code blocks, so annotated crates pass `clippy::doc_markdown`.
+- **Type names resolve by module path:** `use` declarations, module paths
+  and crates decide which documented type a field refers to; ambiguous
+  names are reported (OF3014) instead of guessed, and colliding component
+  names are qualified (`crate.module.Name`).
+- `@route-defaults` in module files (`//!` at the top, or `///` on
+  `mod name;`); the `#[default]` variant of an enum becomes its `default`
+  and that of `#[serde(default)]` fields of its type.
+- **API documentation:** every public item has a running example (100 %
+  of the items rustdoc counts), fallible functions document their errors,
+  and every internal item is documented; lints keep it that way.
+- Files are written atomically and only when they change; line endings are
+  ignored when comparing, so CRLF checkouts are not outdated.
+- **Release artifacts:** prebuilt CLI binaries for Linux, macOS and Windows
+  with `SHA256SUMS`, build provenance attestations and the licenses of all
+  compiled-in crates; `cargo binstall oas-forge-cli`.
+
+### Changed
+- The CLI is a separate crate: `cargo install oas-forge-cli` (the binary is
+  still `oas-forge`). The library has no CLI dependencies and no `cli`
+  feature.
+- Rust 1.89 or newer is required.
+- Output changes where 0.1 was wrong: unsigned integers have `minimum: 0`
+  and `u32` is `int64`; `Option` fields are nullable; rejected routes fail
+  the run; `@extend` lets local values win; smart references only replace
+  whole values; unknown references are pointers that the lints report;
+  top-level `tags` are tag objects. The [migration guide](docs/migration-0.2.md)
+  lists every change with its corpus case.
+- Findings are diagnostics instead of `log` messages.
+- Type aliases without `@openapi` are no longer components; references to
+  them resolve to their target.
+- Output types (deriving `Serialize` only) list every field serde always
+  writes as `required`, also `Option` fields (nullable); a field with
+  `skip_serializing_if = "Option::is_none"` is optional and not nullable.
+- Responses are sorted by status; several lines for one status are one
+  response whose descriptions are combined.
+- Lint findings (`OF5xxx`) carry the file and line of the part they concern,
+  which changes their `cargo:warning` and `--message-format json` lines.
+- `cargo:rerun-if-changed` also covers the package manifest and missing
+  include paths (through their nearest existing directory).
+- Exports: lowering below 3.2 also cleans components and callbacks;
+  `contentEncoding: base64` becomes `format: byte` and binary
+  `contentMediaType` `format: binary` in 3.0 and Swagger 2.0 (a binary
+  multipart part is a Swagger `file` parameter); AsyncAPI message headers
+  are lowered like payloads.
+- Regex constants for `regex(path = …)` resolve by path; constants of the
+  same name with different patterns are reported (`OF1011`).
+- `Error` is `#[non_exhaustive]` and carries locations instead of foreign
+  error types.
+
+### Fixed
+- Non-ASCII text before a `$Ref` no longer corrupts the output or panics.
+- `@return`, `@security` and module tag lines with unbalanced quotes,
+  brackets or parentheses no longer panic.
+- Blueprint parameters are substituted as whole identifiers (`$T` no longer
+  rewrites `$Tag`).
+- `Cow<'a, str>` and other types with lifetimes map correctly.
+- A snippet that is not a mapping no longer replaces everything merged
+  before it; it is an error with its location.
+- Doc lines before `@openapi` are no longer emitted as a separate snippet.
+- `rename_all` on tagged enums renames only the variants, as serde does.
+- Generated output files are no longer read back as inputs.
+- Unsigned integers, `Option` fields, `$Vec<T>` bodies, `@return` of
+  generics with several arguments (`$Result<A, B>`) and nested generic
+  arguments are documented correctly.
+- A final line break of block scalars survives variable substitution.
+- Found in a review of the 0.2 code, each with a test or corpus case (the
+  [migration guide](docs/migration-0.2.md#correctness-review) lists the
+  output changes):
+  - serde: explicit renames, deserialize-only renames, required `with`
+    fields, tuple structs with skipped members, struct tags, `serde_repr`,
+    flattened maps next to flattened structs, closed struct variants,
+    generic tagged enums and generic type aliases;
+  - nested generic parameters; offset-free date and time formats;
+    documented types win over built-in types of the same name;
+    `@openapi<T>` on type aliases;
+  - Javadoc comments, Markdown line breaks, fragments in item doc comments,
+    module tag lists, free text after `@openapi`;
+  - route DSL: `default` responses and single query parameters no longer
+    stop inference, nested module security and tags replace the outer ones
+    (security was widened to "outer or inner"), defaults support variables,
+    fragments, YAML and inline prefix parameters and are expanded once per
+    module (one finding, at its line), paths are joined with one
+    `/`, invalid inline types are reported, findings after `@insert` point at
+    their line;
+  - fragments: `@extend` runs the full text stage, cycles and extra arguments
+    are reported, `\$` in regular expressions is kept;
+  - outputs: unique Swagger `produces`, no dangling Swagger references,
+    `paths: {}` where a version requires it, fragments without the generated
+    root, sorted schema outputs, tags with the same name merged;
+  - generator: overlapping inputs, symbolic links, findings of included
+    templates, watched configuration files, workspace-inherited package
+    fields in the CLI, warnings of failed CLI runs;
+  - lints: properties named `mapping` and example data are no longer taken
+    for references; lints and exports run in linear time (23–31 % fewer
+    instructions on large projects).
+- Found while documenting a real project (about 200 routes, 7 WebSockets)
+  with the 0.2 code: `@route-defaults` in module files were ignored;
+  unannotated aliases polluted the document; function-pointer types leaked
+  token text into references; flags after a quoted description and escaped
+  quotes broke parameters; fragment responses were replaced silently;
+  multi-line `@description` kept stray spaces; `@openapi` one-liners
+  swallowed the following lines; prose next to `@openapi` blocks was read
+  as YAML; `$Name` in schema lists of inline YAML became a string;
+  `deprecated`/`example` of expanded parameters landed in the schema;
+  `enum` overrides dropped `null` of nullable fields; findings in module
+  defaults were repeated per route.
+- Found by mutation testing (`cargo mutants`, 91–93 % of mutants caught
+  before, the survivors now covered or documented as equivalent): flags
+  after a quoted parameter description, Swagger hosts of URLs with an empty
+  authority, custom type mappings to references used as `$Name`, `$ref`
+  values that are no schema name (now OF3007), `~1`/`~0` in reference
+  pointers of the path parameter lint and the AsyncAPI schema sharing, and
+  the merge order: YAML blocks, routes and files are merged with the
+  reflected schemas in source order, so a block no longer overrides the
+  struct below it.
+
+### Security
+- `serde_yaml_ng` (and the unmaintained `unsafe-libyaml`, RUSTSEC-2024-0449)
+  replaced by `serde-saphyr`, a pure Rust YAML library; documents are size-
+  and depth-limited.
+- `anyhow` advisory RUSTSEC-2026-0190 resolved; `cargo deny` checks
+  advisories, licenses, bans and sources in CI.
+- Input files are size-limited (16 MiB by default), nesting of fragments and
+  generics is bounded, and `#![forbid(unsafe_code)]` holds for both crates.
+- Panicking constructs are denied crate-wide (`clippy::indexing_slicing`,
+  `string_slice`, `unwrap_used`).
+- CI: actions pinned to commit hashes, workflow audit with `zizmor`, minimal
+  dependency versions, weekly runs against the newest dependencies.
+
 ## [0.1.4] — 2026-03-13
 
 ### Added

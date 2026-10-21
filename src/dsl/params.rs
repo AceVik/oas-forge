@@ -1,0 +1,289 @@
+//! Parameters: `@param <in> name: Type [flags] ["description"]`, the short
+//! forms `@path-param`, `@query-param`, `@header-param`, `@cookie-param`,
+//! `@querystring-param`, inline path parameters and struct expansion
+//! (`@query-params $Pagination`).
+
+use super::tokens::{quoted_text, tokenize, unquote, untick_items, unticked};
+use crate::attrs::validate::{Constraints, LengthUnit, Rule};
+use crate::diagnostics::Location;
+use crate::schema::{TypeExpr, TypeMapper, shadow};
+use crate::yaml;
+use serde_json::{Map, Number, Value, json};
+
+/// The marker a struct expansion leaves in `parameters` until the struct's
+/// schema is known (see `generator`).
+pub(crate) const EXPAND_KEY: &str = "x-oas-forge-expand";
+
+/// Parameter locations.
+pub(super) const LOCATIONS: &[&str] = &["path", "query", "header", "cookie", "querystring"];
+
+/// A parsed parameter directive.
+pub(super) struct Parameter {
+    /// The parameter name.
+    pub(super) name: String,
+    /// The Parameter object (`name`, `in`, `required`, `schema`, ...).
+    pub(super) value: Value,
+    /// What is wrong with the declaration (unknown flags, contradicting
+    /// flags); reported, the parameter is used without it.
+    pub(super) problems: Vec<String>,
+}
+
+/// Parses `name: Type [flags] ["description"]` for location `location`;
+/// `None` when the text is not `name: ...`.
+pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Parameter> {
+    let (name, spec) = rest.split_once(':')?;
+    let name = name.trim();
+    if name.is_empty() || name.contains(char::is_whitespace) {
+        return None;
+    }
+    let tokens = tokenize(spec);
+    let (type_text, flags) = match tokens.split_first() {
+        Some((first, flags)) if !first.is_empty() && !is_flag(first) => (first.as_str(), flags),
+        _ => ("String", tokens.as_slice()),
+    };
+    let (mut schema, mut required) = match TypeExpr::parse(type_text) {
+        // A bare built-in name (`Uuid`) may stand for a documented schema.
+        Some(t) => (
+            shadow::typed(types, &t, |m| m.schema),
+            types.map(&t).required,
+        ),
+        None => (json!({ "type": "string" }), true),
+    };
+
+    let mut parameter = Map::new();
+    let mut description: Vec<&str> = Vec::new();
+    // Schema keywords and constraints, applied to every alternative.
+    let mut keywords: Vec<(&str, Value)> = Vec::new();
+    let mut constraints = Vec::new();
+    let mut ignored = Vec::new();
+    let mut has_default = false;
+    let mut explicitly_required = false;
+    let mut explicitly_optional = false;
+    for token in flags {
+        // A quoted description is one token; flags may follow it.
+        if token.starts_with('"') {
+            description.push(token);
+            continue;
+        }
+        // A value may be in Markdown backticks (`default=`20``).
+        let (flag, value) = match token.split_once('=') {
+            Some((flag, value)) => (flag, Some(unticked(value))),
+            None => (token.as_str(), None),
+        };
+        let parsed = || value.map(scalar);
+        match (flag, value) {
+            ("required", None) => explicitly_required = true,
+            ("optional", None) => explicitly_optional = true,
+            ("deprecated", None) => {
+                parameter.insert("deprecated".into(), json!(true));
+            }
+            ("explode", None) => {
+                parameter.insert("explode".into(), json!(true));
+            }
+            ("explode", Some(_)) => {
+                parameter.insert("explode".into(), parsed().unwrap_or_default());
+            }
+            ("allow-reserved", None) => {
+                parameter.insert("allowReserved".into(), json!(true));
+            }
+            ("allow-empty", None) => {
+                parameter.insert("allowEmptyValue".into(), json!(true));
+            }
+            ("style", Some(style)) => {
+                parameter.insert("style".into(), json!(text(style)));
+            }
+            ("example", Some(_)) => {
+                parameter.insert("example".into(), parsed().unwrap_or_default());
+            }
+            ("default", Some(_)) => {
+                keywords.push(("default", parsed().unwrap_or_default()));
+                has_default = true;
+            }
+            ("enum", Some(list)) => match Some(scalar(&untick_items(list))) {
+                Some(Value::Array(values)) => keywords.push(("enum", Value::Array(values))),
+                _ => ignored.push(token.clone()),
+            },
+            ("format", Some(format)) => keywords.push(("format", json!(text(format)))),
+            ("pattern", Some(pattern)) => {
+                constraints.push(Ok(Rule::Pattern(text(pattern).to_string())));
+            }
+            ("min" | "max", Some(_)) => match parsed() {
+                Some(Value::Number(number)) => constraints.push(Err((flag == "min", number))),
+                _ => ignored.push(token.clone()),
+            },
+            _ => ignored.push(token.clone()),
+        }
+    }
+    shadow::for_each(&mut schema, |schema| {
+        for (key, value) in &keywords {
+            set(schema, key, value.clone());
+        }
+        // `min`/`max` are a range or a length, depending on the schema.
+        let rules = constraints
+            .iter()
+            .map(|rule| match rule {
+                Ok(rule) => rule.clone(),
+                Err((lower, number)) => bound(schema, *lower, number.clone()),
+            })
+            .collect();
+        Constraints::new(rules).apply(schema);
+    });
+
+    let mut problems: Vec<String> = ignored
+        .iter()
+        .map(|token| format!("`{token}` is not a parameter flag and was ignored"))
+        .collect();
+    if explicitly_optional && location == "path" {
+        problems.push("path parameters are always required; `optional` is ignored".into());
+    } else if explicitly_optional && explicitly_required {
+        problems.push("a parameter cannot be `required` and `optional`; `required` wins".into());
+    }
+    // A parameter with a default may be left out, and an `optional` one,
+    // unless marked `required`.
+    required = (required && !has_default && !explicitly_optional)
+        || explicitly_required
+        || location == "path";
+    let mut value = Map::new();
+    value.insert("name".into(), json!(name));
+    value.insert("in".into(), json!(location));
+    value.insert("required".into(), json!(required));
+    if !description.is_empty() {
+        let text = description.join(" ");
+        value.insert(
+            "description".into(),
+            json!(quoted_text(&text).unwrap_or(text)),
+        );
+    }
+    if location == "querystring" {
+        value.insert(
+            "content".into(),
+            json!({ "application/x-www-form-urlencoded": { "schema": schema } }),
+        );
+    } else {
+        value.insert("schema".into(), schema);
+    }
+    value.extend(parameter);
+    Some(Parameter {
+        name: name.to_string(),
+        value: Value::Object(value),
+        problems,
+    })
+}
+
+/// A path parameter declared inline: `{id: u64 "User id"}`.
+pub(super) fn inline_path(
+    name: &str,
+    type_text: Option<&str>,
+    description: Option<&str>,
+    types: &TypeMapper,
+) -> Value {
+    let schema = TypeExpr::parse(type_text.unwrap_or("String")).map_or_else(
+        || json!({ "type": "string" }),
+        |t| shadow::typed(types, &t, |m| m.schema),
+    );
+    let mut param = Map::new();
+    param.insert("name".into(), json!(name));
+    param.insert("in".into(), json!("path"));
+    param.insert("required".into(), json!(true));
+    if let Some(d) = description {
+        param.insert("description".into(), json!(d));
+    }
+    param.insert("schema".into(), schema);
+    Value::Object(param)
+}
+
+/// `@query-params $Pagination`: one parameter per property of the struct,
+/// expanded once the struct's schema is known. A path such as
+/// `models::Pagination` names the struct by its last segment, like every
+/// other Rust type.
+/// The marker carries `at`, the annotation that asked for the expansion, for
+/// findings.
+pub(super) fn expansion(location: &str, type_text: &str, at: &Location) -> Value {
+    let name = type_text.trim().trim_start_matches('$');
+    let name = if name.contains('<') {
+        name
+    } else {
+        name.rsplit("::").next().unwrap_or(name)
+    };
+    json!({ EXPAND_KEY: {
+        "in": location,
+        "schema": format!("${name}"),
+        "file": at.file().to_string_lossy(),
+        "line": at.line(),
+    } })
+}
+
+/// Sets `key` of an object schema; other schemas (a custom mapping such as
+/// `true`) are left as they are.
+fn set(schema: &mut Value, key: &str, value: Value) {
+    if let Value::Object(map) = schema {
+        map.insert(key.into(), value);
+    }
+}
+
+/// Whether `token` is a flag or a quoted description rather than a type:
+/// `required`, `deprecated`, `default=…`, `"Page size"`.
+fn is_flag(token: &str) -> bool {
+    token.starts_with('"')
+        || matches!(
+            token,
+            "required" | "optional" | "deprecated" | "explode" | "allow-reserved" | "allow-empty"
+        )
+        || token.split_once('=').is_some_and(|(flag, _)| {
+            matches!(
+                flag,
+                "example"
+                    | "default"
+                    | "enum"
+                    | "min"
+                    | "max"
+                    | "pattern"
+                    | "format"
+                    | "style"
+                    | "explode"
+            )
+        })
+}
+
+/// A flag value as YAML (`10` is a number, `[a, b]` a list), falling back to
+/// the text.
+fn scalar(value: &str) -> Value {
+    match yaml::parse(value) {
+        Ok(Value::Null) | Err(_) => json!(text(value)),
+        Ok(value) => value,
+    }
+}
+
+/// `min=`/`max=` as a range for numbers and a length otherwise.
+fn bound(schema: &Value, lower: bool, number: Number) -> Rule {
+    let numeric = matches!(
+        schema.get("type").and_then(Value::as_str),
+        Some("integer" | "number")
+    );
+    if numeric {
+        let (min, max) = if lower {
+            (Some(number), None)
+        } else {
+            (None, Some(number))
+        };
+        Rule::Range {
+            min,
+            max,
+            exclusive_min: None,
+            exclusive_max: None,
+        }
+    } else {
+        let n = number.as_u64();
+        let (min, max) = if lower { (n, None) } else { (None, n) };
+        Rule::Length {
+            min,
+            max,
+            unit: LengthUnit::Chars,
+        }
+    }
+}
+
+/// A flag value without its surrounding quotes.
+fn text(value: &str) -> &str {
+    unquote(value).unwrap_or(value)
+}

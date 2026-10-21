@@ -1,0 +1,1 @@
+description = "contentEncoding and contentMediaType become format byte and binary in the OpenAPI 3.0 and Swagger 2.0 exports; a binary multipart part is a Swagger file parameter"

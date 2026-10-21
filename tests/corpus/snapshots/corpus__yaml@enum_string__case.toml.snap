@@ -1,0 +1,26 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/enum_string/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    OrderState:
+      type: string
+      enum:
+      - pending
+      - in_transit
+      - done
+      - cancelled_by_user
+      description: Order state
+    Plain:
+      type: string
+      enum:
+      - A
+      - B
+      x-extensible: true

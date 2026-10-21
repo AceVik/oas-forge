@@ -1,0 +1,2398 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/scopes_services/case.toml
+---
+{
+  "description": "Scopes: a gateway with public and admin listeners and a feedback service read in one run; three scoped documents with their own roots, colliding paths, shared schemas and security schemes, pruned components and tags",
+  "diagnostics": [],
+  "scopes": {
+    "admin": {
+      "asyncapi": {
+        "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+      },
+      "fragments": {
+        "document": {
+          "components": {
+            "schemas": {
+              "Report": {
+                "description": "A report about a user.",
+                "properties": {
+                  "id": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "user": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "user",
+                  "reason"
+                ],
+                "type": "object"
+              }
+            },
+            "securitySchemes": {
+              "admin_token": {
+                "in": "header",
+                "name": "X-Admin-Token",
+                "type": "apiKey"
+              },
+              "bearer": {
+                "scheme": "bearer",
+                "type": "http"
+              }
+            }
+          },
+          "paths": {
+            "/reports": {
+              "get": {
+                "operationId": "list_reports",
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "items": {
+                            "$ref": "#/components/schemas/Report"
+                          },
+                          "type": "array"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  }
+                },
+                "security": [
+                  {
+                    "admin_token": []
+                  }
+                ],
+                "summary": "List reports"
+              }
+            },
+            "/users/{id}": {
+              "delete": {
+                "operationId": "delete_user",
+                "parameters": [
+                  {
+                    "in": "path",
+                    "name": "id",
+                    "required": true,
+                    "schema": {
+                      "format": "int64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  }
+                ],
+                "responses": {
+                  "204": {
+                    "description": "No Content"
+                  }
+                },
+                "security": [
+                  {
+                    "admin_token": []
+                  }
+                ],
+                "summary": "Delete a user"
+              }
+            }
+          }
+        },
+        "lints": []
+      },
+      "full": {
+        "document": {
+          "components": {
+            "schemas": {
+              "Report": {
+                "description": "A report about a user.",
+                "properties": {
+                  "id": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "user": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "user",
+                  "reason"
+                ],
+                "type": "object"
+              }
+            },
+            "securitySchemes": {
+              "admin_token": {
+                "in": "header",
+                "name": "X-Admin-Token",
+                "type": "apiKey"
+              },
+              "bearer": {
+                "scheme": "bearer",
+                "type": "http"
+              }
+            }
+          },
+          "info": {
+            "title": "Gateway administration",
+            "version": "1.0.0"
+          },
+          "openapi": "3.1.0",
+          "paths": {
+            "/reports": {
+              "get": {
+                "operationId": "list_reports",
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "items": {
+                            "$ref": "#/components/schemas/Report"
+                          },
+                          "type": "array"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  }
+                },
+                "security": [
+                  {
+                    "admin_token": []
+                  }
+                ],
+                "summary": "List reports"
+              }
+            },
+            "/users/{id}": {
+              "delete": {
+                "operationId": "delete_user",
+                "parameters": [
+                  {
+                    "in": "path",
+                    "name": "id",
+                    "required": true,
+                    "schema": {
+                      "format": "int64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  }
+                ],
+                "responses": {
+                  "204": {
+                    "description": "No Content"
+                  }
+                },
+                "security": [
+                  {
+                    "admin_token": []
+                  }
+                ],
+                "summary": "Delete a user"
+              }
+            }
+          },
+          "servers": [
+            {
+              "url": "http://127.0.0.1:9000"
+            }
+          ]
+        },
+        "lints": [],
+        "validation": []
+      },
+      "json_schema": {
+        "document": {
+          "$defs": {
+            "Report": {
+              "description": "A report about a user.",
+              "properties": {
+                "id": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "user": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "user",
+                "reason"
+              ],
+              "type": "object"
+            }
+          },
+          "$schema": "https://json-schema.org/draft/2020-12/schema"
+        },
+        "lints": [],
+        "validation": []
+      },
+      "openapi_30": {
+        "document": {
+          "components": {
+            "schemas": {
+              "Report": {
+                "description": "A report about a user.",
+                "properties": {
+                  "id": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "user": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "user",
+                  "reason"
+                ],
+                "type": "object"
+              }
+            },
+            "securitySchemes": {
+              "admin_token": {
+                "in": "header",
+                "name": "X-Admin-Token",
+                "type": "apiKey"
+              },
+              "bearer": {
+                "scheme": "bearer",
+                "type": "http"
+              }
+            }
+          },
+          "info": {
+            "title": "Gateway administration",
+            "version": "1.0.0"
+          },
+          "openapi": "3.0.3",
+          "paths": {
+            "/reports": {
+              "get": {
+                "operationId": "list_reports",
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "items": {
+                            "$ref": "#/components/schemas/Report"
+                          },
+                          "type": "array"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  }
+                },
+                "security": [
+                  {
+                    "admin_token": []
+                  }
+                ],
+                "summary": "List reports"
+              }
+            },
+            "/users/{id}": {
+              "delete": {
+                "operationId": "delete_user",
+                "parameters": [
+                  {
+                    "in": "path",
+                    "name": "id",
+                    "required": true,
+                    "schema": {
+                      "format": "int64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  }
+                ],
+                "responses": {
+                  "204": {
+                    "description": "No Content"
+                  }
+                },
+                "security": [
+                  {
+                    "admin_token": []
+                  }
+                ],
+                "summary": "Delete a user"
+              }
+            }
+          },
+          "servers": [
+            {
+              "url": "http://127.0.0.1:9000"
+            }
+          ]
+        },
+        "lints": [],
+        "validation": []
+      },
+      "paths": {
+        "document": {
+          "/reports": {
+            "get": {
+              "operationId": "list_reports",
+              "responses": {
+                "200": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "items": {
+                          "$ref": "#/components/schemas/Report"
+                        },
+                        "type": "array"
+                      }
+                    }
+                  },
+                  "description": "OK"
+                }
+              },
+              "security": [
+                {
+                  "admin_token": []
+                }
+              ],
+              "summary": "List reports"
+            }
+          },
+          "/users/{id}": {
+            "delete": {
+              "operationId": "delete_user",
+              "parameters": [
+                {
+                  "in": "path",
+                  "name": "id",
+                  "required": true,
+                  "schema": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                }
+              ],
+              "responses": {
+                "204": {
+                  "description": "No Content"
+                }
+              },
+              "security": [
+                {
+                  "admin_token": []
+                }
+              ],
+              "summary": "Delete a user"
+            }
+          }
+        },
+        "lints": []
+      },
+      "schemas": {
+        "document": {
+          "Report": {
+            "description": "A report about a user.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "user": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "user",
+              "reason"
+            ],
+            "type": "object"
+          }
+        },
+        "lints": []
+      },
+      "swagger_2": {
+        "document": {
+          "definitions": {
+            "Report": {
+              "description": "A report about a user.",
+              "properties": {
+                "id": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "user": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "user",
+                "reason"
+              ],
+              "type": "object"
+            }
+          },
+          "host": "127.0.0.1:9000",
+          "info": {
+            "title": "Gateway administration",
+            "version": "1.0.0"
+          },
+          "paths": {
+            "/reports": {
+              "get": {
+                "operationId": "list_reports",
+                "produces": [
+                  "application/json"
+                ],
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "schema": {
+                      "items": {
+                        "$ref": "#/definitions/Report"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "security": [
+                  {
+                    "admin_token": []
+                  }
+                ],
+                "summary": "List reports"
+              }
+            },
+            "/users/{id}": {
+              "delete": {
+                "operationId": "delete_user",
+                "parameters": [
+                  {
+                    "format": "int64",
+                    "in": "path",
+                    "minimum": 0,
+                    "name": "id",
+                    "required": true,
+                    "type": "integer"
+                  }
+                ],
+                "responses": {
+                  "204": {
+                    "description": "No Content"
+                  }
+                },
+                "security": [
+                  {
+                    "admin_token": []
+                  }
+                ],
+                "summary": "Delete a user"
+              }
+            }
+          },
+          "schemes": [
+            "http"
+          ],
+          "securityDefinitions": {
+            "admin_token": {
+              "in": "header",
+              "name": "X-Admin-Token",
+              "type": "apiKey"
+            },
+            "bearer": {
+              "in": "header",
+              "name": "Authorization",
+              "type": "apiKey"
+            }
+          },
+          "swagger": "2.0"
+        },
+        "lints": [],
+        "validation": []
+      }
+    },
+    "feedback": {
+      "asyncapi": {
+        "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+      },
+      "fragments": {
+        "document": {
+          "components": {
+            "schemas": {
+              "Feedback": {
+                "description": "Feedback about the service.",
+                "properties": {
+                  "rating": {
+                    "format": "int32",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "text",
+                  "rating"
+                ],
+                "type": "object"
+              },
+              "FeedbackHealth": {
+                "description": "The state of the feedback service.",
+                "properties": {
+                  "ok": {
+                    "type": "boolean"
+                  },
+                  "queued": {
+                    "format": "int64",
+                    "maximum": 4294967295,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "ok",
+                  "queued"
+                ],
+                "type": "object"
+              }
+            },
+            "securitySchemes": {
+              "admin_token": {
+                "in": "header",
+                "name": "X-Admin-Token",
+                "type": "apiKey"
+              },
+              "bearer": {
+                "scheme": "bearer",
+                "type": "http"
+              }
+            }
+          },
+          "paths": {
+            "/feedback": {
+              "post": {
+                "operationId": "send_feedback",
+                "requestBody": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/Feedback"
+                      }
+                    }
+                  },
+                  "required": true
+                },
+                "responses": {
+                  "204": {
+                    "description": "No Content"
+                  }
+                },
+                "summary": "Send feedback"
+              }
+            },
+            "/health": {
+              "get": {
+                "operationId": "feedback_health",
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/FeedbackHealth"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  }
+                },
+                "summary": "Feedback health"
+              }
+            },
+            "/reports": {
+              "get": {
+                "operationId": "feedback_reports",
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "items": {
+                            "$ref": "#/components/schemas/Feedback"
+                          },
+                          "type": "array"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  }
+                },
+                "summary": "Feedback received as reports"
+              }
+            }
+          }
+        },
+        "lints": []
+      },
+      "full": {
+        "document": {
+          "components": {
+            "schemas": {
+              "Feedback": {
+                "description": "Feedback about the service.",
+                "properties": {
+                  "rating": {
+                    "format": "int32",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "text",
+                  "rating"
+                ],
+                "type": "object"
+              },
+              "FeedbackHealth": {
+                "description": "The state of the feedback service.",
+                "properties": {
+                  "ok": {
+                    "type": "boolean"
+                  },
+                  "queued": {
+                    "format": "int64",
+                    "maximum": 4294967295,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "ok",
+                  "queued"
+                ],
+                "type": "object"
+              }
+            },
+            "securitySchemes": {
+              "admin_token": {
+                "in": "header",
+                "name": "X-Admin-Token",
+                "type": "apiKey"
+              },
+              "bearer": {
+                "scheme": "bearer",
+                "type": "http"
+              }
+            }
+          },
+          "info": {
+            "title": "Feedback",
+            "version": "2.0.0"
+          },
+          "openapi": "3.1.0",
+          "paths": {
+            "/feedback": {
+              "post": {
+                "operationId": "send_feedback",
+                "requestBody": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/Feedback"
+                      }
+                    }
+                  },
+                  "required": true
+                },
+                "responses": {
+                  "204": {
+                    "description": "No Content"
+                  }
+                },
+                "summary": "Send feedback"
+              }
+            },
+            "/health": {
+              "get": {
+                "operationId": "feedback_health",
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/FeedbackHealth"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  }
+                },
+                "summary": "Feedback health"
+              }
+            },
+            "/reports": {
+              "get": {
+                "operationId": "feedback_reports",
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "items": {
+                            "$ref": "#/components/schemas/Feedback"
+                          },
+                          "type": "array"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  }
+                },
+                "summary": "Feedback received as reports"
+              }
+            }
+          }
+        },
+        "lints": [],
+        "validation": []
+      },
+      "json_schema": {
+        "document": {
+          "$defs": {
+            "Feedback": {
+              "description": "Feedback about the service.",
+              "properties": {
+                "rating": {
+                  "format": "int32",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "rating"
+              ],
+              "type": "object"
+            },
+            "FeedbackHealth": {
+              "description": "The state of the feedback service.",
+              "properties": {
+                "ok": {
+                  "type": "boolean"
+                },
+                "queued": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "ok",
+                "queued"
+              ],
+              "type": "object"
+            }
+          },
+          "$schema": "https://json-schema.org/draft/2020-12/schema"
+        },
+        "lints": [],
+        "validation": []
+      },
+      "openapi_30": {
+        "document": {
+          "components": {
+            "schemas": {
+              "Feedback": {
+                "description": "Feedback about the service.",
+                "properties": {
+                  "rating": {
+                    "format": "int32",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "text",
+                  "rating"
+                ],
+                "type": "object"
+              },
+              "FeedbackHealth": {
+                "description": "The state of the feedback service.",
+                "properties": {
+                  "ok": {
+                    "type": "boolean"
+                  },
+                  "queued": {
+                    "format": "int64",
+                    "maximum": 4294967295,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "ok",
+                  "queued"
+                ],
+                "type": "object"
+              }
+            },
+            "securitySchemes": {
+              "admin_token": {
+                "in": "header",
+                "name": "X-Admin-Token",
+                "type": "apiKey"
+              },
+              "bearer": {
+                "scheme": "bearer",
+                "type": "http"
+              }
+            }
+          },
+          "info": {
+            "title": "Feedback",
+            "version": "2.0.0"
+          },
+          "openapi": "3.0.3",
+          "paths": {
+            "/feedback": {
+              "post": {
+                "operationId": "send_feedback",
+                "requestBody": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/Feedback"
+                      }
+                    }
+                  },
+                  "required": true
+                },
+                "responses": {
+                  "204": {
+                    "description": "No Content"
+                  }
+                },
+                "summary": "Send feedback"
+              }
+            },
+            "/health": {
+              "get": {
+                "operationId": "feedback_health",
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/FeedbackHealth"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  }
+                },
+                "summary": "Feedback health"
+              }
+            },
+            "/reports": {
+              "get": {
+                "operationId": "feedback_reports",
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "items": {
+                            "$ref": "#/components/schemas/Feedback"
+                          },
+                          "type": "array"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  }
+                },
+                "summary": "Feedback received as reports"
+              }
+            }
+          }
+        },
+        "lints": [],
+        "validation": []
+      },
+      "paths": {
+        "document": {
+          "/feedback": {
+            "post": {
+              "operationId": "send_feedback",
+              "requestBody": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Feedback"
+                    }
+                  }
+                },
+                "required": true
+              },
+              "responses": {
+                "204": {
+                  "description": "No Content"
+                }
+              },
+              "summary": "Send feedback"
+            }
+          },
+          "/health": {
+            "get": {
+              "operationId": "feedback_health",
+              "responses": {
+                "200": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/FeedbackHealth"
+                      }
+                    }
+                  },
+                  "description": "OK"
+                }
+              },
+              "summary": "Feedback health"
+            }
+          },
+          "/reports": {
+            "get": {
+              "operationId": "feedback_reports",
+              "responses": {
+                "200": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "items": {
+                          "$ref": "#/components/schemas/Feedback"
+                        },
+                        "type": "array"
+                      }
+                    }
+                  },
+                  "description": "OK"
+                }
+              },
+              "summary": "Feedback received as reports"
+            }
+          }
+        },
+        "lints": []
+      },
+      "schemas": {
+        "document": {
+          "Feedback": {
+            "description": "Feedback about the service.",
+            "properties": {
+              "rating": {
+                "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "text",
+              "rating"
+            ],
+            "type": "object"
+          },
+          "FeedbackHealth": {
+            "description": "The state of the feedback service.",
+            "properties": {
+              "ok": {
+                "type": "boolean"
+              },
+              "queued": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "ok",
+              "queued"
+            ],
+            "type": "object"
+          }
+        },
+        "lints": []
+      },
+      "swagger_2": {
+        "document": {
+          "definitions": {
+            "Feedback": {
+              "description": "Feedback about the service.",
+              "properties": {
+                "rating": {
+                  "format": "int32",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "rating"
+              ],
+              "type": "object"
+            },
+            "FeedbackHealth": {
+              "description": "The state of the feedback service.",
+              "properties": {
+                "ok": {
+                  "type": "boolean"
+                },
+                "queued": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "ok",
+                "queued"
+              ],
+              "type": "object"
+            }
+          },
+          "info": {
+            "title": "Feedback",
+            "version": "2.0.0"
+          },
+          "paths": {
+            "/feedback": {
+              "post": {
+                "consumes": [
+                  "application/json"
+                ],
+                "operationId": "send_feedback",
+                "parameters": [
+                  {
+                    "in": "body",
+                    "name": "body",
+                    "required": true,
+                    "schema": {
+                      "$ref": "#/definitions/Feedback"
+                    }
+                  }
+                ],
+                "responses": {
+                  "204": {
+                    "description": "No Content"
+                  }
+                },
+                "summary": "Send feedback"
+              }
+            },
+            "/health": {
+              "get": {
+                "operationId": "feedback_health",
+                "produces": [
+                  "application/json"
+                ],
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "schema": {
+                      "$ref": "#/definitions/FeedbackHealth"
+                    }
+                  }
+                },
+                "summary": "Feedback health"
+              }
+            },
+            "/reports": {
+              "get": {
+                "operationId": "feedback_reports",
+                "produces": [
+                  "application/json"
+                ],
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "schema": {
+                      "items": {
+                        "$ref": "#/definitions/Feedback"
+                      },
+                      "type": "array"
+                    }
+                  }
+                },
+                "summary": "Feedback received as reports"
+              }
+            }
+          },
+          "securityDefinitions": {
+            "admin_token": {
+              "in": "header",
+              "name": "X-Admin-Token",
+              "type": "apiKey"
+            },
+            "bearer": {
+              "in": "header",
+              "name": "Authorization",
+              "type": "apiKey"
+            }
+          },
+          "swagger": "2.0"
+        },
+        "lints": [],
+        "validation": []
+      }
+    },
+    "public": {
+      "asyncapi": {
+        "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+      },
+      "fragments": {
+        "document": {
+          "components": {
+            "schemas": {
+              "GatewayHealth": {
+                "description": "The state of the gateway.",
+                "properties": {
+                  "ok": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "ok"
+                ],
+                "type": "object"
+              },
+              "ProblemDetails": {
+                "description": "Problem details (RFC 9457).",
+                "properties": {
+                  "detail": {
+                    "description": "An explanation specific to this occurrence.",
+                    "type": "string"
+                  },
+                  "instance": {
+                    "description": "A URI reference that identifies this occurrence.",
+                    "format": "uri-reference",
+                    "type": "string"
+                  },
+                  "status": {
+                    "description": "The HTTP status code.",
+                    "format": "int32",
+                    "maximum": 599,
+                    "minimum": 100,
+                    "type": "integer"
+                  },
+                  "title": {
+                    "description": "A short summary of the problem type.",
+                    "type": "string"
+                  },
+                  "type": {
+                    "default": "about:blank",
+                    "description": "A URI reference that identifies the problem type.",
+                    "format": "uri-reference",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "Report": {
+                "description": "A report about a user.",
+                "properties": {
+                  "id": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "user": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "user",
+                  "reason"
+                ],
+                "type": "object"
+              },
+              "User": {
+                "description": "A user account.",
+                "properties": {
+                  "id": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "type": "object"
+              }
+            },
+            "securitySchemes": {
+              "admin_token": {
+                "in": "header",
+                "name": "X-Admin-Token",
+                "type": "apiKey"
+              },
+              "bearer": {
+                "scheme": "bearer",
+                "type": "http"
+              }
+            }
+          },
+          "paths": {
+            "/health": {
+              "get": {
+                "operationId": "gateway_health",
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/GatewayHealth"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  }
+                },
+                "security": [],
+                "summary": "Gateway health"
+              }
+            },
+            "/reports": {
+              "post": {
+                "operationId": "report_user",
+                "requestBody": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/Report"
+                      }
+                    }
+                  },
+                  "required": true
+                },
+                "responses": {
+                  "202": {
+                    "description": "Accepted"
+                  }
+                },
+                "security": [
+                  {
+                    "bearer": []
+                  }
+                ],
+                "summary": "Report a user",
+                "tags": [
+                  "Reports"
+                ]
+              }
+            },
+            "/users/{id}": {
+              "get": {
+                "operationId": "get_user",
+                "parameters": [
+                  {
+                    "in": "path",
+                    "name": "id",
+                    "required": true,
+                    "schema": {
+                      "format": "int64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  }
+                ],
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/User"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  },
+                  "404": {
+                    "content": {
+                      "application/problem+json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/ProblemDetails"
+                        }
+                      }
+                    },
+                    "description": "No such user"
+                  }
+                },
+                "security": [
+                  {
+                    "bearer": []
+                  }
+                ],
+                "summary": "Get a user",
+                "tags": [
+                  "Users"
+                ]
+              }
+            }
+          },
+          "tags": [
+            {
+              "description": "Accounts",
+              "name": "Users"
+            },
+            {
+              "description": "Reports about accounts",
+              "name": "Reports"
+            }
+          ]
+        },
+        "lints": []
+      },
+      "full": {
+        "document": {
+          "components": {
+            "schemas": {
+              "GatewayHealth": {
+                "description": "The state of the gateway.",
+                "properties": {
+                  "ok": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "ok"
+                ],
+                "type": "object"
+              },
+              "ProblemDetails": {
+                "description": "Problem details (RFC 9457).",
+                "properties": {
+                  "detail": {
+                    "description": "An explanation specific to this occurrence.",
+                    "type": "string"
+                  },
+                  "instance": {
+                    "description": "A URI reference that identifies this occurrence.",
+                    "format": "uri-reference",
+                    "type": "string"
+                  },
+                  "status": {
+                    "description": "The HTTP status code.",
+                    "format": "int32",
+                    "maximum": 599,
+                    "minimum": 100,
+                    "type": "integer"
+                  },
+                  "title": {
+                    "description": "A short summary of the problem type.",
+                    "type": "string"
+                  },
+                  "type": {
+                    "default": "about:blank",
+                    "description": "A URI reference that identifies the problem type.",
+                    "format": "uri-reference",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "Report": {
+                "description": "A report about a user.",
+                "properties": {
+                  "id": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "user": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "user",
+                  "reason"
+                ],
+                "type": "object"
+              },
+              "User": {
+                "description": "A user account.",
+                "properties": {
+                  "id": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "type": "object"
+              }
+            },
+            "securitySchemes": {
+              "admin_token": {
+                "in": "header",
+                "name": "X-Admin-Token",
+                "type": "apiKey"
+              },
+              "bearer": {
+                "scheme": "bearer",
+                "type": "http"
+              }
+            }
+          },
+          "info": {
+            "title": "Gateway",
+            "version": "1.0.0"
+          },
+          "openapi": "3.1.0",
+          "paths": {
+            "/health": {
+              "get": {
+                "operationId": "gateway_health",
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/GatewayHealth"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  }
+                },
+                "security": [],
+                "summary": "Gateway health"
+              }
+            },
+            "/reports": {
+              "post": {
+                "operationId": "report_user",
+                "requestBody": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/Report"
+                      }
+                    }
+                  },
+                  "required": true
+                },
+                "responses": {
+                  "202": {
+                    "description": "Accepted"
+                  }
+                },
+                "security": [
+                  {
+                    "bearer": []
+                  }
+                ],
+                "summary": "Report a user",
+                "tags": [
+                  "Reports"
+                ]
+              }
+            },
+            "/users/{id}": {
+              "get": {
+                "operationId": "get_user",
+                "parameters": [
+                  {
+                    "in": "path",
+                    "name": "id",
+                    "required": true,
+                    "schema": {
+                      "format": "int64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  }
+                ],
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/User"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  },
+                  "404": {
+                    "content": {
+                      "application/problem+json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/ProblemDetails"
+                        }
+                      }
+                    },
+                    "description": "No such user"
+                  }
+                },
+                "security": [
+                  {
+                    "bearer": []
+                  }
+                ],
+                "summary": "Get a user",
+                "tags": [
+                  "Users"
+                ]
+              }
+            }
+          },
+          "servers": [
+            {
+              "url": "https://api.example.com"
+            }
+          ],
+          "tags": [
+            {
+              "description": "Accounts",
+              "name": "Users"
+            },
+            {
+              "description": "Reports about accounts",
+              "name": "Reports"
+            }
+          ]
+        },
+        "lints": [],
+        "validation": []
+      },
+      "json_schema": {
+        "document": {
+          "$defs": {
+            "GatewayHealth": {
+              "description": "The state of the gateway.",
+              "properties": {
+                "ok": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "ok"
+              ],
+              "type": "object"
+            },
+            "ProblemDetails": {
+              "description": "Problem details (RFC 9457).",
+              "properties": {
+                "detail": {
+                  "description": "An explanation specific to this occurrence.",
+                  "type": "string"
+                },
+                "instance": {
+                  "description": "A URI reference that identifies this occurrence.",
+                  "format": "uri-reference",
+                  "type": "string"
+                },
+                "status": {
+                  "description": "The HTTP status code.",
+                  "format": "int32",
+                  "maximum": 599,
+                  "minimum": 100,
+                  "type": "integer"
+                },
+                "title": {
+                  "description": "A short summary of the problem type.",
+                  "type": "string"
+                },
+                "type": {
+                  "default": "about:blank",
+                  "description": "A URI reference that identifies the problem type.",
+                  "format": "uri-reference",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "Report": {
+              "description": "A report about a user.",
+              "properties": {
+                "id": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "user": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "user",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "User": {
+              "description": "A user account.",
+              "properties": {
+                "id": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ],
+              "type": "object"
+            }
+          },
+          "$schema": "https://json-schema.org/draft/2020-12/schema"
+        },
+        "lints": [],
+        "validation": []
+      },
+      "openapi_30": {
+        "document": {
+          "components": {
+            "schemas": {
+              "GatewayHealth": {
+                "description": "The state of the gateway.",
+                "properties": {
+                  "ok": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "ok"
+                ],
+                "type": "object"
+              },
+              "ProblemDetails": {
+                "description": "Problem details (RFC 9457).",
+                "properties": {
+                  "detail": {
+                    "description": "An explanation specific to this occurrence.",
+                    "type": "string"
+                  },
+                  "instance": {
+                    "description": "A URI reference that identifies this occurrence.",
+                    "format": "uri-reference",
+                    "type": "string"
+                  },
+                  "status": {
+                    "description": "The HTTP status code.",
+                    "format": "int32",
+                    "maximum": 599,
+                    "minimum": 100,
+                    "type": "integer"
+                  },
+                  "title": {
+                    "description": "A short summary of the problem type.",
+                    "type": "string"
+                  },
+                  "type": {
+                    "default": "about:blank",
+                    "description": "A URI reference that identifies the problem type.",
+                    "format": "uri-reference",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "Report": {
+                "description": "A report about a user.",
+                "properties": {
+                  "id": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "user": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "user",
+                  "reason"
+                ],
+                "type": "object"
+              },
+              "User": {
+                "description": "A user account.",
+                "properties": {
+                  "id": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "type": "object"
+              }
+            },
+            "securitySchemes": {
+              "admin_token": {
+                "in": "header",
+                "name": "X-Admin-Token",
+                "type": "apiKey"
+              },
+              "bearer": {
+                "scheme": "bearer",
+                "type": "http"
+              }
+            }
+          },
+          "info": {
+            "title": "Gateway",
+            "version": "1.0.0"
+          },
+          "openapi": "3.0.3",
+          "paths": {
+            "/health": {
+              "get": {
+                "operationId": "gateway_health",
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/GatewayHealth"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  }
+                },
+                "security": [],
+                "summary": "Gateway health"
+              }
+            },
+            "/reports": {
+              "post": {
+                "operationId": "report_user",
+                "requestBody": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/Report"
+                      }
+                    }
+                  },
+                  "required": true
+                },
+                "responses": {
+                  "202": {
+                    "description": "Accepted"
+                  }
+                },
+                "security": [
+                  {
+                    "bearer": []
+                  }
+                ],
+                "summary": "Report a user",
+                "tags": [
+                  "Reports"
+                ]
+              }
+            },
+            "/users/{id}": {
+              "get": {
+                "operationId": "get_user",
+                "parameters": [
+                  {
+                    "in": "path",
+                    "name": "id",
+                    "required": true,
+                    "schema": {
+                      "format": "int64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  }
+                ],
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/User"
+                        }
+                      }
+                    },
+                    "description": "OK"
+                  },
+                  "404": {
+                    "content": {
+                      "application/problem+json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/ProblemDetails"
+                        }
+                      }
+                    },
+                    "description": "No such user"
+                  }
+                },
+                "security": [
+                  {
+                    "bearer": []
+                  }
+                ],
+                "summary": "Get a user",
+                "tags": [
+                  "Users"
+                ]
+              }
+            }
+          },
+          "servers": [
+            {
+              "url": "https://api.example.com"
+            }
+          ],
+          "tags": [
+            {
+              "description": "Accounts",
+              "name": "Users"
+            },
+            {
+              "description": "Reports about accounts",
+              "name": "Reports"
+            }
+          ]
+        },
+        "lints": [],
+        "validation": []
+      },
+      "paths": {
+        "document": {
+          "/health": {
+            "get": {
+              "operationId": "gateway_health",
+              "responses": {
+                "200": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/GatewayHealth"
+                      }
+                    }
+                  },
+                  "description": "OK"
+                }
+              },
+              "security": [],
+              "summary": "Gateway health"
+            }
+          },
+          "/reports": {
+            "post": {
+              "operationId": "report_user",
+              "requestBody": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Report"
+                    }
+                  }
+                },
+                "required": true
+              },
+              "responses": {
+                "202": {
+                  "description": "Accepted"
+                }
+              },
+              "security": [
+                {
+                  "bearer": []
+                }
+              ],
+              "summary": "Report a user",
+              "tags": [
+                "Reports"
+              ]
+            }
+          },
+          "/users/{id}": {
+            "get": {
+              "operationId": "get_user",
+              "parameters": [
+                {
+                  "in": "path",
+                  "name": "id",
+                  "required": true,
+                  "schema": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                }
+              ],
+              "responses": {
+                "200": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/User"
+                      }
+                    }
+                  },
+                  "description": "OK"
+                },
+                "404": {
+                  "content": {
+                    "application/problem+json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ProblemDetails"
+                      }
+                    }
+                  },
+                  "description": "No such user"
+                }
+              },
+              "security": [
+                {
+                  "bearer": []
+                }
+              ],
+              "summary": "Get a user",
+              "tags": [
+                "Users"
+              ]
+            }
+          }
+        },
+        "lints": []
+      },
+      "schemas": {
+        "document": {
+          "GatewayHealth": {
+            "description": "The state of the gateway.",
+            "properties": {
+              "ok": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "ok"
+            ],
+            "type": "object"
+          },
+          "ProblemDetails": {
+            "description": "Problem details (RFC 9457).",
+            "properties": {
+              "detail": {
+                "description": "An explanation specific to this occurrence.",
+                "type": "string"
+              },
+              "instance": {
+                "description": "A URI reference that identifies this occurrence.",
+                "format": "uri-reference",
+                "type": "string"
+              },
+              "status": {
+                "description": "The HTTP status code.",
+                "format": "int32",
+                "maximum": 599,
+                "minimum": 100,
+                "type": "integer"
+              },
+              "title": {
+                "description": "A short summary of the problem type.",
+                "type": "string"
+              },
+              "type": {
+                "default": "about:blank",
+                "description": "A URI reference that identifies the problem type.",
+                "format": "uri-reference",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "Report": {
+            "description": "A report about a user.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "user": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "user",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "description": "A user account.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": "object"
+          }
+        },
+        "lints": []
+      },
+      "swagger_2": {
+        "document": {
+          "definitions": {
+            "GatewayHealth": {
+              "description": "The state of the gateway.",
+              "properties": {
+                "ok": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "ok"
+              ],
+              "type": "object"
+            },
+            "ProblemDetails": {
+              "description": "Problem details (RFC 9457).",
+              "properties": {
+                "detail": {
+                  "description": "An explanation specific to this occurrence.",
+                  "type": "string"
+                },
+                "instance": {
+                  "description": "A URI reference that identifies this occurrence.",
+                  "format": "uri-reference",
+                  "type": "string"
+                },
+                "status": {
+                  "description": "The HTTP status code.",
+                  "format": "int32",
+                  "maximum": 599,
+                  "minimum": 100,
+                  "type": "integer"
+                },
+                "title": {
+                  "description": "A short summary of the problem type.",
+                  "type": "string"
+                },
+                "type": {
+                  "default": "about:blank",
+                  "description": "A URI reference that identifies the problem type.",
+                  "format": "uri-reference",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "Report": {
+              "description": "A report about a user.",
+              "properties": {
+                "id": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "user": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "user",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "User": {
+              "description": "A user account.",
+              "properties": {
+                "id": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ],
+              "type": "object"
+            }
+          },
+          "host": "api.example.com",
+          "info": {
+            "title": "Gateway",
+            "version": "1.0.0"
+          },
+          "paths": {
+            "/health": {
+              "get": {
+                "operationId": "gateway_health",
+                "produces": [
+                  "application/json"
+                ],
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "schema": {
+                      "$ref": "#/definitions/GatewayHealth"
+                    }
+                  }
+                },
+                "security": [],
+                "summary": "Gateway health"
+              }
+            },
+            "/reports": {
+              "post": {
+                "consumes": [
+                  "application/json"
+                ],
+                "operationId": "report_user",
+                "parameters": [
+                  {
+                    "in": "body",
+                    "name": "body",
+                    "required": true,
+                    "schema": {
+                      "$ref": "#/definitions/Report"
+                    }
+                  }
+                ],
+                "responses": {
+                  "202": {
+                    "description": "Accepted"
+                  }
+                },
+                "security": [
+                  {
+                    "bearer": []
+                  }
+                ],
+                "summary": "Report a user",
+                "tags": [
+                  "Reports"
+                ]
+              }
+            },
+            "/users/{id}": {
+              "get": {
+                "operationId": "get_user",
+                "parameters": [
+                  {
+                    "format": "int64",
+                    "in": "path",
+                    "minimum": 0,
+                    "name": "id",
+                    "required": true,
+                    "type": "integer"
+                  }
+                ],
+                "produces": [
+                  "application/json",
+                  "application/problem+json"
+                ],
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "schema": {
+                      "$ref": "#/definitions/User"
+                    }
+                  },
+                  "404": {
+                    "description": "No such user",
+                    "schema": {
+                      "$ref": "#/definitions/ProblemDetails"
+                    }
+                  }
+                },
+                "security": [
+                  {
+                    "bearer": []
+                  }
+                ],
+                "summary": "Get a user",
+                "tags": [
+                  "Users"
+                ]
+              }
+            }
+          },
+          "schemes": [
+            "https"
+          ],
+          "securityDefinitions": {
+            "admin_token": {
+              "in": "header",
+              "name": "X-Admin-Token",
+              "type": "apiKey"
+            },
+            "bearer": {
+              "in": "header",
+              "name": "Authorization",
+              "type": "apiKey"
+            }
+          },
+          "swagger": "2.0",
+          "tags": [
+            {
+              "description": "Accounts",
+              "name": "Users"
+            },
+            {
+              "description": "Reports about accounts",
+              "name": "Reports"
+            }
+          ]
+        },
+        "lints": [],
+        "validation": []
+      }
+    }
+  }
+}

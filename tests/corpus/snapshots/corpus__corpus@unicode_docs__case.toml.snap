@@ -1,0 +1,400 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/unicode_docs/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Unicode: non-ASCII doc comments around references",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Adresse": {
+            "properties": {
+              "ort": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "ort"
+            ],
+            "type": "object"
+          },
+          "Kunde": {
+            "description": "Kundendaten für die Größenberechnung – „ÄÖÜ“ 🚀",
+            "properties": {
+              "adresse": {
+                "$ref": "#/components/schemas/Adresse",
+                "description": "Wohnort des Kunden"
+              }
+            },
+            "required": [
+              "adresse"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "paths": {
+        "/kunden/{id}": {
+          "get": {
+            "operationId": "kunde",
+            "parameters": [
+              {
+                "description": "Kunden-Nr.",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Kunde"
+                    }
+                  }
+                },
+                "description": "Gefunden ✓"
+              }
+            },
+            "summary": "Größe abfragen – liefert $Kunde"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Adresse": {
+            "properties": {
+              "ort": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "ort"
+            ],
+            "type": "object"
+          },
+          "Kunde": {
+            "description": "Kundendaten für die Größenberechnung – „ÄÖÜ“ 🚀",
+            "properties": {
+              "adresse": {
+                "$ref": "#/components/schemas/Adresse",
+                "description": "Wohnort des Kunden"
+              }
+            },
+            "required": [
+              "adresse"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/kunden/{id}": {
+          "get": {
+            "operationId": "kunde",
+            "parameters": [
+              {
+                "description": "Kunden-Nr.",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Kunde"
+                    }
+                  }
+                },
+                "description": "Gefunden ✓"
+              }
+            },
+            "summary": "Größe abfragen – liefert $Kunde"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Adresse": {
+          "properties": {
+            "ort": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ort"
+          ],
+          "type": "object"
+        },
+        "Kunde": {
+          "description": "Kundendaten für die Größenberechnung – „ÄÖÜ“ 🚀",
+          "properties": {
+            "adresse": {
+              "$ref": "#/$defs/Adresse",
+              "description": "Wohnort des Kunden"
+            }
+          },
+          "required": [
+            "adresse"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Adresse": {
+            "properties": {
+              "ort": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "ort"
+            ],
+            "type": "object"
+          },
+          "Kunde": {
+            "description": "Kundendaten für die Größenberechnung – „ÄÖÜ“ 🚀",
+            "properties": {
+              "adresse": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Adresse"
+                  }
+                ],
+                "description": "Wohnort des Kunden"
+              }
+            },
+            "required": [
+              "adresse"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/kunden/{id}": {
+          "get": {
+            "operationId": "kunde",
+            "parameters": [
+              {
+                "description": "Kunden-Nr.",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Kunde"
+                    }
+                  }
+                },
+                "description": "Gefunden ✓"
+              }
+            },
+            "summary": "Größe abfragen – liefert $Kunde"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/kunden/{id}": {
+        "get": {
+          "operationId": "kunde",
+          "parameters": [
+            {
+              "description": "Kunden-Nr.",
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Kunde"
+                  }
+                }
+              },
+              "description": "Gefunden ✓"
+            }
+          },
+          "summary": "Größe abfragen – liefert $Kunde"
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Adresse": {
+        "properties": {
+          "ort": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ort"
+        ],
+        "type": "object"
+      },
+      "Kunde": {
+        "description": "Kundendaten für die Größenberechnung – „ÄÖÜ“ 🚀",
+        "properties": {
+          "adresse": {
+            "$ref": "#/components/schemas/Adresse",
+            "description": "Wohnort des Kunden"
+          }
+        },
+        "required": [
+          "adresse"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "Adresse": {
+          "properties": {
+            "ort": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ort"
+          ],
+          "type": "object"
+        },
+        "Kunde": {
+          "description": "Kundendaten für die Größenberechnung – „ÄÖÜ“ 🚀",
+          "properties": {
+            "adresse": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Adresse"
+                }
+              ],
+              "description": "Wohnort des Kunden"
+            }
+          },
+          "required": [
+            "adresse"
+          ],
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/kunden/{id}": {
+          "get": {
+            "operationId": "kunde",
+            "parameters": [
+              {
+                "description": "Kunden-Nr.",
+                "format": "int64",
+                "in": "path",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "name": "id",
+                "required": true,
+                "type": "integer"
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "Gefunden ✓",
+                "schema": {
+                  "$ref": "#/definitions/Kunde"
+                }
+              }
+            },
+            "summary": "Größe abfragen – liefert $Kunde"
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

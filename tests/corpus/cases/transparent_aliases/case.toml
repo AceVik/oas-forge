@@ -1,0 +1,1 @@
+description = "Type aliases without @openapi are transparent across files: private duplicates, a function pointer, generic aliases, an ambiguous name"

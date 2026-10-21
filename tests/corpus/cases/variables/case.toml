@@ -1,0 +1,5 @@
+description = "Variables: {{NAME}} from Generator::var and {{env:NAME}} in roots, routes, type overrides and examples"
+
+[variables]
+STAGE = "prod"
+API_VERSION = "1.10"

@@ -1,0 +1,785 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/root_openapi_30/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "OpenAPI 3.0 root: nullable, tuples, exclusive bounds and unit types are lowered to 3.0 schemas",
+  "diagnostics": [
+    "note[OF6001]: OpenAPI 3.0 has no equivalent for tuple items (`prefixItems`); the schema was approximated"
+  ],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Customer": {
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "Order": {
+            "properties": {
+              "customer": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Customer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "discount": {
+                "exclusiveMaximum": 100,
+                "exclusiveMinimum": 0,
+                "format": "float",
+                "type": "number"
+              },
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "nothing": {
+                "type": "null"
+              },
+              "position": {
+                "items": false,
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  {
+                    "format": "double",
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              "tags": {
+                "items": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "position",
+              "discount",
+              "tags",
+              "nothing"
+            ],
+            "type": "object"
+          },
+          "Reference": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "paths": {
+        "/orders/{id}": {
+          "get": {
+            "operationId": "get_order",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/Order"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "description": "The order, if any"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Customer": {
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "Order": {
+            "properties": {
+              "customer": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Customer"
+                  }
+                ],
+                "nullable": true
+              },
+              "discount": {
+                "exclusiveMaximum": true,
+                "exclusiveMinimum": true,
+                "format": "float",
+                "maximum": 100,
+                "minimum": 0,
+                "type": "number"
+              },
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "note": {
+                "nullable": true,
+                "type": "string"
+              },
+              "nothing": {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              },
+              "position": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    {
+                      "format": "double",
+                      "type": "number"
+                    }
+                  ]
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "tags": {
+                "items": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "position",
+              "discount",
+              "tags",
+              "nothing"
+            ],
+            "type": "object"
+          },
+          "Reference": {
+            "format": "int64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          }
+        }
+      },
+      "info": {
+        "title": "Legacy API",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/orders/{id}": {
+          "get": {
+            "operationId": "get_order",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/Order"
+                        }
+                      ],
+                      "nullable": true
+                    }
+                  }
+                },
+                "description": "The order, if any"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Customer": {
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "Order": {
+          "properties": {
+            "customer": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Customer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "discount": {
+              "exclusiveMaximum": 100,
+              "exclusiveMinimum": 0,
+              "format": "float",
+              "type": "number"
+            },
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "note": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nothing": {
+              "type": "null"
+            },
+            "position": {
+              "items": false,
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "double",
+                  "type": "number"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "tags": {
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "position",
+            "discount",
+            "tags",
+            "nothing"
+          ],
+          "type": "object"
+        },
+        "Reference": {
+          "anyOf": [
+            {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "diagnostics": [
+      "note[OF6001]: OpenAPI 3.0 has no equivalent for tuple items (`prefixItems`); the schema was approximated"
+    ],
+    "document": {
+      "components": {
+        "schemas": {
+          "Customer": {
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "Order": {
+            "properties": {
+              "customer": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Customer"
+                  }
+                ],
+                "nullable": true
+              },
+              "discount": {
+                "exclusiveMaximum": true,
+                "exclusiveMinimum": true,
+                "format": "float",
+                "maximum": 100,
+                "minimum": 0,
+                "type": "number"
+              },
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "note": {
+                "nullable": true,
+                "type": "string"
+              },
+              "nothing": {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              },
+              "position": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    {
+                      "format": "double",
+                      "type": "number"
+                    }
+                  ]
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "tags": {
+                "items": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "position",
+              "discount",
+              "tags",
+              "nothing"
+            ],
+            "type": "object"
+          },
+          "Reference": {
+            "format": "int64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          }
+        }
+      },
+      "info": {
+        "title": "Legacy API",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/orders/{id}": {
+          "get": {
+            "operationId": "get_order",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/Order"
+                        }
+                      ],
+                      "nullable": true
+                    }
+                  }
+                },
+                "description": "The order, if any"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/orders/{id}": {
+        "get": {
+          "operationId": "get_order",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/Order"
+                      }
+                    ],
+                    "nullable": true
+                  }
+                }
+              },
+              "description": "The order, if any"
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Customer": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "Order": {
+        "properties": {
+          "customer": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Customer"
+              }
+            ],
+            "nullable": true
+          },
+          "discount": {
+            "exclusiveMaximum": true,
+            "exclusiveMinimum": true,
+            "format": "float",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "note": {
+            "nullable": true,
+            "type": "string"
+          },
+          "nothing": {
+            "enum": [
+              null
+            ],
+            "nullable": true
+          },
+          "position": {
+            "items": {
+              "anyOf": [
+                {
+                  "format": "double",
+                  "type": "number"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                }
+              ]
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "tags": {
+            "items": {
+              "nullable": true,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "discount",
+          "tags",
+          "nothing"
+        ],
+        "type": "object"
+      },
+      "Reference": {
+        "format": "int64",
+        "minimum": 0,
+        "nullable": true,
+        "type": "integer"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "diagnostics": [
+      "note[OF6001]: Swagger 2.0 has no equivalent for `anyOf` (kept as `x-anyOf`); the schema was approximated",
+      "note[OF6001]: Swagger 2.0 has no equivalent for tuple items (`prefixItems`); the schema was approximated"
+    ],
+    "document": {
+      "definitions": {
+        "Customer": {
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "Order": {
+          "properties": {
+            "customer": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Customer"
+                }
+              ],
+              "x-nullable": true
+            },
+            "discount": {
+              "exclusiveMaximum": true,
+              "exclusiveMinimum": true,
+              "format": "float",
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "note": {
+              "type": "string",
+              "x-nullable": true
+            },
+            "nothing": {
+              "enum": [
+                null
+              ],
+              "x-nullable": true
+            },
+            "position": {
+              "items": {
+                "x-anyOf": [
+                  {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  {
+                    "format": "double",
+                    "type": "number"
+                  }
+                ]
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "tags": {
+              "items": {
+                "type": "string",
+                "x-nullable": true
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "position",
+            "discount",
+            "tags",
+            "nothing"
+          ],
+          "type": "object"
+        },
+        "Reference": {
+          "format": "int64",
+          "minimum": 0,
+          "type": "integer",
+          "x-nullable": true
+        }
+      },
+      "info": {
+        "title": "Legacy API",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/orders/{id}": {
+          "get": {
+            "operationId": "get_order",
+            "parameters": [
+              {
+                "format": "int64",
+                "in": "path",
+                "minimum": 0,
+                "name": "id",
+                "required": true,
+                "type": "integer"
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "The order, if any",
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/Order"
+                    }
+                  ],
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

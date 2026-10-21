@@ -1,0 +1,270 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/type_aliases/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Type aliases: exported with @openapi (docs and overrides), transparent without it",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Count": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "Event": {
+            "properties": {
+              "at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "count": {
+                "$ref": "#/components/schemas/Count"
+              },
+              "user": {
+                "$ref": "#/components/schemas/UserId"
+              }
+            },
+            "required": [
+              "user",
+              "at",
+              "count"
+            ],
+            "type": "object"
+          },
+          "UserId": {
+            "description": "Identifier of a user.",
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Count": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "Event": {
+            "properties": {
+              "at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "count": {
+                "$ref": "#/components/schemas/Count"
+              },
+              "user": {
+                "$ref": "#/components/schemas/UserId"
+              }
+            },
+            "required": [
+              "user",
+              "at",
+              "count"
+            ],
+            "type": "object"
+          },
+          "UserId": {
+            "description": "Identifier of a user.",
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Count": {
+          "format": "int64",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "Event": {
+          "properties": {
+            "at": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "count": {
+              "$ref": "#/$defs/Count"
+            },
+            "user": {
+              "$ref": "#/$defs/UserId"
+            }
+          },
+          "required": [
+            "user",
+            "at",
+            "count"
+          ],
+          "type": "object"
+        },
+        "UserId": {
+          "description": "Identifier of a user.",
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Count": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "Event": {
+            "properties": {
+              "at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "count": {
+                "$ref": "#/components/schemas/Count"
+              },
+              "user": {
+                "$ref": "#/components/schemas/UserId"
+              }
+            },
+            "required": [
+              "user",
+              "at",
+              "count"
+            ],
+            "type": "object"
+          },
+          "UserId": {
+            "description": "Identifier of a user.",
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {}
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Count": {
+        "format": "int64",
+        "maximum": 4294967295,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "Event": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "count": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserId"
+          }
+        },
+        "required": [
+          "user",
+          "at",
+          "count"
+        ],
+        "type": "object"
+      },
+      "UserId": {
+        "description": "Identifier of a user.",
+        "format": "uuid",
+        "type": "string"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "Count": {
+          "format": "int64",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "Event": {
+          "properties": {
+            "at": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "count": {
+              "$ref": "#/definitions/Count"
+            },
+            "user": {
+              "$ref": "#/definitions/UserId"
+            }
+          },
+          "required": [
+            "user",
+            "at",
+            "count"
+          ],
+          "type": "object"
+        },
+        "UserId": {
+          "description": "Identifier of a user.",
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {},
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

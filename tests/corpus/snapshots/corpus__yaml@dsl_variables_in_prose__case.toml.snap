@@ -1,0 +1,75 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/dsl_variables_in_prose/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.10"
+paths:
+  /status:
+    x-path-version: "1.10"
+    get:
+      summary: "Since: 1.10"
+      description: "Version: 1.10"
+      operationId: status
+      parameters:
+      - name: limit
+        in: query
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: integer
+                format: int64
+                minimum: 0
+                maximum: 4294967295
+      x-api-version: "1.10"
+      x-since: "1.10"
+  /history:
+    get:
+      description: |-
+        Released: 1.10
+        tags: 1.10
+      operationId: history
+      parameters:
+      - name: limit
+        in: query
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      responses:
+        "204":
+          description: No Content
+      x-api-version: "1.10"
+webhooks:
+  statusChanged:
+    post:
+      summary: "Since: 1.10"
+      operationId: status_changed
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: integer
+              format: int64
+              minimum: 0
+              maximum: 4294967295
+        required: true
+      responses:
+        default:
+          description: Default response
+      x-since: "1.10"

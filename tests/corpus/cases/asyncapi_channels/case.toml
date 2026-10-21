@@ -1,0 +1,2 @@
+description = "AsyncAPI 3.1: root block, channel DSL with send/receive, address parameters, shared schemas lowered to the AsyncAPI dialect"
+includes = ["asyncapi-servers.yaml"]

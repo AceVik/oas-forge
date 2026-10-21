@@ -1,0 +1,119 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/transparent_aliases/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Gateway
+  version: "1.0.0"
+paths:
+  "/replays/{id}":
+    get:
+      summary: Get a replay
+      operationId: replay
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Replay"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /seats:
+    get:
+      summary: List the seats
+      operationId: seats
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Page_Seat"
+components:
+  schemas:
+    ErrorBody:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+      - error
+      description: What went wrong.
+    Invite:
+      type: object
+      properties:
+        code:
+          $ref: "#/components/schemas/Code"
+      required:
+      - code
+      description: Uses `Code`, which two other files define differently.
+    Page_Seat:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Seat"
+      required:
+      - items
+      description: A page of results.
+    Replay:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+        recorded:
+          type: string
+          format: date-time
+          description: When the game ended.
+        seats:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/Seat"
+          propertyNames:
+            pattern: ^[0-9]+$
+        owner:
+          $ref: "#/components/schemas/User"
+      required:
+      - id
+      - recorded
+      - seats
+      - owner
+      description: A recorded game.
+    Seat:
+      type: object
+      properties:
+        player:
+          $ref: "#/components/schemas/User"
+        code:
+          type: string
+      required:
+      - player
+      - code
+      description: A seat at a table.
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+      required:
+      - name
+      description: A player.

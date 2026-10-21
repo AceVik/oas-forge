@@ -1,0 +1,2221 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/type_mapping/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Type mapping table: primitives, std and ecosystem types",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "AllTypes": {
+            "properties": {
+              "arc": {
+                "type": "string"
+              },
+              "array": {
+                "items": {
+                  "format": "int32",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 4,
+                "minItems": 4,
+                "type": "array"
+              },
+              "b": {
+                "type": "boolean"
+              },
+              "big_decimal": {
+                "format": "decimal",
+                "type": "string"
+              },
+              "boxed": {
+                "type": "string"
+              },
+              "btree_map": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              "btree_set": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              "bytes": {
+                "items": {
+                  "format": "int32",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "c": {
+                "maxLength": 1,
+                "minLength": 1,
+                "type": "string"
+              },
+              "cow": {
+                "type": "string"
+              },
+              "date": {
+                "format": "date",
+                "type": "string"
+              },
+              "datetime": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "decimal": {
+                "format": "decimal",
+                "type": "string"
+              },
+              "deque": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "duration": {
+                "properties": {
+                  "nanos": {
+                    "format": "int64",
+                    "maximum": 999999999,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "secs": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "secs",
+                  "nanos"
+                ],
+                "type": "object"
+              },
+              "f32_": {
+                "format": "float",
+                "type": "number"
+              },
+              "f64_": {
+                "format": "double",
+                "type": "number"
+              },
+              "hash_map": {
+                "additionalProperties": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              "hash_set": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              "i128_": {
+                "type": "integer"
+              },
+              "i16_": {
+                "format": "int32",
+                "maximum": 32767,
+                "minimum": -32768,
+                "type": "integer"
+              },
+              "i32_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "i64_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "i8_": {
+                "format": "int32",
+                "maximum": 127,
+                "minimum": -128,
+                "type": "integer"
+              },
+              "index_map": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "ip": {
+                "anyOf": [
+                  {
+                    "format": "ipv4"
+                  },
+                  {
+                    "format": "ipv6"
+                  }
+                ],
+                "type": "string"
+              },
+              "ipv4": {
+                "format": "ipv4",
+                "type": "string"
+              },
+              "isize_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "json": {},
+              "linked_list": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "naive_datetime": {
+                "format": "date-time-local",
+                "type": "string"
+              },
+              "non_zero": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "object_id": {
+                "format": "objectid",
+                "type": "string"
+              },
+              "offset_datetime": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "optional_vec": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "path": {
+                "type": "string"
+              },
+              "rc": {
+                "type": "string"
+              },
+              "s": {
+                "type": "string"
+              },
+              "slice": {
+                "items": {
+                  "format": "int32",
+                  "maximum": 65535,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "st": {
+                "type": "string"
+              },
+              "time": {
+                "format": "time-local",
+                "type": "string"
+              },
+              "tuple": {
+                "items": false,
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "format": "int32",
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              "u128_": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "u16_": {
+                "format": "int32",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "u32_": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "u64_": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "u8_": {
+                "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unit": {
+                "type": "null"
+              },
+              "url": {
+                "format": "uri",
+                "type": "string"
+              },
+              "usize_": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "uuid": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "vec": {
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "vec_of_optional": {
+                "items": {
+                  "format": "int32",
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "b",
+              "s",
+              "st",
+              "c",
+              "i8_",
+              "i16_",
+              "i32_",
+              "i64_",
+              "i128_",
+              "isize_",
+              "u8_",
+              "u16_",
+              "u32_",
+              "u64_",
+              "u128_",
+              "usize_",
+              "f32_",
+              "f64_",
+              "uuid",
+              "url",
+              "date",
+              "datetime",
+              "naive_datetime",
+              "time",
+              "offset_datetime",
+              "decimal",
+              "big_decimal",
+              "object_id",
+              "json",
+              "boxed",
+              "arc",
+              "rc",
+              "cow",
+              "vec",
+              "hash_set",
+              "btree_set",
+              "deque",
+              "linked_list",
+              "hash_map",
+              "btree_map",
+              "index_map",
+              "array",
+              "slice",
+              "tuple",
+              "vec_of_optional",
+              "non_zero",
+              "ip",
+              "ipv4",
+              "duration",
+              "path",
+              "bytes",
+              "unit"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "AllTypes": {
+            "properties": {
+              "arc": {
+                "type": "string"
+              },
+              "array": {
+                "items": {
+                  "format": "int32",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 4,
+                "minItems": 4,
+                "type": "array"
+              },
+              "b": {
+                "type": "boolean"
+              },
+              "big_decimal": {
+                "format": "decimal",
+                "type": "string"
+              },
+              "boxed": {
+                "type": "string"
+              },
+              "btree_map": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              "btree_set": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              "bytes": {
+                "items": {
+                  "format": "int32",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "c": {
+                "maxLength": 1,
+                "minLength": 1,
+                "type": "string"
+              },
+              "cow": {
+                "type": "string"
+              },
+              "date": {
+                "format": "date",
+                "type": "string"
+              },
+              "datetime": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "decimal": {
+                "format": "decimal",
+                "type": "string"
+              },
+              "deque": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "duration": {
+                "properties": {
+                  "nanos": {
+                    "format": "int64",
+                    "maximum": 999999999,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "secs": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "secs",
+                  "nanos"
+                ],
+                "type": "object"
+              },
+              "f32_": {
+                "format": "float",
+                "type": "number"
+              },
+              "f64_": {
+                "format": "double",
+                "type": "number"
+              },
+              "hash_map": {
+                "additionalProperties": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              "hash_set": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              "i128_": {
+                "type": "integer"
+              },
+              "i16_": {
+                "format": "int32",
+                "maximum": 32767,
+                "minimum": -32768,
+                "type": "integer"
+              },
+              "i32_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "i64_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "i8_": {
+                "format": "int32",
+                "maximum": 127,
+                "minimum": -128,
+                "type": "integer"
+              },
+              "index_map": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "ip": {
+                "anyOf": [
+                  {
+                    "format": "ipv4"
+                  },
+                  {
+                    "format": "ipv6"
+                  }
+                ],
+                "type": "string"
+              },
+              "ipv4": {
+                "format": "ipv4",
+                "type": "string"
+              },
+              "isize_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "json": {},
+              "linked_list": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "naive_datetime": {
+                "format": "date-time-local",
+                "type": "string"
+              },
+              "non_zero": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "object_id": {
+                "format": "objectid",
+                "type": "string"
+              },
+              "offset_datetime": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "optional_vec": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "path": {
+                "type": "string"
+              },
+              "rc": {
+                "type": "string"
+              },
+              "s": {
+                "type": "string"
+              },
+              "slice": {
+                "items": {
+                  "format": "int32",
+                  "maximum": 65535,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "st": {
+                "type": "string"
+              },
+              "time": {
+                "format": "time-local",
+                "type": "string"
+              },
+              "tuple": {
+                "items": false,
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "format": "int32",
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              "u128_": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "u16_": {
+                "format": "int32",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "u32_": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "u64_": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "u8_": {
+                "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unit": {
+                "type": "null"
+              },
+              "url": {
+                "format": "uri",
+                "type": "string"
+              },
+              "usize_": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "uuid": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "vec": {
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "vec_of_optional": {
+                "items": {
+                  "format": "int32",
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "b",
+              "s",
+              "st",
+              "c",
+              "i8_",
+              "i16_",
+              "i32_",
+              "i64_",
+              "i128_",
+              "isize_",
+              "u8_",
+              "u16_",
+              "u32_",
+              "u64_",
+              "u128_",
+              "usize_",
+              "f32_",
+              "f64_",
+              "uuid",
+              "url",
+              "date",
+              "datetime",
+              "naive_datetime",
+              "time",
+              "offset_datetime",
+              "decimal",
+              "big_decimal",
+              "object_id",
+              "json",
+              "boxed",
+              "arc",
+              "rc",
+              "cow",
+              "vec",
+              "hash_set",
+              "btree_set",
+              "deque",
+              "linked_list",
+              "hash_map",
+              "btree_map",
+              "index_map",
+              "array",
+              "slice",
+              "tuple",
+              "vec_of_optional",
+              "non_zero",
+              "ip",
+              "ipv4",
+              "duration",
+              "path",
+              "bytes",
+              "unit"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "AllTypes": {
+          "properties": {
+            "arc": {
+              "type": "string"
+            },
+            "array": {
+              "items": {
+                "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            "b": {
+              "type": "boolean"
+            },
+            "big_decimal": {
+              "format": "decimal",
+              "type": "string"
+            },
+            "boxed": {
+              "type": "string"
+            },
+            "btree_map": {
+              "additionalProperties": {
+                "type": "boolean"
+              },
+              "type": "object"
+            },
+            "btree_set": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "bytes": {
+              "items": {
+                "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "c": {
+              "maxLength": 1,
+              "minLength": 1,
+              "type": "string"
+            },
+            "cow": {
+              "type": "string"
+            },
+            "date": {
+              "format": "date",
+              "type": "string"
+            },
+            "datetime": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "decimal": {
+              "format": "decimal",
+              "type": "string"
+            },
+            "deque": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "duration": {
+              "properties": {
+                "nanos": {
+                  "format": "int64",
+                  "maximum": 999999999,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "secs": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "secs",
+                "nanos"
+              ],
+              "type": "object"
+            },
+            "f32_": {
+              "format": "float",
+              "type": "number"
+            },
+            "f64_": {
+              "format": "double",
+              "type": "number"
+            },
+            "hash_map": {
+              "additionalProperties": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "hash_set": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "i128_": {
+              "type": "integer"
+            },
+            "i16_": {
+              "format": "int32",
+              "maximum": 32767,
+              "minimum": -32768,
+              "type": "integer"
+            },
+            "i32_": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "i64_": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "i8_": {
+              "format": "int32",
+              "maximum": 127,
+              "minimum": -128,
+              "type": "integer"
+            },
+            "index_map": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "ip": {
+              "anyOf": [
+                {
+                  "format": "ipv4"
+                },
+                {
+                  "format": "ipv6"
+                }
+              ],
+              "type": "string"
+            },
+            "ipv4": {
+              "format": "ipv4",
+              "type": "string"
+            },
+            "isize_": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "json": {},
+            "linked_list": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "naive_datetime": {
+              "format": "date-time-local",
+              "type": "string"
+            },
+            "non_zero": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "object_id": {
+              "format": "objectid",
+              "type": "string"
+            },
+            "offset_datetime": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "optional_vec": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "rc": {
+              "type": "string"
+            },
+            "s": {
+              "type": "string"
+            },
+            "slice": {
+              "items": {
+                "format": "int32",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "st": {
+              "type": "string"
+            },
+            "time": {
+              "format": "time-local",
+              "type": "string"
+            },
+            "tuple": {
+              "items": false,
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "u128_": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "u16_": {
+              "format": "int32",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "u32_": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "u64_": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "u8_": {
+              "format": "int32",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "unit": {
+              "type": "null"
+            },
+            "url": {
+              "format": "uri",
+              "type": "string"
+            },
+            "usize_": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "uuid": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "vec": {
+              "items": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "vec_of_optional": {
+              "items": {
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "b",
+            "s",
+            "st",
+            "c",
+            "i8_",
+            "i16_",
+            "i32_",
+            "i64_",
+            "i128_",
+            "isize_",
+            "u8_",
+            "u16_",
+            "u32_",
+            "u64_",
+            "u128_",
+            "usize_",
+            "f32_",
+            "f64_",
+            "uuid",
+            "url",
+            "date",
+            "datetime",
+            "naive_datetime",
+            "time",
+            "offset_datetime",
+            "decimal",
+            "big_decimal",
+            "object_id",
+            "json",
+            "boxed",
+            "arc",
+            "rc",
+            "cow",
+            "vec",
+            "hash_set",
+            "btree_set",
+            "deque",
+            "linked_list",
+            "hash_map",
+            "btree_map",
+            "index_map",
+            "array",
+            "slice",
+            "tuple",
+            "vec_of_optional",
+            "non_zero",
+            "ip",
+            "ipv4",
+            "duration",
+            "path",
+            "bytes",
+            "unit"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "diagnostics": [
+      "note[OF6001]: OpenAPI 3.0 has no equivalent for tuple items (`prefixItems`); the schema was approximated"
+    ],
+    "document": {
+      "components": {
+        "schemas": {
+          "AllTypes": {
+            "properties": {
+              "arc": {
+                "type": "string"
+              },
+              "array": {
+                "items": {
+                  "format": "int32",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 4,
+                "minItems": 4,
+                "type": "array"
+              },
+              "b": {
+                "type": "boolean"
+              },
+              "big_decimal": {
+                "format": "decimal",
+                "type": "string"
+              },
+              "boxed": {
+                "type": "string"
+              },
+              "btree_map": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              "btree_set": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              "bytes": {
+                "items": {
+                  "format": "int32",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "c": {
+                "maxLength": 1,
+                "minLength": 1,
+                "type": "string"
+              },
+              "cow": {
+                "type": "string"
+              },
+              "date": {
+                "format": "date",
+                "type": "string"
+              },
+              "datetime": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "decimal": {
+                "format": "decimal",
+                "type": "string"
+              },
+              "deque": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "duration": {
+                "properties": {
+                  "nanos": {
+                    "format": "int64",
+                    "maximum": 999999999,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "secs": {
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "secs",
+                  "nanos"
+                ],
+                "type": "object"
+              },
+              "f32_": {
+                "format": "float",
+                "type": "number"
+              },
+              "f64_": {
+                "format": "double",
+                "type": "number"
+              },
+              "hash_map": {
+                "additionalProperties": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              "hash_set": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              "i128_": {
+                "type": "integer"
+              },
+              "i16_": {
+                "format": "int32",
+                "maximum": 32767,
+                "minimum": -32768,
+                "type": "integer"
+              },
+              "i32_": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "i64_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "i8_": {
+                "format": "int32",
+                "maximum": 127,
+                "minimum": -128,
+                "type": "integer"
+              },
+              "index_map": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "ip": {
+                "anyOf": [
+                  {
+                    "format": "ipv4"
+                  },
+                  {
+                    "format": "ipv6"
+                  }
+                ],
+                "type": "string"
+              },
+              "ipv4": {
+                "format": "ipv4",
+                "type": "string"
+              },
+              "isize_": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "json": {},
+              "linked_list": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "naive_datetime": {
+                "format": "date-time-local",
+                "type": "string"
+              },
+              "non_zero": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "object_id": {
+                "format": "objectid",
+                "type": "string"
+              },
+              "offset_datetime": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "optional_vec": {
+                "items": {
+                  "type": "string"
+                },
+                "nullable": true,
+                "type": "array"
+              },
+              "path": {
+                "type": "string"
+              },
+              "rc": {
+                "type": "string"
+              },
+              "s": {
+                "type": "string"
+              },
+              "slice": {
+                "items": {
+                  "format": "int32",
+                  "maximum": 65535,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "st": {
+                "type": "string"
+              },
+              "time": {
+                "format": "time-local",
+                "type": "string"
+              },
+              "tuple": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "format": "int32",
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "u128_": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "u16_": {
+                "format": "int32",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "u32_": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "u64_": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "u8_": {
+                "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unit": {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              },
+              "url": {
+                "format": "uri",
+                "type": "string"
+              },
+              "usize_": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "uuid": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "vec": {
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "vec_of_optional": {
+                "items": {
+                  "format": "int32",
+                  "nullable": true,
+                  "type": "integer"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "b",
+              "s",
+              "st",
+              "c",
+              "i8_",
+              "i16_",
+              "i32_",
+              "i64_",
+              "i128_",
+              "isize_",
+              "u8_",
+              "u16_",
+              "u32_",
+              "u64_",
+              "u128_",
+              "usize_",
+              "f32_",
+              "f64_",
+              "uuid",
+              "url",
+              "date",
+              "datetime",
+              "naive_datetime",
+              "time",
+              "offset_datetime",
+              "decimal",
+              "big_decimal",
+              "object_id",
+              "json",
+              "boxed",
+              "arc",
+              "rc",
+              "cow",
+              "vec",
+              "hash_set",
+              "btree_set",
+              "deque",
+              "linked_list",
+              "hash_map",
+              "btree_map",
+              "index_map",
+              "array",
+              "slice",
+              "tuple",
+              "vec_of_optional",
+              "non_zero",
+              "ip",
+              "ipv4",
+              "duration",
+              "path",
+              "bytes",
+              "unit"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {}
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "AllTypes": {
+        "properties": {
+          "arc": {
+            "type": "string"
+          },
+          "array": {
+            "items": {
+              "format": "int32",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "type": "array"
+          },
+          "b": {
+            "type": "boolean"
+          },
+          "big_decimal": {
+            "format": "decimal",
+            "type": "string"
+          },
+          "boxed": {
+            "type": "string"
+          },
+          "btree_map": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object"
+          },
+          "btree_set": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "bytes": {
+            "items": {
+              "format": "int32",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "c": {
+            "maxLength": 1,
+            "minLength": 1,
+            "type": "string"
+          },
+          "cow": {
+            "type": "string"
+          },
+          "date": {
+            "format": "date",
+            "type": "string"
+          },
+          "datetime": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decimal": {
+            "format": "decimal",
+            "type": "string"
+          },
+          "deque": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "duration": {
+            "properties": {
+              "nanos": {
+                "format": "int64",
+                "maximum": 999999999,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "secs": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "secs",
+              "nanos"
+            ],
+            "type": "object"
+          },
+          "f32_": {
+            "format": "float",
+            "type": "number"
+          },
+          "f64_": {
+            "format": "double",
+            "type": "number"
+          },
+          "hash_map": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "hash_set": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "i128_": {
+            "type": "integer"
+          },
+          "i16_": {
+            "format": "int32",
+            "maximum": 32767,
+            "minimum": -32768,
+            "type": "integer"
+          },
+          "i32_": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "i64_": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "i8_": {
+            "format": "int32",
+            "maximum": 127,
+            "minimum": -128,
+            "type": "integer"
+          },
+          "index_map": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "ip": {
+            "anyOf": [
+              {
+                "format": "ipv4"
+              },
+              {
+                "format": "ipv6"
+              }
+            ],
+            "type": "string"
+          },
+          "ipv4": {
+            "format": "ipv4",
+            "type": "string"
+          },
+          "isize_": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "json": {},
+          "linked_list": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "naive_datetime": {
+            "format": "date-time-local",
+            "type": "string"
+          },
+          "non_zero": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "object_id": {
+            "format": "objectid",
+            "type": "string"
+          },
+          "offset_datetime": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "optional_vec": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "rc": {
+            "type": "string"
+          },
+          "s": {
+            "type": "string"
+          },
+          "slice": {
+            "items": {
+              "format": "int32",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "st": {
+            "type": "string"
+          },
+          "time": {
+            "format": "time-local",
+            "type": "string"
+          },
+          "tuple": {
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "format": "int32",
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "u128_": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "u16_": {
+            "format": "int32",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "u32_": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "u64_": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "u8_": {
+            "format": "int32",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unit": {
+            "type": "null"
+          },
+          "url": {
+            "format": "uri",
+            "type": "string"
+          },
+          "usize_": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "uuid": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "vec": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "vec_of_optional": {
+            "items": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "b",
+          "s",
+          "st",
+          "c",
+          "i8_",
+          "i16_",
+          "i32_",
+          "i64_",
+          "i128_",
+          "isize_",
+          "u8_",
+          "u16_",
+          "u32_",
+          "u64_",
+          "u128_",
+          "usize_",
+          "f32_",
+          "f64_",
+          "uuid",
+          "url",
+          "date",
+          "datetime",
+          "naive_datetime",
+          "time",
+          "offset_datetime",
+          "decimal",
+          "big_decimal",
+          "object_id",
+          "json",
+          "boxed",
+          "arc",
+          "rc",
+          "cow",
+          "vec",
+          "hash_set",
+          "btree_set",
+          "deque",
+          "linked_list",
+          "hash_map",
+          "btree_map",
+          "index_map",
+          "array",
+          "slice",
+          "tuple",
+          "vec_of_optional",
+          "non_zero",
+          "ip",
+          "ipv4",
+          "duration",
+          "path",
+          "bytes",
+          "unit"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "diagnostics": [
+      "note[OF6001]: Swagger 2.0 has no equivalent for `anyOf` (kept as `x-anyOf`); the schema was approximated",
+      "note[OF6001]: Swagger 2.0 has no equivalent for tuple items (`prefixItems`); the schema was approximated"
+    ],
+    "document": {
+      "definitions": {
+        "AllTypes": {
+          "properties": {
+            "arc": {
+              "type": "string"
+            },
+            "array": {
+              "items": {
+                "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            "b": {
+              "type": "boolean"
+            },
+            "big_decimal": {
+              "format": "decimal",
+              "type": "string"
+            },
+            "boxed": {
+              "type": "string"
+            },
+            "btree_map": {
+              "additionalProperties": {
+                "type": "boolean"
+              },
+              "type": "object"
+            },
+            "btree_set": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "bytes": {
+              "items": {
+                "format": "int32",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "c": {
+              "maxLength": 1,
+              "minLength": 1,
+              "type": "string"
+            },
+            "cow": {
+              "type": "string"
+            },
+            "date": {
+              "format": "date",
+              "type": "string"
+            },
+            "datetime": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "decimal": {
+              "format": "decimal",
+              "type": "string"
+            },
+            "deque": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "duration": {
+              "properties": {
+                "nanos": {
+                  "format": "int64",
+                  "maximum": 999999999,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "secs": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "secs",
+                "nanos"
+              ],
+              "type": "object"
+            },
+            "f32_": {
+              "format": "float",
+              "type": "number"
+            },
+            "f64_": {
+              "format": "double",
+              "type": "number"
+            },
+            "hash_map": {
+              "additionalProperties": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "hash_set": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "i128_": {
+              "type": "integer"
+            },
+            "i16_": {
+              "format": "int32",
+              "maximum": 32767,
+              "minimum": -32768,
+              "type": "integer"
+            },
+            "i32_": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "i64_": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "i8_": {
+              "format": "int32",
+              "maximum": 127,
+              "minimum": -128,
+              "type": "integer"
+            },
+            "index_map": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "ip": {
+              "type": "string",
+              "x-anyOf": [
+                {
+                  "format": "ipv4"
+                },
+                {
+                  "format": "ipv6"
+                }
+              ]
+            },
+            "ipv4": {
+              "format": "ipv4",
+              "type": "string"
+            },
+            "isize_": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "json": {},
+            "linked_list": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "naive_datetime": {
+              "format": "date-time-local",
+              "type": "string"
+            },
+            "non_zero": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "object_id": {
+              "format": "objectid",
+              "type": "string"
+            },
+            "offset_datetime": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "optional_vec": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "x-nullable": true
+            },
+            "path": {
+              "type": "string"
+            },
+            "rc": {
+              "type": "string"
+            },
+            "s": {
+              "type": "string"
+            },
+            "slice": {
+              "items": {
+                "format": "int32",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "st": {
+              "type": "string"
+            },
+            "time": {
+              "format": "time-local",
+              "type": "string"
+            },
+            "tuple": {
+              "items": {
+                "x-anyOf": [
+                  {
+                    "format": "int32",
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "u128_": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "u16_": {
+              "format": "int32",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "u32_": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "u64_": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "u8_": {
+              "format": "int32",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "unit": {
+              "enum": [
+                null
+              ],
+              "x-nullable": true
+            },
+            "url": {
+              "format": "uri",
+              "type": "string"
+            },
+            "usize_": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "uuid": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "vec": {
+              "items": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "vec_of_optional": {
+              "items": {
+                "format": "int32",
+                "type": "integer",
+                "x-nullable": true
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "b",
+            "s",
+            "st",
+            "c",
+            "i8_",
+            "i16_",
+            "i32_",
+            "i64_",
+            "i128_",
+            "isize_",
+            "u8_",
+            "u16_",
+            "u32_",
+            "u64_",
+            "u128_",
+            "usize_",
+            "f32_",
+            "f64_",
+            "uuid",
+            "url",
+            "date",
+            "datetime",
+            "naive_datetime",
+            "time",
+            "offset_datetime",
+            "decimal",
+            "big_decimal",
+            "object_id",
+            "json",
+            "boxed",
+            "arc",
+            "rc",
+            "cow",
+            "vec",
+            "hash_set",
+            "btree_set",
+            "deque",
+            "linked_list",
+            "hash_map",
+            "btree_map",
+            "index_map",
+            "array",
+            "slice",
+            "tuple",
+            "vec_of_optional",
+            "non_zero",
+            "ip",
+            "ipv4",
+            "duration",
+            "path",
+            "bytes",
+            "unit"
+          ],
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {},
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

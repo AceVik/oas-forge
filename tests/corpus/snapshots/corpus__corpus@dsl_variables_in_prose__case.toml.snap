@@ -1,0 +1,491 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/dsl_variables_in_prose/case.toml
+---
+{
+  "asyncapi": {
+    "document": {
+      "asyncapi": "3.0.0",
+      "channels": {
+        "status": {
+          "address": "status",
+          "messages": {
+            "Status": {
+              "$ref": "#/components/messages/Status"
+            }
+          }
+        }
+      },
+      "components": {
+        "messages": {
+          "Status": {
+            "name": "Status",
+            "payload": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "info": {
+        "title": "Status events",
+        "version": "1.10"
+      },
+      "operations": {
+        "publish_status": {
+          "action": "send",
+          "channel": {
+            "$ref": "#/channels/status"
+          },
+          "description": "Version: 1.10",
+          "messages": [
+            {
+              "$ref": "#/channels/status/messages/Status"
+            }
+          ],
+          "summary": "Since: 1.10"
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "description": "Variables in route, webhook, channel and module-default blocks: a whole-value placeholder is quoted on embedded YAML lines only; summary, description and directive lines get the plain value",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "paths": {
+        "/history": {
+          "get": {
+            "description": "Released: 1.10\ntags: 1.10",
+            "operationId": "history",
+            "parameters": [
+              {
+                "in": "query",
+                "name": "limit",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "No Content"
+              }
+            },
+            "x-api-version": "1.10"
+          }
+        },
+        "/status": {
+          "get": {
+            "description": "Version: 1.10",
+            "operationId": "status",
+            "parameters": [
+              {
+                "in": "query",
+                "name": "limit",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "format": "int64",
+                      "maximum": 4294967295,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Since: 1.10",
+            "x-api-version": "1.10",
+            "x-since": "1.10"
+          },
+          "x-path-version": "1.10"
+        }
+      },
+      "webhooks": {
+        "statusChanged": {
+          "post": {
+            "operationId": "status_changed",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "format": "int64",
+                    "maximum": 4294967295,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            },
+            "summary": "Since: 1.10",
+            "x-since": "1.10"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.10"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/history": {
+          "get": {
+            "description": "Released: 1.10\ntags: 1.10",
+            "operationId": "history",
+            "parameters": [
+              {
+                "in": "query",
+                "name": "limit",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "No Content"
+              }
+            },
+            "x-api-version": "1.10"
+          }
+        },
+        "/status": {
+          "get": {
+            "description": "Version: 1.10",
+            "operationId": "status",
+            "parameters": [
+              {
+                "in": "query",
+                "name": "limit",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "format": "int64",
+                      "maximum": 4294967295,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Since: 1.10",
+            "x-api-version": "1.10",
+            "x-since": "1.10"
+          },
+          "x-path-version": "1.10"
+        }
+      },
+      "webhooks": {
+        "statusChanged": {
+          "post": {
+            "operationId": "status_changed",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "format": "int64",
+                    "maximum": 4294967295,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "default": {
+                "description": "Default response"
+              }
+            },
+            "summary": "Since: 1.10",
+            "x-since": "1.10"
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {},
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "diagnostics": [
+      "warning[OF6002]: webhooks need OpenAPI 3.1 or newer and were left out of the OpenAPI 3.0 document"
+    ],
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.10"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/history": {
+          "get": {
+            "description": "Released: 1.10\ntags: 1.10",
+            "operationId": "history",
+            "parameters": [
+              {
+                "in": "query",
+                "name": "limit",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "No Content"
+              }
+            },
+            "x-api-version": "1.10"
+          }
+        },
+        "/status": {
+          "get": {
+            "description": "Version: 1.10",
+            "operationId": "status",
+            "parameters": [
+              {
+                "in": "query",
+                "name": "limit",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "format": "int64",
+                      "maximum": 4294967295,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  }
+                },
+                "description": "OK"
+              }
+            },
+            "summary": "Since: 1.10",
+            "x-api-version": "1.10",
+            "x-since": "1.10"
+          },
+          "x-path-version": "1.10"
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/history": {
+        "get": {
+          "description": "Released: 1.10\ntags: 1.10",
+          "operationId": "history",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "limit",
+              "required": true,
+              "schema": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "No Content"
+            }
+          },
+          "x-api-version": "1.10"
+        }
+      },
+      "/status": {
+        "get": {
+          "description": "Version: 1.10",
+          "operationId": "status",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "limit",
+              "required": true,
+              "schema": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "format": "int64",
+                    "maximum": 4294967295,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                }
+              },
+              "description": "OK"
+            }
+          },
+          "summary": "Since: 1.10",
+          "x-api-version": "1.10",
+          "x-since": "1.10"
+        },
+        "x-path-version": "1.10"
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  },
+  "swagger_2": {
+    "diagnostics": [
+      "warning[OF6002]: webhooks need OpenAPI 3.1 or newer and were left out of the Swagger 2.0 document"
+    ],
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.10"
+      },
+      "paths": {
+        "/history": {
+          "get": {
+            "description": "Released: 1.10\ntags: 1.10",
+            "operationId": "history",
+            "parameters": [
+              {
+                "format": "int64",
+                "in": "query",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "name": "limit",
+                "required": true,
+                "type": "integer"
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "No Content"
+              }
+            },
+            "x-api-version": "1.10"
+          }
+        },
+        "/status": {
+          "get": {
+            "description": "Version: 1.10",
+            "operationId": "status",
+            "parameters": [
+              {
+                "format": "int64",
+                "in": "query",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "name": "limit",
+                "required": true,
+                "type": "integer"
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "OK",
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            },
+            "summary": "Since: 1.10",
+            "x-api-version": "1.10",
+            "x-since": "1.10"
+          },
+          "x-path-version": "1.10"
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

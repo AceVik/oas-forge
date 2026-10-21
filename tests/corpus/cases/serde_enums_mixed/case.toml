@@ -1,0 +1,1 @@
+description = "serde enums: rename_all_fields, skipped and untagged variants, adjacent tuples, internally tagged newtypes"

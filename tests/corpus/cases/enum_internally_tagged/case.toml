@@ -1,0 +1,1 @@
+description = "Enums: internally tagged (serde tag) with struct, unit and newtype variants"

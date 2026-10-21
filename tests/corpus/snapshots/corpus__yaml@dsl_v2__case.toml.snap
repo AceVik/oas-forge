@@ -1,0 +1,211 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/dsl_v2/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /items:
+    get:
+      summary: List items
+      description: |-
+        Lists the items of the shop.
+
+        responses: are described below (this is prose, not YAML).
+      operationId: listShopItems
+      tags:
+      - Items
+      parameters:
+      - name: page
+        in: query
+        required: false
+        description: Page number.
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      - name: size
+        in: query
+        required: true
+        description: Page size.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+      - name: sort
+        in: query
+        required: false
+        description: Sort order
+        schema:
+          type: string
+          enum:
+          - name
+          - price
+          default: name
+      - name: X-Request-Id
+        in: header
+        required: true
+        description: Correlation id
+        schema:
+          type: string
+          format: uuid
+      - name: session
+        in: cookie
+        required: true
+        schema:
+          type: string
+        deprecated: true
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 2
+          maxLength: 50
+          pattern: ^[a-z ]+$
+        example: red shoes
+        style: form
+        explode: false
+      security:
+      - oauth:
+        - read
+        api_key: []
+      - {}
+      externalDocs:
+        url: https://docs.example.com/items
+        description: Item guide
+      servers:
+      - url: https://eu.example.com
+        description: EU
+      deprecated: true
+      responses:
+        "200":
+          description: The items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Item"
+            application/x-ndjson:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Item"
+          headers:
+            X-Total-Count:
+              schema:
+                type: integer
+                format: int64
+                minimum: 0
+              description: Total number of items
+        "400":
+          description: Invalid query
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Internal Server Error
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    post:
+      operationId: create_item
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Item"
+          application/xml:
+            schema:
+              $ref: "#/components/schemas/Item"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/Item"
+        required: false
+        description: The new item
+      responses:
+        2XX:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        default:
+          description: Unexpected error
+components:
+  securitySchemes:
+    api_key:
+      type: apiKey
+      in: header
+      name: X-Key
+    oauth:
+      type: oauth2
+      flows:
+        implicit:
+          authorizationUrl: https://auth/x
+          scopes:
+            read: r
+            write: w
+  schemas:
+    Item:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - id
+    Pagination:
+      type: object
+      properties:
+        page:
+          type:
+          - integer
+          - "null"
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+          description: Page number.
+        size:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          description: Page size.
+      required:
+      - size
+    ProblemDetails:
+      type: object
+      description: Problem details (RFC 9457).
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          default: about:blank
+          description: A URI reference that identifies the problem type.
+        title:
+          type: string
+          description: A short summary of the problem type.
+        status:
+          type: integer
+          format: int32
+          minimum: 100
+          maximum: 599
+          description: The HTTP status code.
+        detail:
+          type: string
+          description: An explanation specific to this occurrence.
+        instance:
+          type: string
+          format: uri-reference
+          description: A URI reference that identifies this occurrence.

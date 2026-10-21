@@ -1,0 +1,2 @@
+description = "Lints: undefined security schemes, path parameter mismatches, duplicate operationIds and the strict lints"
+strict_lints = true

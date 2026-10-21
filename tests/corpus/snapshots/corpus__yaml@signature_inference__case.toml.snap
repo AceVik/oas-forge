@@ -1,0 +1,199 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/signature_inference/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  "/users/{id}":
+    get:
+      summary: Get a user.
+      operationId: get_user
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /users:
+    get:
+      operationId: list_users
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        description: Maximum number of users.
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+    post:
+      operationId: create_user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewUser"
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  "/orgs/{org}/users/{id}":
+    get:
+      operationId: org_user
+      parameters:
+      - name: org
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      responses:
+        default:
+          description: Default response
+  "/v2/orgs/{org}/users/{id}":
+    get:
+      operationId: org_user_struct
+      parameters:
+      - name: org
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      responses:
+        default:
+          description: Default response
+  /login:
+    post:
+      operationId: login
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/NewUser"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /upload:
+    post:
+      operationId: upload
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+        required: true
+      responses:
+        default:
+          description: Default response
+  "/explicit/{id}":
+    get:
+      operationId: explicit
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Explicit wins
+        schema:
+          type: string
+      responses:
+        default:
+          description: Default response
+components:
+  schemas:
+    ListParams:
+      type: object
+      properties:
+        limit:
+          type:
+          - integer
+          - "null"
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+          description: Maximum number of users.
+        cursor:
+          type:
+          - string
+          - "null"
+    NewUser:
+      type: object
+      properties:
+        name:
+          type: string
+      required:
+      - name
+    OrgUser:
+      type: object
+      properties:
+        org:
+          type: string
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - org
+      - id
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+        name:
+          type: string
+      required:
+      - id
+      - name

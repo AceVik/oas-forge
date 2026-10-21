@@ -1,0 +1,1 @@
+description = "OpenAPI 3.1 root: 3.2-only features in components.pathItems, components.responses, components.requestBodies and callbacks are removed with a warning"

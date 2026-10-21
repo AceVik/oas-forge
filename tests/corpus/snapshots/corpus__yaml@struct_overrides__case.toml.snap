@@ -1,0 +1,41 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/struct_overrides/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Inline:
+      type: object
+      properties:
+        flag:
+          type: boolean
+      required:
+      - flag
+      description: inline header override
+    Overridden:
+      type: object
+      properties:
+        code:
+          type: string
+          example: abc
+        count:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          description: Amount of items.
+          example: 42
+        broken:
+          type: string
+      required:
+      - code
+      - count
+      - broken
+      description: Overridden description
+      x-internal: true

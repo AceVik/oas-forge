@@ -1,0 +1,9 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/error_multiple_roots/case.toml
+---
+{
+  "description": "Errors: two root documents",
+  "error": "Validation failed: Multiple Root OpenAPI definitions found. Only one definition can be the Root.\n  root defined at <case>/src/a.rs:2\n  root defined at <case>/src/b.rs:2"
+}

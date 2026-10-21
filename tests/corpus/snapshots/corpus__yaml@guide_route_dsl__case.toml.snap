@@ -1,0 +1,228 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/guide_route_dsl/case.toml
+---
+# full output
+openapi: "3.2.0"
+info:
+  title: Shop
+  version: "2.0.0"
+paths:
+  /items:
+    get:
+      summary: List items
+      operationId: list_items
+      tags:
+      - Items
+      parameters:
+      - name: page
+        in: query
+        required: false
+        description: Page number, starting at 1.
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      - name: size
+        in: query
+        required: false
+        description: Items per page.
+        schema:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 255
+      - name: sort
+        in: query
+        required: false
+        description: Sort order
+        schema:
+          type: string
+          enum:
+          - name
+          - price
+          default: name
+      security:
+      - oauth:
+        - read
+      responses:
+        "200":
+          description: The items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Item"
+            application/x-ndjson:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Item"
+          headers:
+            X-Total-Count:
+              schema:
+                type: integer
+                format: int64
+                minimum: 0
+              description: Number of items
+    post:
+      summary: Add an item
+      operationId: add_item
+      tags:
+      - Items
+      security:
+      - oauth:
+        - write
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Item"
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "409":
+          description: An item with this name exists
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    query:
+      summary: Search items
+      operationId: search
+      tags:
+      - Items
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Item"
+  "/items/{id}/stock":
+    get:
+      summary: Watch the stock
+      operationId: stock
+      tags:
+      - Items
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      security: []
+      responses:
+        "200":
+          description: Stock levels as server-sent events
+          content:
+            text/event-stream:
+              itemSchema:
+                type: integer
+                format: int64
+                minimum: 0
+                maximum: 4294967295
+webhooks:
+  soldOut:
+    post:
+      summary: An item was sold out.
+      operationId: sold_out
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Item"
+        required: true
+      responses:
+        "204":
+          description: No Content
+components:
+  securitySchemes:
+    oauth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.com/token
+          scopes:
+            read: Read items
+            write: Change items
+  schemas:
+    Item:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+        name:
+          type: string
+      required:
+      - id
+      - name
+      description: An item for sale.
+    Paging:
+      type: object
+      properties:
+        page:
+          type:
+          - integer
+          - "null"
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+          description: Page number, starting at 1.
+        size:
+          type:
+          - integer
+          - "null"
+          format: int32
+          minimum: 0
+          maximum: 255
+          description: Items per page.
+      description: How to page through results.
+    ProblemDetails:
+      type: object
+      description: Problem details (RFC 9457).
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          default: about:blank
+          description: A URI reference that identifies the problem type.
+        title:
+          type: string
+          description: A short summary of the problem type.
+        status:
+          type: integer
+          format: int32
+          minimum: 100
+          maximum: 599
+          description: The HTTP status code.
+        detail:
+          type: string
+          description: An explanation specific to this occurrence.
+        instance:
+          type: string
+          format: uri-reference
+          description: A URI reference that identifies this occurrence.

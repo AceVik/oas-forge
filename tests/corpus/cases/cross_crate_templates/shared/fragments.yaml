@@ -1,0 +1,20 @@
+components:
+  schemas:
+    Money:
+      type: object
+      properties:
+        cents: { type: integer }
+  x-oas-forge-templates:
+    Paginated:
+      params: [T]
+      body: |
+        type: object
+        properties:
+          items:
+            type: array
+            items:
+              $ref: $T
+  x-oas-forge-fragments:
+    Problem:
+      params: [status]
+      body: 'description: Problem {{status}}'

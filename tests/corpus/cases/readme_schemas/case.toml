@@ -1,0 +1,5 @@
+description = "README: schemas from serde and validator attributes (without a root)"
+
+[package]
+name = "shop"
+version = "1.0.0"

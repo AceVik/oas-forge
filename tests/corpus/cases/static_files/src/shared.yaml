@@ -1,0 +1,5 @@
+components:
+  schemas:
+    Money:
+      type: string
+      pattern: '^\d+\.\d{2}$'

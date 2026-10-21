@@ -1,0 +1,5 @@
+description = "README: quick start (types, routes and the root generated from the package)"
+
+[package]
+name = "shop"
+version = "1.0.0"

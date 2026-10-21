@@ -1,0 +1,41 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/asyncapi_channel_messages/case.toml
+---
+# fragments output
+components:
+  schemas:
+    Hello:
+      type: object
+      properties:
+        session:
+          type: string
+      required:
+      - session
+      description: The first frame of a connection.
+    Move:
+      type: object
+      properties:
+        card:
+          type: string
+      required:
+      - card
+      description: A move of a player.
+    Seat:
+      type: object
+      properties:
+        table:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+        seat:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 255
+      required:
+      - table
+      - seat
+      description: A seat at a table.

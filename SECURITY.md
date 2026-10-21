@@ -1,0 +1,36 @@
+# Security policy
+
+## Supported versions
+
+| Version | Supported |
+| :--- | :--- |
+| 0.2.x | yes |
+| < 0.2 | no; please upgrade (see the [migration guide](docs/migration-0.2.md)) |
+
+## Reporting a vulnerability
+
+Please report vulnerabilities privately through
+[GitHub security advisories](https://github.com/AceVik/oas-forge/security/advisories/new),
+not in public issues. Include the version, a minimal input that shows the
+problem and what you expected. You will get an answer within a week; fixes
+are released as patch versions and announced in the advisory.
+
+## Threat model
+
+`oas-forge` runs at build time on the sources of your own crate. It reads
+files from the configured input directories and writes the configured
+outputs; it does not execute code from the sources, open network
+connections or read environment variables other than `CARGO_PKG_*`,
+`OUT_DIR` and those named in `{{env:NAME}}` placeholders.
+
+Untrusted input (for example sources from a pull request in CI) can at most
+make a run fail or produce a wrong document. To keep that bounded:
+
+- input files over 16 MiB are skipped (`Generator::max_file_size`),
+- YAML documents are limited in size and nesting depth,
+- fragment inserts and generic instantiation have fixed depth limits,
+- outputs are written atomically and only to the configured paths,
+- both crates use `#![forbid(unsafe_code)]`.
+
+Dependencies are checked with `cargo deny` (advisories, licenses, sources)
+in CI.

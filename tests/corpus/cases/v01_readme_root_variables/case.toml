@@ -1,0 +1,1 @@
+description = "0.1 README (kept for compatibility): root with an unquoted {{CARGO_PKG_VERSION}} and $$OIDC_URL runtime placeholder"

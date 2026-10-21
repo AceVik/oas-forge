@@ -1,0 +1,32 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/struct_tuple_and_unit/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Marker:
+      type: "null"
+    Pair:
+      type: array
+      prefixItems:
+      - type: string
+      - type: integer
+        format: int32
+      items: false
+      minItems: 2
+      maxItems: 2
+    UserId:
+      type: integer
+      format: int64
+      minimum: 0
+    Virtual:
+      type: string
+      enum:
+      - a
+      - b

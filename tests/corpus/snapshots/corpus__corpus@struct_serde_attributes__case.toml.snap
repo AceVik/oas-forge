@@ -1,0 +1,390 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/struct_serde_attributes/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Structs: serde skip/flatten/default/alias/transparent/deny_unknown_fields/raw identifiers",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Meta": {
+            "properties": {
+              "created_by": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "created_by"
+            ],
+            "type": "object"
+          },
+          "Settings": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              }
+            ],
+            "properties": {
+              "color": {
+                "type": "string"
+              },
+              "created_at": {
+                "readOnly": true,
+                "type": "string"
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "password": {
+                "type": "string",
+                "writeOnly": true
+              },
+              "retries": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "type": "object",
+            "unevaluatedProperties": false
+          },
+          "Wrapper": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Meta": {
+            "properties": {
+              "created_by": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "created_by"
+            ],
+            "type": "object"
+          },
+          "Settings": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              }
+            ],
+            "properties": {
+              "color": {
+                "type": "string"
+              },
+              "created_at": {
+                "readOnly": true,
+                "type": "string"
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "password": {
+                "type": "string",
+                "writeOnly": true
+              },
+              "retries": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "type": "object",
+            "unevaluatedProperties": false
+          },
+          "Wrapper": {
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Meta": {
+          "properties": {
+            "created_by": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "created_by"
+          ],
+          "type": "object"
+        },
+        "Settings": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Meta"
+            }
+          ],
+          "properties": {
+            "color": {
+              "type": "string"
+            },
+            "created_at": {
+              "readOnly": true,
+              "type": "string"
+            },
+            "note": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "password": {
+              "type": "string",
+              "writeOnly": true
+            },
+            "retries": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "type": "string"
+            }
+          },
+          "type": "object",
+          "unevaluatedProperties": false
+        },
+        "Wrapper": {
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "diagnostics": [
+      "note[OF6001]: OpenAPI 3.0 has no equivalent for `unevaluatedProperties`; the schema was approximated"
+    ],
+    "document": {
+      "components": {
+        "schemas": {
+          "Meta": {
+            "properties": {
+              "created_by": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "created_by"
+            ],
+            "type": "object"
+          },
+          "Settings": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              }
+            ],
+            "properties": {
+              "color": {
+                "type": "string"
+              },
+              "created_at": {
+                "readOnly": true,
+                "type": "string"
+              },
+              "note": {
+                "nullable": true,
+                "type": "string"
+              },
+              "password": {
+                "type": "string",
+                "writeOnly": true
+              },
+              "retries": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "Wrapper": {
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {}
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Meta": {
+        "properties": {
+          "created_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_by"
+        ],
+        "type": "object"
+      },
+      "Settings": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Meta"
+          }
+        ],
+        "properties": {
+          "color": {
+            "type": "string"
+          },
+          "created_at": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "password": {
+            "type": "string",
+            "writeOnly": true
+          },
+          "retries": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "unevaluatedProperties": false
+      },
+      "Wrapper": {
+        "type": "string"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "diagnostics": [
+      "note[OF6001]: Swagger 2.0 has no equivalent for `unevaluatedProperties`; the schema was approximated"
+    ],
+    "document": {
+      "definitions": {
+        "Meta": {
+          "properties": {
+            "created_by": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "created_by"
+          ],
+          "type": "object"
+        },
+        "Settings": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Meta"
+            }
+          ],
+          "properties": {
+            "color": {
+              "type": "string"
+            },
+            "created_at": {
+              "readOnly": true,
+              "type": "string"
+            },
+            "note": {
+              "type": "string",
+              "x-nullable": true
+            },
+            "password": {
+              "type": "string",
+              "x-writeOnly": true
+            },
+            "retries": {
+              "format": "int64",
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "Wrapper": {
+          "type": "string"
+        }
+      },
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {},
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

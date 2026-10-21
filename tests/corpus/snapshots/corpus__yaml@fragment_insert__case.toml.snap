@@ -1,0 +1,43 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/fragment_insert/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /list:
+    get:
+      operationId: list
+      parameters:
+      - name: page
+        in: query
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        schema:
+          type: integer
+      responses:
+        "200":
+          description: ok
+  /manual:
+    get:
+      parameters:
+      - name: page
+        in: query
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        schema:
+          type: integer
+      - $ref: "#/components/parameters/ExternalParam"
+      responses:
+        "400":
+          description: Error Bad Request
+        "401":
+          description: Error {{code}}

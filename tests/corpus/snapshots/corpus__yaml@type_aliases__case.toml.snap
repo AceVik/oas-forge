@@ -1,0 +1,35 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/type_aliases/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Count:
+      type: integer
+      format: int64
+      minimum: 0
+      maximum: 4294967295
+    Event:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/UserId"
+        at:
+          type: string
+          format: date-time
+        count:
+          $ref: "#/components/schemas/Count"
+      required:
+      - user
+      - at
+      - count
+    UserId:
+      type: string
+      description: Identifier of a user.
+      format: uuid

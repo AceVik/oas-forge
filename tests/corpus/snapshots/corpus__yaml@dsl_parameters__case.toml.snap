@@ -1,0 +1,74 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/dsl_parameters/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  "/orgs/{org}/users/{id}":
+    get:
+      operationId: get_user
+      parameters:
+      - name: org
+        in: path
+        required: true
+        description: Organization slug
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        description: User id
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      - name: limit
+        in: query
+        required: false
+        description: Page size
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      - name: sort
+        in: query
+        required: true
+        description: Sort key
+        schema:
+          type: string
+        deprecated: true
+        example: name
+      - name: tags
+        in: query
+        required: true
+        schema:
+          type: array
+          items:
+            type: string
+      - name: filter
+        in: query
+        required: true
+        description: Free text filter
+        schema:
+          type: string
+      - name: X-Request-Id
+        in: header
+        required: true
+        description: Tracing id
+        schema:
+          type: string
+          format: uuid
+      - name: session
+        in: cookie
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: No content

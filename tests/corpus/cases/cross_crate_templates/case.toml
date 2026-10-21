@@ -1,0 +1,2 @@
+description = "Cross-crate: consuming x-oas-forge-templates/fragments from an included fragments file"
+includes = ["shared/fragments.yaml"]

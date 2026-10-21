@@ -1,0 +1,26 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/struct_renamed_reference/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        profile:
+          $ref: "#/components/schemas/UserProfile"
+      required:
+      - profile
+    UserProfile:
+      type: object
+      properties:
+        bio:
+          type: string
+      required:
+      - bio

@@ -1,0 +1,522 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/dsl_parameters/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Route DSL: inline path params, @path/@query/@header/@cookie-param with flags",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "paths": {
+        "/orgs/{org}/users/{id}": {
+          "get": {
+            "operationId": "get_user",
+            "parameters": [
+              {
+                "description": "Organization slug",
+                "in": "path",
+                "name": "org",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "description": "User id",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              {
+                "description": "Page size",
+                "in": "query",
+                "name": "limit",
+                "required": false,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              {
+                "deprecated": true,
+                "description": "Sort key",
+                "example": "name",
+                "in": "query",
+                "name": "sort",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "in": "query",
+                "name": "tags",
+                "required": true,
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              {
+                "description": "Free text filter",
+                "in": "query",
+                "name": "filter",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "description": "Tracing id",
+                "in": "header",
+                "name": "X-Request-Id",
+                "required": true,
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              {
+                "in": "cookie",
+                "name": "session",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "No content"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/orgs/{org}/users/{id}": {
+          "get": {
+            "operationId": "get_user",
+            "parameters": [
+              {
+                "description": "Organization slug",
+                "in": "path",
+                "name": "org",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "description": "User id",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              {
+                "description": "Page size",
+                "in": "query",
+                "name": "limit",
+                "required": false,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              {
+                "deprecated": true,
+                "description": "Sort key",
+                "example": "name",
+                "in": "query",
+                "name": "sort",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "in": "query",
+                "name": "tags",
+                "required": true,
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              {
+                "description": "Free text filter",
+                "in": "query",
+                "name": "filter",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "description": "Tracing id",
+                "in": "header",
+                "name": "X-Request-Id",
+                "required": true,
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              {
+                "in": "cookie",
+                "name": "session",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "No content"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {},
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/orgs/{org}/users/{id}": {
+          "get": {
+            "operationId": "get_user",
+            "parameters": [
+              {
+                "description": "Organization slug",
+                "in": "path",
+                "name": "org",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "description": "User id",
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              {
+                "description": "Page size",
+                "in": "query",
+                "name": "limit",
+                "required": false,
+                "schema": {
+                  "format": "int64",
+                  "maximum": 4294967295,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              {
+                "deprecated": true,
+                "description": "Sort key",
+                "example": "name",
+                "in": "query",
+                "name": "sort",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "in": "query",
+                "name": "tags",
+                "required": true,
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              {
+                "description": "Free text filter",
+                "in": "query",
+                "name": "filter",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "description": "Tracing id",
+                "in": "header",
+                "name": "X-Request-Id",
+                "required": true,
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              {
+                "in": "cookie",
+                "name": "session",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "No content"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/orgs/{org}/users/{id}": {
+        "get": {
+          "operationId": "get_user",
+          "parameters": [
+            {
+              "description": "Organization slug",
+              "in": "path",
+              "name": "org",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "description": "User id",
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            {
+              "description": "Page size",
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "format": "int64",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            {
+              "deprecated": true,
+              "description": "Sort key",
+              "example": "name",
+              "in": "query",
+              "name": "sort",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "tags",
+              "required": true,
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            {
+              "description": "Free text filter",
+              "in": "query",
+              "name": "filter",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "description": "Tracing id",
+              "in": "header",
+              "name": "X-Request-Id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            {
+              "in": "cookie",
+              "name": "session",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "No content"
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  },
+  "swagger_2": {
+    "diagnostics": [
+      "note[OF6001]: Swagger 2.0 has no cookie parameters; the export leaves them out or approximates them"
+    ],
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/orgs/{org}/users/{id}": {
+          "get": {
+            "operationId": "get_user",
+            "parameters": [
+              {
+                "description": "Organization slug",
+                "in": "path",
+                "name": "org",
+                "required": true,
+                "type": "string"
+              },
+              {
+                "description": "User id",
+                "format": "int64",
+                "in": "path",
+                "minimum": 0,
+                "name": "id",
+                "required": true,
+                "type": "integer"
+              },
+              {
+                "description": "Page size",
+                "format": "int64",
+                "in": "query",
+                "maximum": 4294967295,
+                "minimum": 0,
+                "name": "limit",
+                "required": false,
+                "type": "integer"
+              },
+              {
+                "description": "Sort key",
+                "in": "query",
+                "name": "sort",
+                "required": true,
+                "type": "string",
+                "x-deprecated": true,
+                "x-example": "name"
+              },
+              {
+                "collectionFormat": "multi",
+                "in": "query",
+                "items": {
+                  "type": "string"
+                },
+                "name": "tags",
+                "required": true,
+                "type": "array"
+              },
+              {
+                "description": "Free text filter",
+                "in": "query",
+                "name": "filter",
+                "required": true,
+                "type": "string"
+              },
+              {
+                "description": "Tracing id",
+                "format": "uuid",
+                "in": "header",
+                "name": "X-Request-Id",
+                "required": true,
+                "type": "string"
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "No content"
+              }
+            }
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

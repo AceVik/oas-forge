@@ -1,0 +1,69 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/asyncapi_channels/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Change:
+      type: object
+      oneOf:
+      - $ref: "#/components/schemas/ChangeRenamed"
+      - $ref: "#/components/schemas/ChangeDeleted"
+      discriminator:
+        propertyName: kind
+        mapping:
+          Renamed: "#/components/schemas/ChangeRenamed"
+          Deleted: "#/components/schemas/ChangeDeleted"
+    ChangeDeleted:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - Deleted
+          description: "Discriminator: Deleted"
+      required:
+      - kind
+    ChangeRenamed:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - Renamed
+          description: "Discriminator: Renamed"
+        name:
+          type: string
+      required:
+      - kind
+      - name
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+        name:
+          type:
+          - string
+          - "null"
+        position:
+          type: array
+          prefixItems:
+          - type: number
+            format: double
+          - type: number
+            format: double
+          items: false
+          minItems: 2
+          maxItems: 2
+      required:
+      - id
+      - position

@@ -1,0 +1,49 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/enum_tagged_field_renaming/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Event:
+      type: object
+      oneOf:
+      - $ref: "#/components/schemas/EventUserCreated"
+      - $ref: "#/components/schemas/EventUserDeleted"
+      discriminator:
+        propertyName: kind
+        mapping:
+          userCreated: "#/components/schemas/EventUserCreated"
+          userDeleted: "#/components/schemas/EventUserDeleted"
+    EventUserCreated:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - userCreated
+          description: "Discriminator: userCreated"
+        userId:
+          type: integer
+          format: int64
+      required:
+      - kind
+      - userId
+    EventUserDeleted:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - userDeleted
+          description: "Discriminator: userDeleted"
+        DELETED_AT:
+          type: string
+      required:
+      - kind
+      - DELETED_AT

@@ -1,0 +1,2 @@
+description = "Root: root document from an included YAML file"
+includes = ["static/root.yaml"]

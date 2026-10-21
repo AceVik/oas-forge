@@ -1,0 +1,5 @@
+description = "Guide (templates): a root document with variables and a runtime placeholder"
+
+[variables]
+STAGE = "eu"
+GIT_REVISION = "3f2c1ab"

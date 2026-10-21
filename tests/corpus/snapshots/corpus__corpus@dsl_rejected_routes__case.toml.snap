@@ -1,0 +1,72 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/dsl_rejected_routes/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Route DSL: routes that are rejected (missing/unused path params, no path)",
+  "diagnostics": [
+    "error[OF2002]: path parameter `id` of `/items/{id}` has no definition (use `{id: Type}` or `@param path`) (<case>/src/lib.rs:7)",
+    "error[OF2003]: path parameter `id` is not used in `/items` (<case>/src/lib.rs:10)",
+    "error[OF2001]: `@route` needs a method and a path (<case>/src/lib.rs:14)"
+  ],
+  "fragments": {
+    "document": {},
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {}
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {},
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {}
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {},
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

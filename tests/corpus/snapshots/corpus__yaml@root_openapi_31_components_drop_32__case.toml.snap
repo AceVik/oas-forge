@@ -1,0 +1,67 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/root_openapi_31_components_drop_32/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Modern components
+  version: "1.0.0"
+paths:
+  /subscriptions:
+    post:
+      operationId: subscribe
+      responses:
+        "201":
+          description: Subscribed
+      callbacks:
+        onEvent:
+          "{$request.body#/callback}":
+            post:
+              requestBody:
+                content:
+                  application/jsonl: {}
+              responses:
+                "200":
+                  description: Received
+        shared:
+          $ref: "#/components/callbacks/Notify"
+components:
+  schemas:
+    Event:
+      type: object
+      properties:
+        kind:
+          type: string
+      required:
+      - kind
+  pathItems:
+    Search:
+      get:
+        parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        responses:
+          "200":
+            $ref: "#/components/responses/Events"
+  responses:
+    Events:
+      description: Server-sent events
+      content:
+        text/event-stream: {}
+  requestBodies:
+    Upload:
+      content:
+        application/jsonl: {}
+  callbacks:
+    Notify:
+      "{$request.body#/callback}":
+        post:
+          requestBody:
+            $ref: "#/components/requestBodies/Upload"
+          responses:
+            "200":
+              description: Received

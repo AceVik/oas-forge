@@ -1,0 +1,102 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/v01_readme_root_variables/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "0.1 README (kept for compatibility): root with an unquoted {{CARGO_PKG_VERSION}} and $$OIDC_URL runtime placeholder",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "securitySchemes": {
+          "oidcAuth": {
+            "description": "OIDC Authentication via Rauthy.",
+            "openIdConnectUrl": "$$OIDC_URL/.well-known/openid-configuration",
+            "type": "openIdConnect"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "securitySchemes": {
+          "oidcAuth": {
+            "description": "OIDC Authentication via Rauthy.",
+            "openIdConnectUrl": "$$OIDC_URL/.well-known/openid-configuration",
+            "type": "openIdConnect"
+          }
+        }
+      },
+      "info": {
+        "description": "API documentation for the user service.",
+        "title": "User Management API",
+        "version": "<pkg-version>"
+      },
+      "openapi": "3.1.1"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {},
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "securitySchemes": {
+          "oidcAuth": {
+            "description": "OIDC Authentication via Rauthy.",
+            "openIdConnectUrl": "$$OIDC_URL/.well-known/openid-configuration",
+            "type": "openIdConnect"
+          }
+        }
+      },
+      "info": {
+        "description": "API documentation for the user service.",
+        "title": "User Management API",
+        "version": "<pkg-version>"
+      },
+      "openapi": "3.0.3",
+      "paths": {}
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  },
+  "swagger_2": {
+    "diagnostics": [
+      "note[OF6001]: Swagger 2.0 has no OpenID Connect and mutual TLS security schemes; the export leaves them out or approximates them"
+    ],
+    "document": {
+      "info": {
+        "description": "API documentation for the user service.",
+        "title": "User Management API",
+        "version": "<pkg-version>"
+      },
+      "paths": {},
+      "securityDefinitions": {},
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

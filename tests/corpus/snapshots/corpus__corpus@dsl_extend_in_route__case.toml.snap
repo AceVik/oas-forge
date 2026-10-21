@@ -1,0 +1,188 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/dsl_extend_in_route/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Route DSL: @extend inside a route block",
+  "diagnostics": [
+    "warning[OF5005]: security scheme `oidc` is required but not defined in `components.securitySchemes` (<case>/src/api.rs:1)"
+  ],
+  "fragments": {
+    "document": {
+      "components": {
+        "x-oas-forge-format": 1,
+        "x-oas-forge-fragments": {
+          "Secured": {
+            "body": "security:\n  - oidc: [{{role}}]\nresponses:\n  '401':\n    description: Unauthorized",
+            "params": [
+              "role"
+            ]
+          }
+        }
+      },
+      "paths": {
+        "/admin": {
+          "get": {
+            "operationId": "admin",
+            "responses": {
+              "200": {
+                "description": "ok"
+              },
+              "401": {
+                "description": "Unauthorized"
+              }
+            },
+            "security": [
+              {
+                "oidc": [
+                  "admin"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/admin": {
+          "get": {
+            "operationId": "admin",
+            "responses": {
+              "200": {
+                "description": "ok"
+              },
+              "401": {
+                "description": "Unauthorized"
+              }
+            },
+            "security": [
+              {
+                "oidc": [
+                  "admin"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {},
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/admin": {
+          "get": {
+            "operationId": "admin",
+            "responses": {
+              "200": {
+                "description": "ok"
+              },
+              "401": {
+                "description": "Unauthorized"
+              }
+            },
+            "security": [
+              {
+                "oidc": [
+                  "admin"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/admin": {
+        "get": {
+          "operationId": "admin",
+          "responses": {
+            "200": {
+              "description": "ok"
+            },
+            "401": {
+              "description": "Unauthorized"
+            }
+          },
+          "security": [
+            {
+              "oidc": [
+                "admin"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "info": {
+        "title": "Corpus",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/admin": {
+          "get": {
+            "operationId": "admin",
+            "responses": {
+              "200": {
+                "description": "ok"
+              },
+              "401": {
+                "description": "Unauthorized"
+              }
+            },
+            "security": [
+              {
+                "oidc": [
+                  "admin"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

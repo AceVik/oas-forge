@@ -1,278 +1,97 @@
+// The README is the front page on GitHub, crates.io and docs.rs; its Rust
+// examples run as doctests. The library overview follows it.
 #![doc = include_str!("../README.md")]
-#![allow(clippy::collapsible_if)]
+//!
+//! # The library
+//!
+//! [`Generator`] is the entry point: configure inputs and outputs, then call
+//! [`Generator::generate`] (build and write) or [`Generator::build`], which
+//! returns a [`Spec`] with the documents in memory, every [`Diagnostic`] and
+//! [`Spec::check`] for CI. [`Config`] loads the same settings from
+//! `openapi.toml` or `[package.metadata.oas-forge]`, and [`Package`] the root
+//! document from `Cargo.toml`.
+//!
+//! ```no_run
+//! let spec = oas_forge::Generator::new()
+//!     .input("src")
+//!     .output("openapi.yaml")
+//!     .output_as(oas_forge::OutputKind::Swagger20, "swagger.json")
+//!     .build()?;
+//! for diagnostic in spec.diagnostics() {
+//!     eprintln!("{diagnostic}");
+//! }
+//! spec.write()?;
+//! # Ok::<(), oas_forge::Error>(())
+//! ```
+//!
+//! ## Pipeline
+//!
+//! [`Generator`] runs these stages; each has its own module with a stable
+//! API, so tools can use a single stage on its own:
+//!
+//! 1. [`source`]: find the input files, in a deterministic order.
+//! 2. [`extract`]: parse Rust files with `syn` and collect annotations.
+//! 3. [`template`]: `@insert`, `{{variables}}`, `@extend`, generic
+//!    instantiation (`$Page<User>`) and smart references (`$User`).
+//! 4. [`dsl`]: compile `@route`, `@webhook` and `@channel` blocks.
+//! 5. [`merge`]: merge every snippet into one document under explicit
+//!    policies.
+//! 6. [`schema`] and [`output`]: lower the schemas for the target version
+//!    and render the outputs ([`OutputKind`], [`Format`]).
+//!
+//! Problems are reported as [`Diagnostic`]s with a stable [`Code`], a
+//! [`Severity`] and a source [`Location`]; only problems that make the result
+//! unusable are [`Error`]s. Files are written atomically and only when their
+//! content changes.
+
+#![forbid(unsafe_code)]
+#![deny(missing_docs, rustdoc::broken_intra_doc_links)]
+// Every item is documented, internals included; fallible public functions
+// say when they fail; identifiers in docs are code (`clippy.toml` lists the
+// product names that are not).
+#![deny(
+    clippy::missing_docs_in_private_items,
+    clippy::missing_errors_doc,
+    clippy::doc_markdown
+)]
+// No panics on user input (AGENTS.md, rule 1): no unchecked indexing or
+// slicing, no `unwrap`. `expect` is reserved for invariants, with the reason.
+#![deny(
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::unwrap_used,
+    clippy::dbg_macro,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
+// The README shows complete build scripts, `fn main` included.
+#![allow(clippy::needless_doctest_main)]
+
+pub mod attrs;
 pub mod config;
-pub mod doc_parser;
+pub mod diagnostics;
+pub(crate) mod docs;
+pub(crate) mod document;
 pub mod dsl;
 pub mod error;
-pub mod generics;
-pub mod index;
-pub mod merger;
-pub mod preprocessor;
-pub mod scanner;
-pub mod type_mapper;
-pub mod visitor;
+pub mod extract;
+pub mod generator;
+pub(crate) mod lint;
+pub mod merge;
+pub mod output;
+pub mod package;
+pub mod proto;
+pub mod schema;
+pub(crate) mod scope;
+pub mod source;
+pub mod template;
+pub(crate) mod yaml;
 
-use config::Config;
-use error::Result;
-use std::path::PathBuf;
-
-/// Main entry point for generating OpenAPI definitions.
-/// Main entry point for generating OpenAPI definitions.
-#[derive(Default)]
-pub struct Generator {
-    inputs: Vec<PathBuf>,
-    includes: Vec<PathBuf>,
-    outputs: Vec<PathBuf>,
-    schema_outputs: Vec<PathBuf>,
-    path_outputs: Vec<PathBuf>,
-    fragment_outputs: Vec<PathBuf>,
-}
-
-impl Generator {
-    /// Creates a new Generator instance.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Configures the generator from a Config object.
-    pub fn with_config(mut self, config: Config) -> Self {
-        if let Some(inputs) = config.input {
-            self.inputs.extend(inputs);
-        }
-        if let Some(includes) = config.include {
-            self.includes.extend(includes);
-        }
-        if let Some(output) = config.output {
-            self.outputs.extend(output);
-        }
-        if let Some(output_schemas) = config.output_schemas {
-            self.schema_outputs.extend(output_schemas);
-        }
-        if let Some(output_paths) = config.output_paths {
-            self.path_outputs.extend(output_paths);
-        }
-        if let Some(output_fragments) = config.output_fragments {
-            self.fragment_outputs.extend(output_fragments);
-        }
-        self
-    }
-
-    /// Adds an input directory to scan.
-    pub fn input<P: Into<PathBuf>>(mut self, path: P) -> Self {
-        self.inputs.push(path.into());
-        self
-    }
-
-    /// Adds a specific file to include.
-    pub fn include<P: Into<PathBuf>>(mut self, path: P) -> Self {
-        self.includes.push(path.into());
-        self
-    }
-
-    /// Appends an output file path.
-    pub fn output<P: Into<PathBuf>>(mut self, path: P) -> Self {
-        self.outputs.push(path.into());
-        self
-    }
-
-    /// Appends an output file path for just the schemas.
-    pub fn output_schemas<P: Into<PathBuf>>(mut self, path: P) -> Self {
-        self.schema_outputs.push(path.into());
-        self
-    }
-
-    /// Appends an output file path for just the paths.
-    pub fn output_paths<P: Into<PathBuf>>(mut self, path: P) -> Self {
-        self.path_outputs.push(path.into());
-        self
-    }
-
-    /// Appends an output file path for full spec minus root details (fragments).
-    pub fn output_fragments<P: Into<PathBuf>>(mut self, path: P) -> Self {
-        self.fragment_outputs.push(path.into());
-        self
-    }
-
-    /// Executes the generation process.
-    pub fn generate(self) -> Result<()> {
-        if self.outputs.is_empty()
-            && self.schema_outputs.is_empty()
-            && self.path_outputs.is_empty()
-            && self.fragment_outputs.is_empty()
-        {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "At least one output path (output, output_schemas, output_paths, or output_fragments) is required",
-            )
-            .into());
-        }
-
-        // 1. Scan and Extract
-        log::info!(
-            "Scanning directories: {:?} and includes: {:?}",
-            self.inputs,
-            self.includes
-        );
-        let (snippets, registry) = scanner::scan_directories(&self.inputs, &self.includes)?;
-
-        // 2. Merge (Relaxed - may return empty map if no root)
-        log::info!("Merging {} snippets", snippets.len());
-        let mut merged_value = merger::merge_openapi(snippets)?;
-
-        // Bulletproof cleanup: Ensure transport extensions NEVER leak into standard outputs
-        if let serde_yaml_ng::Value::Mapping(ref mut root_map) = merged_value {
-            if let Some(serde_yaml_ng::Value::Mapping(comp_map)) =
-                root_map.get_mut(serde_yaml_ng::Value::String("components".to_string()))
-            {
-                comp_map.remove(serde_yaml_ng::Value::String(
-                    "x-oas-forge-templates".to_string(),
-                ));
-                comp_map.remove(serde_yaml_ng::Value::String(
-                    "x-oas-forge-fragments".to_string(),
-                ));
-
-                // Clean up empty components block if it's now empty
-                if comp_map.is_empty() {
-                    root_map.remove(serde_yaml_ng::Value::String("components".to_string()));
-                }
-            }
-        }
-
-        // Strategy 1: Full Spec (Strict Validation)
-        if !self.outputs.is_empty() {
-            if let serde_yaml_ng::Value::Mapping(map) = &merged_value {
-                let openapi_key = serde_yaml_ng::Value::String("openapi".to_string());
-                let info_key = serde_yaml_ng::Value::String("info".to_string());
-
-                if !map.contains_key(&openapi_key) || !map.contains_key(&info_key) {
-                    return Err(error::Error::NoRootFound);
-                }
-            } else {
-                return Err(error::Error::NoRootFound);
-            }
-
-            for output in &self.outputs {
-                self.write_file(output, &merged_value)?;
-                log::info!("Written full spec to {:?}", output);
-            }
-        }
-
-        // Strategy 2: Schemas Only (Relaxed)
-        if !self.schema_outputs.is_empty() {
-            let schemas = merged_value
-                .get("components")
-                .and_then(|c| c.get("schemas"))
-                .cloned()
-                .unwrap_or_else(|| serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new()));
-
-            if let serde_yaml_ng::Value::Mapping(m) = &schemas {
-                if m.is_empty() {
-                    log::warn!("Generating empty schemas file.");
-                }
-            }
-
-            for output in &self.schema_outputs {
-                self.write_file(output, &schemas)?;
-                log::info!("Written schemas to {:?}", output);
-            }
-        }
-
-        // Strategy 3: Paths Only (Relaxed)
-        if !self.path_outputs.is_empty() {
-            let paths = merged_value
-                .get("paths")
-                .cloned()
-                .unwrap_or_else(|| serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new()));
-
-            if let serde_yaml_ng::Value::Mapping(m) = &paths {
-                if m.is_empty() {
-                    log::warn!("Generating empty paths file.");
-                }
-            }
-
-            for output in &self.path_outputs {
-                self.write_file(output, &paths)?;
-                log::info!("Written paths to {:?}", output);
-            }
-        }
-
-        // Strategy 4: Fragments (Headless Spec)
-        // Removes top-level keys: openapi, info, servers, externalDocs
-        // Keeps: paths, components, tags, security, etc.
-        // Also injects x-oas-forge-templates and x-oas-forge-fragments for cross-crate transport.
-        if !self.fragment_outputs.is_empty() {
-            let mut fragment = merged_value.clone();
-            if let serde_yaml_ng::Value::Mapping(ref mut map) = fragment {
-                map.remove(serde_yaml_ng::Value::String("openapi".to_string()));
-                map.remove(serde_yaml_ng::Value::String("info".to_string()));
-                map.remove(serde_yaml_ng::Value::String("servers".to_string()));
-            }
-
-            // Inject vendor extensions for template transport
-            if !registry.blueprints.is_empty() || !registry.fragments.is_empty() {
-                if let serde_yaml_ng::Value::Mapping(ref mut root_map) = fragment {
-                    let components_key = serde_yaml_ng::Value::String("components".to_string());
-                    let components = root_map.entry(components_key).or_insert_with(|| {
-                        serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new())
-                    });
-                    if let serde_yaml_ng::Value::Mapping(comp_map) = components {
-                        if !registry.blueprints.is_empty() {
-                            if let Ok(val) = serde_json::to_value(&registry.blueprints) {
-                                if let Ok(yaml_val) = serde_yaml_ng::to_value(&val) {
-                                    comp_map.insert(
-                                        serde_yaml_ng::Value::String(
-                                            "x-oas-forge-templates".to_string(),
-                                        ),
-                                        yaml_val,
-                                    );
-                                }
-                            }
-                        }
-                        if !registry.fragments.is_empty() {
-                            if let Ok(val) = serde_json::to_value(&registry.fragments) {
-                                if let Ok(yaml_val) = serde_yaml_ng::to_value(&val) {
-                                    comp_map.insert(
-                                        serde_yaml_ng::Value::String(
-                                            "x-oas-forge-fragments".to_string(),
-                                        ),
-                                        yaml_val,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            for output in &self.fragment_outputs {
-                self.write_file(output, &fragment)?;
-                log::info!("Written fragment to {:?}", output);
-            }
-        }
-
-        Ok(())
-    }
-
-    fn write_file<T: serde::Serialize>(&self, path: &PathBuf, content: &T) -> Result<()> {
-        // Ensure parent directory exists
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let file = std::fs::File::create(path)?;
-        let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("yaml");
-
-        match extension {
-            "json" => {
-                serde_json::to_writer_pretty(file, content)?;
-            }
-            "yaml" | "yml" => {
-                serde_yaml_ng::to_writer(file, content)?;
-            }
-            _ => {
-                serde_yaml_ng::to_writer(file, content)?;
-            }
-        }
-        Ok(())
-    }
-}
+pub use config::Config;
+pub use diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
+pub use error::{Error, Result};
+pub use generator::{Generator, Spec};
+pub use output::{Format, OutputKind};
+pub use package::Package;

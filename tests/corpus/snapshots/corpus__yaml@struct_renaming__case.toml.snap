@@ -1,0 +1,40 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/struct_renaming/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+components:
+  schemas:
+    Account:
+      type: object
+      properties:
+        firstName:
+          type: string
+        mail:
+          type: string
+        nick:
+          type: string
+      required:
+      - firstName
+      - mail
+      - nick
+    PublicProfile:
+      type: object
+      properties:
+        display-name:
+          type: string
+      required:
+      - display-name
+    Renamed:
+      type: object
+      properties:
+        SOME_VALUE:
+          type: integer
+          format: int32
+      required:
+      - SOME_VALUE

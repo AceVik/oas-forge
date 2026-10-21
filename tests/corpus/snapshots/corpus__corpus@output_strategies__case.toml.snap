@@ -1,0 +1,427 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/output_strategies/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "Output strategies: full, schemas, paths and headless fragments with vendor extensions",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Page_User": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/User"
+                },
+                "type": "array"
+              },
+              "total": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        },
+        "x-oas-forge-format": 1,
+        "x-oas-forge-fragments": {
+          "Problem": {
+            "body": "description: Problem {{status}}",
+            "params": [
+              "status"
+            ]
+          }
+        },
+        "x-oas-forge-templates": {
+          "Page": {
+            "body": "type: object\nproperties:\n  total:\n    type: integer\n    format: int64\n    minimum: 0\n  items:\n    type: array\n    items:\n      $ref: $T\nrequired:\n- total\n",
+            "params": [
+              "T"
+            ]
+          }
+        }
+      },
+      "paths": {
+        "/users": {
+          "get": {
+            "operationId": "users",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Page_User"
+                    }
+                  }
+                },
+                "description": "Users"
+              }
+            },
+            "tags": [
+              "Users"
+            ]
+          }
+        }
+      },
+      "tags": [
+        {
+          "name": "Users"
+        }
+      ]
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Page_User": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/User"
+                },
+                "type": "array"
+              },
+              "total": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Strategies",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0",
+      "paths": {
+        "/users": {
+          "get": {
+            "operationId": "users",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Page_User"
+                    }
+                  }
+                },
+                "description": "Users"
+              }
+            },
+            "tags": [
+              "Users"
+            ]
+          }
+        }
+      },
+      "servers": [
+        {
+          "url": "https://api.example.com"
+        }
+      ],
+      "tags": [
+        {
+          "name": "Users"
+        }
+      ]
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Page_User": {
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/$defs/User"
+              },
+              "type": "array"
+            },
+            "total": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "total"
+          ],
+          "type": "object"
+        },
+        "User": {
+          "properties": {
+            "id": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Page_User": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/User"
+                },
+                "type": "array"
+              },
+              "total": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total"
+            ],
+            "type": "object"
+          },
+          "User": {
+            "properties": {
+              "id": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Strategies",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/users": {
+          "get": {
+            "operationId": "users",
+            "responses": {
+              "200": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Page_User"
+                    }
+                  }
+                },
+                "description": "Users"
+              }
+            },
+            "tags": [
+              "Users"
+            ]
+          }
+        }
+      },
+      "servers": [
+        {
+          "url": "https://api.example.com"
+        }
+      ],
+      "tags": [
+        {
+          "name": "Users"
+        }
+      ]
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/users": {
+        "get": {
+          "operationId": "users",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Page_User"
+                  }
+                }
+              },
+              "description": "Users"
+            }
+          },
+          "tags": [
+            "Users"
+          ]
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Page_User": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/User"
+            },
+            "type": "array"
+          },
+          "total": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total"
+        ],
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "Page_User": {
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/definitions/User"
+              },
+              "type": "array"
+            },
+            "total": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "total"
+          ],
+          "type": "object"
+        },
+        "User": {
+          "properties": {
+            "id": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        }
+      },
+      "host": "api.example.com",
+      "info": {
+        "title": "Strategies",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/users": {
+          "get": {
+            "operationId": "users",
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "200": {
+                "description": "Users",
+                "schema": {
+                  "$ref": "#/definitions/Page_User"
+                }
+              }
+            },
+            "tags": [
+              "Users"
+            ]
+          }
+        }
+      },
+      "schemes": [
+        "https"
+      ],
+      "swagger": "2.0",
+      "tags": [
+        {
+          "name": "Users"
+        }
+      ]
+    },
+    "lints": [],
+    "validation": []
+  }
+}

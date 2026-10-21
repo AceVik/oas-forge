@@ -1,0 +1,8 @@
+asyncapi: 3.1.0
+info:
+  title: Events
+  version: 1.0.0
+servers:
+  production:
+    host: broker.example.com
+    protocol: kafka

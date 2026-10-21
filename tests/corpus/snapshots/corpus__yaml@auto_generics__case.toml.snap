@@ -1,0 +1,161 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/auto_generics/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /users:
+    get:
+      summary: Lists users.
+      operationId: users
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Page_User"
+  /inferred:
+    get:
+      summary: Lists users (inferred).
+      operationId: inferred
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Page_User"
+components:
+  schemas:
+    Either_String_User:
+      oneOf:
+      - type: object
+        properties:
+          Left:
+            type: string
+        required:
+        - Left
+        additionalProperties: false
+      - type: object
+        properties:
+          Right:
+            $ref: "#/components/schemas/User"
+        required:
+        - Right
+        additionalProperties: false
+      description: Either of two values.
+    Holder:
+      type: object
+      properties:
+        numbers:
+          $ref: "#/components/schemas/Page_u64"
+        lists:
+          $ref: "#/components/schemas/Page_Vec_User"
+        optional:
+          $ref: "#/components/schemas/Page_Option_User"
+        nested:
+          $ref: "#/components/schemas/Page_Page_User"
+        either:
+          $ref: "#/components/schemas/Either_String_User"
+      required:
+      - numbers
+      - lists
+      - optional
+      - nested
+      - either
+      description: Every kind of argument.
+    Page_Option_User:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            anyOf:
+            - $ref: "#/components/schemas/User"
+            - type: "null"
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - items
+      - total
+      description: A page of results.
+    Page_Page_User:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Page_User"
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - items
+      - total
+      description: A page of results.
+    Page_User:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - items
+      - total
+      description: A page of results.
+    Page_Vec_User:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: array
+            items:
+              $ref: "#/components/schemas/User"
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - items
+      - total
+      description: A page of results.
+    Page_u64:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: integer
+            format: int64
+            minimum: 0
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - items
+      - total
+      description: A page of results.
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+      required:
+      - name
+      description: A user.
