@@ -192,7 +192,8 @@ macro_rules! codes {
         }
 
         impl Code {
-            /// Every known code, in numeric order.
+            /// Every known code: those of 0.2.0 in numeric order, later ones
+            /// in the order they were added.
             pub const ALL: &'static [Code] = &[$(Code::$variant,)*];
 
             /// The code as written in messages, e.g. `OF2001`.
@@ -236,8 +237,6 @@ codes! {
     UnreadableLink = "OF0005", Warning;
     /// A `.proto` file cannot be indexed, or defines a message another one defines.
     InvalidProto = "OF0006", Warning;
-    /// The `Cargo.toml` of a scanned crate cannot be read; the crate is named after its directory.
-    UnreadableManifest = "OF0007", Warning;
 
     /// An `@openapi` override is not valid YAML.
     InvalidOverride = "OF1001", Warning;
@@ -331,6 +330,13 @@ codes! {
     LossyLowering = "OF6001", Note;
     /// A construct needs a newer OpenAPI version than the root declares and was removed.
     UnsupportedFeature = "OF6002", Warning;
+
+    // Codes added after 0.2.0. New codes go at the end, whatever their
+    // number: a variant's position is its discriminant and its place in the
+    // ordering, which must not change between releases (cargo semver-checks).
+
+    /// The `Cargo.toml` of a scanned crate cannot be read; the crate is named after its directory.
+    UnreadableManifest = "OF0007", Warning;
 }
 
 impl fmt::Display for Code {
