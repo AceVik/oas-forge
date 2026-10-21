@@ -177,7 +177,7 @@ mod builder {
         let project = Project::new();
         project
             .file("src/root.rs", ROOT_DOC)
-            .file("src/a.rs", "/// @route GET /x\n/// @frobnicate\n/// @description {{env:HOME}} {{env:OAS_FORGE_UNSET_X}} {{env:HOME}}\nfn x() {}");
+            .file("src/a.rs", "/// @route GET /x\n/// @frobnicate\n/// @description {{env:PATH}} {{env:OAS_FORGE_UNSET_X}} {{env:PATH}}\nfn x() {}");
         let generator = Generator::new()
             .input(project.path("src"))
             .output(project.path("api.yaml"))
@@ -185,7 +185,8 @@ mod builder {
         generator.generate().unwrap();
 
         let spec = generator.build().unwrap();
-        assert_eq!(spec.watched_env(), ["HOME", "OAS_FORGE_UNSET_X"]);
+        // `PATH` is set on every system (`HOME` is not on Windows).
+        assert_eq!(spec.watched_env(), ["OAS_FORGE_UNSET_X", "PATH"]);
         let mut out = Vec::new();
         spec.write_cargo_directives(&mut out).unwrap();
         let text = String::from_utf8(out).unwrap();
@@ -194,8 +195,8 @@ mod builder {
             lines[0],
             format!("cargo:rerun-if-changed={}", project.path("src").display())
         );
-        assert_eq!(lines[1], "cargo:rerun-if-env-changed=HOME");
-        assert_eq!(lines[2], "cargo:rerun-if-env-changed=OAS_FORGE_UNSET_X");
+        assert_eq!(lines[1], "cargo:rerun-if-env-changed=OAS_FORGE_UNSET_X");
+        assert_eq!(lines[2], "cargo:rerun-if-env-changed=PATH");
         // Variables are substituted before the DSL is compiled.
         assert!(
             lines[3].starts_with("cargo:warning=warning[OF3009]"),
