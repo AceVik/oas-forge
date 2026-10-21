@@ -555,16 +555,16 @@ mod locations {
         let (project, findings) = findings();
         let at = |file: &str, line: usize| Some(Location::new(project.path(file), line));
         let expected = [
-            (
-                Code::DanglingReference,
-                "`$ref: #/components/schemas/Nowhere` points to a component that does not exist",
-                at("src/c.rs", 2),
-            ),
             // Also referenced in `b.rs`, later.
             (
                 Code::DanglingReference,
                 "`$ref: #/components/schemas/Ghost` points to a component that does not exist",
                 at("src/a.rs", 1),
+            ),
+            (
+                Code::DanglingReference,
+                "`$ref: #/components/schemas/Nowhere` points to a component that does not exist",
+                at("src/c.rs", 2),
             ),
             // The first duplicate.
             (
@@ -590,13 +590,13 @@ mod locations {
             ),
             (
                 Code::UnusedComponent,
-                "`#/components/schemas/Lonely` is never referenced",
-                at("src/c.rs", 5),
+                "`#/components/schemas/Broken` is never referenced",
+                at("src/c.rs", 2),
             ),
             (
                 Code::UnusedComponent,
-                "`#/components/schemas/Broken` is never referenced",
-                at("src/c.rs", 2),
+                "`#/components/schemas/Lonely` is never referenced",
+                at("src/c.rs", 5),
             ),
             (
                 Code::MissingDescription,
@@ -610,13 +610,13 @@ mod locations {
             ),
             (
                 Code::MissingDescription,
-                "schema `Lonely` has no description",
-                at("src/c.rs", 5),
+                "schema `Broken` has no description",
+                at("src/c.rs", 2),
             ),
             (
                 Code::MissingDescription,
-                "schema `Broken` has no description",
-                at("src/c.rs", 2),
+                "schema `Lonely` has no description",
+                at("src/c.rs", 5),
             ),
         ]
         .map(|(code, message, location)| (code, message.to_string(), location));

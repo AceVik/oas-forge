@@ -1719,11 +1719,13 @@ pub(crate) fn prepare(
         modules,
     } = collected;
 
-    // Pass 2: lexical expansion, parsing, `@extend`, DSL.
+    // Pass 2: lexical expansion, parsing, `@extend`, DSL. A text that was
+    // registered after `p` schemas goes right before schema `p`, so that the
+    // snippets are merged in source order.
     let mut ordered: Vec<(usize, Snippet)> = snippets
         .into_iter()
         .enumerate()
-        .map(|(i, s)| (i * 2, s))
+        .map(|(i, s)| (i * 2 + 1, s))
         .collect();
     let mut defaults = RouteDefaults {
         modules,
@@ -1738,7 +1740,7 @@ pub(crate) fn prepare(
         };
         if let Some(snippet) = materialize(item, context, &mut defaults, diagnostics)? {
             known.collect_from(&snippet.value);
-            ordered.push((position * 2 + 1, snippet));
+            ordered.push((position * 2, snippet));
         }
     }
     ordered.sort_by_key(|(position, _)| *position);

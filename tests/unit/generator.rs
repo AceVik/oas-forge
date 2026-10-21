@@ -729,6 +729,27 @@ mod pipeline_stages {
     }
 
     #[test]
+    fn documents_and_schemas_are_merged_in_source_order() {
+        let (document, diagnostics) = pipeline(&[(
+            "lib.rs",
+            "/// @openapi\n/// components: { schemas: { S: { description: Before } } }\nfn a() {}\n/// After.\n/// @openapi\nstruct S;\n/// @openapi\nstruct T;\n/// @openapi\n/// components: { schemas: { T: { description: Later } } }\nfn b() {}",
+        )]);
+        let schemas = &document["components"]["schemas"];
+        assert_eq!(schemas["S"]["description"], "After.");
+        assert_eq!(schemas["T"]["description"], "Later");
+        let conflicts: Vec<String> = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::MergeConflict)
+            .map(|d| d.location().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            conflicts,
+            ["lib.rs:4"],
+            "the struct is the later annotation"
+        );
+    }
+
+    #[test]
     fn the_root_is_the_base_of_the_merge() {
         let (document, _) = pipeline(&[
             ("a.yaml", "paths: { /a: {} }\nx-first: 1"),

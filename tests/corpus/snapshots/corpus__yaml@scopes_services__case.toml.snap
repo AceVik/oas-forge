@@ -70,6 +70,14 @@ paths:
         "202":
           description: Accepted
 components:
+  securitySchemes:
+    admin_token:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+    bearer:
+      type: http
+      scheme: bearer
   schemas:
     GatewayHealth:
       type: object
@@ -135,14 +143,6 @@ components:
       - id
       - name
       description: A user account.
-  securitySchemes:
-    admin_token:
-      type: apiKey
-      in: header
-      name: X-Admin-Token
-    bearer:
-      type: http
-      scheme: bearer
 tags:
 - name: Users
   description: Accounts
@@ -189,6 +189,14 @@ paths:
         "204":
           description: No Content
 components:
+  securitySchemes:
+    admin_token:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+    bearer:
+      type: http
+      scheme: bearer
   schemas:
     Report:
       type: object
@@ -208,14 +216,6 @@ components:
       - user
       - reason
       description: A report about a user.
-  securitySchemes:
-    admin_token:
-      type: apiKey
-      in: header
-      name: X-Admin-Token
-    bearer:
-      type: http
-      scheme: bearer
 # full output of scope feedback
 openapi: "3.1.0"
 info:
@@ -260,6 +260,14 @@ paths:
                 items:
                   $ref: "#/components/schemas/Feedback"
 components:
+  securitySchemes:
+    admin_token:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+    bearer:
+      type: http
+      scheme: bearer
   schemas:
     Feedback:
       type: object
@@ -289,11 +297,3 @@ components:
       - ok
       - queued
       description: The state of the feedback service.
-  securitySchemes:
-    admin_token:
-      type: apiKey
-      in: header
-      name: X-Admin-Token
-    bearer:
-      type: http
-      scheme: bearer
