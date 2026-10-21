@@ -376,10 +376,11 @@ The defaults are a block like a route's: `{{variables}}`, `@insert` and
 `@extend` work, `@no-infer` turns signature inference off for every route
 of the module, and embedded YAML (`x-rate-limit: 10`, `@openapi path`, …)
 fills what the route leaves open; YAML and `@extend` of an inner module win
-over those of outer ones. Each module's defaults are expanded once, so a
-problem in them (an unset `{{env:…}}`, an unknown fragment) is reported once,
-at its line. Module doc lines of the form `tags: [A, B]` (from 0.1) still
-tag the operations inside.
+over those of outer ones. Each module's defaults are read once for all its
+routes, so a problem in them (an unset `{{env:…}}`, an unknown fragment, a
+malformed directive, invalid YAML) is reported once, at its own line, also
+when the module is in another file. Module doc lines of the form
+`tags: [A, B]` (from 0.1) still tag the operations inside.
 
 ### Modules in their own files
 

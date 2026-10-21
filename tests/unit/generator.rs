@@ -2054,3 +2054,65 @@ mod merged_responses {
         );
     }
 }
+
+/// Findings about `@route-defaults` blocks: once per module, at their lines.
+mod route_defaults_findings {
+    use super::*;
+
+    fn found(diagnostics: &oas_forge::Diagnostics) -> Vec<String> {
+        diagnostics
+            .iter()
+            .map(|d| format!("{} {}", d.code(), d.location().unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn directive_and_yaml_findings_are_reported_once_at_their_line() {
+        let (document, diagnostics) = pipeline(&[(
+            "api.rs",
+            "//! @openapi-fragment Tags\n//! @tag Api\n//! @tag Shared\n\n/// @route-defaults\n/// @insert Tags\n/// @return oops\nmod api {\n  /// @route GET /a\n  fn a() {}\n  /// @route GET /b\n  fn b() {}\n  /// @route-defaults\n  /// x-limit: [1, 2\n  mod inner {\n    /// @route GET /c\n    fn c() {}\n  }\n}",
+        )]);
+        // Not once per route, and not at the route: the `@return` line comes
+        // after the two lines `@insert` pastes.
+        assert_eq!(found(&diagnostics), ["OF2004 api.rs:7", "OF2005 api.rs:14"]);
+        for path in ["/a", "/b", "/c"] {
+            assert_eq!(
+                document["paths"][path]["get"]["tags"],
+                json!(["Api", "Shared"]),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn findings_of_file_module_defaults_point_at_the_declaring_file() {
+        let (_, diagnostics) = pipeline(&[
+            (
+                "src/routes/mod.rs",
+                "/// @route-defaults\n/// @return oops\npub mod decks;\n",
+            ),
+            (
+                "src/routes/decks.rs",
+                "//! @route-defaults\n//! @frobnicate\n\n/// @route GET /a\nfn a() {}\n/// @route GET /b\nfn b() {}\n",
+            ),
+        ]);
+        assert_eq!(
+            found(&diagnostics),
+            ["OF2004 src/routes/mod.rs:2", "OF2006 src/routes/decks.rs:2"]
+        );
+    }
+
+    #[test]
+    fn expansion_markers_of_defaults_point_at_their_line() {
+        let (_, diagnostics) = pipeline(&[(
+            "api.rs",
+            "/// @route-defaults\n/// @query-params $Missing\nmod api {\n  /// @route GET /a\n  fn a() {}\n  /// @route GET /b\n  fn b() {}\n}",
+        )]);
+        // One finding per operation, each at the line of the defaults.
+        let expansions: Vec<String> = found(&diagnostics)
+            .into_iter()
+            .filter(|f| f.starts_with(Code::UnresolvedExpansion.as_str()))
+            .collect();
+        assert_eq!(expansions, ["OF2008 api.rs:2", "OF2008 api.rs:2"]);
+    }
+}

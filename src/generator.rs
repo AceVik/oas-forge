@@ -1636,8 +1636,8 @@ impl Collected {
 struct RouteDefaults {
     /// `mod name;` declarations by the file of the module they declare.
     modules: BTreeMap<PathBuf, Vec<extract::ModuleItem>>,
-    /// Expanded blocks by file and header line.
-    expanded: BTreeMap<(PathBuf, usize), Vec<String>>,
+    /// Expanded blocks by file and header line, each line with its location.
+    expanded: BTreeMap<(PathBuf, usize), Vec<(String, Location)>>,
 }
 
 /// Lexical expansion and parsing of one pending text.
@@ -1754,8 +1754,10 @@ fn materialize(
             );
             let line_numbers = source_lines(&expanded, &route.line_numbers, &route.location);
             let lines: Vec<String> = expanded.into_iter().map(|(line, _)| line).collect();
-            let defaults =
-                expand_defaults(&route, registry, variables, route_defaults, diagnostics);
+            let (defaults, default_locations): (Vec<String>, Vec<Location>) =
+                expand_defaults(&route, registry, variables, route_defaults, diagnostics)
+                    .into_iter()
+                    .unzip();
             let compiled = dsl::compile(
                 RouteSource::new(&lines, &route.location)
                     .line_numbers(&line_numbers)
@@ -1763,6 +1765,7 @@ fn materialize(
                     .default_tags(&route.tags)
                     .types(types)
                     .defaults(&defaults)
+                    .default_locations(&default_locations)
                     .signature(route.signature.as_ref().filter(|_| infer)),
                 diagnostics,
             );
@@ -1784,16 +1787,17 @@ fn materialize(
 
 /// The expanded `@route-defaults` blocks of a route, outermost first: those
 /// of the modules that declare the route's file (`mod name;`), up to the
-/// crate root, then the route's own (of its file and its inline modules).
-/// Each module's block is expanded once for all routes of the module, so its
-/// findings are reported once, at its own lines.
+/// crate root, then the route's own (of its file and its inline modules),
+/// each line with its location. Each module's block is expanded once for all
+/// routes of the module, so its findings are reported once, at its own
+/// lines.
 fn expand_defaults(
     route: &extract::RouteItem,
     registry: &Registry,
     variables: &Variables,
     defaults: &mut RouteDefaults,
     diagnostics: &mut Diagnostics,
-) -> Vec<String> {
+) -> Vec<(String, Location)> {
     let RouteDefaults {
         modules,
         expanded: cache,
@@ -1846,19 +1850,23 @@ fn expand_defaults(
             let line = numbers.get(start).copied();
             let location =
                 line.map_or_else(|| route.location.clone(), |line| Location::new(file, line));
-            let mut expand = || -> Vec<String> {
+            let mut expand = || -> Vec<(String, Location)> {
                 let text = block.join("\n");
-                lexical::expand_block(
+                let expanded = lexical::expand_block(
                     &text,
                     registry,
                     variables,
                     &location,
                     diagnostics,
                     dsl::yaml_lines,
-                )
-                .into_iter()
-                .map(|(line, _)| line)
-                .collect()
+                );
+                let block_numbers = numbers.get(start..end).unwrap_or_default();
+                let lines = source_lines(&expanded, block_numbers, &location);
+                expanded
+                    .into_iter()
+                    .zip(lines)
+                    .map(|((text, _), line)| (text, Location::new(file, line)))
+                    .collect()
             };
             match line {
                 Some(line) => {

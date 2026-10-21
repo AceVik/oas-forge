@@ -155,6 +155,9 @@ pub struct RouteSource<'a> {
     /// Each block starts with its `@route-defaults` header line, so that the
     /// tags and security of an inner module replace those of outer ones.
     pub defaults: &'a [String],
+    /// Where each entry of `defaults` is (module defaults may be in other
+    /// files than the route).
+    pub default_locations: &'a [Location],
     /// The handler's signature, used to fill gaps of the block.
     pub signature: Option<&'a Signature>,
 }
@@ -190,6 +193,7 @@ impl<'a> RouteSource<'a> {
             location,
             types: TypeMapper::builtin(),
             defaults: &[],
+            default_locations: &[],
             signature: None,
         }
     }
@@ -341,6 +345,40 @@ impl<'a> RouteSource<'a> {
         self
     }
 
+    /// Sets where each entry of the defaults is (see [`Self::defaults`]).
+    /// Findings about the defaults point there instead of at the start of
+    /// the block, and each of them is reported once into the same
+    /// [`Diagnostics`], however many routes share the defaults.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Code, Diagnostics, Location};
+    /// use oas_forge::dsl::{self, RouteSource};
+    ///
+    /// // The module's docs at lines 3 and 4 of `mod.rs`, its routes elsewhere.
+    /// let defaults = ["@route-defaults", "@return oops"].map(String::from);
+    /// let locations = [Location::new("mod.rs", 3), Location::new("mod.rs", 4)];
+    /// let mut diagnostics = Diagnostics::new();
+    /// for (path, line) in [("/a", 7), ("/b", 10)] {
+    ///     let lines = [format!("@route GET {path}")];
+    ///     let location = Location::new("decks.rs", line);
+    ///     let source = RouteSource::new(&lines, &location)
+    ///         .defaults(&defaults)
+    ///         .default_locations(&locations);
+    ///     assert!(dsl::compile(source, &mut diagnostics).is_some());
+    /// }
+    /// assert_eq!(diagnostics.len(), 1);
+    /// let finding = diagnostics.iter().next().ok_or("no finding")?;
+    /// assert_eq!(finding.code(), Code::InvalidDirective);
+    /// assert_eq!(finding.location(), Some(&Location::new("mod.rs", 4)));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn default_locations(mut self, locations: &'a [Location]) -> Self {
+        self.default_locations = locations;
+        self
+    }
+
     /// Sets the handler's signature for inference.
     ///
     /// # Examples
@@ -460,7 +498,7 @@ struct Builder {
     explained: BTreeMap<String, Vec<String>>,
     /// The status codes of `@return` and `@problem` lines (which mean their
     /// content, or that there is none), with the line of the first.
-    stated: BTreeMap<String, Option<usize>>,
+    stated: BTreeMap<String, At>,
     /// The `@security` requirements (`{}` for `@security none`); `None`
     /// without a `@security` line.
     security: Option<Vec<Value>>,
@@ -471,9 +509,9 @@ struct Builder {
     prose: Prose,
     /// Where the lines read so far leave the next one.
     structure: Structure,
-    /// The lines of embedded YAML: their scope, their index in
-    /// [`RouteSource::lines`] (`None` for module defaults) and their text.
-    yaml: Vec<(Scope, Option<usize>, String)>,
+    /// The lines of embedded YAML: their scope, where they are and their
+    /// text.
+    yaml: Vec<(Scope, At, String)>,
     /// The path parameters declared so far (inline, with `@param path` or
     /// inferred from the signature), checked against the placeholders of
     /// the path.
@@ -493,6 +531,17 @@ struct Builder {
     outer_security: bool,
     /// Where the YAML of each module's defaults starts in `yaml`.
     module_yaml: Vec<usize>,
+}
+
+/// The line of a block (or of its module defaults) a finding is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum At {
+    /// The whole block: its start.
+    Block,
+    /// An entry of [`RouteSource::lines`].
+    Line(usize),
+    /// An entry of [`RouteSource::defaults`].
+    Default(usize),
 }
 
 /// Where the lines of a block read so far leave the next one: in an
@@ -730,7 +779,13 @@ pub fn compile(source: RouteSource<'_>, diagnostics: &mut Diagnostics) -> Option
         let mut findings = Diagnostics::new();
         let route = compile_route(source, Some(header), &mut findings);
         for finding in findings.into_vec() {
-            if !reported.contains(&finding) {
+            // Findings about the defaults may come from earlier blocks too.
+            let about_defaults = finding
+                .location()
+                .is_some_and(|location| source.default_locations.contains(location));
+            let repeated = reported.contains(&finding)
+                || (about_defaults && diagnostics.iter().any(|d| *d == finding));
+            if !repeated {
                 reported.push(finding.clone());
                 diagnostics.push(finding);
             }
@@ -761,7 +816,7 @@ fn compile_route(
     // Module defaults are compiled like a block without `@route`.
     let mut defaults = Builder::default();
     let mut module = 0;
-    for line in source.defaults {
+    for (index, line) in source.defaults.iter().enumerate() {
         if line.trim() == "@route-defaults" {
             module += 1;
         }
@@ -772,11 +827,11 @@ fn compile_route(
             EXTEND_KEY,
             &format!("{EXTEND_KEY}{DEFAULTS_MARKER}{module}-"),
         );
-        compiler.line(&mut defaults, None, &line, true);
+        compiler.line(&mut defaults, At::Default(index), &line, true);
     }
     let mut builder = Builder::default();
     for (index, line) in source.lines.iter().enumerate() {
-        compiler.line(&mut builder, Some(index), line, false);
+        compiler.line(&mut builder, At::Line(index), line, false);
     }
     compiler.finish(builder, defaults)
 }
@@ -793,42 +848,52 @@ struct Compiler<'s, 'd> {
 }
 
 impl Compiler<'_, '_> {
-    /// The source location of entry `index` of the block's lines; the start
-    /// of the block when `index` is `None` (module defaults, findings about
-    /// the whole block) or has no line number.
-    fn location(&self, index: Option<usize>) -> Location {
-        match index.and_then(|i| self.source.line_numbers.get(i)) {
-            Some(line) => Location::new(self.source.location.file(), *line),
-            None => self.source.location.clone(),
+    /// The source location of a line of the block or of its defaults; the
+    /// start of the block for [`At::Block`] and for a line without line
+    /// number or location.
+    fn location(&self, at: At) -> Location {
+        match at {
+            At::Line(index) => self
+                .source
+                .line_numbers
+                .get(index)
+                .map(|line| Location::new(self.source.location.file(), *line)),
+            At::Default(index) => self.source.default_locations.get(index).cloned(),
+            At::Block => None,
         }
+        .unwrap_or_else(|| self.source.location.clone())
     }
 
-    /// Reports a finding with `code` at entry `index` (see [`Self::location`]).
-    fn report(&mut self, code: Code, index: Option<usize>, message: impl Into<String>) {
-        let location = self.location(index);
-        self.diagnostics
-            .push(Diagnostic::new(code, message).at(location));
+    /// Reports a finding with `code` at `at` (see [`Self::location`]).
+    fn report(&mut self, code: Code, at: At, message: impl Into<String>) {
+        let finding = Diagnostic::new(code, message).at(self.location(at));
+        // Every route of a module compiles the module's defaults again: a
+        // finding about them that is reported already is not repeated.
+        if matches!(at, At::Default(_)) && self.diagnostics.iter().any(|d| *d == finding) {
+            return;
+        }
+        self.diagnostics.push(finding);
     }
 
     /// Reports a directive with an invalid argument ([`Code::InvalidDirective`]).
-    fn invalid(&mut self, index: Option<usize>, message: impl Into<String>) {
-        self.report(Code::InvalidDirective, index, message);
+    fn invalid(&mut self, at: At, message: impl Into<String>) {
+        self.report(Code::InvalidDirective, at, message);
     }
 
     /// Reads one line into `b`: a directive, a line of embedded YAML, the
-    /// summary or a description line. `index` is the line's entry in the
-    /// block (`None` for module defaults, then `defaults` is set).
-    fn line(&mut self, b: &mut Builder, index: Option<usize>, line: &str, defaults: bool) {
+    /// summary or a description line. `at` is the line's entry in the block
+    /// or in the module defaults (then `defaults` is set).
+    fn line(&mut self, b: &mut Builder, at: At, line: &str, defaults: bool) {
         match b.structure.read(line) {
             Line::Blank => match b.structure.scope {
-                Some(scope) => b.yaml.push((scope, index, String::new())),
+                Some(scope) => b.yaml.push((scope, at, String::new())),
                 None => b.prose.line(b.structure.text, ""),
             },
             Line::Directive(directive) => {
-                self.directive(b, index, directive, prose::margin(line), defaults);
+                self.directive(b, at, directive, prose::margin(line), defaults);
             }
-            Line::Marker => b.yaml.push((Scope::Operation, index, line.to_string())),
-            Line::Yaml(scope) => b.yaml.push((scope, index, line.to_string())),
+            Line::Marker => b.yaml.push((Scope::Operation, at, line.to_string())),
+            Line::Yaml(scope) => b.yaml.push((scope, at, line.to_string())),
             Line::Prose => b.prose.line(b.structure.text, line),
         }
     }
@@ -840,7 +905,7 @@ impl Compiler<'_, '_> {
     fn directive(
         &mut self,
         b: &mut Builder,
-        index: Option<usize>,
+        at: At,
         directive: &str,
         margin: &str,
         defaults: bool,
@@ -849,9 +914,9 @@ impl Compiler<'_, '_> {
         let rest: &str = &arguments;
         let types = self.source.types;
         match name {
-            "route" | "webhook" if !defaults && self.route.is_some_and(|r| index != Some(r)) => {}
-            "route" if !defaults => self.route(b, index, rest),
-            "webhook" if !defaults => self.webhook(b, index, rest),
+            "route" | "webhook" if !defaults && self.route.is_some_and(|r| at != At::Line(r)) => {}
+            "route" if !defaults => self.route(b, at, rest),
+            "webhook" if !defaults => self.webhook(b, at, rest),
             // Each module's defaults start with their header: what an inner
             // module sets replaces what the outer modules set.
             "route-defaults" if defaults => {
@@ -882,7 +947,7 @@ impl Compiler<'_, '_> {
                 b.operation.insert("deprecated".into(), json!(true));
             }
             "operation-id" if !rest.is_empty() && self.route.is_some() => self.invalid(
-                index,
+                at,
                 "`@operation-id` cannot name the operations of several `@route` lines; each gets its own and this one is ignored",
             ),
             "operation-id" if !rest.is_empty() => {
@@ -892,11 +957,11 @@ impl Compiler<'_, '_> {
                 Some(docs) => {
                     b.operation.insert("externalDocs".into(), docs);
                 }
-                None => self.invalid(index, "`@external-docs` needs `URL [\"description\"]`"),
+                None => self.invalid(at, "`@external-docs` needs `URL [\"description\"]`"),
             },
             "server" => match operation::url_with_description(rest) {
                 Some(server) => push(&mut b.operation, "servers", server),
-                None => self.invalid(index, "`@server` needs `URL [\"description\"]`"),
+                None => self.invalid(at, "`@server` needs `URL [\"description\"]`"),
             },
             "security" => {
                 let requirement = match operation::security(rest) {
@@ -905,7 +970,7 @@ impl Compiler<'_, '_> {
                     Some(Security::Requirement(requirement)) => requirement,
                     None => {
                         self.invalid(
-                            index,
+                            at,
                             "`@security` needs `scheme[(scopes)] [+ scheme...]` or `none`",
                         );
                         return;
@@ -920,23 +985,23 @@ impl Compiler<'_, '_> {
             }
             "param" => {
                 let (location, rest) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
-                self.parameter(b, index, location, rest);
+                self.parameter(b, at, location, rest);
             }
-            "path-param" => self.parameter(b, index, "path", rest),
-            "query-param" => self.parameter(b, index, "query", rest),
-            "header-param" => self.parameter(b, index, "header", rest),
-            "cookie-param" => self.parameter(b, index, "cookie", rest),
-            "querystring-param" => self.parameter(b, index, "querystring", rest),
+            "path-param" => self.parameter(b, at, "path", rest),
+            "query-param" => self.parameter(b, at, "query", rest),
+            "header-param" => self.parameter(b, at, "header", rest),
+            "cookie-param" => self.parameter(b, at, "cookie", rest),
+            "querystring-param" => self.parameter(b, at, "querystring", rest),
             "path-params" | "query-params" | "header-params" | "cookie-params" => {
                 let location = name.trim_end_matches("-params");
                 if rest.is_empty() {
                     self.invalid(
-                        index,
+                        at,
                         format!("`@{name}` needs a struct, e.g. `@{name} $Filter`"),
                     );
                 } else {
-                    let at = self.location(index);
-                    b.parameters.push(params::expansion(location, rest, &at));
+                    let here = self.location(at);
+                    b.parameters.push(params::expansion(location, rest, &here));
                 }
             }
             "body" => match responses::body(rest, types) {
@@ -955,11 +1020,11 @@ impl Compiler<'_, '_> {
                         request["description"] = json!(description);
                     }
                 }
-                Err(message) => self.invalid(index, message),
+                Err(message) => self.invalid(at, message),
             },
             "return" => match responses::response(rest, types) {
-                Ok(response) => add_response(b, response, index),
-                Err(message) => self.invalid(index, message),
+                Ok(response) => add_response(b, response, at),
+                Err(message) => self.invalid(at, message),
             },
             "return-header" => match responses::header(rest, types) {
                 Some((code, name, header)) => {
@@ -974,13 +1039,13 @@ impl Compiler<'_, '_> {
                     }
                 }
                 None => self.invalid(
-                    index,
+                    at,
                     "`@return-header` needs `CODE Name: Type [\"description\"]`",
                 ),
             },
             "problem" => match responses::problem(rest) {
                 Some(response) => {
-                    add_response(b, response, index);
+                    add_response(b, response, at);
                     let mut schemas = Map::new();
                     schemas.insert(
                         responses::PROBLEM_SCHEMA.into(),
@@ -996,18 +1061,18 @@ impl Compiler<'_, '_> {
                         b.document = map;
                     }
                 }
-                None => self.invalid(index, "`@problem` needs a status code"),
+                None => self.invalid(at, "`@problem` needs a status code"),
             },
             "no-infer" => b.no_infer = true,
             // The YAML section itself is opened by `Structure::read`.
             "openapi" if openapi_scope(rest).is_none() => self.invalid(
-                index,
+                at,
                 format!("unknown `@openapi` scope `{rest}` (use operation, path or document)"),
             ),
             "openapi" => {}
             other => self.report(
                 Code::UnknownDirective,
-                index,
+                at,
                 format!("unknown directive `@{other}`"),
             ),
         }
@@ -1016,23 +1081,23 @@ impl Compiler<'_, '_> {
     /// Adds the parameter of `@param <location> rest` (and its short forms).
     /// An unknown location or a malformed declaration is reported and
     /// skipped; unknown and contradicting flags are reported and ignored.
-    fn parameter(&mut self, b: &mut Builder, index: Option<usize>, location: &str, rest: &str) {
+    fn parameter(&mut self, b: &mut Builder, at: At, location: &str, rest: &str) {
         if !params::LOCATIONS.contains(&location) {
             self.invalid(
-                index,
+                at,
                 format!("unknown parameter location `{location}` (use path, query, header, cookie or querystring)"),
             );
             return;
         }
         let Some(parameter) = params::parse(location, rest, self.source.types) else {
             self.invalid(
-                index,
+                at,
                 format!("`@{location}-param` needs `name: [Type] [flags] [\"description\"]`"),
             );
             return;
         };
         for problem in &parameter.problems {
-            self.invalid(index, problem.clone());
+            self.invalid(at, problem.clone());
         }
         if location == "path" {
             b.declared.insert(parameter.name);
@@ -1041,20 +1106,16 @@ impl Compiler<'_, '_> {
     }
 
     /// Reads `@route METHOD /path`, declaring the path's inline parameters.
-    fn route(&mut self, b: &mut Builder, index: Option<usize>, rest: &str) {
+    fn route(&mut self, b: &mut Builder, at: At, rest: &str) {
         b.route_lines += 1;
         let Some((method, raw_path)) = rest.split_once(char::is_whitespace) else {
-            self.report(
-                Code::InvalidRoute,
-                index,
-                "`@route` needs a method and a path",
-            );
+            self.report(Code::InvalidRoute, at, "`@route` needs a method and a path");
             return;
         };
         if !is_token(method) {
             self.report(
                 Code::InvalidRoute,
-                index,
+                at,
                 format!("`{method}` is not an HTTP method"),
             );
             return;
@@ -1096,25 +1157,21 @@ impl Compiler<'_, '_> {
     }
 
     /// Reads `@webhook [METHOD] name`; the method defaults to `post`.
-    fn webhook(&mut self, b: &mut Builder, index: Option<usize>, rest: &str) {
+    fn webhook(&mut self, b: &mut Builder, at: At, rest: &str) {
         b.route_lines += 1;
         let tokens: Vec<&str> = rest.split_whitespace().collect();
         let (method, name) = match tokens.as_slice() {
             [name] => ("post", *name),
             [method, name] => (*method, *name),
             _ => {
-                self.report(
-                    Code::InvalidRoute,
-                    index,
-                    "`@webhook` needs `[METHOD] name`",
-                );
+                self.report(Code::InvalidRoute, at, "`@webhook` needs `[METHOD] name`");
                 return;
             }
         };
         if !is_token(method) {
             self.report(
                 Code::InvalidRoute,
-                index,
+                at,
                 format!("`{method}` is not an HTTP method"),
             );
             return;
@@ -1132,7 +1189,7 @@ impl Compiler<'_, '_> {
             if b.route_lines == 0 {
                 self.report(
                     Code::InvalidRoute,
-                    None,
+                    At::Block,
                     "`@route` needs a method and a path",
                 );
             }
@@ -1346,7 +1403,7 @@ impl Compiler<'_, '_> {
             positional => {
                 self.report(
                     Code::SignatureMismatch,
-                    None,
+                    At::Block,
                     format!(
                         "the handler extracts {} path parameter(s) but `{}` has {}",
                         positional.len(),
@@ -1368,7 +1425,7 @@ impl Compiler<'_, '_> {
             if !b.declared.contains(&caps[1]) && !deferred {
                 self.report(
                     Code::UndeclaredPathParam,
-                    None,
+                    At::Block,
                     format!(
                         "path parameter `{}` of `{}` has no definition (use `{{{}: Type}}` or `@param path`)",
                         &caps[1], b.path, &caps[1]
@@ -1381,7 +1438,7 @@ impl Compiler<'_, '_> {
             if !b.path.contains(&format!("{{{declared}}}")) {
                 self.report(
                     Code::UnusedPathParam,
-                    None,
+                    At::Block,
                     format!("path parameter `{declared}` is not used in `{}`", b.path),
                 );
                 valid = false;
@@ -1475,7 +1532,7 @@ impl Compiler<'_, '_> {
             let outer = explained.remove(&code).unwrap_or_default();
             if let Some(own) = b.responses.get_mut(&code) {
                 if contents_conflict(own.get("content"), response.get("content")) {
-                    let location = self.location(b.stated.get(&code).copied().flatten());
+                    let location = self.location(b.stated.get(&code).copied().unwrap_or(At::Block));
                     self.diagnostics.push(
                         Diagnostic::new(
                             Code::MergeConflict,
@@ -1502,7 +1559,7 @@ impl Compiler<'_, '_> {
     /// and the document. YAML of the module `defaults` only fills gaps.
     fn embedded_yaml(
         &mut self,
-        yaml: &[(Scope, Option<usize>, String)],
+        yaml: &[(Scope, At, String)],
         defaults: bool,
         targets: &mut Targets<'_>,
     ) {
@@ -1513,10 +1570,10 @@ impl Compiler<'_, '_> {
             explained,
         } = targets;
         for scope in [Scope::Operation, Scope::PathItem, Scope::Document] {
-            let lines: Vec<(Option<usize>, &str)> = yaml
+            let lines: Vec<(At, &str)> = yaml
                 .iter()
                 .filter(|(s, _, _)| *s == scope)
-                .map(|(_, index, line)| (*index, line.as_str()))
+                .map(|(_, at, line)| (*at, line.as_str()))
                 .collect();
             let text: Vec<&str> = lines.iter().map(|(_, line)| *line).collect();
             if text.iter().all(|l| l.trim().is_empty()) {
@@ -1526,7 +1583,7 @@ impl Compiler<'_, '_> {
                 Ok(Value::Null) => {}
                 Ok(value) if !value.is_object() => self.report(
                     Code::InvalidRouteYaml,
-                    lines.first().and_then(|(i, _)| *i),
+                    lines.first().map_or(At::Block, |(at, _)| *at),
                     "embedded OpenAPI YAML must be a mapping and was ignored",
                 ),
                 Ok(mut value) if defaults => match scope {
@@ -1554,11 +1611,11 @@ impl Compiler<'_, '_> {
                     };
                     let text_lines: Vec<&str> = lines.iter().map(|(_, line)| *line).collect();
                     for pointer in conflicts {
-                        let index = conflict_line(&text_lines, &pointer)
+                        let at = conflict_line(&text_lines, &pointer)
                             .or(Some(0))
                             .and_then(|i| lines.get(i))
-                            .and_then(|(index, _)| *index);
-                        let location = self.location(index);
+                            .map_or(At::Block, |(at, _)| *at);
+                        let location = self.location(at);
                         self.diagnostics.push(
                             Diagnostic::new(
                                 Code::MergeConflict,
@@ -1570,12 +1627,12 @@ impl Compiler<'_, '_> {
                     }
                 }
                 Err(e) => {
-                    let index = lines
+                    let at = lines
                         .get(e.line.saturating_sub(1))
-                        .and_then(|(index, _)| *index);
+                        .map_or(At::Block, |(at, _)| *at);
                     self.report(
                         Code::InvalidRouteYaml,
-                        index,
+                        at,
                         format!(
                             "embedded OpenAPI YAML is invalid and was ignored: {}",
                             e.message
@@ -1748,10 +1805,10 @@ struct Targets<'t> {
     explained: &'t mut BTreeMap<String, Vec<String>>,
 }
 
-/// Adds the response of a `@return` or `@problem` line (`index`): one
+/// Adds the response of a `@return` or `@problem` line (`at`): one
 /// response per status code, repeated codes add their media types and their
 /// descriptions.
-fn add_response(b: &mut Builder, response: responses::Response, index: Option<usize>) {
+fn add_response(b: &mut Builder, response: responses::Response, at: At) {
     let responses::Response {
         code,
         value,
@@ -1763,7 +1820,7 @@ fn add_response(b: &mut Builder, response: responses::Response, index: Option<us
             .or_default()
             .push(description);
     }
-    b.stated.entry(code.clone()).or_insert(index);
+    b.stated.entry(code.clone()).or_insert(at);
     match b.responses.get_mut(&code) {
         Some(existing) => {
             merge(existing, value, Policy::Override);

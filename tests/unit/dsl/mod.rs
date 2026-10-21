@@ -1148,3 +1148,119 @@ mod several_routes {
         );
     }
 }
+
+/// Findings about module defaults: at their own lines, once for all routes
+/// compiled into the same findings.
+mod defaults_findings {
+    use super::*;
+
+    /// Compiles `/a` and `/b` (in `api.rs`, line 40) against the same
+    /// `defaults` at `locations` into one list of findings.
+    fn compile_twice(defaults: &[&str], locations: &[Location]) -> Vec<String> {
+        let defaults = lines(defaults);
+        let location = Location::new("api.rs", 40);
+        let mut diagnostics = Diagnostics::new();
+        for path in ["/a", "/b"] {
+            let block = lines(&[&format!("@route GET {path}")]);
+            let route = dsl::compile(
+                RouteSource::new(&block, &location)
+                    .defaults(&defaults)
+                    .default_locations(locations),
+                &mut diagnostics,
+            );
+            assert!(route.is_some(), "{diagnostics:#?}");
+        }
+        diagnostics
+            .iter()
+            .map(|d| format!("{} {}", d.code(), d.location().unwrap()))
+            .collect()
+    }
+
+    fn at(file: &str, lines: &[usize]) -> Vec<Location> {
+        lines
+            .iter()
+            .map(|line| Location::new(file, *line))
+            .collect()
+    }
+
+    #[test]
+    fn are_reported_once_at_their_line() {
+        let found = compile_twice(
+            &[
+                "@route-defaults",
+                "@return oops",
+                "@openapi sideways",
+                "@route-defaults",
+                "@frobnicate",
+                "@openapi",
+                "- not a mapping",
+            ],
+            &[at("mod.rs", &[10, 11, 12]), at("api.rs", &[20, 21, 22, 23])].concat(),
+        );
+        // The defaults of a module in another file point there.
+        assert_eq!(
+            found,
+            [
+                "OF2004 mod.rs:11",
+                "OF2004 mod.rs:12",
+                "OF2006 api.rs:21",
+                "OF2005 api.rs:23",
+            ]
+        );
+    }
+
+    #[test]
+    fn invalid_yaml_is_reported_at_its_line() {
+        let found = compile_twice(
+            &["@route-defaults", "x-a: 1", "x-b: [1, 2", "x-c: 3"],
+            &at("api.rs", &[10, 11, 12, 13]),
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].starts_with("OF2005 api.rs:1"), "{found:?}");
+        assert_ne!(found[0], "OF2005 api.rs:40", "not at the route");
+    }
+
+    #[test]
+    fn without_locations_they_point_at_the_block() {
+        let found = compile_twice(&["@route-defaults", "@return oops"], &[]);
+        assert_eq!(found, ["OF2004 api.rs:40"]);
+    }
+
+    #[test]
+    fn findings_about_the_route_itself_are_not_merged() {
+        let block = lines(&["@route GET /x", "@return oops"]);
+        let location = here();
+        let mut diagnostics = Diagnostics::new();
+        for _ in 0..2 {
+            dsl::compile(RouteSource::new(&block, &location), &mut diagnostics);
+        }
+        assert_eq!(
+            codes(&diagnostics),
+            [Code::InvalidDirective, Code::InvalidDirective]
+        );
+    }
+
+    #[test]
+    fn several_routes_report_findings_of_the_defaults_once() {
+        let defaults = lines(&["@route-defaults", "@return oops"]);
+        let locations = at("mod.rs", &[3, 4]);
+        let location = here();
+        let mut diagnostics = Diagnostics::new();
+        for block in [
+            lines(&["@route GET /a", "@route GET /b"]),
+            lines(&["@route GET /c"]),
+        ] {
+            dsl::compile(
+                RouteSource::new(&block, &location)
+                    .defaults(&defaults)
+                    .default_locations(&locations),
+                &mut diagnostics,
+            );
+        }
+        let found: Vec<String> = diagnostics
+            .iter()
+            .map(|d| format!("{} {}", d.code(), d.location().unwrap()))
+            .collect();
+        assert_eq!(found, ["OF2004 mod.rs:4"]);
+    }
+}
