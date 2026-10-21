@@ -2,7 +2,7 @@
 
 All notable changes to `oas-forge` will be documented in this file.
 
-## [0.2.0] — Unreleased
+## [0.2.0] — 2026-10-21
 
 A rewrite of the generator around explicit pipeline stages, with full serde,
 validator and garde support, OpenAPI 3.2, a route DSL that embeds any OpenAPI
