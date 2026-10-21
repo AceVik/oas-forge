@@ -75,9 +75,9 @@ the OpenAPI outputs are not affected.
   becomes `user_id_signedup`.
 - The first plain line of the block is the summary, the following ones the
   description. `@summary`, `@description` and `@internal` work as in
-  [routes](route-dsl.md#the-block): `@summary` replaces the first plain
-  line, `@description` (continued on the following plain lines) replaces the
-  description, and the plain lines after `@internal` are left out.
+  [routes](route-dsl.md#the-block): with `@summary`, all plain lines are
+  the description; `@description` (continued on the following plain lines)
+  replaces them; the plain lines after `@internal` are left out.
 - The operation id is the function name; with both `@send` and `@receive` in
   one block it gets the suffix `_send` or `_receive`. A channel in a `//!`
   comment has no function; its operations are named `send_{channel}` and

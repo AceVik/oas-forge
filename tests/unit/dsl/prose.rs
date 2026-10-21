@@ -2,6 +2,7 @@
 //! channel blocks: plain lines, `@summary`, `@description` and `@internal`.
 
 use crate::common::{here, lines};
+use oas_forge::Format;
 use oas_forge::diagnostics::Diagnostics;
 use oas_forge::dsl::{self, ChannelSource, RouteSource};
 use serde_json::{Value, json};
@@ -126,21 +127,71 @@ fn a_multi_line_description_keeps_its_relative_indentation() {
 }
 
 #[test]
-fn summary_replaces_the_first_plain_line() {
+fn an_explicit_summary_leaves_every_plain_line_to_the_description() {
+    // No plain line is the summary next to `@summary`, before or after it.
     assert_eq!(
         text(&[
             "Rust summary",
-            "More.",
+            "",
+            "A box.",
             "@route GET /x",
             "@summary API summary"
         ]),
-        (json!("API summary"), json!("More."))
+        (json!("API summary"), json!("Rust summary\n\nA box."))
     );
-    // Plain lines after `@summary` are the description.
     assert_eq!(
         text(&["@summary API summary", "Details.", "@route GET /x"]),
         (json!("API summary"), json!("Details."))
     );
+    // `@description` still replaces them, `@internal` lines stay out.
+    assert_eq!(
+        text(&[
+            "Rust summary",
+            "@internal",
+            "Notes.",
+            "@route GET /x",
+            "@summary API summary",
+            "Public.",
+        ]),
+        (json!("API summary"), json!("Rust summary\nPublic."))
+    );
+    assert_eq!(
+        text(&[
+            "Rust summary",
+            "@route GET /x",
+            "@summary S",
+            "@description D"
+        ]),
+        (json!("S"), json!("D"))
+    );
+}
+
+#[test]
+fn a_multi_line_description_renders_without_leading_spaces() {
+    let (operation, diagnostics) = compile_route(
+        &[
+            "Service info",
+            "@route GET /info",
+            "@description Returns the version and the build.",
+            "The build is a git hash.",
+            "",
+            "- one",
+            "  - nested",
+        ],
+        &[],
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    let description = operation["description"].as_str().unwrap();
+    assert_eq!(
+        description,
+        "Returns the version and the build.\nThe build is a git hash.\n\n- one\n  - nested"
+    );
+    let yaml = Format::Yaml.render(&json!({ "description": description }));
+    assert_eq!(
+        yaml,
+        "description: |-\n  Returns the version and the build.\n  The build is a git hash.\n\n  - one\n    - nested\n"
+    );
+    assert!(!yaml.contains("|2"), "{yaml}");
 }
 
 #[test]

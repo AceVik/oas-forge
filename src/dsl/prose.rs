@@ -29,34 +29,26 @@ impl Text {
 /// The summary and description collected from a block.
 #[derive(Debug, Default)]
 pub(super) struct Prose {
-    /// The first free plain line, the summary unless `@summary` replaces it.
-    first: Option<String>,
     /// The text of `@summary`.
     summary: Option<String>,
-    /// The other free plain lines, blank lines included.
+    /// The free plain lines, blank lines included.
     free: Vec<String>,
     /// The lines of `@description` and the plain lines that continue it;
-    /// they replace `free`.
+    /// they replace the free lines as description.
     described: Option<Vec<String>>,
 }
 
 impl Prose {
-    /// Reads a plain or blank line that continues `text`. The first free
-    /// line that is not blank is the summary, unless `@summary` came before.
+    /// Reads a plain or blank line that continues `text`.
     pub(super) fn line(&mut self, text: Text, line: &str) {
         match text {
             Text::Internal => {}
             Text::Description => self.described().push(line.to_string()),
-            Text::Free
-                if self.first.is_none() && self.summary.is_none() && !line.trim().is_empty() =>
-            {
-                self.first = Some(line.trim().to_string());
-            }
             Text::Free => self.free.push(line.to_string()),
         }
     }
 
-    /// `@summary text`: the summary, instead of the first plain line.
+    /// `@summary text`: the summary; then no plain line is.
     pub(super) fn summary(&mut self, text: &str) {
         self.summary = Some(text.to_string());
     }
@@ -75,10 +67,23 @@ impl Prose {
         self.described.get_or_insert_with(Vec::new)
     }
 
-    /// The summary and the description, `None` where there is none.
+    /// The summary and the description, `None` where there is none. Without
+    /// `@summary`, the first free line that is not blank is the summary and
+    /// the free lines after it are the description; with `@summary`, all
+    /// free lines are. `@description` replaces the free lines.
     pub(super) fn finish(self) -> (Option<String>, Option<String>) {
-        let lines = self.described.as_deref().unwrap_or(&self.free);
-        (self.summary.or(self.first), description_text(lines))
+        let (summary, free) = match self.summary {
+            Some(summary) => (Some(summary), &self.free[..]),
+            None => match self.free.iter().position(|l| !l.trim().is_empty()) {
+                Some(first) => (
+                    self.free.get(first).map(|l| l.trim().to_string()),
+                    self.free.get(first + 1..).unwrap_or_default(),
+                ),
+                None => (None, &[][..]),
+            },
+        };
+        let lines = self.described.as_deref().unwrap_or(free);
+        (summary, description_text(lines))
     }
 }
 

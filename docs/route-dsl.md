@@ -26,8 +26,8 @@ parameters say, see [below](#signature-inference).
 - The first plain line is the `summary`; the following plain lines are the
   `description`. Blank lines separate paragraphs; Markdown and relative
   indentation are kept (the shared indentation is removed).
-- `@summary text` replaces the first plain line as summary; the other plain
-  lines stay the description.
+- `@summary text` sets the summary; then no plain line is the summary, and
+  all plain lines (the first one too) are the description.
 - `@description text` replaces the plain lines as description. It continues
   on the following plain lines up to the next directive (there, lines such
   as `responses: …` are text, not YAML); several `@description` lines add
@@ -98,7 +98,7 @@ methods work like functions.
 | :--- | :--- | :--- |
 | `@route` | `METHOD /path` | The operation |
 | `@webhook` | `[METHOD] name` | `webhooks.name` (OpenAPI 3.1+); the method defaults to `POST` |
-| `@summary` | `text` | `summary`, instead of the first plain line |
+| `@summary` | `text` | `summary`; all plain lines are the description |
 | `@description` | `text` | `description`, instead of the plain lines |
 | `@internal` | | the plain lines after it are left out |
 | `@tag` | `Name[, Name…]` | `tags` (several lines add up) |
