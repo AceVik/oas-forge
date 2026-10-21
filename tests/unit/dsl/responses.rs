@@ -396,9 +396,11 @@ mod dsl_v2 {
             json!({ "type": "string" })
         );
         assert_eq!(responses["429"]["description"], "Too Many Requests");
-        assert_eq!(
-            responses["429"]["headers"]["Retry-After"]["required"],
-            false
+        // Response headers are not required by default (OpenAPI's default).
+        assert!(
+            responses["429"]["headers"]["Retry-After"]
+                .get("required")
+                .is_none()
         );
         assert_eq!(
             responses["200"]["headers"]["X-Plain"]["schema"],
@@ -444,6 +446,51 @@ mod dsl_v2 {
         );
         assert_eq!(
             findings(&["@route GET /x", "@problem not a code"]),
+            [Code::InvalidDirective]
+        );
+    }
+}
+
+/// `@return-header` flags: `required`, and `optional` for readability.
+mod response_header_flags {
+    use super::*;
+
+    fn headers(lines: &[&str]) -> Value {
+        let mut src = vec!["@route GET /x"];
+        src.extend_from_slice(lines);
+        operation(&src, "/x", "get")["responses"]["200"]["headers"].clone()
+    }
+
+    #[test]
+    fn headers_are_required_only_with_the_flag() {
+        let headers = headers(&[
+            "@return-header 200 Content-Language: String \"The language\"",
+            "@return-header 200 X-Request-Id: String required \"Correlation id\"",
+            "@return-header 200 X-Trace: u64 optional",
+            "@return-header 200 X-Both: optional \"No type\"",
+            "@return-header 200 X-Maybe: Option<u32> required",
+        ]);
+        assert_eq!(
+            headers["Content-Language"],
+            json!({ "schema": { "type": "string" }, "description": "The language" })
+        );
+        assert_eq!(
+            headers["X-Request-Id"],
+            json!({ "schema": { "type": "string" }, "required": true, "description": "Correlation id" })
+        );
+        assert!(headers["X-Trace"].get("required").is_none());
+        assert_eq!(headers["X-Trace"]["schema"]["type"], "integer");
+        assert_eq!(
+            headers["X-Both"],
+            json!({ "schema": { "type": "string" }, "description": "No type" })
+        );
+        assert_eq!(headers["X-Maybe"]["required"], true);
+    }
+
+    #[test]
+    fn other_words_after_the_type_are_rejected() {
+        assert_eq!(
+            findings(&["@route GET /x", "@return-header 200 X: String sometimes"]),
             [Code::InvalidDirective]
         );
     }

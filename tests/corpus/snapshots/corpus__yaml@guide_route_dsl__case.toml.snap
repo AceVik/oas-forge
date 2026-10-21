@@ -67,7 +67,6 @@ paths:
                 type: integer
                 format: int64
                 minimum: 0
-              required: true
               description: Number of items
     post:
       summary: Add an item

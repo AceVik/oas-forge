@@ -173,7 +173,6 @@ input_file: tests/corpus/cases/guide_route_dsl/case.toml
                 "headers": {
                   "X-Total-Count": {
                     "description": "Number of items",
-                    "required": true,
                     "schema": {
                       "format": "int64",
                       "minimum": 0,
@@ -512,7 +511,6 @@ input_file: tests/corpus/cases/guide_route_dsl/case.toml
                 "headers": {
                   "X-Total-Count": {
                     "description": "Number of items",
-                    "required": true,
                     "schema": {
                       "format": "int64",
                       "minimum": 0,
@@ -938,7 +936,6 @@ input_file: tests/corpus/cases/guide_route_dsl/case.toml
                 "headers": {
                   "X-Total-Count": {
                     "description": "Number of items",
-                    "required": true,
                     "schema": {
                       "format": "int64",
                       "minimum": 0,
@@ -1111,7 +1108,6 @@ input_file: tests/corpus/cases/guide_route_dsl/case.toml
               "headers": {
                 "X-Total-Count": {
                   "description": "Number of items",
-                  "required": true,
                   "schema": {
                     "format": "int64",
                     "minimum": 0,

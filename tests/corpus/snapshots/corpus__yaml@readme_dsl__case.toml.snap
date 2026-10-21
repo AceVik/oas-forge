@@ -43,7 +43,6 @@ paths:
             Location:
               schema:
                 type: string
-              required: true
               description: URL of the new order
         "422":
           description: The order is invalid

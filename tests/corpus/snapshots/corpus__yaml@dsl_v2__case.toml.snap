@@ -104,7 +104,6 @@ paths:
                 type: integer
                 format: int64
                 minimum: 0
-              required: true
               description: Total number of items
         "400":
           description: Invalid query

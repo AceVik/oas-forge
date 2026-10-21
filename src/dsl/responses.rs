@@ -108,7 +108,9 @@ pub(super) fn response(rest: &str, types: &TypeMapper) -> Result<Response, Strin
     })
 }
 
-/// A response header: `@return-header CODE Name: Type ["description"]`.
+/// A response header: `@return-header CODE Name: [Type] [required |
+/// optional] ["description"]`. A header is required only with the flag
+/// `required` (OpenAPI's default is optional); `optional` says so explicitly.
 pub(super) fn header(rest: &str, types: &TypeMapper) -> Option<(String, String, Value)> {
     let (code, rest) = rest.trim().split_once(char::is_whitespace)?;
     let (name, spec) = rest.split_once(':')?;
@@ -116,7 +118,12 @@ pub(super) fn header(rest: &str, types: &TypeMapper) -> Option<(String, String, 
     if name.is_empty() {
         return None;
     }
-    let (type_text, description) = trailing_description(spec);
+    let (mut type_text, description) = trailing_description(spec);
+    let mut required = false;
+    while let Some((rest, flag)) = trailing_word(type_text, &["required", "optional"]) {
+        required |= flag == "required";
+        type_text = rest;
+    }
     let type_text = if type_text.is_empty() {
         "String"
     } else {
@@ -125,11 +132,20 @@ pub(super) fn header(rest: &str, types: &TypeMapper) -> Option<(String, String, 
     let ty = TypeExpr::parse(type_text)?;
     let mut header = Map::new();
     header.insert("schema".into(), shadow::typed(types, &ty, |m| m.schema));
-    header.insert("required".into(), json!(types.map(&ty).required));
+    if required {
+        header.insert("required".into(), json!(true));
+    }
     if let Some(description) = description {
         header.insert("description".into(), json!(description));
     }
     Some((code.to_string(), name.to_string(), Value::Object(header)))
+}
+
+/// The last word of `text` if it is one of `words`, and the text before it.
+fn trailing_word<'t>(text: &'t str, words: &[&str]) -> Option<(&'t str, &'t str)> {
+    let text = text.trim_end();
+    let (rest, word) = text.rsplit_once(char::is_whitespace).unwrap_or(("", text));
+    words.contains(&word).then(|| (rest.trim_end(), word))
 }
 
 /// A problem details response: `@problem CODE ["description"]`.

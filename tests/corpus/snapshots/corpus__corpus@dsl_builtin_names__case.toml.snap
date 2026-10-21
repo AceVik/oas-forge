@@ -178,7 +178,6 @@ input_file: tests/corpus/cases/dsl_builtin_names/case.toml
                 "description": "Estimated steps",
                 "headers": {
                   "X-Took": {
-                    "required": true,
                     "schema": {
                       "$ref": "#/components/schemas/Duration"
                     }
@@ -332,7 +331,6 @@ input_file: tests/corpus/cases/dsl_builtin_names/case.toml
                 "description": "Estimated steps",
                 "headers": {
                   "X-Took": {
-                    "required": true,
                     "schema": {
                       "$ref": "#/components/schemas/Duration"
                     }
@@ -527,7 +525,6 @@ input_file: tests/corpus/cases/dsl_builtin_names/case.toml
                 "description": "Estimated steps",
                 "headers": {
                   "X-Took": {
-                    "required": true,
                     "schema": {
                       "$ref": "#/components/schemas/Duration"
                     }
@@ -643,7 +640,6 @@ input_file: tests/corpus/cases/dsl_builtin_names/case.toml
               "description": "Estimated steps",
               "headers": {
                 "X-Took": {
-                  "required": true,
                   "schema": {
                     "$ref": "#/components/schemas/Duration"
                   }

@@ -109,7 +109,7 @@ methods work like functions.
 | `@path-params`, `@query-params`, `@header-params`, `@cookie-params` | `$Struct` | one parameter per field of a documented struct |
 | `@body` | `[optional] Type [media…] ["description"]` | `requestBody` |
 | `@return` | `CODE: [Type] [media…] ["description"]` | a response |
-| `@return-header` | `CODE Name: Type ["description"]` | a header of that response |
+| `@return-header` | `CODE Name: [Type] [required \| optional] ["description"]` | a header of that response |
 | `@problem` | `CODE ["description"]` | an RFC 9457 `application/problem+json` response |
 | `@no-infer` | | no [signature inference](#signature-inference) for this route |
 | `@openapi` | `[operation \| path \| document]` | starts [embedded YAML](#embedded-openapi) |
@@ -206,6 +206,10 @@ body is required unless it is `optional` or an `Option<T>`.
 - The description defaults to the reason phrase of the status (`OK`,
   `Created`, …). OpenAPI requires one.
 - A response without type has no `content`, as `204` must not.
+- A response header (`@return-header`) is optional, as in OpenAPI, unless
+  the flag `required` follows the type (`@return-header 201 Location: String
+  required "URL of the new item"`); `optional` may be written for clarity.
+  The type defaults to `String`.
 - Status ranges (`2XX`) and `default` are allowed.
 - `stream<T>` uses `text/event-stream` unless a media type is given and
   documents the items with `itemSchema` (OpenAPI 3.2; older targets get an

@@ -65,7 +65,6 @@ paths:
             X-Took:
               schema:
                 $ref: "#/components/schemas/Duration"
-              required: true
   /jobs/estimate:
     get:
       summary: Estimate a job

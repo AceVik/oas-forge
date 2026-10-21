@@ -127,7 +127,6 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
                 "headers": {
                   "Location": {
                     "description": "URL of the new order",
-                    "required": true,
                     "schema": {
                       "type": "string"
                     }
@@ -283,7 +282,6 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
                 "headers": {
                   "Location": {
                     "description": "URL of the new order",
-                    "required": true,
                     "schema": {
                       "type": "string"
                     }
@@ -502,7 +500,6 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
                 "headers": {
                   "Location": {
                     "description": "URL of the new order",
-                    "required": true,
                     "schema": {
                       "type": "string"
                     }
@@ -590,7 +587,6 @@ input_file: tests/corpus/cases/readme_dsl/case.toml
               "headers": {
                 "Location": {
                   "description": "URL of the new order",
-                  "required": true,
                   "schema": {
                     "type": "string"
                   }
