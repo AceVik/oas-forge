@@ -138,6 +138,7 @@ impl NameTable {
         // `mod name;` puts its file under the declaring module, as rustc
         // finds it (`#[path]` honoured). A declaring file that moves moves
         // the files it declares, so this repeats until nothing moves.
+        let mut by_path = BTreeSet::new();
         for _ in 0..=MAX_DEPTH {
             let mut moved = false;
             for (path, file) in files {
@@ -145,20 +146,21 @@ impl NameTable {
                     continue;
                 };
                 let parent = path.parent().unwrap_or(Path::new(""));
+                let dir = children_dir(path, by_path.contains(&normalize(path)));
                 let mut declared = Vec::new();
-                declared_files(
-                    &file.items,
-                    &module,
-                    &children_dir(path),
-                    parent,
-                    &mut declared,
-                );
-                for (candidates, module) in declared {
-                    let target = candidates
+                declared_files(&file.items, &module, &dir, parent, &mut declared);
+                for (candidates, module, attribute) in declared {
+                    let Some(target) = candidates
                         .iter()
                         .map(|candidate| normalize(candidate))
-                        .find(|candidate| table.files.contains_key(candidate));
-                    if let Some(entry) = target.and_then(|target| table.files.get_mut(&target))
+                        .find(|candidate| table.files.contains_key(candidate))
+                    else {
+                        continue;
+                    };
+                    if attribute {
+                        moved |= by_path.insert(target.clone());
+                    }
+                    if let Some(entry) = table.files.get_mut(&target)
                         && entry.0 != module
                     {
                         entry.0 = module;
@@ -765,16 +767,17 @@ fn step(module: &[String], mut path: UsePath, segment: &str) -> UsePath {
 }
 
 /// The files that the `mod name;` declarations of `items` (in `module`)
-/// may be, as rustc looks for them, with the module path each file gets:
-/// `#[path = "…"]` relative to `path_dir`, else `name.rs` or `name/mod.rs`
-/// in `dir`. Inside an inline `mod` block both are relative to `dir` and
-/// the block's directory (its `#[path]`, else its name).
+/// may be, as rustc looks for them, with the module path each file gets and
+/// whether `#[path]` names it: `#[path = "…"]` relative to `path_dir`, else
+/// `name.rs` or `name/mod.rs` in `dir`. Inside an inline `mod` block both
+/// are relative to `dir` and the block's directory (its `#[path]`, else its
+/// name).
 fn declared_files(
     items: &[syn::Item],
     module: &Segments,
     dir: &Path,
     path_dir: &Path,
-    declared: &mut Vec<(Vec<PathBuf>, Segments)>,
+    declared: &mut Vec<(Vec<PathBuf>, Segments, bool)>,
 ) {
     for item in items {
         let syn::Item::Mod(declaration) = item else {
@@ -790,6 +793,7 @@ fn declared_files(
                 declared_files(content, &child, &inner, &inner, declared);
             }
             None => {
+                let attribute = path.is_some();
                 let candidates = match path {
                     Some(path) => vec![path_dir.join(path)],
                     None => vec![
@@ -797,18 +801,21 @@ fn declared_files(
                         dir.join(&name).join("mod.rs"),
                     ],
                 };
-                declared.push((candidates, child));
+                declared.push((candidates, child, attribute));
             }
         }
     }
 }
 
 /// The directory of the files that `mod name;` declarations of the file
-/// `path` name: its own directory for `lib.rs`, `main.rs` and `mod.rs`,
-/// else a directory of its name next to it (`src/a.rs` → `src/a`).
-fn children_dir(path: &Path) -> PathBuf {
+/// `path` name: its own directory for `lib.rs`, `main.rs`, `mod.rs` and a
+/// file that `#[path]` names (`by_path`, which rustc reads like a
+/// `mod.rs`), else a directory of its name next to it (`src/a.rs` →
+/// `src/a`).
+fn children_dir(path: &Path, by_path: bool) -> PathBuf {
     let parent = path.parent().unwrap_or(Path::new(""));
     match path.file_stem().and_then(|stem| stem.to_str()) {
+        _ if by_path => parent.to_path_buf(),
         Some("lib" | "main" | "mod") | None => parent.to_path_buf(),
         Some(stem) => parent.join(stem),
     }

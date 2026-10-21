@@ -11,7 +11,9 @@ All notable changes to `oas-forge` will be documented in this file.
 - `mod` declarations are followed as rustc follows them: `#[path]` inside
   inline `mod` blocks and on them, and files declared by a file that
   `#[path]` moved, get the module path rustc gives them (it decides the
-  `crate.module.Name` of colliding types and which type a path means).
+  `crate.module.Name` of colliding types and which type a path means); a
+  file that `#[path]` names is read like a `mod.rs`, so its modules are
+  next to it.
 - Two documented generic types of one name in different modules were merged
   silently (every `Page<T>` used the last one). Templates are now qualified
   like other types (`crate.module.Page`, instances `crate.module.Page_User`,

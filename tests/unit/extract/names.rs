@@ -333,8 +333,14 @@ fn module_files_are_found_as_rustc_finds_them() {
             "pub mod inline {\n    #[path = \"deep.rs\"]\n    pub mod deep_mod;\n}",
         ),
         ("src/outer/inline/deep.rs", &user("b")),
-        ("src/gen/types.rs", "mod child;"),
-        ("src/gen/types/child.rs", &user("c")),
+        // rustc reads a file that `#[path]` names like a `mod.rs`: its
+        // modules are next to it, also those of its inline blocks.
+        (
+            "src/gen/types.rs",
+            "mod child;\nmod block {\n    mod deep;\n}",
+        ),
+        ("src/gen/child.rs", &user("c")),
+        ("src/gen/block/deep.rs", &user("e")),
         ("src/thread_files/tls.rs", &user("d")),
     ]);
     let schemas = document["components"]["schemas"].as_object().unwrap();
@@ -343,13 +349,14 @@ fn module_files_are_found_as_rustc_finds_them() {
     assert_eq!(
         names,
         [
+            "crate.api.block.deep.User",
             "crate.api.child.User",
             "crate.nested.inner.User",
             "crate.outer.inline.deep_mod.User",
             "crate.thread.local.User",
         ]
     );
-    assert_eq!(codes(&diagnostics), [Code::DuplicateSchema; 4]);
+    assert_eq!(codes(&diagnostics), [Code::DuplicateSchema; 5]);
 }
 
 #[test]
