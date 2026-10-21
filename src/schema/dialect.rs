@@ -556,6 +556,7 @@ fn lower_30(schema: &mut Map<String, Value>, lost: &mut BTreeSet<String>) {
         }
     }
 
+    content_as_format(schema);
     if let Some(value) = schema.remove("const") {
         schema.insert("enum".into(), json!([value]));
     }
@@ -588,6 +589,41 @@ fn lower_30(schema: &mut Map<String, Value>, lost: &mut BTreeSet<String>) {
     {
         schema.remove("required");
     }
+}
+
+/// The OpenAPI 3.0 formats of string content (as in the OpenAPI 3.0 → 3.1
+/// migration guide): `contentEncoding: base64` is `format: byte`, a binary
+/// `contentMediaType` without encoding is `format: binary`. The mapped
+/// keyword is removed; the others (another encoding, a text media type, the
+/// media type of encoded content) are left for [`allow`] to report. A
+/// different `format` the schema already has wins.
+fn content_as_format(schema: &mut Map<String, Value>) {
+    if schema.get("type").is_some_and(|t| t != "string") {
+        return;
+    }
+    let encoding = schema.get("contentEncoding").and_then(Value::as_str);
+    let media = schema.get("contentMediaType").and_then(Value::as_str);
+    let (format, keyword) = match (encoding, media) {
+        (Some("base64"), _) => ("byte", "contentEncoding"),
+        (None, Some(media)) if !is_text_media(media) => ("binary", "contentMediaType"),
+        _ => return,
+    };
+    if schema.get("format").is_some_and(|f| f != format) {
+        return;
+    }
+    schema.insert("format".into(), json!(format));
+    schema.remove(keyword);
+}
+
+/// Whether string content of the media type `media` is text (`text/*`, JSON,
+/// XML, YAML), not binary data.
+fn is_text_media(media: &str) -> bool {
+    let essence = media.split(';').next().unwrap_or_default().trim();
+    let essence = essence.to_ascii_lowercase();
+    essence.starts_with("text/")
+        || ["json", "xml", "yaml"].iter().any(|syntax| {
+            essence == format!("application/{syntax}") || essence.ends_with(&format!("+{syntax}"))
+        })
 }
 
 /// Swagger 2.0 on top of 3.0: no `nullable`, `oneOf`, `anyOf`, `not`,

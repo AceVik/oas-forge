@@ -1,0 +1,537 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/content_encoding_lowering/case.toml
+---
+{
+  "asyncapi": {
+    "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
+  },
+  "description": "contentEncoding and contentMediaType become format byte and binary in the OpenAPI 3.0 and Swagger 2.0 exports; a binary multipart part is a Swagger file parameter",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Attachment": {
+            "properties": {
+              "checksum": {
+                "contentEncoding": "base64",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "notes": {
+                "contentMediaType": "text/markdown",
+                "type": "string"
+              },
+              "thumbnail": {
+                "contentEncoding": "base64",
+                "contentMediaType": "image/png",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "paths": {
+        "/files": {
+          "post": {
+            "operationId": "upload",
+            "requestBody": {
+              "content": {
+                "multipart/form-data": {
+                  "schema": {
+                    "properties": {
+                      "file": {
+                        "contentMediaType": "application/octet-stream",
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "file"
+                    ],
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            "responses": {
+              "201": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Attachment"
+                    }
+                  }
+                },
+                "description": "Stored"
+              }
+            }
+          }
+        },
+        "/files/{id}/raw": {
+          "get": {
+            "operationId": "download",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/octet-stream": {
+                    "schema": {
+                      "contentMediaType": "application/octet-stream",
+                      "type": "string"
+                    }
+                  }
+                },
+                "description": "The file"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Attachment": {
+            "properties": {
+              "checksum": {
+                "contentEncoding": "base64",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "notes": {
+                "contentMediaType": "text/markdown",
+                "type": "string"
+              },
+              "thumbnail": {
+                "contentEncoding": "base64",
+                "contentMediaType": "image/png",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Files",
+        "version": "1.0.0"
+      },
+      "openapi": "3.2.0",
+      "paths": {
+        "/files": {
+          "post": {
+            "operationId": "upload",
+            "requestBody": {
+              "content": {
+                "multipart/form-data": {
+                  "schema": {
+                    "properties": {
+                      "file": {
+                        "contentMediaType": "application/octet-stream",
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "file"
+                    ],
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            "responses": {
+              "201": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Attachment"
+                    }
+                  }
+                },
+                "description": "Stored"
+              }
+            }
+          }
+        },
+        "/files/{id}/raw": {
+          "get": {
+            "operationId": "download",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/octet-stream": {
+                    "schema": {
+                      "contentMediaType": "application/octet-stream",
+                      "type": "string"
+                    }
+                  }
+                },
+                "description": "The file"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Attachment": {
+          "properties": {
+            "checksum": {
+              "contentEncoding": "base64",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "notes": {
+              "contentMediaType": "text/markdown",
+              "type": "string"
+            },
+            "thumbnail": {
+              "contentEncoding": "base64",
+              "contentMediaType": "image/png",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "diagnostics": [
+      "note[OF6001]: OpenAPI 3.0 has no equivalent for `contentMediaType`; the schema was approximated"
+    ],
+    "document": {
+      "components": {
+        "schemas": {
+          "Attachment": {
+            "properties": {
+              "checksum": {
+                "format": "byte",
+                "nullable": true,
+                "type": "string"
+              },
+              "notes": {
+                "type": "string"
+              },
+              "thumbnail": {
+                "format": "byte",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "info": {
+        "title": "Files",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {
+        "/files": {
+          "post": {
+            "operationId": "upload",
+            "requestBody": {
+              "content": {
+                "multipart/form-data": {
+                  "schema": {
+                    "properties": {
+                      "file": {
+                        "format": "binary",
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "file"
+                    ],
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            "responses": {
+              "201": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Attachment"
+                    }
+                  }
+                },
+                "description": "Stored"
+              }
+            }
+          }
+        },
+        "/files/{id}/raw": {
+          "get": {
+            "operationId": "download",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "content": {
+                  "application/octet-stream": {
+                    "schema": {
+                      "format": "binary",
+                      "type": "string"
+                    }
+                  }
+                },
+                "description": "The file"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {
+      "/files": {
+        "post": {
+          "operationId": "upload",
+          "requestBody": {
+            "content": {
+              "multipart/form-data": {
+                "schema": {
+                  "properties": {
+                    "file": {
+                      "contentMediaType": "application/octet-stream",
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "file"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Attachment"
+                  }
+                }
+              },
+              "description": "Stored"
+            }
+          }
+        }
+      },
+      "/files/{id}/raw": {
+        "get": {
+          "operationId": "download",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/octet-stream": {
+                  "schema": {
+                    "contentMediaType": "application/octet-stream",
+                    "type": "string"
+                  }
+                }
+              },
+              "description": "The file"
+            }
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Attachment": {
+        "properties": {
+          "checksum": {
+            "contentEncoding": "base64",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "contentMediaType": "text/markdown",
+            "type": "string"
+          },
+          "thumbnail": {
+            "contentEncoding": "base64",
+            "contentMediaType": "image/png",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "diagnostics": [
+      "note[OF6001]: Swagger 2.0 has no equivalent for `contentMediaType`; the schema was approximated"
+    ],
+    "document": {
+      "definitions": {
+        "Attachment": {
+          "properties": {
+            "checksum": {
+              "format": "byte",
+              "type": "string",
+              "x-nullable": true
+            },
+            "notes": {
+              "type": "string"
+            },
+            "thumbnail": {
+              "format": "byte",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "info": {
+        "title": "Files",
+        "version": "1.0.0"
+      },
+      "paths": {
+        "/files": {
+          "post": {
+            "consumes": [
+              "multipart/form-data"
+            ],
+            "operationId": "upload",
+            "parameters": [
+              {
+                "in": "formData",
+                "name": "file",
+                "required": true,
+                "type": "file"
+              },
+              {
+                "in": "formData",
+                "name": "name",
+                "required": false,
+                "type": "string"
+              }
+            ],
+            "produces": [
+              "application/json"
+            ],
+            "responses": {
+              "201": {
+                "description": "Stored",
+                "schema": {
+                  "$ref": "#/definitions/Attachment"
+                }
+              }
+            }
+          }
+        },
+        "/files/{id}/raw": {
+          "get": {
+            "operationId": "download",
+            "parameters": [
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "type": "string"
+              }
+            ],
+            "produces": [
+              "application/octet-stream"
+            ],
+            "responses": {
+              "200": {
+                "description": "The file",
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

@@ -534,3 +534,144 @@ mod components_and_callbacks {
         assert!(diagnostics.is_empty());
     }
 }
+
+/// `contentEncoding` and `contentMediaType` (JSON Schema 2020-12) become the
+/// OpenAPI 3.0 formats `byte` and `binary`, as the OpenAPI 3.0 → 3.1
+/// migration guide maps them.
+mod content_keywords {
+    use super::*;
+    use oas_forge::schema::dialect::lower_schema_value;
+
+    fn lower_to(dialect: Dialect, mut schema: Value) -> (Value, Vec<String>) {
+        let mut diagnostics = Diagnostics::new();
+        lower_schema_value(&mut schema, dialect, &mut diagnostics);
+        let messages = diagnostics
+            .iter()
+            .map(|d| d.message().to_string())
+            .collect();
+        (schema, messages)
+    }
+
+    #[test]
+    fn base64_content_is_a_byte_string() {
+        for dialect in [Dialect::OpenApi30, Dialect::Swagger20] {
+            assert_eq!(
+                lower_to(
+                    dialect,
+                    json!({ "type": "string", "contentEncoding": "base64" })
+                ),
+                (json!({ "type": "string", "format": "byte" }), vec![]),
+                "{dialect}"
+            );
+        }
+        // A nullable string is a string after lowering.
+        assert_eq!(
+            lower_to(
+                Dialect::OpenApi30,
+                json!({ "type": ["string", "null"], "contentEncoding": "base64" })
+            )
+            .0,
+            json!({ "type": "string", "nullable": true, "format": "byte" })
+        );
+    }
+
+    #[test]
+    fn binary_content_is_a_binary_string() {
+        for media in [
+            "application/octet-stream",
+            "image/png",
+            "Application/PDF; q=1",
+        ] {
+            for dialect in [Dialect::OpenApi30, Dialect::Swagger20] {
+                assert_eq!(
+                    lower_to(
+                        dialect,
+                        json!({ "type": "string", "contentMediaType": media })
+                    ),
+                    (json!({ "type": "string", "format": "binary" }), vec![]),
+                    "{media} {dialect}"
+                );
+            }
+        }
+        // Without `type` too: the keywords only apply to strings.
+        assert_eq!(
+            lower_to(
+                Dialect::OpenApi30,
+                json!({ "contentMediaType": "image/png" })
+            )
+            .0,
+            json!({ "format": "binary" })
+        );
+    }
+
+    #[test]
+    fn the_media_type_of_encoded_content_is_lost() {
+        let (schema, messages) = lower_to(
+            Dialect::OpenApi30,
+            json!({ "type": "string", "contentEncoding": "base64", "contentMediaType": "image/png" }),
+        );
+        assert_eq!(schema, json!({ "type": "string", "format": "byte" }));
+        assert_eq!(
+            messages,
+            ["OpenAPI 3.0 has no equivalent for `contentMediaType`; the schema was approximated"]
+        );
+    }
+
+    #[test]
+    fn text_content_and_other_encodings_have_no_format() {
+        for media in [
+            "text/plain",
+            "application/json",
+            "application/xml",
+            "application/yaml",
+            "application/problem+json",
+            "application/atom+xml",
+            "application/ld+yaml",
+        ] {
+            let (schema, messages) = lower_to(
+                Dialect::OpenApi30,
+                json!({ "type": "string", "contentMediaType": media }),
+            );
+            assert_eq!(schema, json!({ "type": "string" }), "{media}");
+            assert_eq!(messages.len(), 1, "{media}");
+        }
+        let (schema, messages) = lower_to(
+            Dialect::OpenApi30,
+            json!({ "type": "string", "contentEncoding": "base32", "contentMediaType": "image/png" }),
+        );
+        assert_eq!(schema, json!({ "type": "string" }));
+        assert_eq!(messages.len(), 2, "{messages:?}");
+    }
+
+    #[test]
+    fn explicit_formats_and_other_types_win() {
+        // The same format: nothing is lost.
+        assert_eq!(
+            lower_to(
+                Dialect::OpenApi30,
+                json!({ "type": "string", "format": "byte", "contentEncoding": "base64" })
+            ),
+            (json!({ "type": "string", "format": "byte" }), vec![])
+        );
+        // Another format stays; the content keyword is reported.
+        let (schema, messages) = lower_to(
+            Dialect::OpenApi30,
+            json!({ "type": "string", "format": "uri", "contentMediaType": "image/png" }),
+        );
+        assert_eq!(schema, json!({ "type": "string", "format": "uri" }));
+        assert_eq!(messages.len(), 1);
+        // Not a string: no format.
+        let (schema, messages) = lower_to(
+            Dialect::OpenApi30,
+            json!({ "type": "object", "contentEncoding": "base64" }),
+        );
+        assert_eq!(schema, json!({ "type": "object" }));
+        assert_eq!(messages.len(), 1);
+    }
+
+    #[test]
+    fn openapi_31_keeps_the_content_keywords() {
+        let schema = json!({ "type": "string", "contentEncoding": "base64" });
+        assert_eq!(lower_to(Dialect::OpenApi31, schema.clone()).0, schema);
+    }
+}

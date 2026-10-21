@@ -114,8 +114,14 @@ own root.
 | `exclusiveMinimum: n` | `minimum: n`, `exclusiveMinimum: true` |
 | `prefixItems` (tuples) | `items: { anyOf: [...] }` (reported) |
 | `examples: [a, …]` | `example: a` |
+| `contentEncoding: base64` | `format: byte` |
+| `contentMediaType` of binary content (no encoding, not `text/*`, JSON, XML or YAML), e.g. `application/octet-stream` | `format: binary` |
 | siblings of `$ref` | `allOf: [{ $ref }, siblings]` |
-| other keywords (`$defs`, `unevaluatedProperties`, `propertyNames`, `contentEncoding`, …) | removed (reported, `OF6001`) |
+| other keywords (`$defs`, `unevaluatedProperties`, `propertyNames`, other `contentEncoding` and `contentMediaType` values, …) | removed (reported, `OF6001`) |
+
+A `format` the schema already has wins over the content keywords. The
+Swagger 2.0 export maps them the same way, and a `format: binary` part of a
+`multipart/form-data` body becomes a `type: file` parameter.
 
 Besides the 3.1/3.2 features above, the export removes what 3.0 does not
 have, each reported once: `info.summary`, `license.identifier` (silently when
