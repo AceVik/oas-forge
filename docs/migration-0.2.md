@@ -307,6 +307,13 @@ what 0.1 wrote:
   input directory, overlapping inputs) is read once instead of causing a
   false "multiple roots" error; symbolic links in input directories are
   followed, broken ones are reported (`OF0005`).
+- **Merge order**. YAML documents, routes and files are merged with the
+  reflected schemas in source order. Before, a block was merged after the
+  struct that followed it, so it could override that struct, and keys that
+  several annotations add to one mapping came out of order
+  (`scopes_services`: `components.securitySchemes`, written above the
+  structs, now comes before `schemas`). Lint findings follow source order
+  too.
 
 New warnings can fail builds with `deny_warnings`: `OF0006`, `OF1010`,
 `OF1011`, `OF2009`, `OF3012`–`OF3014`, `OF0005`, `OF1001` and

@@ -193,7 +193,10 @@ worked in 0.1 keeps working unless the
   after a quoted parameter description, Swagger hosts of URLs with an empty
   authority, custom type mappings to references used as `$Name`, `$ref`
   values that are no schema name (now OF3007), `~1`/`~0` in reference
-  pointers of the path parameter lint and the AsyncAPI schema sharing.
+  pointers of the path parameter lint and the AsyncAPI schema sharing, and
+  the merge order: YAML blocks, routes and files are merged with the
+  reflected schemas in source order, so a block no longer overrides the
+  struct below it.
 
 ### Security
 - `serde_yaml_ng` (and the unmaintained `unsafe-libyaml`, RUSTSEC-2024-0449)
