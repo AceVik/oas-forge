@@ -759,6 +759,29 @@ mod module_defaults {
     }
 
     #[test]
+    fn module_and_route_headers_are_unknown_in_the_other_block() {
+        let (document, diagnostics) = compile_with(
+            &[
+                "@route GET /x",
+                "@tag A",
+                "@route-defaults",
+                "@tag B",
+                "@prefix /api/{version: u8}",
+            ],
+            &["@route-defaults", "@route GET /y/{id: u8}", "@webhook hook"],
+            None,
+        );
+        assert_eq!(codes(&diagnostics), [Code::UnknownDirective; 4]);
+        let document = document.unwrap_or_else(|| panic!("rejected: {diagnostics:#?}"));
+        let paths: Vec<_> = document["paths"].as_object().unwrap().keys().collect();
+        assert_eq!(paths, ["/x"]);
+        assert!(document.get("webhooks").is_none());
+        let op = &document["paths"]["/x"]["get"];
+        assert_eq!(op["tags"], json!(["A", "B"]));
+        assert!(op.get("parameters").is_none());
+    }
+
+    #[test]
     fn extend_markers_of_defaults_and_route_do_not_collide() {
         let marker = |n: u8| format!("x-oas-forge-extend-{n}: 'Frag{n}'");
         let route_marker = marker(1);
@@ -769,8 +792,10 @@ mod module_defaults {
             &["@route GET /x", &route_marker],
             &[
                 "@route-defaults",
+                "@tag Outer",
                 &default_marker,
                 "@route-defaults",
+                "@tag Inner",
                 &default_marker,
             ],
             None,
@@ -806,12 +831,16 @@ mod block_lines {
         let src = [
             "Summary",
             "x-forwarded headers are honoured.",
+            "x-forwarded for: kept as well.",
             "x-request-id: echoed",
             "@route GET /x",
         ];
         assert_eq!(findings(&src), []);
         let op = operation(&src, "/x", "get");
-        assert_eq!(op["description"], "x-forwarded headers are honoured.");
+        assert_eq!(
+            op["description"],
+            "x-forwarded headers are honoured.\nx-forwarded for: kept as well."
+        );
         assert_eq!(op["x-request-id"], "echoed");
     }
 
@@ -889,6 +918,30 @@ mod inference {
         signature.optional_query = true;
         let op = with(&signature, &["@route GET /x"]);
         assert_eq!(params(&op)[0]["x-oas-forge-expand"]["optional"], true);
+    }
+
+    #[test]
+    fn path_extractors_only_fill_undeclared_placeholders() {
+        let path = |types: &[&str]| {
+            let mut signature = Signature::default();
+            signature.path = types.iter().filter_map(|t| TypeExpr::parse(t)).collect();
+            signature
+        };
+        // Every placeholder is declared: the handler's `Path` is not read,
+        // not even when it disagrees with the path.
+        for signature in [path(&["UserId"]), path(&["u8", "u8", "u8"])] {
+            let (document, diagnostics) =
+                compile_with(&["@route GET /x/{id: u64}"], &[], Some(&signature));
+            assert_eq!(codes(&diagnostics), [], "{signature:?}");
+            let op = &document.unwrap()["paths"]["/x/{id}"]["get"];
+            let names: Vec<_> = params(op).iter().map(|p| p["name"].clone()).collect();
+            assert_eq!(names, [json!("id")], "{signature:?}");
+        }
+        // A handler without `Path` says nothing about the placeholders.
+        let mut signature = Signature::default();
+        signature.query = TypeExpr::parse("u8");
+        let (_, diagnostics) = compile_with(&["@route GET /x/{id}"], &[], Some(&signature));
+        assert_eq!(codes(&diagnostics), [Code::UndeclaredPathParam]);
     }
 
     #[test]

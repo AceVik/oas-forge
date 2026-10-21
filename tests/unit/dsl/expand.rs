@@ -141,3 +141,104 @@ fn x() {}
     assert!(odd.get("examples").is_none() && odd.get("example").is_none());
     assert_eq!(odd["schema"]["examples"], "not a list");
 }
+
+/// `name:required` of the parameters of `GET /a` after expanding `$Root`
+/// (defined by `schemas`, file-level blocks) as query parameters.
+fn expanded_root(schemas: &str) -> Vec<String> {
+    let source = format!("{schemas}\n/// @route GET /a\n/// @query-params $Root\nfn a() {{}}");
+    let (document, _) = pipeline(&[("api.rs", &source)]);
+    document["paths"]["/a"]["get"]["parameters"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no parameters: {document:#}"))
+        .iter()
+        .map(|p| format!("{}:{}", p["name"].as_str().unwrap(), p["required"]))
+        .collect()
+}
+
+/// A file-level `@openapi-type` block.
+fn named_schema(name: &str, yaml: &str) -> String {
+    format!("//! @openapi-type {name}\n//! {yaml}\n")
+}
+
+#[test]
+fn every_required_property_is_a_required_parameter() {
+    let (document, diagnostics) = pipeline(&[(
+        "api.rs",
+        "/// @openapi\nstruct Window { from: u32, to: u32, step: Option<u32> }\n/// @route GET /a\n/// @query-params $Window\nfn a() {}",
+    )]);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let required: Vec<String> = document["paths"]["/a"]["get"]["parameters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| format!("{}:{}", p["name"].as_str().unwrap(), p["required"]))
+        .collect();
+    assert_eq!(required, ["from:true", "to:true", "step:false"]);
+}
+
+/// `allOf` parts nest one level each: the properties of the part at depth 8
+/// are still parameters, those deeper down are not.
+#[test]
+fn nested_parts_are_followed_eight_levels_deep() {
+    let mut part = String::from("{ properties: { p9: { type: string } } }");
+    for level in (0..9).rev() {
+        part = format!("{{ properties: {{ p{level}: {{ type: string }} }}, allOf: [{part}] }}");
+    }
+    let names = expanded_root(&named_schema("Root", &part));
+    let expected: Vec<String> = (0..9).map(|level| format!("p{level}:false")).collect();
+    assert_eq!(names, expected);
+}
+
+/// A reference is one level too: `$ref` and `allOf` part make two per
+/// flattened struct.
+#[test]
+fn references_count_towards_the_depth() {
+    let mut schemas = named_schema(
+        "Root",
+        "{ properties: { r0: { type: string } }, allOf: [{ $ref: $R1 }] }",
+    );
+    for level in 1..6 {
+        schemas.push_str(&named_schema(
+            &format!("R{level}"),
+            &format!(
+                "{{ properties: {{ r{level}: {{ type: string }} }}, allOf: [{{ $ref: $R{} }}] }}",
+                level + 1
+            ),
+        ));
+    }
+    schemas.push_str(&named_schema(
+        "R6",
+        "{ properties: { r6: { type: string } } }",
+    ));
+    // `R4` is reached at depth 8; the part that refers to `R5` is too deep.
+    assert_eq!(
+        expanded_root(&schemas),
+        ["r0:false", "r1:false", "r2:false", "r3:false", "r4:false"]
+    );
+}
+
+/// The alternatives of an optional flattened struct (`anyOf: [schema, {}]`)
+/// are one level deeper, like a part.
+#[test]
+fn optional_alternatives_count_towards_the_depth() {
+    let mut part = String::from("{ properties: { o9: { type: string } } }");
+    for level in (1..9).rev() {
+        part = format!(
+            "{{ properties: {{ o{level}: {{ type: string }} }}, allOf: [{{ anyOf: [{part}, {{ type: 'null' }}] }}] }}"
+        );
+    }
+    let root = format!(
+        "{{ properties: {{ o0: {{ type: string }} }}, required: [o0], allOf: [{{ anyOf: [{part}, {{}}] }}] }}"
+    );
+    let mut expected = vec!["o0:true".to_string()];
+    expected.extend((1..9).map(|level| format!("o{level}:false")));
+    assert_eq!(expanded_root(&named_schema("Root", &root)), expected);
+}
+
+/// Only an optional value (`anyOf` with `{}` or `null`) is flattened from
+/// its alternatives; the alternatives of a real choice are not parameters.
+#[test]
+fn alternatives_of_a_choice_are_not_expanded() {
+    let root = "{ properties: { own: { type: string } }, allOf: [{ anyOf: [{ properties: { x: { type: string } } }, { properties: { y: { type: string } } }] }] }";
+    assert_eq!(expanded_root(&named_schema("Root", root)), ["own:false"]);
+}

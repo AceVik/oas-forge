@@ -25,6 +25,7 @@ const NOT_A_REGEX: &str = "^x$";
 static NO_LITERAL: LazyLock<Regex> = LazyLock::new(|| Regex::new(PATTERN).unwrap());
 static OTHER: u8 = new(5);
 static WRAPPED: LazyLock<Wrapper> = LazyLock::new(|| Wrapper::new("not a regex"));
+const CONSTANT: LazyLock<Regex> = LazyLock::new(|| Regex::new("^c$").unwrap());
 "##,
     );
     assert_eq!(
@@ -33,6 +34,7 @@ static WRAPPED: LazyLock<Wrapper> = LazyLock::new(|| Wrapper::new("not a regex")
             ("SLUG".into(), "^[a-z]+$".into(), 2),
             ("RAW".into(), r"^\d{3}$".into(), 3),
             ("BUILT".into(), "^\"q\"$".into(), 5),
+            ("CONSTANT".into(), "^c$".into(), 10),
         ]
     );
 }

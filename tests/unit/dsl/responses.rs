@@ -35,6 +35,14 @@ mod request_body {
     }
 
     #[test]
+    fn optional_is_a_word_of_its_own() {
+        assert_eq!(
+            body(&["@route POST /x", "@body optionalSettings"]),
+            json!({ "content": { "application/json": { "schema": { "$ref": "$optionalSettings" } } }, "required": true })
+        );
+    }
+
+    #[test]
     fn half_media_types_are_not_media_types() {
         for token in ["text/", "/plain"] {
             let body = body(&["@route POST /x", &format!("@body String {token}")]);
@@ -143,6 +151,80 @@ mod return_directive {
                 json!("Default response")
             ]
         );
+    }
+
+    #[test]
+    fn every_registered_status_code_has_its_reason_phrase() {
+        let table = [
+            ("100", "Continue"),
+            ("101", "Switching Protocols"),
+            ("200", "OK"),
+            ("201", "Created"),
+            ("202", "Accepted"),
+            ("203", "Non-Authoritative Information"),
+            ("204", "No Content"),
+            ("205", "Reset Content"),
+            ("206", "Partial Content"),
+            ("207", "Multi-Status"),
+            ("300", "Multiple Choices"),
+            ("301", "Moved Permanently"),
+            ("302", "Found"),
+            ("303", "See Other"),
+            ("304", "Not Modified"),
+            ("307", "Temporary Redirect"),
+            ("308", "Permanent Redirect"),
+            ("400", "Bad Request"),
+            ("401", "Unauthorized"),
+            ("402", "Payment Required"),
+            ("403", "Forbidden"),
+            ("404", "Not Found"),
+            ("405", "Method Not Allowed"),
+            ("406", "Not Acceptable"),
+            ("408", "Request Timeout"),
+            ("409", "Conflict"),
+            ("410", "Gone"),
+            ("411", "Length Required"),
+            ("412", "Precondition Failed"),
+            ("413", "Content Too Large"),
+            ("414", "URI Too Long"),
+            ("415", "Unsupported Media Type"),
+            ("416", "Range Not Satisfiable"),
+            ("417", "Expectation Failed"),
+            ("421", "Misdirected Request"),
+            ("422", "Unprocessable Content"),
+            ("423", "Locked"),
+            ("424", "Failed Dependency"),
+            ("425", "Too Early"),
+            ("426", "Upgrade Required"),
+            ("428", "Precondition Required"),
+            ("429", "Too Many Requests"),
+            ("431", "Request Header Fields Too Large"),
+            ("451", "Unavailable For Legal Reasons"),
+            ("500", "Internal Server Error"),
+            ("501", "Not Implemented"),
+            ("502", "Bad Gateway"),
+            ("503", "Service Unavailable"),
+            ("504", "Gateway Timeout"),
+            ("505", "HTTP Version Not Supported"),
+            ("1XX", "Informational"),
+            ("2XX", "Success"),
+            ("3XX", "Redirection"),
+            ("4XX", "Client Error"),
+            ("5XX", "Server Error"),
+            ("default", "Default response"),
+            // Codes without a registered phrase.
+            ("299", "Response"),
+            ("599", "Response"),
+        ];
+        let returns: Vec<String> = table
+            .iter()
+            .map(|(code, _)| format!("@return {code}:"))
+            .collect();
+        let returns: Vec<&str> = returns.iter().map(String::as_str).collect();
+        let responses = responses(&returns);
+        for (code, phrase) in table {
+            assert_eq!(responses[code]["description"], phrase, "{code}");
+        }
     }
 
     #[test]

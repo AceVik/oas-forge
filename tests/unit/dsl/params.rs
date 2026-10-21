@@ -247,6 +247,18 @@ mod declarations {
     }
 
     #[test]
+    fn names_must_be_one_non_empty_word() {
+        for directive in ["@query-param : String", "@query-param page size: u32"] {
+            let src = ["@route GET /x", directive];
+            assert!(
+                params(&operation(&src, "/x", "get")).is_empty(),
+                "{directive}"
+            );
+            assert_eq!(findings(&src), [Code::InvalidDirective], "{directive}");
+        }
+    }
+
+    #[test]
     fn quoted_values_keep_their_spaces() {
         let op = operation(
             &[
