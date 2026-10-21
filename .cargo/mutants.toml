@@ -40,6 +40,9 @@ exclude_re = [
     "src/template/refs.rs:.*replace KnownSchemas::none -> &'static Self with Box::leak",
     # The built-in type table is the empty mapper; a leaked default is equal.
     "src/schema/types.rs:.*replace TypeMapper::builtin -> &'static Self with Box::leak",
+    # The class digit of a status code only orders the classes; an offset
+    # (`+ b'0'` instead of `- b'0'`) keeps their order.
+    "src/generator.rs:.*replace - with \\+ in status_rank",
     # The guard admits exactly the extractors the `match` after it reads; any
     # other `Option<T>` argument is ignored with or without unwrapping.
     "src/extract/signature.rs:.*replace match guard matches!\\( inner.name\\(\\), .* with true in infer",
