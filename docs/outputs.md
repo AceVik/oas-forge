@@ -194,7 +194,7 @@ express, with warnings:
 | `OF5001` | a `$ref` to a component that does not exist |
 | `OF5002` | two operations with the same `operationId` |
 | `OF5005` | a security requirement that names an undefined scheme |
-| `OF5006` | a path placeholder without a path parameter, or the reverse |
+| `OF5006` | a path placeholder without a path parameter, or the reverse; the same for AsyncAPI channel addresses and channel parameters |
 | `OF5003` (strict) | a component nothing outside `components` reaches |
 | `OF5004` (strict) | an operation without summary or description, a schema without description |
 

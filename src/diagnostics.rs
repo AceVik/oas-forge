@@ -321,7 +321,8 @@ codes! {
     MissingDescription = "OF5004", Warning;
     /// A security requirement names a scheme that is not defined.
     UndefinedSecurityScheme = "OF5005", Warning;
-    /// A path placeholder and the path parameters of an operation disagree.
+    /// A path placeholder and the path parameters of an operation disagree,
+    /// or an AsyncAPI channel address and the channel's parameters.
     PathParameterMismatch = "OF5006", Warning;
 
     /// A construct has no equivalent in the target version and was approximated.

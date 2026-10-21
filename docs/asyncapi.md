@@ -285,4 +285,9 @@ discriminator a property name. What has no equivalent is reported
 (`OF6001`).
 
 The AsyncAPI document is checked by the same lints as the OpenAPI document,
-for example for references that lead nowhere (`OF5001`).
+for example for references that lead nowhere (`OF5001`). Channel
+parameters must match the address: a `{placeholder}` without a parameter
+in `parameters`, or a parameter that the address does not contain, is
+reported (`OF5006`) — the `@channel` line adds the parameters of its
+address, so this concerns YAML (`parameters:`, `address:`, `@asyncapi`
+channels).

@@ -689,3 +689,66 @@ mod locations {
         );
     }
 }
+
+mod channel_parameters {
+    use super::*;
+
+    const ASYNCAPI: &str =
+        "//! @asyncapi\n//! asyncapi: 3.0.0\n//! info: { title: Events, version: '1' }\n\n";
+
+    /// The findings and their lines of a build of `code` after an AsyncAPI
+    /// root.
+    fn findings(code: &str) -> Vec<String> {
+        let project = Project::new();
+        project.file("src/lib.rs", &format!("{ASYNCAPI}{code}"));
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .build()
+            .unwrap();
+        spec.diagnostics()
+            .iter()
+            .map(|d| {
+                let line = d.location().map_or(0, |l| l.line());
+                format!("{line}: {} {}", d.code(), d.message())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn placeholders_get_parameters_from_the_address() {
+        assert!(
+            findings("/// @channel seat /games/{id}/ws\n/// @send A: u8\nfn seat() {}\n")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn yaml_parameters_must_match_the_address() {
+        let found = findings(
+            "/// @channel seat /games/{id}/ws\n/// @send A: u8\n/// parameters:\n///   game: { description: Unknown }\nfn seat() {}\n\
+             /// @channel watch /games/{id}/watch\n/// @send B: u8\n/// address: /games/{game}/{seat}/watch\nfn watch() {}\n",
+        );
+        assert_eq!(
+            found,
+            [
+                "12: OF4001 embedded YAML overrides the DSL value at `/address`",
+                "5: OF5006 parameter `game` of channel `seat` does not appear in its address `/games/{id}/ws`",
+                "10: OF5006 `{game}` of the address `/games/{game}/{seat}/watch` of channel `watch` has no parameter",
+                "10: OF5006 `{seat}` of the address `/games/{game}/{seat}/watch` of channel `watch` has no parameter",
+                "10: OF5006 parameter `id` of channel `watch` does not appear in its address `/games/{game}/{seat}/watch`",
+            ]
+        );
+    }
+
+    #[test]
+    fn channels_in_yaml_are_checked_and_null_addresses_skipped() {
+        let found = findings(
+            "/// @asyncapi\n/// channels:\n///   a: { address: 'rooms/{room}' }\n///   b: { address: null, parameters: { x: {} } }\n///   c: { parameters: { y: {} } }\nfn yaml() {}\n",
+        );
+        assert_eq!(
+            found,
+            ["6: OF5006 `{room}` of the address `rooms/{room}` of channel `a` has no parameter"]
+        );
+    }
+}

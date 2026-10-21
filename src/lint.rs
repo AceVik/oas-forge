@@ -1,8 +1,8 @@
 //! Checks of the merged document that the official schemas cannot express.
 //!
 //! Always on: dangling component references, duplicate operationIds,
-//! undefined security schemes and path parameters that do not match their
-//! path. With strict lints also: unused components and missing descriptions.
+//! undefined security schemes, and path and channel parameters that do not
+//! match their path or address. With strict lints also: unused components and missing descriptions.
 //!
 //! Findings point to the snippet that defined the part they concern (an
 //! operation, a component, a top-level field), see [`Origins`].
@@ -172,6 +172,7 @@ pub(crate) fn check(
     }
     security_schemes(document, &requirements, diagnostics);
     path_parameters(document, origins, diagnostics);
+    channel_parameters(document, origins, diagnostics);
     if lints.strict {
         unused_components(document, origins, diagnostics);
         if let Some(Value::Object(schemas)) = document.pointer("/components/schemas") {
@@ -279,6 +280,45 @@ fn path_parameters(document: &Value, origins: &Origins, diagnostics: &mut Diagno
                     .at_opt(location),
                 );
             }
+        }
+    }
+}
+
+/// Every `{placeholder}` of an AsyncAPI channel address needs a channel
+/// parameter and every parameter a placeholder. Channels without a string
+/// address (`null`) are left alone.
+fn channel_parameters(document: &Value, origins: &Origins, diagnostics: &mut Diagnostics) {
+    let Some(Value::Object(channels)) = document.get("channels") else {
+        return;
+    };
+    for (id, channel) in channels {
+        let Some(address) = channel.get("address").and_then(Value::as_str) else {
+            continue;
+        };
+        let location = origins.get(&format!("/channels/{}", escape(id)));
+        let placeholders = placeholders(address);
+        let declared: BTreeSet<String> = entries(channel.get("parameters").unwrap_or(&Value::Null))
+            .map(|(name, _)| name.clone())
+            .collect();
+        for name in placeholders.difference(&declared) {
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::PathParameterMismatch,
+                    format!(
+                        "`{{{name}}}` of the address `{address}` of channel `{id}` has no parameter"
+                    ),
+                )
+                .at_opt(location),
+            );
+        }
+        for name in declared.difference(&placeholders) {
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::PathParameterMismatch,
+                    format!("parameter `{name}` of channel `{id}` does not appear in its address `{address}`"),
+                )
+                .at_opt(location),
+            );
         }
     }
 }

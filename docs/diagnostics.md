@@ -98,7 +98,7 @@ is the second operation using it.
 | `OF5003` | warning (strict) | A component is not reachable from outside `components` | Remove it, or ignore the finding for public schemas |
 | `OF5004` | warning (strict) | An operation has no summary or description, or a schema no description | Add a doc comment |
 | `OF5005` | warning | A security requirement names a scheme not in `components.securitySchemes` | Define the scheme |
-| `OF5006` | warning | A path placeholder has no path parameter in an operation, or a path parameter no placeholder | Align the parameters with the path |
+| `OF5006` | warning | A path placeholder has no path parameter in an operation, or a path parameter no placeholder; likewise a placeholder of an AsyncAPI channel address and the channel's `parameters` | Align the parameters with the path or address |
 
 ## Versions and exports (OF6xxx)
 
