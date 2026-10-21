@@ -98,8 +98,9 @@ the OpenAPI outputs are not affected.
   payloads), each keeps its own definition in the channel
   (`channels.seat.messages.HelloAck`), which its operations refer to
   (`#/channels/seat/messages/HelloAck`); nothing is merged or reported.
-  Only the channels of one document (one [scope](route-dsl.md#scopes))
-  are compared.
+  Then every channel that uses the name keeps its own copy, also those
+  that define it alike. Only the channels of one document (one
+  [scope](route-dsl.md#scopes)) are compared.
 - Media types after the type set the message's `contentType` (the first
   one): `@send Snapshot: Vec<$Job> application/x-ndjson`. Without one, the
   document's `defaultContentType` applies. A message may have a media
@@ -264,7 +265,7 @@ The YAML wins over what the directives produced; a value it changes is
 reported as a note (`OF4001`) at its line. That includes `address:` and a
 channel `summary:` or `description:` that differs from the block's summary
 and description (`@summary`, `@description`, the plain lines), which the
-operations keep. YAML that is invalid or not a
+operations keep; such notes are informational and never fail a run. YAML that is invalid or not a
 mapping is reported (`OF2005`) and ignored. Smart references resolve as
 everywhere else (`payload: { $ref: $Pending }`), and the schemas they name
 are shared into the AsyncAPI document.
