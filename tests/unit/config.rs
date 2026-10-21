@@ -141,19 +141,31 @@ output = ["from-cargo.yaml"]
         assert_eq!(config.output, paths(&["from-cargo.yaml"]));
     }
 
+    /// Settings like `Config::default`, read from `files`.
+    fn assert_empty(config: &Config, files: &[PathBuf]) {
+        assert_eq!(config.files(), files);
+        assert_eq!(
+            (
+                &config.input,
+                &config.include,
+                &config.types,
+                &config.variables
+            ),
+            (&None, &None, &None, &None)
+        );
+        assert_eq!(config.outputs().count(), 0);
+    }
+
+    /// A manifest without settings is still read, so it is a configuration
+    /// file: adding `[package.metadata.oas-forge]` later changes the result.
     #[test]
     fn manifest_without_metadata_is_fine() {
         let project = Project::new();
         project.file("Cargo.toml", "[package]\nname = \"demo\"\n");
-        assert_eq!(
-            Config::load_from(project.root()).unwrap(),
-            Config::default()
-        );
+        let manifest = [project.path("Cargo.toml")];
+        assert_empty(&Config::load_from(project.root()).unwrap(), &manifest);
         project.file("Cargo.toml", "[workspace]\nmembers = []\n");
-        assert_eq!(
-            Config::load_from(project.root()).unwrap(),
-            Config::default()
-        );
+        assert_empty(&Config::load_from(project.root()).unwrap(), &manifest);
     }
 
     #[test]
@@ -192,7 +204,7 @@ output = ["from-cargo.yaml"]
     #[test]
     fn load_uses_the_current_directory() {
         // The package root of this crate has no oas-forge metadata.
-        assert_eq!(Config::load().unwrap(), Config::default());
+        assert_empty(&Config::load().unwrap(), &[PathBuf::from("./Cargo.toml")]);
     }
 }
 

@@ -228,9 +228,148 @@ mod spec {
         assert_eq!(spec.document()["info"]["title"], "Test API");
         assert!(spec.registry().fragment("F").is_some());
         assert_eq!(codes(spec.diagnostics()), [Code::MissingInclude]);
+        // The missing include through the directory it would be created in.
         assert_eq!(
             spec.watched(),
-            [project.path("src"), project.path("base.yaml")]
+            [
+                project.path("src"),
+                project.path("base.yaml"),
+                project.root().to_path_buf()
+            ]
+        );
+    }
+}
+
+/// What a build script watches (`cargo:rerun-if-changed`).
+mod watching {
+    use super::*;
+    use oas_forge::Package;
+    use std::path::PathBuf;
+
+    fn watched(generator: Generator) -> Vec<PathBuf> {
+        generator.build().unwrap().watched().to_vec()
+    }
+
+    /// Cargo reruns a build script on every build while a watched path is
+    /// missing; the nearest existing directory above it notices the file
+    /// being created without that.
+    #[test]
+    fn missing_includes_are_watched_through_the_nearest_existing_directory() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC).dir("static");
+        let generator = Generator::new()
+            .input(project.path("src"))
+            .include(project.path("static/security.yaml"))
+            .include(project.path("static/later/deeper/servers.yaml"))
+            .include(project.path("absent/servers.yaml"));
+        assert_eq!(
+            watched(generator),
+            [
+                project.path("src"),
+                project.path("static"),
+                project.root().to_path_buf(),
+            ]
+        );
+    }
+
+    /// The package directory (the working directory of a build script) and
+    /// the directories above it hold the build output, which changes on
+    /// every build: the missing file itself is watched instead.
+    #[test]
+    fn missing_includes_never_watch_the_working_directory() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC);
+        let cwd = std::env::current_dir().unwrap();
+        let missing = [
+            PathBuf::from("oas-forge-missing-include.yaml"),
+            PathBuf::from("oas-forge-missing-dir/include.yaml"),
+            cwd.join("oas-forge-missing-include.yaml"),
+            cwd.parent().unwrap().join("oas-forge-missing-include.yaml"),
+        ];
+        let mut generator = Generator::new().input(project.path("src"));
+        for path in &missing {
+            assert!(!path.exists(), "{}", path.display());
+            generator = generator.include(path);
+        }
+        let mut expected = vec![project.path("src")];
+        expected.extend(missing.iter().cloned());
+        assert_eq!(watched(generator), expected);
+    }
+
+    #[test]
+    fn existing_includes_are_watched_themselves_and_paths_only_once() {
+        let project = Project::new();
+        project
+            .file("src/root.rs", ROOT_DOC)
+            .file("static/a.yaml", "paths: {}")
+            .file("static/b.yaml", "paths: {}");
+        let generator = Generator::new()
+            .input(project.path("src"))
+            .include(project.path("static/a.yaml"))
+            .include(project.path("static/missing.yaml"))
+            .include(project.path("static/other-missing.yaml"))
+            .include(project.path("static/b.yaml"));
+        assert_eq!(
+            watched(generator),
+            [
+                project.path("src"),
+                project.path("static/a.yaml"),
+                project.path("static/b.yaml"),
+                project.path("static"),
+            ]
+        );
+    }
+
+    /// The generated root and the `{{CARGO_PKG_*}}` variables come from the
+    /// package's manifest.
+    #[test]
+    fn the_manifest_of_the_package_is_watched() {
+        let project = Project::new();
+        project
+            .file("src/lib.rs", "/// @openapi\nstruct Tag { name: String }")
+            .file(
+                "Cargo.toml",
+                "[package]\nname = \"shop\"\nversion = \"1.0.0\"\n",
+            );
+        let package = Package::from_manifest(project.path("Cargo.toml"))
+            .unwrap()
+            .unwrap();
+        let generator = Generator::new()
+            .input(project.path("src"))
+            .package(package.clone());
+        assert_eq!(
+            watched(generator.clone()),
+            [project.path("src"), project.path("Cargo.toml")]
+        );
+        // Variables that are not set by the new package, and the root, may
+        // still come from the manifest: it stays watched.
+        assert_eq!(
+            watched(generator.clone().package(Package::new("other", "2.0.0"))),
+            [project.path("src"), project.path("Cargo.toml")]
+        );
+        assert_eq!(
+            watched(generator.without_package()),
+            [project.path("src"), project.path("Cargo.toml")]
+        );
+        // A package made in code has no manifest.
+        assert_eq!(
+            watched(
+                Generator::new()
+                    .input(project.path("src"))
+                    .package(Package::new("shop", "1.0.0"))
+            ),
+            [project.path("src")]
+        );
+        // Read through the configuration as well: watched once.
+        let config = Config::load_from(project.root()).unwrap();
+        assert_eq!(
+            watched(
+                Generator::new()
+                    .input(project.path("src"))
+                    .with_config(config)
+                    .package(package)
+            ),
+            [project.path("src"), project.path("Cargo.toml")]
         );
     }
 }
@@ -1873,10 +2012,14 @@ mod review_fixes {
             ]
         );
 
-        // A manifest without settings is not a configuration file.
+        // A manifest without settings is watched too: adding settings to it
+        // changes the result.
         project.file("Cargo.toml", "[package]\nname = \"demo\"\n");
         let config = Config::load_from(project.root()).unwrap();
-        assert_eq!(config.files(), [project.path("openapi.toml")]);
+        assert_eq!(
+            config.files(),
+            [project.path("Cargo.toml"), project.path("openapi.toml")]
+        );
     }
 
     #[test]

@@ -32,10 +32,17 @@ fn main() {
   reached twice (overlapping inputs, an include inside an input directory)
   is read once.
 - `emit_cargo_directives(true)` prints `cargo:rerun-if-changed` for every
-  input and every configuration file read with `Config::load()` (see
-  below), `cargo:rerun-if-env-changed` for every `{{env:NAME}}`
-  placeholder, so the script reruns only when something it reads changes,
-  and every finding as `cargo:warning`.
+  input, every configuration file read with `Config::load()` (see below)
+  and the package's `Cargo.toml` (the generated root and the
+  `{{CARGO_PKG_*}}` variables come from it), `cargo:rerun-if-env-changed`
+  for every `{{env:NAME}}` placeholder, so the script reruns only when
+  something it reads changes, and every finding as `cargo:warning`.
+- A missing `include` (`OF0001`) is watched through the nearest existing
+  directory above it, so creating the file reruns the script. When that
+  directory is the package directory or above it (where the build output
+  lives, which changes on every build), the file itself is watched, and
+  Cargo reruns the script on every build until the file exists. A missing
+  `openapi.toml` is not watched: after creating one, touch `build.rs`.
 - Files are written atomically and only when their content changes, so an
   unchanged document does not trigger rebuilds of crates that embed it.
 - `generate()` fails on errors (an invalid route, unparsable YAML, two root

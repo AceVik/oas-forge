@@ -40,7 +40,23 @@ mod manifests {
         let package = Package::from_manifest(project.path("Cargo.toml"))
             .unwrap()
             .unwrap();
-        assert_eq!(package, Package::new("bare", "0.0.0"));
+        assert_eq!(
+            package.manifest(),
+            Some(project.path("Cargo.toml").as_path())
+        );
+        assert_eq!(
+            (package.name.as_str(), package.version.as_str()),
+            ("bare", "0.0.0")
+        );
+        assert_eq!(
+            (
+                &package.description,
+                &package.license,
+                &package.repository,
+                &package.homepage
+            ),
+            (&None, &None, &None, &None)
+        );
     }
 
     #[test]
@@ -183,6 +199,9 @@ mod environment {
         assert_eq!(package.name, env!("CARGO_PKG_NAME"));
         assert_eq!(package.version, env!("CARGO_PKG_VERSION"));
         assert_eq!(package.license.as_deref(), Some(env!("CARGO_PKG_LICENSE")));
+        // The manifest of `CARGO_MANIFEST_DIR`, which Cargo sets as well.
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        assert_eq!(package.manifest(), Some(manifest.as_path()));
     }
 
     #[test]

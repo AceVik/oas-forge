@@ -51,6 +51,8 @@ pub struct Package {
     pub repository: Option<String>,
     /// `homepage`
     pub homepage: Option<String>,
+    /// The `Cargo.toml` the metadata was read from ([`Package::manifest`]).
+    manifest: Option<PathBuf>,
 }
 
 impl Package {
@@ -88,7 +90,8 @@ impl Package {
         std::env::var_os("OUT_DIR").and_then(|_| Self::from_env())
     }
 
-    /// The package described by the `CARGO_PKG_*` environment variables.
+    /// The package described by the `CARGO_PKG_*` environment variables,
+    /// with the [manifest](Package::manifest) in `CARGO_MANIFEST_DIR`.
     /// `None` without `CARGO_PKG_NAME`; a missing version is `0.0.0`, and
     /// empty variables count as unset.
     ///
@@ -110,6 +113,7 @@ impl Package {
             license: var("CARGO_PKG_LICENSE"),
             repository: var("CARGO_PKG_REPOSITORY"),
             homepage: var("CARGO_PKG_HOMEPAGE"),
+            manifest: var("CARGO_MANIFEST_DIR").map(|dir| Path::new(&dir).join("Cargo.toml")),
         })
     }
 
@@ -187,7 +191,33 @@ impl Package {
             license: field("license"),
             repository: field("repository"),
             homepage: field("homepage"),
+            manifest: Some(path.to_path_buf()),
         }))
+    }
+
+    /// The `Cargo.toml` the metadata was read from: the file given to
+    /// [`Package::from_manifest`], or `CARGO_MANIFEST_DIR/Cargo.toml` for
+    /// [`Package::from_env`]; `None` for a package made with
+    /// [`Package::new`]. A [`Generator`](crate::Generator) with the package
+    /// watches it ([`Spec::watched`](crate::Spec::watched)), so that a build
+    /// script reruns when the metadata of the generated root changes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Package;
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// let manifest = dir.path().join("Cargo.toml");
+    /// std::fs::write(&manifest, "[package]\nname = \"shop\"\nversion = \"1.0.0\"\n")?;
+    ///
+    /// let package = Package::from_manifest(&manifest)?.expect("a [package] section");
+    /// assert_eq!(package.manifest(), Some(manifest.as_path()));
+    /// assert_eq!(Package::new("shop", "1.0.0").manifest(), None);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn manifest(&self) -> Option<&Path> {
+        self.manifest.as_deref()
     }
 
     /// The `CARGO_PKG_*` variables Cargo sets for this package; like Cargo,

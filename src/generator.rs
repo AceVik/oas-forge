@@ -73,6 +73,9 @@ pub struct Generator {
     strict_lints: bool,
     /// Configuration files the settings were read from (watched by Cargo).
     config_files: Vec<PathBuf>,
+    /// The `Cargo.toml` the package metadata and the `CARGO_PKG_*`
+    /// variables come from (watched by Cargo).
+    manifest: Option<PathBuf>,
 }
 
 /// The package variables Cargo sets for build scripts.
@@ -103,6 +106,7 @@ impl Default for Generator {
         variables
             .entry("CARGO_PKG_VERSION".into())
             .or_insert_with(|| "0.0.0".into());
+        let package = Package::from_build_env();
         Self {
             inputs: Vec::new(),
             includes: Vec::new(),
@@ -114,7 +118,11 @@ impl Default for Generator {
             cargo_directives: false,
             types: TypeMapper::new(),
             infer: true,
-            package: Package::from_build_env(),
+            manifest: package
+                .as_ref()
+                .and_then(Package::manifest)
+                .map(Path::to_path_buf),
+            package,
             strict_lints: false,
             config_files: Vec::new(),
         }
@@ -239,7 +247,9 @@ impl Generator {
     }
 
     /// Adds a single YAML, JSON or `.proto` file. A missing file is reported
-    /// ([`Code::MissingInclude`]) and skipped.
+    /// ([`Code::MissingInclude`]) and skipped; it is
+    /// [watched](Spec::watched) through the nearest existing directory above
+    /// it, so a build script reruns when it is created.
     ///
     /// # Examples
     ///
@@ -699,7 +709,10 @@ impl Generator {
     /// Uses `package` for the root document when the sources define none
     /// and for the `{{CARGO_PKG_*}}` variables ([`Package::variables`]);
     /// [`Generator::var`] calls after this one win. In a build script the
-    /// running package is used by default.
+    /// running package is used by default. Its [manifest](Package::manifest)
+    /// is [watched](Spec::watched), and stays watched when another package
+    /// or [`Generator::without_package`] replaces it (variables may still
+    /// come from it).
     ///
     /// # Examples
     ///
@@ -727,6 +740,9 @@ impl Generator {
                 .into_iter()
                 .map(|(name, value)| (name.to_string(), value)),
         );
+        if let Some(manifest) = package.manifest() {
+            self.manifest = Some(manifest.to_path_buf());
+        }
         self.package = Some(package);
         self
     }
@@ -942,12 +958,7 @@ impl Generator {
             strict_lints: self.strict_lints,
             outputs,
             diagnostics,
-            watched: sources
-                .watched()
-                .iter()
-                .chain(&self.config_files)
-                .cloned()
-                .collect(),
+            watched: self.watched(&sources),
             watched_env: sources
                 .files()
                 .iter()
@@ -983,6 +994,31 @@ impl Generator {
             spec.diagnostics.deny_warnings();
         }
         Ok(spec)
+    }
+
+    /// What a build script watches: the inputs and existing includes, a
+    /// directory for each missing include ([`watch_missing`]), the
+    /// configuration files and the package manifest; each path once.
+    fn watched(&self, sources: &SourceSet) -> Vec<PathBuf> {
+        let missing = self
+            .includes
+            .iter()
+            .filter(|include| !include.is_file())
+            .map(|include| watch_missing(include));
+        let mut watched: Vec<PathBuf> = Vec::new();
+        for path in sources
+            .watched()
+            .iter()
+            .cloned()
+            .chain(missing)
+            .chain(self.config_files.iter().cloned())
+            .chain(self.manifest.iter().cloned())
+        {
+            if !watched.contains(&path) {
+                watched.push(path);
+            }
+        }
+        watched
     }
 
     /// Runs the pipeline and writes every configured output.
@@ -1168,7 +1204,12 @@ impl Spec {
     }
 
     /// Inputs and configuration files ([`Config::files`]) whose changes
-    /// affect the result.
+    /// affect the result, and the [manifest](Package::manifest) of the
+    /// package. A missing include is watched through the nearest existing
+    /// directory above it, unless that directory contains the working
+    /// directory (in a build script, the package directory, which holds the
+    /// build output): then the file itself, and Cargo reruns the build
+    /// script on every build until it exists.
     ///
     /// # Examples
     ///
@@ -1837,6 +1878,39 @@ pub(crate) fn assemble(
         generated_keys,
         asyncapi,
     })
+}
+
+/// The path to watch for the include `path` that does not exist: the
+/// nearest existing directory above it, so that creating the file reruns a
+/// build script. Cargo reruns a build script on every build while a watched
+/// path is missing, and a watched directory is scanned recursively; a
+/// directory that contains the working directory (the package directory of
+/// a build script) also contains the build output, which changes on every
+/// build. Then the missing file itself is watched.
+fn watch_missing(path: &Path) -> PathBuf {
+    let cwd = std::env::current_dir().and_then(|dir| dir.canonicalize());
+    let mut parent = path.parent();
+    while let Some(dir) = parent {
+        // The parent of a relative file name is the empty path.
+        let existing = if dir.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            dir
+        };
+        if existing.is_dir() {
+            let holds_cwd = cwd.as_ref().is_ok_and(|cwd| {
+                existing
+                    .canonicalize()
+                    .is_ok_and(|dir| cwd.starts_with(dir))
+            });
+            if holds_cwd {
+                break;
+            }
+            return existing.to_path_buf();
+        }
+        parent = dir.parent();
+    }
+    path.to_path_buf()
 }
 
 /// Whether a snippet is the root of the AsyncAPI document.

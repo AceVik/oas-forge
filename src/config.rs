@@ -178,12 +178,13 @@ impl Config {
         if manifest.is_file() {
             let parsed: CargoManifest = toml::from_str(&read(&manifest)?)
                 .map_err(|e| Error::config(&manifest, e.to_string()))?;
-            if let Some(mut found) = parsed
+            // Read either way: adding the table later changes the settings.
+            config.files.push(manifest);
+            if let Some(found) = parsed
                 .package
                 .and_then(|p| p.metadata)
                 .and_then(|m| m.oas_forge)
             {
-                found.files.push(manifest);
                 config.merge(found);
             }
         }
@@ -223,7 +224,7 @@ impl Config {
         Ok(config)
     }
 
-    /// The files the settings were read from (`Cargo.toml` when it has
+    /// The files the settings were read from (`Cargo.toml`, also without
     /// `[package.metadata.oas-forge]`, `openapi.toml`, a `--config` file), so
     /// a build script can rerun when they change
     /// ([`Generator::with_config`](crate::Generator::with_config) watches them).
@@ -239,6 +240,14 @@ impl Config {
     ///
     /// let config = Config::load_from(dir.path())?;
     /// assert_eq!(config.files(), [dir.path().join("openapi.toml")]);
+    ///
+    /// // `Cargo.toml` counts without the table, which may be added later.
+    /// std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"shop\"\n")?;
+    /// let config = Config::load_from(dir.path())?;
+    /// assert_eq!(
+    ///     config.files(),
+    ///     [dir.path().join("Cargo.toml"), dir.path().join("openapi.toml")]
+    /// );
     /// assert!(Config::from_toml_str(r#"input = ["src"]"#)?.files().is_empty());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
