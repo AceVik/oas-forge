@@ -21,6 +21,7 @@ mod prose;
 mod responses;
 mod tokens;
 
+pub(crate) use channel::channel_messages;
 pub use channel::{ChannelSource, CompiledChannel, compile_channel, is_channel};
 pub(crate) use params::EXPAND_KEY;
 

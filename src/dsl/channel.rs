@@ -25,6 +25,7 @@ use crate::schema::TypeMapper;
 use crate::scope;
 use crate::yaml;
 use serde_json::{Map, Value, json};
+use std::collections::BTreeMap;
 
 /// Fields of the Channel Object that start an embedded YAML section in a
 /// channel block; `address:` overrides the `@channel` line (with a note).
@@ -591,6 +592,69 @@ pub fn compile_channel(
         scopes,
         document,
     })
+}
+
+/// Moves the messages that the compiled channel blocks `channels` define
+/// differently under one name from `components.messages` into each
+/// channel (`channels.<id>.messages.<Name>`), where the channel's
+/// operations refer to them already. A name that every block defines
+/// alike stays a shared component.
+pub(crate) fn channel_messages(channels: &mut [&mut Value]) {
+    let mut definitions: BTreeMap<String, Vec<&Value>> = BTreeMap::new();
+    for document in channels.iter() {
+        if let Some(Value::Object(messages)) = document.pointer("/components/messages") {
+            for (name, message) in messages {
+                let seen = definitions.entry(name.clone()).or_default();
+                if !seen.contains(&message) {
+                    seen.push(message);
+                }
+            }
+        }
+    }
+    let differing: Vec<String> = definitions
+        .into_iter()
+        .filter(|(_, seen)| seen.len() > 1)
+        .map(|(name, _)| name)
+        .collect();
+    if differing.is_empty() {
+        return;
+    }
+    for document in channels.iter_mut() {
+        let Some(Value::Object(components)) = document.get_mut("components") else {
+            continue;
+        };
+        let Some(Value::Object(messages)) = components.get_mut("messages") else {
+            continue;
+        };
+        let moved: Vec<(String, Value)> = differing
+            .iter()
+            .filter_map(|name| Some((name.clone(), messages.shift_remove(name)?)))
+            .collect();
+        if messages.is_empty() {
+            components.shift_remove("messages");
+        }
+        if components.is_empty()
+            && let Some(map) = document.as_object_mut()
+        {
+            map.shift_remove("components");
+        }
+        let Some(Value::Object(channels)) = document.get_mut("channels") else {
+            continue;
+        };
+        for channel in channels.values_mut() {
+            let Some(Value::Object(references)) = channel.get_mut("messages") else {
+                continue;
+            };
+            for (name, message) in &moved {
+                let shared = json!({ "$ref": format!("#/components/messages/{name}") });
+                if let Some(entry) = references.get_mut(name)
+                    && *entry == shared
+                {
+                    *entry = message.clone();
+                }
+            }
+        }
+    }
 }
 
 /// Adds a message of `@send` or `@receive` (action, name, Message Object)

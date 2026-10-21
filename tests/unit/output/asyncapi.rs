@@ -339,3 +339,102 @@ fn message_headers_follow_the_asyncapi_dialect() {
         spec::validate(&document)
     );
 }
+
+/// Two games channels that both send `HelloAck`, as `body` says.
+fn games(seat: &str, watch: &str) -> String {
+    format!(
+        "{ROOT}\n/// @openapi\nstruct Frame {{ a: u8 }}\n/// @openapi\nstruct Other {{ b: u8 }}\n\
+         /// Seat\n/// @channel seat /games/{{id}}/ws\n/// @send HelloAck: {seat}\nfn seat() {{}}\n\
+         /// Watch\n/// @channel watch /games/{{id}}/watch\n/// @send HelloAck: {watch}\nfn watch() {{}}\n"
+    )
+}
+
+#[test]
+fn a_message_name_that_channels_define_differently_stays_in_each_channel() {
+    let (spec, _project) = spec_of(&[(
+        "lib.rs",
+        &games(r#"$Frame "seat ack""#, r#"$Other "watch ack""#),
+    )]);
+    assert!(spec.diagnostics().is_empty(), "{:#?}", spec.diagnostics());
+    let document = spec.render(OutputKind::AsyncApi).unwrap();
+    assert_eq!(
+        document["channels"]["seat"]["messages"]["HelloAck"],
+        json!({
+            "name": "HelloAck",
+            "payload": { "$ref": "#/components/schemas/Frame" },
+            "description": "seat ack",
+        })
+    );
+    assert_eq!(
+        document["channels"]["watch"]["messages"]["HelloAck"]["description"],
+        "watch ack"
+    );
+    assert!(
+        document["components"].get("messages").is_none(),
+        "{document:#}"
+    );
+    assert_eq!(
+        document["operations"]["watch"]["messages"],
+        json!([{ "$ref": "#/channels/watch/messages/HelloAck" }])
+    );
+    // Both payload schemas are shared.
+    let schemas = document["components"]["schemas"].as_object().unwrap();
+    assert_eq!(schemas.keys().collect::<Vec<_>>(), ["Frame", "Other"]);
+    assert!(
+        spec::validate(&document).is_empty(),
+        "{:?}",
+        spec::validate(&document)
+    );
+}
+
+#[test]
+fn a_message_that_channels_define_alike_is_a_shared_component() {
+    let (spec, _project) = spec_of(&[("lib.rs", &games(r#"$Frame "ack""#, r#"$Frame "ack""#))]);
+    let document = spec.render(OutputKind::AsyncApi).unwrap();
+    assert_eq!(
+        document["channels"]["seat"]["messages"]["HelloAck"],
+        json!({ "$ref": "#/components/messages/HelloAck" })
+    );
+    assert_eq!(
+        document["channels"]["watch"]["messages"]["HelloAck"],
+        json!({ "$ref": "#/components/messages/HelloAck" })
+    );
+    assert_eq!(
+        document["components"]["messages"]["HelloAck"]["description"],
+        "ack"
+    );
+}
+
+#[test]
+fn messages_are_compared_within_the_document_of_a_scope() {
+    let project = crate::common::Project::new();
+    let source = games(r#"$Frame "seat ack""#, r#"$Other "watch ack""#)
+        .replace("/// @channel seat", "/// @scope players\n/// @channel seat")
+        .replace(
+            "/// @channel watch",
+            "/// @scope viewers\n/// @channel watch",
+        );
+    project.file("src/lib.rs", &source);
+    let spec = oas_forge::Generator::new()
+        .input(project.path("src"))
+        .without_package()
+        .scope("players")
+        .build()
+        .unwrap();
+    for scope in ["players", "viewers"] {
+        let document = spec.render_scoped(OutputKind::AsyncApi, scope).unwrap();
+        assert!(
+            document["components"]["messages"]["HelloAck"].is_object(),
+            "{scope}: {document:#}"
+        );
+    }
+    // Without a scope both channels meet.
+    let all = oas_forge::Generator::new()
+        .input(project.path("src"))
+        .without_package()
+        .build()
+        .unwrap()
+        .render(OutputKind::AsyncApi)
+        .unwrap();
+    assert!(all["components"].get("messages").is_none());
+}

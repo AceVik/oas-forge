@@ -1549,6 +1549,9 @@ struct Snippet {
     /// The scopes the snippet belongs to (`@scope`); empty when it is
     /// shared by every scope.
     scopes: Vec<String>,
+    /// Compiled from a `@channel` block (its messages may move into the
+    /// channel, see [`dsl::channel_messages`]).
+    channel: bool,
 }
 
 impl Snippet {
@@ -1559,6 +1562,7 @@ impl Snippet {
             location,
             asyncapi: false,
             scopes: Vec::new(),
+            channel: false,
         }
     }
 
@@ -1802,12 +1806,20 @@ pub(crate) fn assemble(
         strict_lints,
     } = finish;
     // Pass 5: merge.
-    let (asyncapi, snippets): (Vec<Snippet>, Vec<Snippet>) = prepared
+    let (mut asyncapi, snippets): (Vec<Snippet>, Vec<Snippet>) = prepared
         .snippets
         .iter()
         .filter(|s| scope::includes(&s.scopes, scope))
         .cloned()
         .partition(|s| s.asyncapi);
+    // A message name that channels of this document define differently
+    // stays in each channel instead of `components.messages`.
+    let mut channels: Vec<&mut Value> = asyncapi
+        .iter_mut()
+        .filter(|s| s.channel)
+        .map(|s| &mut s.value)
+        .collect();
+    dsl::channel_messages(&mut channels);
     let (mut asyncapi, asyncapi_origins) =
         merge_documents(asyncapi, Vec::new(), is_asyncapi_root, diagnostics)?;
     refs::unescape(&mut asyncapi);
@@ -2175,6 +2187,7 @@ fn materialize(
                 location,
                 asyncapi,
                 scopes: Vec::new(),
+                channel: false,
             }))
         }
         Pending::AsyncApi { text, location } => {
@@ -2189,6 +2202,7 @@ fn materialize(
                 location,
                 asyncapi: true,
                 scopes: scoped.names,
+                channel: false,
             }))
         }
         Pending::Channel(channel) => {
@@ -2230,6 +2244,7 @@ fn materialize(
                 location: channel.location,
                 asyncapi: true,
                 scopes: compiled.scopes,
+                channel: true,
             }))
         }
         Pending::Route(route) => {

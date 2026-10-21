@@ -92,6 +92,14 @@ the OpenAPI outputs are not affected.
   message (same type and description) share it; the same name with other
   content in one channel is reported (`OF4001`) and the later definition
   is used: give the messages distinct names.
+- Messages are shared components (`components.messages.Name`) as long as
+  every channel that uses a name defines it alike. When channels define
+  one name differently (`seat` and `watch` both send `HelloAck` with other
+  payloads), each keeps its own definition in the channel
+  (`channels.seat.messages.HelloAck`), which its operations refer to
+  (`#/channels/seat/messages/HelloAck`); nothing is merged or reported.
+  Only the channels of one document (one [scope](route-dsl.md#scopes))
+  are compared.
 - Media types after the type set the message's `contentType` (the first
   one): `@send Snapshot: Vec<$Job> application/x-ndjson`. Without one, the
   document's `defaultContentType` applies. A message may have a media
