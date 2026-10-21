@@ -1632,6 +1632,10 @@ impl Collected {
     }
 }
 
+/// How many `mod name;` declarations a route's defaults are looked up
+/// through, a bound for chains Rust would not compile anyway.
+const MAX_MODULE_DEPTH: usize = 64;
+
 /// The `@route-defaults` of a run.
 struct RouteDefaults {
     /// `mod name;` declarations by the file of the module they declare.
@@ -1819,7 +1823,10 @@ fn expand_defaults(
                 .min_by(|a, b| a.location.cmp(&b.location))
         })
     };
-    while let Some(module) = declaration(&file) {
+    for _ in 0..MAX_MODULE_DEPTH {
+        let Some(module) = declaration(&file) else {
+            break;
+        };
         let parent = extract::normalize_path(module.location.file());
         // Rust rejects modules that contain themselves; the chain ends there.
         if !seen.insert(parent.clone()) {

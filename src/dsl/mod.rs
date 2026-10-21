@@ -445,15 +445,17 @@ impl<'a> RouteSource<'a> {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct CompiledRoute {
-    /// The normalized path (`/users/{id}`), or the webhook name.
+    /// The normalized path (`/users/{id}`), or the webhook name; of the
+    /// first valid `@route` or `@webhook` line when the block has several.
     pub path: String,
     /// The method: lowercase for the fixed path item fields, as written
-    /// (uppercase) for `additionalOperations`.
+    /// (uppercase) for `additionalOperations`; of the first valid line.
     pub method: String,
-    /// Whether the block is a `@webhook`.
+    /// Whether the first valid line is a `@webhook`.
     pub webhook: bool,
-    /// The document fragment: `paths` (or `webhooks`), plus anything from
-    /// `@openapi document` and the components the block needs.
+    /// The document fragment: `paths` (or `webhooks`) with the operation of
+    /// every line, plus anything from `@openapi document` and the components
+    /// the block needs.
     pub document: Value,
 }
 
