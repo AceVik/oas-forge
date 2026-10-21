@@ -25,8 +25,29 @@ parameters say, see [below](#signature-inference).
 
 - The first plain line is the `summary`; the following plain lines are the
   `description`. Blank lines separate paragraphs; Markdown and relative
-  indentation are kept. `@summary text` and `@description text` set them
-  explicitly (`@description` continues on the following plain lines).
+  indentation are kept (the shared indentation is removed).
+- `@summary text` replaces the first plain line as summary; the other plain
+  lines stay the description.
+- `@description text` replaces the plain lines as description. It continues
+  on the following plain lines up to the next directive (there, lines such
+  as `responses: …` are text, not YAML); several `@description` lines add
+  up.
+- `@internal` leaves the plain lines after it, up to the next directive,
+  out of the document: notes for developers, anywhere in the block (also
+  before `@route`), that stay in the Rust docs only.
+
+  ```rust,ignore
+  /// `POST /decks`: creates a deck.
+  ///
+  /// @internal
+  /// We store the version first because of #312.
+  /// @route POST /decks
+  /// @summary Create a deck
+  /// @description Creates a deck for the signed-in player.
+  /// The name must be unique per player.
+  /// @return 201: $Deck
+  pub async fn create_deck() {}
+  ```
 - A directive line starts with `@`. Unknown directives are reported
   (`OF2006`) and ignored; malformed ones too (`OF2004`).
 - A line that starts with a field of the Operation Object (`tags:`,
@@ -36,7 +57,7 @@ parameters say, see [below](#signature-inference).
   directive. `@openapi` starts YAML explicitly, see
   [embedded OpenAPI](#embedded-openapi). An `@extend` line merges a
   fragment into the operation without starting YAML: plain lines after it
-  are still description.
+  are still description (or still left out after `@internal`).
 - One block contains one `@route` or `@webhook`.
 - [`{{variables}}`](templates.md#variables) work on every line. A
   placeholder that is a whole value is quoted only in embedded YAML
@@ -74,8 +95,9 @@ methods work like functions.
 | :--- | :--- | :--- |
 | `@route` | `METHOD /path` | The operation |
 | `@webhook` | `[METHOD] name` | `webhooks.name` (OpenAPI 3.1+); the method defaults to `POST` |
-| `@summary` | `text` | `summary` |
-| `@description` | `text` | `description` |
+| `@summary` | `text` | `summary`, instead of the first plain line |
+| `@description` | `text` | `description`, instead of the plain lines |
+| `@internal` | | the plain lines after it are left out |
 | `@tag` | `Name[, Name…]` | `tags` (several lines add up) |
 | `@deprecated` | | `deprecated: true` (also from `#[deprecated]` on the handler) |
 | `@operation-id` | `id` | `operationId` |

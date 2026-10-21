@@ -17,6 +17,7 @@ mod channel;
 pub(crate) mod expand;
 mod operation;
 mod params;
+mod prose;
 mod responses;
 mod tokens;
 
@@ -29,6 +30,7 @@ use crate::schema::{MappedType, TypeExpr, TypeMapper, shadow};
 use crate::template::lexical::{DEFAULTS_MARKER, EXTEND_KEY};
 use crate::yaml;
 use operation::Security;
+use prose::{Prose, Text};
 use regex::Regex;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
@@ -458,11 +460,8 @@ struct Builder {
     /// The `@tag` names without duplicates; `None` without a `@tag` line, so
     /// that the default tags apply.
     tags: Option<Vec<String>>,
-    /// The summary: `@summary`, or the first prose line.
-    summary: Option<String>,
-    /// The description lines (`@description` and the prose after the
-    /// summary), blank lines included.
-    description: Vec<String>,
+    /// The summary and description.
+    prose: Prose,
     /// Where the lines read so far leave the next one.
     structure: Structure,
     /// The lines of embedded YAML: their scope, their index in
@@ -490,16 +489,18 @@ struct Builder {
 }
 
 /// Where the lines of a block read so far leave the next one: in an
-/// embedded YAML section, in a `@description` or in prose. The compiler and
+/// embedded YAML section, or in prose (free text, a `@description` or an
+/// `@internal` note). The compiler and
 /// [`yaml_lines`] read lines with it, so the lexical stage quotes
 /// placeholders on exactly the lines the compiler parses as YAML.
 #[derive(Debug, Default, Clone, Copy)]
 struct Structure {
     /// The embedded YAML section that is open; `None` in prose.
     scope: Option<Scope>,
-    /// Whether prose lines continue a `@description`; then lines such as
-    /// `tags: …` are text, not YAML. Ends at the next directive.
-    in_description: bool,
+    /// What plain lines continue. In a `@description` or an `@internal`
+    /// note, lines such as `tags: …` are text, not YAML. Ends at the next
+    /// directive.
+    text: Text,
 }
 
 /// What a line of a block is, as [`Structure::read`] sees it.
@@ -520,9 +521,10 @@ enum Line<'l> {
 
 impl Structure {
     /// Reads one line and advances to the next: a directive ends a YAML
-    /// section and a `@description` (`@openapi` and `@description` start
-    /// them); a line that starts with an operation field (`responses:`,
-    /// `x-…:`) starts embedded YAML, unless it continues a `@description`.
+    /// section, a `@description` and an `@internal` note (`@openapi`,
+    /// `@description` and `@internal` start them); a line that starts with an
+    /// operation field (`responses:`, `x-…:`) starts embedded YAML, unless it
+    /// continues a `@description` or an `@internal` note.
     fn read<'l>(&mut self, line: &'l str) -> Line<'l> {
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -530,7 +532,7 @@ impl Structure {
         }
         if let Some(directive) = trimmed.strip_prefix('@') {
             let (name, rest) = split_directive(directive);
-            self.in_description = name == "description";
+            self.text = Text::after(name);
             // An unknown scope is reported and taken for the operation.
             self.scope =
                 (name == "openapi").then(|| openapi_scope(rest).unwrap_or(Scope::Operation));
@@ -546,7 +548,7 @@ impl Structure {
             return Line::Marker;
         }
         if self.scope.is_none()
-            && !self.in_description
+            && self.text == Text::Free
             && key.is_some_and(|key| YAML_KEYS.contains(&key) || key.starts_with("x-"))
         {
             self.scope = Some(Scope::Operation);
@@ -773,29 +775,27 @@ impl Compiler<'_, '_> {
         match b.structure.read(line) {
             Line::Blank => match b.structure.scope {
                 Some(scope) => b.yaml.push((scope, index, String::new())),
-                // Blank lines before the summary are leading blank lines of
-                // the description, which `description_text` drops.
-                None => b.description.push(String::new()),
+                None => b.prose.line(b.structure.text, ""),
             },
-            Line::Directive(directive) => self.directive(b, index, directive, defaults),
+            Line::Directive(directive) => {
+                self.directive(b, index, directive, prose::margin(line), defaults);
+            }
             Line::Marker => b.yaml.push((Scope::Operation, index, line.to_string())),
             Line::Yaml(scope) => b.yaml.push((scope, index, line.to_string())),
-            Line::Prose if b.structure.in_description || b.summary.is_some() => {
-                b.description.push(line.to_string());
-            }
-            Line::Prose => b.summary = Some(line.trim().to_string()),
+            Line::Prose => b.prose.line(b.structure.text, line),
         }
     }
 
-    /// Applies one directive (`directive` is the text after `@`). `@route`
-    /// and `@webhook` belong to the block, `@route-defaults` and `@prefix` to
-    /// module defaults; elsewhere, like unknown names, they are reported as
-    /// unknown directives.
+    /// Applies one directive (`directive` is the text after `@`, `margin`
+    /// the indentation of its line). `@route` and `@webhook` belong to the
+    /// block, `@route-defaults` and `@prefix` to module defaults; elsewhere,
+    /// like unknown names, they are reported as unknown directives.
     fn directive(
         &mut self,
         b: &mut Builder,
         index: Option<usize>,
         directive: &str,
+        margin: &str,
         defaults: bool,
     ) {
         let (name, rest) = split_directive(directive);
@@ -825,12 +825,10 @@ impl Compiler<'_, '_> {
                     }
                 }
             }
-            "summary" => b.summary = Some(rest.to_string()),
-            "description" => {
-                if !rest.is_empty() {
-                    b.description.push(rest.to_string());
-                }
-            }
+            "summary" => b.prose.summary(rest),
+            "description" => b.prose.description(margin, rest),
+            // The plain lines after it are left out (`Structure::read`).
+            "internal" => {}
             "deprecated" => {
                 b.operation.insert("deprecated".into(), json!(true));
             }
@@ -1142,10 +1140,11 @@ impl Compiler<'_, '_> {
         }
 
         let mut operation = Map::new();
-        if let Some(summary) = b.summary.take() {
+        let (summary, description) = std::mem::take(&mut b.prose).finish();
+        if let Some(summary) = summary {
             operation.insert("summary".into(), json!(summary));
         }
-        if let Some(description) = description_text(&b.description) {
+        if let Some(description) = description {
             operation.insert("description".into(), json!(description));
         }
         let name = b.webhook.clone().unwrap_or_else(|| b.path.clone());
@@ -1650,27 +1649,6 @@ fn add_response(responses: &mut Map<String, Value>, code: String, response: Valu
             responses.insert(code, response);
         }
     }
-}
-
-/// Description lines with their shared indentation removed; blank lines
-/// separate paragraphs.
-fn description_text(lines: &[String]) -> Option<String> {
-    let start = lines.iter().position(|l| !l.trim().is_empty())?;
-    let end = lines.iter().rposition(|l| !l.trim().is_empty())?;
-    let lines = lines.get(start..=end)?;
-    let indent = lines
-        .iter()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| l.chars().take_while(|c| c.is_whitespace()).count())
-        .min()
-        .unwrap_or(0);
-    Some(
-        lines
-            .iter()
-            .map(|l| l.chars().skip(indent).collect::<String>())
-            .collect::<Vec<_>>()
-            .join("\n"),
-    )
 }
 
 /// A stable operationId for routes without a function (`get_legacy_proxy`).

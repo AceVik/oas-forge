@@ -69,11 +69,15 @@ the OpenAPI outputs are not affected.
 | `@receive` | `Message: Type ["description"]` | the same with a `receive` operation |
 | `@tag` | `Name[, Name…]` | the operations' `tags` |
 | `@summary`, `@description` | `text` | the operations' `summary` and `description` |
+| `@internal` | | the plain lines after it are left out |
 
 - Without an id, the id is derived from the address: `user/{id}/signedup`
   becomes `user_id_signedup`.
 - The first plain line of the block is the summary, the following ones the
-  description.
+  description. `@summary`, `@description` and `@internal` work as in
+  [routes](route-dsl.md#the-block): `@summary` replaces the first plain
+  line, `@description` (continued on the following plain lines) replaces the
+  description, and the plain lines after `@internal` are left out.
 - The operation id is the function name; with both `@send` and `@receive` in
   one block it gets the suffix `_send` or `_receive`. A channel in a `//!`
   comment has no function; its operations are named `send_{channel}` and

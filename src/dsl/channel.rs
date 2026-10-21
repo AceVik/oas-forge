@@ -8,6 +8,7 @@
 //! fn publish_signup() {}
 //! ```
 
+use super::prose::{self, Prose, Text};
 use super::responses::type_schema;
 use super::tokens::trailing_description;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
@@ -95,24 +96,22 @@ pub fn compile_channel(
     let mut channel: Option<(String, String)> = None;
     // An invalid `@channel` line is reported where it is.
     let mut channel_lines = 0;
-    let mut summary: Option<String> = None;
-    let mut description: Vec<String> = Vec::new();
+    let mut prose = Prose::default();
+    // What plain lines continue.
+    let mut text = Text::Free;
     let mut tags: Vec<String> = Vec::new();
     let mut messages: Vec<(&'static str, String, Value)> = Vec::new();
 
     for (index, line) in source.lines.iter().enumerate() {
         let trimmed = line.trim();
         let Some(directive) = trimmed.strip_prefix('@') else {
-            match (&summary, trimmed.is_empty()) {
-                (None, false) => summary = Some(trimmed.to_string()),
-                (Some(_), _) => description.push(trimmed.to_string()),
-                (None, true) => {}
-            }
+            prose.line(text, line);
             continue;
         };
         let (name, rest) = directive
             .split_once(char::is_whitespace)
             .map_or((directive, ""), |(n, r)| (n, r.trim()));
+        text = Text::after(name);
         match name {
             "channel" => {
                 channel_lines += 1;
@@ -183,8 +182,10 @@ pub fn compile_channel(
                     .map(|t| t.trim().to_string())
                     .filter(|t| !t.is_empty()),
             ),
-            "summary" => summary = Some(rest.to_string()),
-            "description" => description.push(rest.to_string()),
+            "summary" => prose.summary(rest),
+            "description" => prose.description(prose::margin(line), rest),
+            // The plain lines after it are left out.
+            "internal" => {}
             other => diagnostics.push(
                 Diagnostic::new(
                     Code::UnknownDirective,
@@ -227,6 +228,7 @@ pub fn compile_channel(
         channel_object.insert("messages".into(), Value::Object(channel_messages));
     }
 
+    let (summary, description) = prose.finish();
     let mut operations = Map::new();
     let actions: Vec<&str> = ["send", "receive"]
         .into_iter()
@@ -253,8 +255,8 @@ pub fn compile_channel(
         if let Some(summary) = &summary {
             operation.insert("summary".into(), json!(summary));
         }
-        if !description.is_empty() {
-            operation.insert("description".into(), json!(description.join("\n").trim()));
+        if let Some(description) = &description {
+            operation.insert("description".into(), json!(description));
         }
         if !tags.is_empty() {
             operation.insert(
