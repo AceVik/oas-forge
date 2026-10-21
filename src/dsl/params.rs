@@ -3,7 +3,7 @@
 //! `@querystring-param`, inline path parameters and struct expansion
 //! (`@query-params $Pagination`).
 
-use super::tokens::{tokenize, unquote};
+use super::tokens::{quoted_text, tokenize, unquote};
 use crate::attrs::validate::{Constraints, LengthUnit, Rule};
 use crate::diagnostics::Location;
 use crate::schema::{TypeExpr, TypeMapper, shadow};
@@ -134,7 +134,10 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
     value.insert("required".into(), json!(required));
     if !description.is_empty() {
         let text = description.join(" ");
-        value.insert("description".into(), json!(unquote(&text).unwrap_or(&text)));
+        value.insert(
+            "description".into(),
+            json!(quoted_text(&text).unwrap_or(text)),
+        );
     }
     if location == "querystring" {
         value.insert(

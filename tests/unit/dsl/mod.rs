@@ -5,6 +5,7 @@ mod operation;
 mod params;
 mod prose;
 mod responses;
+mod tokens;
 
 use crate::common::{codes, here, lines, operation, route, try_route};
 use oas_forge::diagnostics::{Code, Diagnostics, Location, Severity};

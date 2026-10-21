@@ -623,9 +623,11 @@ pub fn yaml_lines(lines: &[String]) -> Vec<bool> {
 }
 
 /// An inline path parameter: `{id}`, `{id: u64}`, `{id "User id"}` or
-/// `{id: u64 "User id"}`. Captures the name, the type and the description.
+/// `{id: u64 "User id"}`. Captures the name, the type and the description
+/// (with `\"` and `\\` escapes).
 static INLINE_PARAM_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\{(\w+)(?::\s*([^"}]+))?(?:\s*"([^"]+)")?\}"#).expect("constant pattern")
+    Regex::new(r#"\{(\w+)(?::\s*([^"}]+))?(?:\s*"((?:[^"\\]|\\.)+)")?\}"#)
+        .expect("constant pattern")
 });
 
 /// A placeholder of a normalized path (`{id}`); captures the name.
@@ -1038,12 +1040,13 @@ impl Compiler<'_, '_> {
             last = whole.end();
 
             let type_text = caps.get(2).map(|m| m.as_str().trim());
-            let description = caps.get(3).map(|m| m.as_str());
+            let description = caps.get(3).map(|m| tokens::unescape(m.as_str()));
             if type_text.is_none() && description.is_none() {
                 continue;
             }
             b.declared.insert(name.to_string());
-            let param = params::inline_path(name, type_text, description, self.source.types);
+            let param =
+                params::inline_path(name, type_text, description.as_deref(), self.source.types);
             add_parameter(&mut b.parameters, param);
         }
         path.push_str(raw_path.get(last..).unwrap_or_default());

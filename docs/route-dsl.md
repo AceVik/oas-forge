@@ -50,6 +50,9 @@ parameters say, see [below](#signature-inference).
   ```
 - A directive line starts with `@`. Unknown directives are reported
   (`OF2006`) and ignored; malformed ones too (`OF2004`).
+- Descriptions in directives are quoted: `"No such deck"`. Inside the
+  quotes `\"` is a quote and `\\` a backslash; everything else, Markdown
+  included, is kept as written (`` "not `{\"enabled\": true}`" ``).
 - A line that starts with a field of the Operation Object (`tags:`,
   `externalDocs:`, `operationId:`, `parameters:`, `requestBody:`,
   `responses:`, `callbacks:`, `deprecated:`, `security:`, `servers:`) or an
