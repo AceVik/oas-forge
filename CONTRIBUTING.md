@@ -37,7 +37,14 @@ Include the diagnostic codes you see (`OF…`). Security problems go to
    ```
 
 For larger changes, `cargo mutants --package oas-forge --test-tool nextest
--f src/<file>.rs` shows behaviour the tests do not pin down.
+-f src/<file>.rs` shows behaviour the tests do not pin down. CI runs the
+mutants of a pull request's diff on up to ten runners; a diff with more than
+300 mutants is skipped there with a warning, so run it locally:
+
+```bash
+git diff origin/main...HEAD > pr.diff
+cargo mutants --package oas-forge --test-tool nextest --in-diff pr.diff
+```
 
 Tools: [`cargo-insta`](https://insta.rs/docs/cli/),
 [`cargo-mutants`](https://mutants.rs),
