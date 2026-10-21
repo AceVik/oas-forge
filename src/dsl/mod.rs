@@ -32,7 +32,7 @@ use crate::scope;
 use crate::template::lexical::{DEFAULTS_MARKER, EXTEND_KEY};
 use crate::yaml;
 use operation::Security;
-use prose::{Prose, Text};
+use prose::{ImplicitYaml, Prose, Text};
 use regex::Regex;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -578,6 +578,9 @@ struct Structure {
     /// The fence of the open fenced YAML section (rendered as code by
     /// rustdoc), which ends at the closing fence.
     fence: Option<String>,
+    /// The YAML section a field-name line started, which a paragraph of
+    /// prose after a blank line ends.
+    implicit: ImplicitYaml,
 }
 
 /// What a line of a block is, as [`Structure::read`] sees it.
@@ -594,6 +597,9 @@ enum Line<'l> {
     Yaml(Scope),
     /// The summary or a line of the description.
     Prose,
+    /// A line of prose that ends an implicit YAML section after a blank
+    /// line: a new paragraph.
+    Paragraph,
     /// A fence of a fenced YAML section: neither YAML nor prose.
     Fence,
 }
@@ -620,9 +626,11 @@ impl Structure {
             return Line::Fence;
         }
         if trimmed.is_empty() {
+            self.implicit.blank();
             return Line::Blank;
         }
         if let Some(directive) = trimmed.strip_prefix('@') {
+            self.implicit.stop();
             let (name, rest) = split_directive(directive);
             self.after_openapi = name == "openapi";
             self.text = Text::after(name);
@@ -637,6 +645,10 @@ impl Structure {
             .split_once(':')
             .map(|(key, _)| key.trim())
             .filter(|key| !key.is_empty() && !key.contains(char::is_whitespace));
+        if self.implicit.ends(line) {
+            self.scope = None;
+            return Line::Paragraph;
+        }
         if self.scope.is_none() && key.is_some_and(|key| key.starts_with(EXTEND_KEY)) {
             return Line::Marker;
         }
@@ -645,6 +657,7 @@ impl Structure {
             && key.is_some_and(|key| YAML_KEYS.contains(&key) || key.starts_with("x-"))
         {
             self.scope = Some(Scope::Operation);
+            self.implicit.start(line);
         }
         match self.scope {
             Some(scope) => Line::Yaml(scope),
@@ -697,7 +710,7 @@ pub fn yaml_lines(lines: &[String]) -> Vec<bool> {
         .map(|line| match structure.read(line) {
             Line::Blank => structure.scope.is_some(),
             Line::Marker | Line::Yaml(_) => true,
-            Line::Directive(_) | Line::Prose | Line::Fence => false,
+            Line::Directive(_) | Line::Prose | Line::Paragraph | Line::Fence => false,
         })
         .collect()
 }
@@ -932,6 +945,10 @@ impl Compiler<'_, '_> {
             Line::Marker => b.yaml.push((Scope::Operation, at, line.to_string())),
             Line::Yaml(scope) => b.yaml.push((scope, at, line.to_string())),
             Line::Prose => b.prose.line(b.structure.text, line),
+            Line::Paragraph => {
+                b.prose.paragraph(b.structure.text);
+                b.prose.line(b.structure.text, line);
+            }
             Line::Fence => {}
         }
     }

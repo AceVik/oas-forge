@@ -989,6 +989,35 @@ mod yaml_classification {
     }
 
     #[test]
+    fn prose_after_a_blank_line_ends_implicit_yaml() {
+        let rows = [
+            (" Summary", false),
+            (" @route GET /x", false),
+            (" x-a: 1", true),
+            ("", true),
+            (" x-b: 2", true),
+            ("", true),
+            ("   nested: still yaml", true),
+            ("", true),
+            (" # a comment", true),
+            ("", true),
+            (" - a Markdown item", false),
+            (" - another", false),
+            ("", false),
+            (" x-c: 3", true),
+            ("", true),
+            (" Some prose: with a colon", false),
+            (" @openapi", false),
+            (" x-d: 4", true),
+            ("", true),
+            (" Prose in explicit YAML", true),
+        ];
+        let block: Vec<String> = rows.iter().map(|(line, _)| line.to_string()).collect();
+        let expected: Vec<bool> = rows.iter().map(|(_, yaml)| *yaml).collect();
+        assert_eq!(dsl::yaml_lines(&block), expected);
+    }
+
+    #[test]
     fn an_unknown_openapi_scope_opens_operation_yaml() {
         let block = lines(&["@route GET /x", "@openapi sideways", "x-a: 1"]);
         assert_eq!(dsl::yaml_lines(&block), [false, false, true]);
@@ -1438,5 +1467,74 @@ mod fenced_yaml {
             "get",
         );
         assert_eq!(op["description"], "Example:\n```yaml\na: 1\n```");
+    }
+}
+
+/// Where embedded YAML ends and prose goes on (the same rules as in channel
+/// blocks).
+mod yaml_and_prose {
+    use super::*;
+
+    #[test]
+    fn description_lines_are_never_yaml() {
+        let (document, diagnostics) = try_route(&[
+            "@route GET /x",
+            "@description Prose here.",
+            "x-c: [after-description",
+            "summary: inside description",
+            "@tag T",
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let operation = &document.unwrap()["paths"]["/x"]["get"];
+        assert_eq!(
+            operation["description"],
+            "Prose here.\nx-c: [after-description\nsummary: inside description"
+        );
+        assert!(operation.get("summary").is_none());
+        assert!(operation.get("x-c").is_none());
+    }
+
+    #[test]
+    fn a_markdown_list_after_yaml_and_a_blank_line_is_prose() {
+        let operation = operation(
+            &[
+                " List things",
+                " @route GET /x",
+                " x-rate-limit: 10",
+                "",
+                " - first point",
+                " - second point",
+                "",
+                " Closing words.",
+            ],
+            "/x",
+            "get",
+        );
+        assert_eq!(operation["x-rate-limit"], 10);
+        assert_eq!(
+            operation["description"],
+            "- first point\n- second point\n\nClosing words."
+        );
+    }
+
+    #[test]
+    fn prose_after_yaml_keeps_its_paragraphs() {
+        let operation = operation(
+            &[
+                " Summary",
+                " @route GET /x",
+                " First paragraph.",
+                " x-a: 1",
+                "",
+                " Second paragraph.",
+            ],
+            "/x",
+            "get",
+        );
+        assert_eq!(operation["x-a"], 1);
+        assert_eq!(
+            operation["description"],
+            "First paragraph.\n\nSecond paragraph."
+        );
     }
 }

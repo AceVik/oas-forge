@@ -232,10 +232,14 @@ title from its `@openapi message` section.
 ## Embedded YAML
 
 A line of a channel block that starts with a field of the Channel Object
-(`title:`, `summary:`, `description:`, `servers:`, `parameters:`,
-`messages:`, `tags:`, `externalDocs:`, `bindings:`) or an extension
-(`x-…:`) starts YAML that is merged into the channel; the next directive
-ends it. `@openapi` chooses the target:
+(`address:`, `title:`, `summary:`, `description:`, `servers:`,
+`parameters:`, `messages:`, `tags:`, `externalDocs:`, `bindings:`) or an
+extension (`x-…:`) starts YAML that is merged into the channel. As in
+[route blocks](route-dsl.md#the-block), the next directive ends it, and so
+does prose after a blank line (a paragraph or a Markdown list at the
+indentation of the first YAML line); lines that continue a `@description`
+are never YAML. `@openapi` chooses the target, and its YAML runs up to the
+next directive:
 
 | Block | Target |
 | :--- | :--- |

@@ -13,7 +13,7 @@
 //! message Name`, …) is merged into the channel, a message, the operations
 //! or the document.
 
-use super::prose::{self, Prose, Text};
+use super::prose::{self, ImplicitYaml, Prose, Text};
 use super::responses::{split_media, type_schema};
 use super::tokens::{split_directive, trailing_description};
 use super::{SCOPE_SYNTAX, conflict_line, params};
@@ -27,8 +27,9 @@ use crate::yaml;
 use serde_json::{Map, Value, json};
 
 /// Fields of the Channel Object that start an embedded YAML section in a
-/// channel block (`address` is the `@channel` line).
+/// channel block; `address:` overrides the `@channel` line (with a note).
 const CHANNEL_KEYS: &[&str] = &[
+    "address",
     "title",
     "summary",
     "description",
@@ -244,6 +245,9 @@ pub fn compile_channel(
     // one.
     let mut fence: Option<String> = None;
     let mut after_openapi = false;
+    // The YAML section a field-name line started, which prose after a blank
+    // line ends.
+    let mut implicit = ImplicitYaml::default();
 
     for (index, line) in source.lines.iter().enumerate() {
         let trimmed = line.trim();
@@ -262,8 +266,15 @@ pub fn compile_channel(
             continue;
         }
         let Some(directive) = trimmed.strip_prefix('@') else {
-            if section.is_none() && starts_channel_yaml(trimmed) {
+            if trimmed.is_empty() {
+                implicit.blank();
+            } else if implicit.ends(line) {
+                // Prose after YAML and a blank line: a new paragraph.
+                section = None;
+                prose.paragraph(text);
+            } else if section.is_none() && text == Text::Free && starts_channel_yaml(trimmed) {
                 section = Some(Target::Channel);
+                implicit.start(line);
             }
             if let Some(target) = &section {
                 yaml.push((target.clone(), index, line.clone()));
@@ -273,6 +284,7 @@ pub fn compile_channel(
             continue;
         };
         section = None;
+        implicit.stop();
         let (name, arguments) = split_directive(directive);
         let rest: &str = &arguments;
         text = Text::after(name);

@@ -812,3 +812,74 @@ fn a_fence_inside_open_yaml_is_yaml_text() {
     // Not a fenced section: the backticks are (invalid) YAML of the open one.
     assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
 }
+
+/// Where embedded YAML ends and prose goes on (the same rules as in route
+/// blocks).
+mod yaml_and_prose {
+    use super::*;
+
+    #[test]
+    fn description_lines_are_never_yaml() {
+        let (document, diagnostics) = numbered(&[
+            "@description Prose here.",
+            "x-c: [after-description",
+            "summary: inside description",
+            "@channel lobby /lobby/ws",
+            "@summary The lobby feed",
+            "@send Feed: u8",
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let document = document.unwrap();
+        assert_eq!(
+            document["operations"]["op"]["description"],
+            "Prose here.\nx-c: [after-description\nsummary: inside description"
+        );
+        assert_eq!(
+            document["channels"]["lobby"],
+            json!({
+                "address": "/lobby/ws",
+                "messages": { "Feed": { "$ref": "#/components/messages/Feed" } },
+            })
+        );
+    }
+
+    #[test]
+    fn a_markdown_list_after_yaml_and_a_blank_line_is_prose() {
+        let (document, diagnostics) = numbered(&[
+            " Live",
+            " @channel live",
+            " @send A: u8",
+            " bindings:",
+            "   ws:",
+            "",
+            "     method: GET",
+            "",
+            " - first point",
+            " - second point",
+            "",
+            " x-after: 1",
+            "",
+            " Closing words: a colon in prose.",
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let document = document.unwrap();
+        assert_eq!(
+            document["channels"]["live"]["bindings"],
+            json!({ "ws": { "method": "GET" } })
+        );
+        assert_eq!(document["channels"]["live"]["x-after"], 1);
+        assert_eq!(
+            document["operations"]["op"]["description"],
+            "- first point\n- second point\n\nClosing words: a colon in prose."
+        );
+    }
+
+    #[test]
+    fn explicit_yaml_is_not_ended_by_prose() {
+        let (document, diagnostics) =
+            numbered(&["@channel live", "@openapi", "x-a: 1", "", "- not prose"]);
+        // Explicit YAML stays YAML: a sequence after a mapping is invalid.
+        assert_eq!(codes(&diagnostics), [Code::InvalidRouteYaml]);
+        assert!(document.unwrap()["channels"]["live"].get("x-a").is_none());
+    }
+}

@@ -68,7 +68,13 @@ parameters say, see [below](#signature-inference).
   `externalDocs:`, `operationId:`, `parameters:`, `requestBody:`,
   `responses:`, `callbacks:`, `deprecated:`, `security:`, `servers:`) or an
   extension (`x-…:`) starts embedded YAML, which runs until the next
-  directive. `@openapi` starts YAML explicitly, see
+  directive, or until a blank line followed by prose: after a blank line,
+  a line at the indentation of the first YAML line (or less) that is no
+  `key:` line and no `#` comment, such as a paragraph or a Markdown list
+  (`- item`), ends the YAML and continues the description as a new
+  paragraph. More deeply indented lines are still YAML. Lines that
+  continue a `@description` never start YAML. `@openapi` starts YAML
+  explicitly (it runs up to the next directive, prose or not), see
   [embedded OpenAPI](#embedded-openapi). An `@extend` line merges a
   fragment into the operation without starting YAML: plain lines after it
   are still description (or still left out after `@internal`).

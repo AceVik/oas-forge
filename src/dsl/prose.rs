@@ -48,6 +48,19 @@ impl Prose {
         }
     }
 
+    /// Starts a new paragraph of `text` (prose after embedded YAML): a blank
+    /// line, unless the text ends with one already.
+    pub(super) fn paragraph(&mut self, text: Text) {
+        let lines = match text {
+            Text::Free => &mut self.free,
+            // Implicit YAML starts in free text only.
+            Text::Description | Text::Internal => return,
+        };
+        if lines.last().is_some_and(|line| !line.trim().is_empty()) {
+            lines.push(String::new());
+        }
+    }
+
     /// `@summary text`: the summary; then no plain line is.
     pub(super) fn summary(&mut self, text: &str) {
         self.summary = Some(text.to_string());
@@ -112,4 +125,72 @@ fn description_text(lines: &[String]) -> Option<String> {
 pub(super) fn margin(line: &str) -> &str {
     line.get(..line.len() - line.trim_start().len())
         .unwrap_or_default()
+}
+
+/// An embedded YAML section that a field-name line started (`responses:`,
+/// `bindings:`), not an `@openapi` line or a fence. Such a section always
+/// starts with a mapping key, so after a blank line, a line at the
+/// section's indentation (or less) that is no `key:` line and no `#`
+/// comment cannot continue it: the section ends and the line is prose (a
+/// paragraph, a Markdown list). Deeper lines always continue it.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ImplicitYaml {
+    /// The indentation of the line that started the open section; `None`
+    /// without an implicit section.
+    base: Option<usize>,
+    /// Whether the line before was blank.
+    after_blank: bool,
+}
+
+impl ImplicitYaml {
+    /// `line` starts an implicit section.
+    pub(super) fn start(&mut self, line: &str) {
+        self.base = Some(indentation(line));
+    }
+
+    /// A directive ends the implicit section (an `@openapi` section is
+    /// explicit).
+    pub(super) fn stop(&mut self) {
+        self.base = None;
+        self.after_blank = false;
+    }
+
+    /// A blank line.
+    pub(super) fn blank(&mut self) {
+        self.after_blank = true;
+    }
+
+    /// Whether `line`, which is neither blank nor a directive, ends the open
+    /// implicit section; then the section is closed.
+    pub(super) fn ends(&mut self, line: &str) -> bool {
+        let after_blank = std::mem::take(&mut self.after_blank);
+        let ends = self.base.is_some_and(|base| {
+            after_blank && indentation(line) <= base && !continues_mapping(line.trim())
+        });
+        if ends {
+            self.base = None;
+        }
+        ends
+    }
+}
+
+/// The number of leading whitespace characters of `line`.
+fn indentation(line: &str) -> usize {
+    line.chars().take_while(|c| c.is_whitespace()).count()
+}
+
+/// Whether `trimmed` can continue a YAML mapping at its indentation: a
+/// `key:` line (the key a word, or quoted) or a `#` comment.
+fn continues_mapping(trimmed: &str) -> bool {
+    if trimmed.starts_with('#') {
+        return true;
+    }
+    let Some((key, rest)) = trimmed.split_once(':') else {
+        return false;
+    };
+    let quoted = (key.starts_with('"') && key.ends_with('"') && key.len() > 1)
+        || (key.starts_with('\'') && key.ends_with('\'') && key.len() > 1);
+    !key.is_empty()
+        && (quoted || !key.contains(char::is_whitespace))
+        && (rest.is_empty() || rest.starts_with(char::is_whitespace))
 }
