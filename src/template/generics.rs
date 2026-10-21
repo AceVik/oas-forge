@@ -717,19 +717,27 @@ impl<'a> Instantiator<'a> {
     /// argument whose alias cannot replace it (ambiguous, a cycle) stays; it
     /// is reported where its schema is resolved.
     fn unaliased(&self, generic: &GenericRef, location: &Location) -> GenericRef {
+        let mut expanding = self.aliasing.clone();
         GenericRef {
             name: generic.name.clone(),
             args: generic
                 .args
                 .iter()
-                .map(|arg| self.unalias(arg, location, 0))
+                .map(|arg| self.unalias(arg, location, &mut expanding))
                 .collect(),
         }
     }
 
     /// `arg` with transparent aliases replaced by their targets (see
     /// [`Self::unaliased`]); names in a target are looked up at the alias.
-    fn unalias(&self, arg: &GenericArg, location: &Location, depth: usize) -> GenericArg {
+    /// `expanding` holds the aliases being replaced, so that a cycle stops
+    /// with the name as written.
+    fn unalias(
+        &self,
+        arg: &GenericArg,
+        location: &Location,
+        expanding: &mut Vec<String>,
+    ) -> GenericArg {
         let (name, args): (&str, Vec<GenericArg>) = match arg {
             GenericArg::Name(name) => (last_segment(name), Vec::new()),
             GenericArg::Generic(inner) => (
@@ -737,7 +745,7 @@ impl<'a> Instantiator<'a> {
                 inner
                     .args
                     .iter()
-                    .map(|arg| self.unalias(arg, location, depth + 1))
+                    .map(|arg| self.unalias(arg, location, expanding))
                     .collect(),
             ),
         };
@@ -750,14 +758,16 @@ impl<'a> Instantiator<'a> {
             name,
             args.len(),
             location,
-            &self.aliasing,
+            expanding,
             &mut Diagnostics::new(),
         );
-        if depth < MAX_DEPTH
-            && let Found::Alias(alias) = found
+        if let Found::Alias(alias) = found
             && let Some(target) = bound_target(alias, &args)
         {
-            return self.unalias(&target, &alias.location, depth + 1);
+            expanding.push(alias.rust_name.clone());
+            let target = self.unalias(&target, &alias.location, expanding);
+            expanding.pop();
+            return target;
         }
         match arg {
             GenericArg::Name(_) => arg.clone(),
