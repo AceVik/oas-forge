@@ -249,7 +249,10 @@ next directive:
 | `@openapi document` | the AsyncAPI document |
 
 The YAML wins over what the directives produced; a value it changes is
-reported as a note (`OF4001`) at its line. YAML that is invalid or not a
+reported as a note (`OF4001`) at its line. That includes `address:` and a
+channel `summary:` or `description:` that differs from the block's summary
+and description (`@summary`, `@description`, the plain lines), which the
+operations keep. YAML that is invalid or not a
 mapping is reported (`OF2005`) and ignored. Smart references resolve as
 everywhere else (`payload: { $ref: $Pending }`), and the schemas they name
 are shared into the AsyncAPI document.

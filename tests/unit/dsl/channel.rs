@@ -883,3 +883,63 @@ mod yaml_and_prose {
         assert!(document.unwrap()["channels"]["live"].get("x-a").is_none());
     }
 }
+
+mod channel_yaml_notes {
+    use super::*;
+
+    #[test]
+    fn channel_yaml_that_changes_what_directives_set_is_noted_at_its_line() {
+        let (document, diagnostics) = numbered(&[
+            "The lobby",
+            "Who is waiting.",
+            "@channel lobby /lobby/ws",
+            "@summary The lobby feed",
+            "@send Feed: u8",
+            "summary: Another summary",
+            "description: Another description",
+            "address: /elsewhere",
+            "title: Lobby",
+        ]);
+        assert_eq!(
+            findings(&diagnostics),
+            [
+                "6: OF4001 embedded YAML overrides the DSL value at `/summary`",
+                "7: OF4001 embedded YAML overrides the DSL value at `/description`",
+                "8: OF4001 embedded YAML overrides the DSL value at `/address`",
+            ]
+        );
+        assert!(diagnostics.iter().all(|d| d.severity() == Severity::Note));
+        let document = document.unwrap();
+        let channel = &document["channels"]["lobby"];
+        assert_eq!(channel["summary"], "Another summary");
+        assert_eq!(channel["address"], "/elsewhere");
+        // The operations keep what the block says.
+        assert_eq!(document["operations"]["op"]["summary"], "The lobby feed");
+        assert_eq!(
+            document["operations"]["op"]["description"],
+            "The lobby\nWho is waiting."
+        );
+    }
+
+    #[test]
+    fn equal_values_and_a_block_without_summary_are_not_noted() {
+        let (_, diagnostics) = numbered(&[
+            "The lobby",
+            "@channel lobby",
+            "summary: The lobby",
+            "description: Anything",
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let (_, diagnostics) = numbered(&["@channel lobby", "@openapi", "summary: S"]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        // Message YAML is compared with the message, not with the block.
+        let (_, diagnostics) = numbered(&[
+            "The lobby",
+            "@channel lobby",
+            "@send A: u8",
+            "@openapi message A",
+            "summary: Other",
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+}

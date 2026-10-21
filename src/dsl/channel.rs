@@ -503,9 +503,16 @@ pub fn compile_channel(
     }
 
     let mut channel_object = Value::Object(channel_object);
+    let mut block_prose = Map::new();
+    for (key, value) in [("summary", &summary), ("description", &description)] {
+        if let Some(value) = value {
+            block_prose.insert(key.into(), json!(value));
+        }
+    }
     let embedded = Embedded {
         source: &source,
         lines: &yaml,
+        prose: block_prose,
     };
     embedded.merge_into(&Target::Channel, &mut channel_object, diagnostics);
     for name in embedded.messages() {
@@ -706,6 +713,10 @@ struct Embedded<'s, 'a> {
     source: &'s ChannelSource<'a>,
     /// Every YAML line: its target, its entry in the block and its text.
     lines: &'s [(Target, usize, String)],
+    /// The summary and description the directives and plain lines set for
+    /// the block (they go to its operations): channel YAML that sets
+    /// another value is noted like a changed DSL value.
+    prose: Map<String, Value>,
 }
 
 impl Embedded<'_, '_> {
@@ -772,10 +783,29 @@ impl Embedded<'_, '_> {
                 .at(self.at(first)),
             ),
             Ok(parsed) => {
-                for pointer in merge(value, parsed, Policy::Document) {
-                    let index = conflict_line(&text, &pointer)
-                        .and_then(|i| lines.get(i))
-                        .map_or(first, |(index, _)| *index);
+                // The channel's summary and description are not the
+                // block's, but YAML that sets other ones changes what the
+                // block says.
+                let mut pointers: Vec<String> = Vec::new();
+                if *target == Target::Channel {
+                    for (key, dsl) in &self.prose {
+                        if parsed.get(key).is_some_and(|yaml| yaml != dsl) {
+                            pointers.push(format!("/{key}"));
+                        }
+                    }
+                }
+                pointers.extend(merge(value, parsed, Policy::Document));
+                let mut found: Vec<(usize, String)> = pointers
+                    .into_iter()
+                    .map(|pointer| {
+                        let index = conflict_line(&text, &pointer)
+                            .and_then(|i| lines.get(i))
+                            .map_or(first, |(index, _)| *index);
+                        (index, pointer)
+                    })
+                    .collect();
+                found.sort();
+                for (index, pointer) in found {
                     diagnostics.push(
                         Diagnostic::new(
                             Code::MergeConflict,
