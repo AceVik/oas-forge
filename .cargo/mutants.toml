@@ -33,6 +33,9 @@ exclude_re = [
     # start with `$` or has no `<`, so the guard only saves the parse.
     "src/template/generics.rs:.*replace match guard s.starts_with\\('\\$'\\) && s.contains\\('<'\\) with true in Instantiator<'a>::apply",
     "src/template/generics.rs:.*replace && with \\|\\| in Instantiator<'a>::apply",
+    # Without the parsed tree, the file is parsed again by `extract`: the
+    # same items, only a second parse.
+    "src/generator.rs:.*delete match arm Some\\(\\(_, Some\\(ast\\)\\)\\) in prepare",
     # Any empty set is the same empty set of documented names.
     "src/template/refs.rs:.*replace KnownSchemas::none -> &'static Self with Box::leak",
 ]

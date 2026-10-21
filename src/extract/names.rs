@@ -33,7 +33,7 @@ const MAX_DEPTH: usize = 8;
 /// What a name defined in a module is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Definition {
-    /// A struct, enum, union or trait.
+    /// A struct or enum.
     Type,
     /// A type alias (without `@openapi` it is transparent).
     Alias,
@@ -55,7 +55,7 @@ struct UsePath {
 /// The names of one module.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Module {
-    /// The types defined here.
+    /// The types defined here (structs, enums, type aliases).
     defined: BTreeMap<String, Definition>,
     /// The names `use` declarations bring in, and their paths.
     uses: BTreeMap<String, UsePath>,
@@ -203,8 +203,6 @@ impl NameTable {
                     self.define(module, &e.ident, Definition::Type);
                     self.document(module, &e.ident, &e.attrs, &e.generics, file, e.span());
                 }
-                syn::Item::Union(u) => self.define(module, &u.ident, Definition::Type),
-                syn::Item::Trait(t) => self.define(module, &t.ident, Definition::Type),
                 syn::Item::Type(t) => {
                     self.define(module, &t.ident, Definition::Alias);
                     self.document(module, &t.ident, &t.attrs, &t.generics, file, t.span());
@@ -522,7 +520,6 @@ impl NameTable {
         let mut matches = ends_with(path);
         if matches.is_empty()
             && let (Some(first), Some(name)) = (path.first(), path.last())
-            && path.len() > 1
         {
             // `baylee_catalog::Printing` for `baylee_catalog::model::Printing`.
             matches = self
@@ -594,10 +591,7 @@ fn step(module: &[String], mut path: UsePath, segment: &str) -> UsePath {
                 path.relative = false;
                 path.keywords = true;
             }
-            // The crate root has no parent: `super` stays at the crate.
-            if path.segments.len() > 1 {
-                path.segments.pop();
-            }
+            path.segments.pop();
         }
         _ => {
             path.segments.push(segment.to_string());

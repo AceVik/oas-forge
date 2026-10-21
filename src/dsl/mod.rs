@@ -1807,10 +1807,12 @@ fn is_token(text: &str) -> bool {
 /// of the documented type it means in the module of the route (`$Filter`),
 /// else `ty` as written.
 fn type_name(ty: &TypeExpr, types: &TypeMapper) -> String {
-    match types.map(ty).schema.get("$ref").and_then(Value::as_str) {
-        Some(reference) if reference.starts_with('$') => reference.to_string(),
-        _ => ty.to_string(),
-    }
+    let schema = types.map(ty).schema;
+    let name = schema
+        .get("$ref")
+        .and_then(Value::as_str)
+        .and_then(|reference| reference.strip_prefix('$'));
+    name.map_or_else(|| ty.to_string(), |name| format!("${name}"))
 }
 
 /// Whether a type is documented as its own schema (a struct), not a
