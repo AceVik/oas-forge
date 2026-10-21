@@ -68,7 +68,13 @@ parameters say, see [below](#signature-inference).
   [embedded OpenAPI](#embedded-openapi). An `@extend` line merges a
   fragment into the operation without starting YAML: plain lines after it
   are still description (or still left out after `@internal`).
-- One block contains one `@route` or `@webhook`.
+- A block may contain several `@route` and `@webhook` lines, for a handler
+  that serves several paths: each line gets the operation, with the inline
+  parameters of its own line. With one line, the operationId is the
+  handler's name; with several, each gets the name, the method and the path
+  (`@route OPTIONS /client/alive` on `preflight` is
+  `preflight_options_client_alive`), and `@operation-id` is reported and
+  ignored, as it cannot be unique.
 - [`{{variables}}`](templates.md#variables) work on every line. A
   placeholder that is a whole value is quoted only in embedded YAML
   (`x-since: {{VERSION}}` stays a string); in the summary, the description

@@ -1,0 +1,101 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/dsl_several_routes/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Corpus
+  version: "1.0.0"
+paths:
+  /client/reports:
+    options:
+      summary: CORS preflight
+      operationId: preflight_options_client_reports
+      responses:
+        "204":
+          description: No Content
+  /client/alive:
+    options:
+      summary: CORS preflight
+      operationId: preflight_options_client_alive
+      responses:
+        "204":
+          description: No Content
+  "/decks/{id}":
+    get:
+      summary: Get a deck by id or by slug
+      operationId: get_deck_get_decks_id
+      tags:
+      - Decks
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Deck id
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: string
+  "/decks/by-slug/{slug}":
+    get:
+      summary: Get a deck by id or by slug
+      operationId: get_deck_get_decks_by_slug_slug
+      tags:
+      - Decks
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        description: Deck slug
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: string
+  /ping:
+    get:
+      summary: Ping
+      operationId: ping
+      responses:
+        "204":
+          description: No Content
+webhooks:
+  deckCreated:
+    post:
+      summary: A deck changed.
+      operationId: on_deck_post_deckcreated
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: string
+        required: true
+      responses:
+        default:
+          description: Default response
+  deckChanged:
+    put:
+      summary: A deck changed.
+      operationId: on_deck_put_deckchanged
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: string
+        required: true
+      responses:
+        default:
+          description: Default response

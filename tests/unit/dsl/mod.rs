@@ -997,3 +997,154 @@ mod yaml_classification {
         assert_eq!(document.unwrap()["paths"]["/x"]["get"]["x-a"], 1);
     }
 }
+
+/// Several `@route` (or `@webhook`) lines in one block: one handler for
+/// several paths.
+mod several_routes {
+    use super::*;
+
+    /// Compiles `src` for the handler `function` (or a virtual route).
+    fn compiled(src: &[&str], function: Option<&str>) -> (Value, Diagnostics) {
+        let block = lines(src);
+        let numbers: Vec<usize> = (10..10 + block.len()).collect();
+        let location = here();
+        let mut diagnostics = Diagnostics::new();
+        let route = dsl::compile(
+            RouteSource::new(&block, &location)
+                .line_numbers(&numbers)
+                .operation_id(function),
+            &mut diagnostics,
+        );
+        (route.map(|r| r.document).unwrap_or_default(), diagnostics)
+    }
+
+    #[test]
+    fn each_route_line_gets_the_operation() {
+        let (document, diagnostics) = compiled(
+            &[
+                "Preflight",
+                "@route OPTIONS /client/reports",
+                "@route OPTIONS /client/alive",
+                "@tag Cors",
+                "@return 204:",
+            ],
+            Some("preflight"),
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let reports = &document["paths"]["/client/reports"]["options"];
+        let alive = &document["paths"]["/client/alive"]["options"];
+        assert_eq!(reports["operationId"], "preflight_options_client_reports");
+        assert_eq!(alive["operationId"], "preflight_options_client_alive");
+        for operation in [reports, alive] {
+            assert_eq!(operation["summary"], "Preflight");
+            assert_eq!(operation["tags"], json!(["Cors"]));
+            assert_eq!(
+                operation["responses"],
+                json!({ "204": { "description": "No Content" } })
+            );
+        }
+    }
+
+    #[test]
+    fn inline_parameters_belong_to_their_line() {
+        let (document, diagnostics) = compiled(
+            &[
+                "@route GET /decks/{id: u64 \"Deck id\"}",
+                "@route GET /slugs/{slug: String}",
+                "@query-param full: bool optional",
+            ],
+            Some("get_deck"),
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let names = |path: &str| -> Vec<Value> {
+            document["paths"][path]["get"]["parameters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["name"].clone())
+                .collect()
+        };
+        assert_eq!(names("/decks/{id}"), [json!("id"), json!("full")]);
+        assert_eq!(names("/slugs/{slug}"), [json!("slug"), json!("full")]);
+    }
+
+    #[test]
+    fn one_route_keeps_the_function_name() {
+        let (document, _) = compiled(&["@route GET /x"], Some("list"));
+        assert_eq!(document["paths"]["/x"]["get"]["operationId"], "list");
+    }
+
+    #[test]
+    fn virtual_routes_get_their_derived_ids() {
+        let (document, diagnostics) = compiled(&["@route GET /a", "@route POST /b"], None);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(document["paths"]["/a"]["get"]["operationId"], "get_a");
+        assert_eq!(document["paths"]["/b"]["post"]["operationId"], "post_b");
+    }
+
+    #[test]
+    fn an_explicit_operation_id_is_reported_once_and_ignored() {
+        let (document, diagnostics) = compiled(
+            &["@route GET /a", "@route GET /b", "@operation-id same"],
+            Some("f"),
+        );
+        assert_eq!(codes(&diagnostics), [Code::InvalidDirective]);
+        assert_eq!(
+            diagnostics.iter().next().unwrap().location(),
+            Some(&Location::new("test.rs", 12))
+        );
+        assert_eq!(document["paths"]["/a"]["get"]["operationId"], "f_get_a");
+        assert_eq!(document["paths"]["/b"]["get"]["operationId"], "f_get_b");
+    }
+
+    #[test]
+    fn findings_of_shared_lines_are_reported_once() {
+        let (document, diagnostics) = compiled(
+            &[
+                "@route GET /a/{id}",
+                "@route GET /b",
+                "@route",
+                "@return oops",
+            ],
+            Some("f"),
+        );
+        // The shared line once; the undeclared parameter of `/a/{id}` and
+        // the invalid line in the compilation for them, in their order.
+        assert_eq!(
+            codes(&diagnostics),
+            [
+                Code::InvalidDirective,
+                Code::UndeclaredPathParam,
+                Code::InvalidRoute
+            ],
+            "{diagnostics:#?}"
+        );
+        assert!(document["paths"]["/b"]["get"].is_object());
+        assert!(document["paths"].get("/a/{id}").is_none());
+    }
+
+    #[test]
+    fn webhooks_and_routes_mix() {
+        let (document, diagnostics) = compiled(
+            &[
+                "@webhook deckCreated",
+                "@webhook PUT deckChanged",
+                "@route POST /hooks/decks",
+            ],
+            Some("on_deck"),
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(
+            document["webhooks"]["deckCreated"]["post"]["operationId"],
+            "on_deck_post_deckcreated"
+        );
+        assert_eq!(
+            document["webhooks"]["deckChanged"]["put"]["operationId"],
+            "on_deck_put_deckchanged"
+        );
+        assert_eq!(
+            document["paths"]["/hooks/decks"]["post"]["operationId"],
+            "on_deck_post_hooks_decks"
+        );
+    }
+}

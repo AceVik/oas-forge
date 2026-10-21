@@ -174,9 +174,11 @@ mod directives {
     }
 
     #[test]
-    fn a_block_has_one_route() {
+    fn a_block_may_have_several_routes() {
         let (document, diagnostics) = try_route(&["@route GET /a", "@route POST /b"]);
-        assert!(document.unwrap()["paths"]["/b"]["post"].is_object());
-        assert_eq!(crate::common::codes(&diagnostics), [Code::InvalidRoute]);
+        let document = document.unwrap();
+        assert_eq!(document["paths"]["/a"]["get"]["operationId"], "op_get_a");
+        assert_eq!(document["paths"]["/b"]["post"]["operationId"], "op_post_b");
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 }

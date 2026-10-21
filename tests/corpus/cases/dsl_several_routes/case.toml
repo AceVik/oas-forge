@@ -1,0 +1,1 @@
+description = "Several `@route` and `@webhook` lines in one block: one operation per line, with the inline parameters of its line and operationIds from the handler, method and path"

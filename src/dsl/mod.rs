@@ -483,8 +483,8 @@ struct Builder {
     document: Map<String, Value>,
     /// Whether `@no-infer` turns signature inference off.
     no_infer: bool,
-    /// The number of `@route` and `@webhook` lines, valid or not: a block
-    /// needs exactly one.
+    /// The number of `@route` and `@webhook` lines read, valid or not: a
+    /// block needs one.
     route_lines: usize,
     /// The tags and security so far come from an enclosing module; the next
     /// `@tag` or `@security` of an inner module replaces them.
@@ -712,9 +712,51 @@ pub fn is_route(lines: &[String]) -> bool {
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn compile(source: RouteSource<'_>, diagnostics: &mut Diagnostics) -> Option<CompiledRoute> {
+    let headers: Vec<usize> = source
+        .lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| is_header(line))
+        .map(|(index, _)| index)
+        .collect();
+    if headers.len() < 2 {
+        return compile_route(source, None, diagnostics);
+    }
+    // Several `@route` lines: the block is compiled for each of them, and
+    // findings about the lines they share are reported once.
+    let mut compiled: Option<CompiledRoute> = None;
+    let mut reported: Vec<Diagnostic> = Vec::new();
+    for header in headers {
+        let mut findings = Diagnostics::new();
+        let route = compile_route(source, Some(header), &mut findings);
+        for finding in findings.into_vec() {
+            if !reported.contains(&finding) {
+                reported.push(finding.clone());
+                diagnostics.push(finding);
+            }
+        }
+        compiled = match (compiled, route) {
+            (Some(mut first), Some(route)) => {
+                merge(&mut first.document, route.document, Policy::Document);
+                Some(first)
+            }
+            (first, route) => first.or(route),
+        };
+    }
+    compiled
+}
+
+/// Compiles a block for one of its `@route` lines (`route`, the entry of
+/// [`RouteSource::lines`]; `None` when the block has at most one).
+fn compile_route(
+    source: RouteSource<'_>,
+    route: Option<usize>,
+    diagnostics: &mut Diagnostics,
+) -> Option<CompiledRoute> {
     let mut compiler = Compiler {
         source,
         diagnostics,
+        route,
     };
     // Module defaults are compiled like a block without `@route`.
     let mut defaults = Builder::default();
@@ -745,6 +787,9 @@ struct Compiler<'s, 'd> {
     source: RouteSource<'s>,
     /// Where findings go.
     diagnostics: &'d mut Diagnostics,
+    /// In a block with several `@route` (or `@webhook`) lines, the one this
+    /// compilation is for; the others are left alone.
+    route: Option<usize>,
 }
 
 impl Compiler<'_, '_> {
@@ -804,6 +849,7 @@ impl Compiler<'_, '_> {
         let rest: &str = &arguments;
         let types = self.source.types;
         match name {
+            "route" | "webhook" if !defaults && self.route.is_some_and(|r| index != Some(r)) => {}
             "route" if !defaults => self.route(b, index, rest),
             "webhook" if !defaults => self.webhook(b, index, rest),
             // Each module's defaults start with their header: what an inner
@@ -835,6 +881,10 @@ impl Compiler<'_, '_> {
             "deprecated" => {
                 b.operation.insert("deprecated".into(), json!(true));
             }
+            "operation-id" if !rest.is_empty() && self.route.is_some() => self.invalid(
+                index,
+                "`@operation-id` cannot name the operations of several `@route` lines; each gets its own and this one is ignored",
+            ),
             "operation-id" if !rest.is_empty() => {
                 b.operation.insert("operationId".into(), json!(rest));
             }
@@ -1088,13 +1138,6 @@ impl Compiler<'_, '_> {
             }
             return None;
         }
-        if b.route_lines > 1 {
-            self.report(
-                Code::InvalidRoute,
-                None,
-                "a block may contain only one `@route` or `@webhook`; the last one is used",
-            );
-        }
         let webhook = b.webhook.is_some();
         if !webhook {
             // `/` under a prefix is the prefix itself.
@@ -1148,11 +1191,13 @@ impl Compiler<'_, '_> {
             operation.insert("description".into(), json!(description));
         }
         let name = b.webhook.clone().unwrap_or_else(|| b.path.clone());
-        let operation_id = self
-            .source
-            .operation_id
-            .map(str::to_string)
-            .unwrap_or_else(|| derived_operation_id(&b.method, &name));
+        // With several routes, each gets the handler's name and its own.
+        let derived = derived_operation_id(&b.method, &name);
+        let operation_id = match self.source.operation_id {
+            Some(function) if self.route.is_some() => format!("{function}_{derived}"),
+            Some(function) => function.to_string(),
+            None => derived,
+        };
         operation.insert("operationId".into(), json!(operation_id));
         let tags = b
             .tags
