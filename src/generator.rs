@@ -1092,7 +1092,10 @@ pub struct Spec {
 static EMPTY: LazyLock<Value> = LazyLock::new(|| Value::Object(Map::new()));
 
 impl Spec {
-    /// The merged document (it has no root when none was defined).
+    /// The merged document of the default scope ([`Generator::scope`]; it
+    /// has no root when none was defined). Without a default scope and with
+    /// only [scoped outputs](Generator::output_scoped), no default document
+    /// is built and this is an empty object; see [`Spec::render_scoped`].
     ///
     /// # Examples
     ///

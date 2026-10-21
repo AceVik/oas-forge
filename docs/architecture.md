@@ -24,8 +24,9 @@ source ──► extract ──► register ──► lexical ──► parse �
 ```
 
 1. **Sources** (`src/source.rs`): walk the inputs in sorted order, read
-   `.rs`, `.yaml`, `.yml` and `.json` files, skip outputs and files over the
-   size limit.
+   `.rs`, `.yaml`, `.yml`, `.json` and `.proto` files, skip outputs and
+   files over the size limit. `.proto` files are only indexed
+   (`src/proto.rs`) for `proto(package.Message)` payloads of channels.
 2. **Extraction** (`src/extract/`): parse each Rust file with `syn` and turn
    annotations into typed `Item`s: reflected schemas (`reflect.rs`, driven by
    the attribute models in `src/attrs/`), free YAML documents and named
@@ -51,9 +52,14 @@ source ──► extract ──► register ──► lexical ──► parse �
    constants their pattern.
 9. **Merge** (`src/merge.rs`): snippets are merged in source order under an
    explicit policy; OpenAPI and AsyncAPI snippets go to separate documents.
-   Without a root, the package root is used (`src/package.rs`).
+   Without a root, the package root is used (`src/package.rs`). Stages 1 to
+   8 run once (`generator::prepare`); this stage and the following ones run
+   once per requested scope (`generator::assemble`), each with the shared
+   snippets and those of its scope (`src/scope.rs`).
 10. **Normalization**: struct expansions (`@query-params $T`) become
-    parameters (`src/dsl/expand.rs`); a canonical copy (2020-12) is kept for
+    parameters (`src/dsl/expand.rs`); the AsyncAPI document shares the
+    component schemas its messages use; a scoped document is pruned to
+    what its operations reach; a canonical copy (2020-12) is kept for
     exports.
 11. **Lowering** (`src/schema/dialect.rs`): schemas and documents are
     converted for the root's OpenAPI version.
