@@ -37,6 +37,13 @@ static INSERT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(\s*)(?:-\s+)?@insert\s+([\w]+)\s*(?:\((.*)\))?\s*$").expect("constant pattern")
 });
 
+/// An `@insert` or `@extend` line whose argument is in Markdown backticks
+/// (`` @insert `Paging` ``); captures the line up to the argument and the
+/// argument.
+static TICKED_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(\s*(?:-\s+)?@(?:insert|extend)\s+)`([^`]+)`\s*$").expect("constant pattern")
+});
+
 /// An `@extend Spec` line; captures the indentation and the spec
 /// (`Name` or `Name(args)`).
 static EXTEND_RE: LazyLock<Regex> =
@@ -420,8 +427,11 @@ struct Expansion<'a> {
 }
 
 impl Expansion<'_> {
-    /// Expands one line; `offset` is its source line within the text.
+    /// Expands one line; `offset` is its source line within the text. The
+    /// argument of `@insert` and `@extend` may be written in backticks.
     fn line(&mut self, line: &str, location: &Location, offset: usize) {
+        let line = TICKED_RE.replace(line, "$1$2");
+        let line = line.as_ref();
         if let Some(caps) = INSERT_RE.captures(line) {
             let indent = &caps[1];
             let name = &caps[2];

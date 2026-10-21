@@ -117,3 +117,150 @@ fn an_unbalanced_quote_is_no_description() {
         json!({ "type": "string" })
     );
 }
+
+/// Markdown backticks around directive arguments (for `clippy::doc_markdown`
+/// and rustdoc): the document is the same as without them.
+mod backticks {
+    use super::*;
+    use oas_forge::dsl::RouteSource;
+
+    /// Compiles both blocks (with the same defaults) and checks that they give
+    /// the same document without findings.
+    fn same(with: &[&str], without: &[&str], defaults: (&[&str], &[&str])) {
+        let compile = |src: &[&str], defaults: &[&str]| {
+            let block = lines(src);
+            let defaults = lines(defaults);
+            let location = here();
+            let mut diagnostics = Diagnostics::new();
+            let route = dsl::compile(
+                RouteSource::new(&block, &location)
+                    .operation_id(Some("op"))
+                    .defaults(&defaults),
+                &mut diagnostics,
+            );
+            assert!(diagnostics.is_empty(), "{src:?}: {diagnostics:#?}");
+            route
+                .unwrap_or_else(|| panic!("rejected: {src:?}"))
+                .document
+        };
+        assert_eq!(compile(with, defaults.0), compile(without, defaults.1));
+    }
+
+    #[test]
+    fn route_directives_accept_backticked_arguments() {
+        same(
+            &[
+                "@route GET `/decks/{id: u64 \"Deck id\"}`",
+                "@return 404: `$ErrorBody` \"No such deck\"",
+                "@return 200: `Vec<$Deck>` `application/json`",
+                "@body `$ChatReport`",
+                "@query-params `$PoolQuery`",
+                "@query-param limit: `u32` default=20 \"Page size\"",
+                "@param header `X-Trace`: `String`",
+                "@return-header 200 `X-Rate`: `u32` \"Limit\"",
+                "@problem `409` \"Taken\"",
+                "@tag `Decks`, `Admin`",
+                "@security `bearer` + `api_key`",
+                "@server `https://eu.example.com` \"EU\"",
+                "@external-docs `https://docs.example.com`",
+                "@operation-id `getDeck`",
+                "@openapi `path`",
+                "x-scope: path",
+            ],
+            &[
+                "@route GET /decks/{id: u64 \"Deck id\"}",
+                "@return 404: $ErrorBody \"No such deck\"",
+                "@return 200: Vec<$Deck> application/json",
+                "@body $ChatReport",
+                "@query-params $PoolQuery",
+                "@query-param limit: u32 default=20 \"Page size\"",
+                "@param header X-Trace: String",
+                "@return-header 200 X-Rate: u32 \"Limit\"",
+                "@problem 409 \"Taken\"",
+                "@tag Decks, Admin",
+                "@security bearer + api_key",
+                "@server https://eu.example.com \"EU\"",
+                "@external-docs https://docs.example.com",
+                "@operation-id getDeck",
+                "@openapi path",
+                "x-scope: path",
+            ],
+            (&[], &[]),
+        );
+    }
+
+    #[test]
+    fn webhooks_and_module_defaults_accept_backticked_arguments() {
+        same(
+            &["@webhook `POST` `deckDeleted`", "@body `$Deck`"],
+            &["@webhook POST deckDeleted", "@body $Deck"],
+            (&[], &[]),
+        );
+        same(
+            &["@route GET `/users`"],
+            &["@route GET /users"],
+            (
+                &["@route-defaults", "@prefix `/api`", "@tag `Api`"],
+                &["@route-defaults", "@prefix /api", "@tag Api"],
+            ),
+        );
+    }
+
+    #[test]
+    fn markdown_in_descriptions_and_text_directives_is_kept() {
+        let op = op(&[
+            "@route GET /x",
+            "@summary Get a `Deck`",
+            "@description Returns the `Deck` and `its cards`.",
+            "@return 200: `$Deck` \"A `Deck` with `cards`\"",
+            "@return 204: \"`Nothing`\"",
+        ]);
+        assert_eq!(op["summary"], "Get a `Deck`");
+        assert_eq!(op["description"], "Returns the `Deck` and `its cards`.");
+        assert_eq!(
+            op["responses"]["200"]["description"],
+            "A `Deck` with `cards`"
+        );
+        assert_eq!(op["responses"]["204"]["description"], "`Nothing`");
+    }
+
+    #[test]
+    fn backticks_that_do_not_wrap_a_whole_argument_stay() {
+        // Not a whole argument: the type is still invalid.
+        let (_, diagnostics) = try_route(&["@route GET /x", "@return 200: Vec<`$Deck`>"]);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+        // An unclosed or doubled backtick is no wrapping either.
+        for bad in ["@return 200: `$Deck", "@return 200: ``$Deck``"] {
+            let (_, diagnostics) = try_route(&["@route GET /x", bad]);
+            assert_eq!(diagnostics.len(), 1, "{bad}: {diagnostics:#?}");
+        }
+    }
+
+    #[test]
+    fn channel_directives_accept_backticked_arguments() {
+        let compile = |src: &[&str]| {
+            let block = lines(src);
+            let location = here();
+            let mut diagnostics = Diagnostics::new();
+            let channel =
+                dsl::compile_channel(ChannelSource::new(&block, &location), &mut diagnostics)
+                    .unwrap();
+            assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+            channel.document
+        };
+        assert_eq!(
+            compile(&[
+                "@channel `pings` `ping/{id}`",
+                "@send `Ping`: `u8` \"A `ping`\"",
+                "@receive `Pong`: `$Pong`",
+                "@tag `Health`",
+            ]),
+            compile(&[
+                "@channel pings ping/{id}",
+                "@send Ping: u8 \"A `ping`\"",
+                "@receive Pong: $Pong",
+                "@tag Health",
+            ])
+        );
+    }
+}

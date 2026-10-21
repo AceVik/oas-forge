@@ -50,6 +50,13 @@ parameters say, see [below](#signature-inference).
   ```
 - A directive line starts with `@`. Unknown directives are reported
   (`OF2006`) and ignored; malformed ones too (`OF2004`).
+- Arguments may be written in Markdown backticks, so that the annotations
+  read as code in rustdoc and pass `clippy::doc_markdown`:
+  `` @return 404: `$ErrorBody` "No such deck" `` is the same as
+  `@return 404: $ErrorBody "No such deck"`. A backtick at the start of a
+  token wraps everything up to the next backtick before whitespace, `:` or
+  `,` (`` @route GET `/decks/{id: u64 "Deck id"}` ``); backticks inside
+  quoted descriptions and in `@summary` and `@description` stay Markdown.
 - Descriptions in directives are quoted: `"No such deck"`. Inside the
   quotes `\"` is a quote and `\\` a backslash; everything else, Markdown
   included, is kept as written (`` "not `{\"enabled\": true}`" ``).

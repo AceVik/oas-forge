@@ -35,6 +35,7 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
+use tokens::split_directive;
 
 /// Operation fields that start an embedded YAML section in a route block.
 /// `summary` and `description` are left out: such lines are usually prose.
@@ -541,7 +542,7 @@ impl Structure {
             self.text = Text::after(name);
             // An unknown scope is reported and taken for the operation.
             self.scope =
-                (name == "openapi").then(|| openapi_scope(rest).unwrap_or(Scope::Operation));
+                (name == "openapi").then(|| openapi_scope(&rest).unwrap_or(Scope::Operation));
             return Line::Directive(directive);
         }
         // A key is a word before `:`; prose such as `x-forwarded headers…`
@@ -564,13 +565,6 @@ impl Structure {
             None => Line::Prose,
         }
     }
-}
-
-/// The name of a directive (the text after `@`) and its trimmed argument.
-fn split_directive(directive: &str) -> (&str, &str) {
-    directive
-        .split_once(char::is_whitespace)
-        .map_or((directive, ""), |(name, rest)| (name, rest.trim()))
 }
 
 /// Where the YAML after `@openapi rest` goes; `None` for an unknown scope.
@@ -806,7 +800,8 @@ impl Compiler<'_, '_> {
         margin: &str,
         defaults: bool,
     ) {
-        let (name, rest) = split_directive(directive);
+        let (name, arguments) = split_directive(directive);
+        let rest: &str = &arguments;
         let types = self.source.types;
         match name {
             "route" if !defaults => self.route(b, index, rest),

@@ -615,3 +615,38 @@ mod blocks {
         assert_eq!(codes(&diagnostics), [Code::UnknownFragment]);
     }
 }
+
+/// `@insert` and `@extend` with the fragment in Markdown backticks.
+mod backticks {
+    use super::*;
+
+    #[test]
+    fn insert_and_extend_accept_backticked_fragments() {
+        let reg = registry(&[
+            ("Limit", &["max"], "maximum: {{max}}"),
+            ("Paging", &[], "- page"),
+        ]);
+        assert_eq!(
+            run(
+                "@insert `Limit(10)`\nlist:\n  - @insert `Paging`\n@extend `Audited(1)`",
+                &reg
+            )
+            .0,
+            run(
+                "@insert Limit(10)\nlist:\n  - @insert Paging\n@extend Audited(1)",
+                &reg
+            )
+            .0
+        );
+        assert_eq!(run("@insert `Limit(10)`", &reg).0, "maximum: 10");
+        assert_eq!(
+            run("@extend `Audited(1)`", &reg).0,
+            format!("{EXTEND_KEY}1: 'Audited(1)'")
+        );
+        // Only a whole, singly backticked argument is unwrapped.
+        assert_eq!(
+            run("@extend `Audited`(1)", &reg).0,
+            format!("{EXTEND_KEY}1: '`Audited`(1)'")
+        );
+    }
+}

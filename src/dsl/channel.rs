@@ -10,7 +10,7 @@
 
 use super::prose::{self, Prose, Text};
 use super::responses::type_schema;
-use super::tokens::trailing_description;
+use super::tokens::{split_directive, trailing_description};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::schema::TypeMapper;
 use serde_json::{Map, Value, json};
@@ -108,9 +108,8 @@ pub fn compile_channel(
             prose.line(text, line);
             continue;
         };
-        let (name, rest) = directive
-            .split_once(char::is_whitespace)
-            .map_or((directive, ""), |(n, r)| (n, r.trim()));
+        let (name, arguments) = split_directive(directive);
+        let rest: &str = &arguments;
         text = Text::after(name);
         match name {
             "channel" => {
