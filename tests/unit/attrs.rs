@@ -1031,6 +1031,15 @@ mod doc_sections {
     }
 
     #[test]
+    fn a_description_keeps_the_margin_of_its_line() {
+        // The first line is a list item: its margin decides the indentation.
+        let (field, _) = field_docs("///   @description - a\n///   - b", "u8");
+        assert_eq!(field["description"], "- a\n- b");
+        let (field, _) = field_docs("/// @description - first item\n/// - second item", "u8");
+        assert_eq!(field["description"], "- first item\n- second item");
+    }
+
+    #[test]
     fn several_descriptions_are_joined() {
         let (field, _) = field_docs(
             "/// @description One.\n/// @example 1\n/// @description Two.",
