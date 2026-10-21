@@ -189,7 +189,7 @@ pub(super) fn problem_schema() -> Value {
 }
 
 /// Splits trailing media type tokens off a type: `User application/json`.
-fn split_media(text: &str) -> (String, Vec<String>) {
+pub(super) fn split_media(text: &str) -> (String, Vec<String>) {
     let mut tokens = tokenize(text);
     let mut media = Vec::new();
     while let Some(last) = tokens.last() {

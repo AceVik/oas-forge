@@ -1,0 +1,51 @@
+---
+source: tests/corpus/main.rs
+expression: text
+input_file: tests/corpus/cases/asyncapi_websocket/case.toml
+---
+# full output
+openapi: "3.1.0"
+info:
+  title: Gateway
+  version: "1.0.0"
+components:
+  schemas:
+    Job:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+        name:
+          type: string
+      required:
+      - id
+      - name
+      description: A job.
+    Pending:
+      type: object
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Job"
+      required:
+      - jobs
+      description: Work that waits for a worker.
+    Subscribe:
+      type: object
+      properties:
+        topics:
+          type: array
+          items:
+            $ref: "#/components/schemas/Topic"
+      required:
+      - topics
+      description: A subscription request of the client.
+    Topic:
+      type: string
+      enum:
+      - jobs
+      - alerts
+      description: Which events a client wants.

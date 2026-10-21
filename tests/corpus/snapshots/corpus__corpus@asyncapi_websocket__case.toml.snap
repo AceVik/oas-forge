@@ -1,0 +1,639 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/asyncapi_websocket/case.toml
+---
+{
+  "asyncapi": {
+    "document": {
+      "asyncapi": "3.0.0",
+      "channels": {
+        "live": {
+          "address": "live/{tenant}",
+          "bindings": {
+            "ws": {
+              "bindingVersion": "0.1.0",
+              "headers": {
+                "properties": {
+                  "X-Client-Version": {
+                    "description": "Version of the client",
+                    "examples": [
+                      "2.1.0"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "X-Client-Version"
+                ],
+                "type": "object"
+              },
+              "method": "GET",
+              "query": {
+                "properties": {
+                  "token": {
+                    "description": "Session token",
+                    "type": "string"
+                  },
+                  "topic": {
+                    "$ref": "#/components/schemas/Topic",
+                    "description": "The first topic",
+                    "examples": [
+                      "jobs"
+                    ]
+                  }
+                },
+                "required": [
+                  "token"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "messages": {
+            "Pending": {
+              "$ref": "#/components/messages/Pending"
+            },
+            "Snapshot": {
+              "$ref": "#/components/messages/Snapshot"
+            },
+            "Subscribe": {
+              "$ref": "#/components/messages/Subscribe"
+            }
+          },
+          "parameters": {
+            "tenant": {
+              "description": "Tenant slug"
+            }
+          },
+          "servers": [
+            {
+              "$ref": "#/servers/public"
+            }
+          ],
+          "x-rate-limit": 10
+        }
+      },
+      "components": {
+        "messages": {
+          "Pending": {
+            "contentType": "application/json",
+            "description": "Work waiting for a worker",
+            "name": "Pending",
+            "payload": {
+              "$ref": "#/components/schemas/Pending"
+            },
+            "title": "Pending work"
+          },
+          "Ping": {
+            "payload": {
+              "const": "ping",
+              "type": "string"
+            }
+          },
+          "Snapshot": {
+            "contentType": "application/x-ndjson",
+            "name": "Snapshot",
+            "payload": {
+              "items": {
+                "$ref": "#/components/schemas/Job"
+              },
+              "type": "array"
+            }
+          },
+          "Subscribe": {
+            "name": "Subscribe",
+            "payload": {
+              "$ref": "#/components/schemas/Subscribe"
+            }
+          }
+        },
+        "schemas": {
+          "Job": {
+            "description": "A job.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": "object"
+          },
+          "Pending": {
+            "description": "Work that waits for a worker.",
+            "properties": {
+              "jobs": {
+                "items": {
+                  "$ref": "#/components/schemas/Job"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "jobs"
+            ],
+            "type": "object"
+          },
+          "Subscribe": {
+            "description": "A subscription request of the client.",
+            "properties": {
+              "topics": {
+                "items": {
+                  "$ref": "#/components/schemas/Topic"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "topics"
+            ],
+            "type": "object"
+          },
+          "Topic": {
+            "description": "Which events a client wants.",
+            "enum": [
+              "jobs",
+              "alerts"
+            ],
+            "type": "string"
+          }
+        }
+      },
+      "defaultContentType": "application/json",
+      "info": {
+        "title": "Gateway events",
+        "version": "1.0.0"
+      },
+      "operations": {
+        "live_updates_receive": {
+          "action": "receive",
+          "channel": {
+            "$ref": "#/channels/live"
+          },
+          "description": "One WebSocket connection per client; the client subscribes to topics and\nreceives updates as they happen.",
+          "messages": [
+            {
+              "$ref": "#/channels/live/messages/Subscribe"
+            }
+          ],
+          "summary": "Live updates",
+          "tags": [
+            {
+              "name": "Live"
+            }
+          ],
+          "x-requires-session": true
+        },
+        "live_updates_send": {
+          "action": "send",
+          "channel": {
+            "$ref": "#/channels/live"
+          },
+          "description": "One WebSocket connection per client; the client subscribes to topics and\nreceives updates as they happen.",
+          "messages": [
+            {
+              "$ref": "#/channels/live/messages/Pending"
+            },
+            {
+              "$ref": "#/channels/live/messages/Snapshot"
+            }
+          ],
+          "summary": "Live updates",
+          "tags": [
+            {
+              "name": "Live"
+            }
+          ],
+          "x-requires-session": true
+        }
+      },
+      "servers": {
+        "public": {
+          "host": "api.example.com",
+          "pathname": "/ws",
+          "protocol": "wss"
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "description": "AsyncAPI WebSocket channels: handshake query and headers as the ws binding, embedded YAML for the channel, a message, the operations and the document, media types per message, smart references in the YAML",
+  "diagnostics": [],
+  "fragments": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Job": {
+            "description": "A job.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": "object"
+          },
+          "Pending": {
+            "description": "Work that waits for a worker.",
+            "properties": {
+              "jobs": {
+                "items": {
+                  "$ref": "#/components/schemas/Job"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "jobs"
+            ],
+            "type": "object"
+          },
+          "Subscribe": {
+            "description": "A subscription request of the client.",
+            "properties": {
+              "topics": {
+                "items": {
+                  "$ref": "#/components/schemas/Topic"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "topics"
+            ],
+            "type": "object"
+          },
+          "Topic": {
+            "description": "Which events a client wants.",
+            "enum": [
+              "jobs",
+              "alerts"
+            ],
+            "type": "string"
+          }
+        }
+      }
+    },
+    "lints": []
+  },
+  "full": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Job": {
+            "description": "A job.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": "object"
+          },
+          "Pending": {
+            "description": "Work that waits for a worker.",
+            "properties": {
+              "jobs": {
+                "items": {
+                  "$ref": "#/components/schemas/Job"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "jobs"
+            ],
+            "type": "object"
+          },
+          "Subscribe": {
+            "description": "A subscription request of the client.",
+            "properties": {
+              "topics": {
+                "items": {
+                  "$ref": "#/components/schemas/Topic"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "topics"
+            ],
+            "type": "object"
+          },
+          "Topic": {
+            "description": "Which events a client wants.",
+            "enum": [
+              "jobs",
+              "alerts"
+            ],
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Gateway",
+        "version": "1.0.0"
+      },
+      "openapi": "3.1.0"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {
+        "Job": {
+          "description": "A job.",
+          "properties": {
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ],
+          "type": "object"
+        },
+        "Pending": {
+          "description": "Work that waits for a worker.",
+          "properties": {
+            "jobs": {
+              "items": {
+                "$ref": "#/$defs/Job"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "jobs"
+          ],
+          "type": "object"
+        },
+        "Subscribe": {
+          "description": "A subscription request of the client.",
+          "properties": {
+            "topics": {
+              "items": {
+                "$ref": "#/$defs/Topic"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "topics"
+          ],
+          "type": "object"
+        },
+        "Topic": {
+          "description": "Which events a client wants.",
+          "enum": [
+            "jobs",
+            "alerts"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "document": {
+      "components": {
+        "schemas": {
+          "Job": {
+            "description": "A job.",
+            "properties": {
+              "id": {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": "object"
+          },
+          "Pending": {
+            "description": "Work that waits for a worker.",
+            "properties": {
+              "jobs": {
+                "items": {
+                  "$ref": "#/components/schemas/Job"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "jobs"
+            ],
+            "type": "object"
+          },
+          "Subscribe": {
+            "description": "A subscription request of the client.",
+            "properties": {
+              "topics": {
+                "items": {
+                  "$ref": "#/components/schemas/Topic"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "topics"
+            ],
+            "type": "object"
+          },
+          "Topic": {
+            "description": "Which events a client wants.",
+            "enum": [
+              "jobs",
+              "alerts"
+            ],
+            "type": "string"
+          }
+        }
+      },
+      "info": {
+        "title": "Gateway",
+        "version": "1.0.0"
+      },
+      "openapi": "3.0.3",
+      "paths": {}
+    },
+    "lints": [],
+    "validation": []
+  },
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {
+      "Job": {
+        "description": "A job.",
+        "properties": {
+          "id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "Pending": {
+        "description": "Work that waits for a worker.",
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobs"
+        ],
+        "type": "object"
+      },
+      "Subscribe": {
+        "description": "A subscription request of the client.",
+        "properties": {
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/Topic"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "topics"
+        ],
+        "type": "object"
+      },
+      "Topic": {
+        "description": "Which events a client wants.",
+        "enum": [
+          "jobs",
+          "alerts"
+        ],
+        "type": "string"
+      }
+    },
+    "lints": []
+  },
+  "swagger_2": {
+    "document": {
+      "definitions": {
+        "Job": {
+          "description": "A job.",
+          "properties": {
+            "id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ],
+          "type": "object"
+        },
+        "Pending": {
+          "description": "Work that waits for a worker.",
+          "properties": {
+            "jobs": {
+              "items": {
+                "$ref": "#/definitions/Job"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "jobs"
+          ],
+          "type": "object"
+        },
+        "Subscribe": {
+          "description": "A subscription request of the client.",
+          "properties": {
+            "topics": {
+              "items": {
+                "$ref": "#/definitions/Topic"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "topics"
+          ],
+          "type": "object"
+        },
+        "Topic": {
+          "description": "Which events a client wants.",
+          "enum": [
+            "jobs",
+            "alerts"
+          ],
+          "type": "string"
+        }
+      },
+      "info": {
+        "title": "Gateway",
+        "version": "1.0.0"
+      },
+      "paths": {},
+      "swagger": "2.0"
+    },
+    "lints": [],
+    "validation": []
+  }
+}

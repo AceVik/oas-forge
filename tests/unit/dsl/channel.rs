@@ -1,7 +1,7 @@
 //! `src/dsl/channel.rs`: the AsyncAPI channel DSL.
 
 use crate::common::{codes, here, lines};
-use oas_forge::diagnostics::{Code, Diagnostics};
+use oas_forge::diagnostics::{Code, Diagnostics, Severity};
 use oas_forge::dsl::{ChannelSource, compile_channel, is_channel};
 use serde_json::{Value, json};
 
@@ -244,5 +244,390 @@ mod scopes {
             diagnostics.iter().next().and_then(|d| d.location()),
             Some(&here())
         );
+    }
+}
+
+/// Compiles `src` with source line numbers 1, 2, … and returns the document
+/// and the findings.
+fn numbered(src: &[&str]) -> (Option<Value>, Diagnostics) {
+    let lines = lines(src);
+    let numbers: Vec<usize> = (1..=src.len()).collect();
+    let location = here();
+    let mut diagnostics = Diagnostics::new();
+    let compiled = compile_channel(
+        ChannelSource::new(&lines, &location)
+            .line_numbers(&numbers)
+            .operation_id(Some("op")),
+        &mut diagnostics,
+    );
+    (compiled.map(|c| c.document), diagnostics)
+}
+
+/// The findings as `line: code message`.
+fn findings(diagnostics: &Diagnostics) -> Vec<String> {
+    diagnostics
+        .iter()
+        .map(|d| {
+            let line = d.location().map_or(0, |l| l.line());
+            format!("{line}: {} {}", d.code(), d.message())
+        })
+        .collect()
+}
+
+mod websocket {
+    use super::*;
+
+    #[test]
+    fn query_and_header_parameters_form_the_ws_binding() {
+        let (document, diagnostics) = numbered(&[
+            "@channel live",
+            r#"@ws-query token: String "Session token""#,
+            "@ws-query since: Option<u64> example=5",
+            "@ws-query room: String default=lobby enum=[lobby, ops]",
+            r#"@ws-header X-Client: String deprecated "Client name""#,
+            "@send Tick: u64",
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(
+            document.unwrap()["channels"]["live"],
+            json!({
+                "address": "live",
+                "messages": { "Tick": { "$ref": "#/components/messages/Tick" } },
+                "bindings": {
+                    "ws": {
+                        "query": {
+                            "type": "object",
+                            "properties": {
+                                "token": { "type": "string", "description": "Session token" },
+                                "since": {
+                                    "type": "integer",
+                                    "format": "int64",
+                                    "minimum": 0,
+                                    "examples": [5],
+                                },
+                                "room": { "type": "string", "default": "lobby", "enum": ["lobby", "ops"] },
+                            },
+                            "required": ["token"],
+                        },
+                        "headers": {
+                            "type": "object",
+                            "properties": {
+                                "X-Client": {
+                                    "type": "string",
+                                    "description": "Client name",
+                                    "deprecated": true,
+                                },
+                            },
+                            "required": ["X-Client"],
+                        },
+                        "bindingVersion": "0.1.0",
+                    }
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn headers_alone_and_optional_parameters() {
+        let (document, _) = numbered(&["@channel a", "@ws-header X-Trace: Option<String>"]);
+        assert_eq!(
+            document.unwrap()["channels"]["a"]["bindings"],
+            json!({ "ws": {
+                "headers": { "type": "object", "properties": { "X-Trace": { "type": "string" } } },
+                "bindingVersion": "0.1.0",
+            } })
+        );
+    }
+
+    #[test]
+    fn a_later_declaration_of_a_name_replaces_the_earlier_one() {
+        let (document, _) = numbered(&[
+            "@channel a",
+            "@ws-query token: u8",
+            "@ws-query other: Option<u8>",
+            "@ws-query token: Option<String>",
+        ]);
+        assert_eq!(
+            document.unwrap()["channels"]["a"]["bindings"]["ws"]["query"],
+            json!({
+                "type": "object",
+                "properties": { "token": { "type": "string" }, "other": { "type": "integer", "format": "int32", "minimum": 0, "maximum": 255 } },
+            })
+        );
+    }
+
+    #[test]
+    fn parameter_only_and_unknown_flags_are_reported_and_ignored() {
+        let (document, diagnostics) = numbered(&[
+            "@channel a",
+            "@ws-query q: String explode style=form allow-reserved allow-empty bogus=1",
+        ]);
+        assert_eq!(
+            findings(&diagnostics),
+            [
+                "2: OF2004 `bogus=1` is not a parameter flag and was ignored",
+                "2: OF2004 `explode` does not apply to `@ws-query` and was ignored",
+                "2: OF2004 `style` does not apply to `@ws-query` and was ignored",
+                "2: OF2004 `allowReserved` does not apply to `@ws-query` and was ignored",
+                "2: OF2004 `allowEmptyValue` does not apply to `@ws-query` and was ignored",
+            ]
+        );
+        assert_eq!(
+            document.unwrap()["channels"]["a"]["bindings"]["ws"]["query"]["properties"],
+            json!({ "q": { "type": "string" } })
+        );
+    }
+
+    #[test]
+    fn malformed_parameters_are_reported_and_skipped() {
+        let (document, diagnostics) =
+            numbered(&["@channel a", "@ws-header token", "@ws-query : u8"]);
+        assert_eq!(
+            findings(&diagnostics),
+            [
+                "2: OF2004 `@ws-header` needs `name: [Type] [flags] [\"description\"]`",
+                "3: OF2004 `@ws-query` needs `name: [Type] [flags] [\"description\"]`",
+            ]
+        );
+        assert!(document.unwrap()["channels"]["a"].get("bindings").is_none());
+    }
+}
+
+mod media_types {
+    use super::*;
+
+    #[test]
+    fn the_first_media_type_is_the_content_type() {
+        let (document, diagnostics) = numbered(&[
+            "@channel a",
+            r#"@send Frame: $Frame application/x-protobuf application/octet-stream "A frame""#,
+            "@receive Ping: text/plain",
+            "@receive Pong: { type: string }",
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let messages = &document.unwrap()["components"]["messages"];
+        assert_eq!(
+            messages["Frame"],
+            json!({
+                "name": "Frame",
+                "contentType": "application/x-protobuf",
+                "payload": { "$ref": "$Frame" },
+                "description": "A frame",
+            })
+        );
+        assert_eq!(
+            messages["Ping"],
+            json!({ "name": "Ping", "contentType": "text/plain" })
+        );
+        assert_eq!(
+            messages["Pong"],
+            json!({ "name": "Pong", "payload": { "type": "string" } })
+        );
+    }
+}
+
+mod embedded_yaml {
+    use super::*;
+
+    #[test]
+    fn yaml_goes_to_the_channel_a_message_the_operations_or_the_document() {
+        let (document, diagnostics) = numbered(&[
+            "Live updates",
+            "@channel live",
+            "@ws-query token: String",
+            "@send Tick: u64",
+            "@receive Hello: { type: object }",
+            "bindings:",
+            "  ws:",
+            "    method: GET",
+            "",
+            "x-internal: true",
+            "@openapi message Tick",
+            "title: A tick",
+            "headers: { type: object }",
+            "@openapi message Extra",
+            "payload: { type: string }",
+            "@openapi operation",
+            "security: [{ $ref: '#/components/securitySchemes/token' }]",
+            "@openapi document",
+            "components:",
+            "  securitySchemes:",
+            "    token: { type: httpApiKey, in: query, name: token }",
+            "@openapi channel",
+            "description: Every update",
+            "@openapi",
+            "title: Live",
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let document = document.unwrap();
+        let channel = &document["channels"]["live"];
+        assert_eq!(channel["bindings"]["ws"]["method"], "GET");
+        assert_eq!(channel["bindings"]["ws"]["bindingVersion"], "0.1.0");
+        assert!(channel["bindings"]["ws"]["query"].is_object());
+        assert_eq!(channel["x-internal"], true);
+        assert_eq!(channel["description"], "Every update");
+        assert_eq!(channel["title"], "Live");
+        let messages = &document["components"]["messages"];
+        assert_eq!(
+            messages["Tick"],
+            json!({
+                "name": "Tick",
+                "payload": { "type": "integer", "format": "int64", "minimum": 0 },
+                "title": "A tick",
+                "headers": { "type": "object" },
+            })
+        );
+        assert_eq!(
+            messages["Extra"],
+            json!({ "payload": { "type": "string" } })
+        );
+        for operation in ["op_send", "op_receive"] {
+            assert_eq!(
+                document["operations"][operation]["security"],
+                json!([{ "$ref": "#/components/securitySchemes/token" }]),
+                "{operation}"
+            );
+            assert_eq!(document["operations"][operation]["summary"], "Live updates");
+        }
+        assert_eq!(
+            document["components"]["securitySchemes"]["token"]["type"],
+            "httpApiKey"
+        );
+    }
+
+    #[test]
+    fn yaml_wins_with_a_note_at_its_line() {
+        let (document, diagnostics) = numbered(&[
+            "@channel live",
+            "@ws-query token: String",
+            "bindings:",
+            "  ws:",
+            "    bindingVersion: 0.2.0",
+            "@openapi",
+            "address: other/live",
+            "@openapi document",
+            "channels: { live: { title: Doc } }",
+        ]);
+        assert_eq!(
+            findings(&diagnostics),
+            [
+                "5: OF4001 embedded YAML overrides the DSL value at `/bindings/ws/bindingVersion`",
+                "7: OF4001 embedded YAML overrides the DSL value at `/address`",
+            ]
+        );
+        let notes = diagnostics
+            .iter()
+            .filter(|d| d.severity() == Severity::Note);
+        assert_eq!(notes.count(), 2);
+        let document = document.unwrap();
+        assert_eq!(document["channels"]["live"]["address"], "other/live");
+        assert_eq!(document["channels"]["live"]["title"], "Doc");
+        assert_eq!(
+            document["channels"]["live"]["bindings"]["ws"]["bindingVersion"],
+            "0.2.0"
+        );
+    }
+
+    #[test]
+    fn document_yaml_that_changes_the_dsl_is_noted_at_the_block() {
+        let (_, diagnostics) = numbered(&[
+            "@channel live",
+            "@openapi document",
+            "channels: { live: { address: elsewhere } }",
+        ]);
+        assert_eq!(
+            findings(&diagnostics),
+            ["1: OF4001 embedded YAML overrides the DSL value at `/channels/live/address`"]
+        );
+    }
+
+    #[test]
+    fn invalid_yaml_is_reported_and_ignored() {
+        let (document, diagnostics) = numbered(&[
+            "@channel live",
+            "bindings:",
+            "  ws: [",
+            "@openapi message Tick",
+            "- a list",
+            "@openapi operation",
+            "x-a: 1",
+        ]);
+        let findings = findings(&diagnostics);
+        assert_eq!(findings.len(), 3, "{findings:#?}");
+        assert!(
+            findings[0].starts_with("3: OF2005 embedded AsyncAPI YAML is invalid and was ignored"),
+            "{findings:#?}"
+        );
+        assert_eq!(
+            findings[1],
+            "5: OF2005 embedded AsyncAPI YAML must be a mapping and was ignored"
+        );
+        assert_eq!(
+            findings[2],
+            "7: OF2005 `@openapi operation` needs a `@send` or `@receive` in the block; the YAML is ignored"
+        );
+        let document = document.unwrap();
+        assert!(document["channels"]["live"].get("bindings").is_none());
+    }
+
+    #[test]
+    fn invalid_targets_are_reported_and_their_yaml_ignored() {
+        for (line, target) in [
+            ("@openapi message", "message"),
+            ("@openapi message bad/name", "message bad/name"),
+            ("@openapi path", "path"),
+            ("@openapi message A B", "message A B"),
+            ("@openapi channel extra", "channel extra"),
+        ] {
+            let (document, diagnostics) = numbered(&[
+                "Summary",
+                "@channel live",
+                line,
+                "title: Lost",
+                "more: text",
+            ]);
+            assert_eq!(
+                findings(&diagnostics),
+                [format!(
+                    "3: OF2004 `@openapi {target}` is no target of a channel block (use channel, operation, document or message Name); the YAML is ignored"
+                )],
+            );
+            let document = document.unwrap();
+            assert!(
+                document["channels"]["live"].get("title").is_none(),
+                "{line}"
+            );
+            assert!(document.get("operations").is_none());
+        }
+    }
+
+    #[test]
+    fn prose_is_no_yaml_and_directives_end_a_section() {
+        let (document, diagnostics) = numbered(&[
+            "Summary",
+            "@channel live",
+            "@send A: u8",
+            "servers are fast: yes",
+            "bindings: {}",
+            "@tag T",
+            "More text",
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let document = document.unwrap();
+        assert_eq!(
+            document["operations"]["op"]["description"],
+            "servers are fast: yes\nMore text"
+        );
+        assert_eq!(document["channels"]["live"]["bindings"], json!({}));
+        // Blank YAML sections change nothing.
+        let (document, diagnostics) =
+            numbered(&["@channel a", "@openapi", "", "@openapi operation"]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(
+            document.unwrap()["channels"]["a"],
+            json!({ "address": "a" })
+        );
+        let (_, diagnostics) = numbered(&["@channel a", "@openapi", "~"]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 }

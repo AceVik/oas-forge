@@ -1,0 +1,1 @@
+description = "AsyncAPI WebSocket channels: handshake query and headers as the ws binding, embedded YAML for the channel, a message, the operations and the document, media types per message, smart references in the YAML"

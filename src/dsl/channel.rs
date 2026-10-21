@@ -7,15 +7,65 @@
 //! /// @send UserSignedUp: $User "The new user"
 //! fn publish_signup() {}
 //! ```
+//!
+//! `@ws-query` and `@ws-header` describe the handshake of a WebSocket
+//! channel (its `ws` binding); YAML in the block (`bindings:`, `@openapi
+//! message Name`, …) is merged into the channel, a message, the operations
+//! or the document.
 
-use super::SCOPE_SYNTAX;
 use super::prose::{self, Prose, Text};
-use super::responses::type_schema;
+use super::responses::{split_media, type_schema};
 use super::tokens::{split_directive, trailing_description};
-use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
+use super::{SCOPE_SYNTAX, conflict_line, params};
+use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
+use crate::merge::{Policy, merge};
 use crate::schema::TypeMapper;
 use crate::scope;
+use crate::yaml;
 use serde_json::{Map, Value, json};
+
+/// Fields of the Channel Object that start an embedded YAML section in a
+/// channel block (`address` is the `@channel` line).
+const CHANNEL_KEYS: &[&str] = &[
+    "title",
+    "summary",
+    "description",
+    "servers",
+    "parameters",
+    "messages",
+    "tags",
+    "externalDocs",
+    "bindings",
+];
+
+/// The version of the AsyncAPI WebSocket channel binding.
+const WS_BINDING_VERSION: &str = "0.1.0";
+
+/// Where the lines of an embedded YAML section of a channel block go.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Target {
+    /// The channel: `@openapi`, `@openapi channel` or a line that starts
+    /// with a channel field (`bindings:`, `x-…:`).
+    Channel,
+    /// `components.messages.<name>` (`@openapi message Name`).
+    Message(String),
+    /// Every operation of the block (`@openapi operation`).
+    Operation,
+    /// The AsyncAPI document (`@openapi document`).
+    Document,
+    /// Nowhere: the `@openapi` line was invalid (and reported).
+    Ignored,
+}
+
+/// The `@ws-query` and `@ws-header` parameters of a block: the properties
+/// of the binding's `query` and `headers` schemas.
+#[derive(Default)]
+struct WebSocket {
+    /// `@ws-query`: name, schema and whether it is required.
+    query: Vec<(String, Value, bool)>,
+    /// `@ws-header`: name, schema and whether it is required.
+    headers: Vec<(String, Value, bool)>,
+}
 
 /// One `@channel` block.
 #[derive(Debug, Clone, Copy)]
@@ -138,13 +188,25 @@ pub fn compile_channel(
     let mut tags: Vec<String> = Vec::new();
     let mut scopes: Option<Vec<String>> = None;
     let mut messages: Vec<(&'static str, String, Value)> = Vec::new();
+    let mut websocket = WebSocket::default();
+    // Embedded YAML: the open section and every line with its target.
+    let mut section: Option<Target> = None;
+    let mut yaml: Vec<(Target, usize, String)> = Vec::new();
 
     for (index, line) in source.lines.iter().enumerate() {
         let trimmed = line.trim();
         let Some(directive) = trimmed.strip_prefix('@') else {
+            if section.is_none() && starts_channel_yaml(trimmed) {
+                section = Some(Target::Channel);
+            }
+            if let Some(target) = &section {
+                yaml.push((target.clone(), index, line.clone()));
+                continue;
+            }
             prose.line(text, line);
             continue;
         };
+        section = None;
         let (name, arguments) = split_directive(directive);
         let rest: &str = &arguments;
         text = Text::after(name);
@@ -193,10 +255,14 @@ pub fn compile_channel(
                     continue;
                 }
                 let (type_text, text) = trailing_description(spec);
+                let (type_text, media) = split_media(type_text);
                 let mut object = Map::new();
                 object.insert("name".into(), json!(message));
+                if let Some(media) = media.first() {
+                    object.insert("contentType".into(), json!(media));
+                }
                 if !type_text.is_empty() {
-                    match type_schema(type_text, source.types) {
+                    match type_schema(&type_text, source.types) {
                         Ok(payload) => {
                             object.insert("payload".into(), payload);
                         }
@@ -223,6 +289,34 @@ pub fn compile_channel(
                 None => diagnostics
                     .push(Diagnostic::new(Code::InvalidDirective, SCOPE_SYNTAX).at(at(index))),
             },
+            "ws-query" | "ws-header" => {
+                let location = if name == "ws-query" {
+                    "query"
+                } else {
+                    "header"
+                };
+                if let Some(property) =
+                    ws_property(name, location, rest, &source, index, diagnostics)
+                {
+                    let list = if name == "ws-query" {
+                        &mut websocket.query
+                    } else {
+                        &mut websocket.headers
+                    };
+                    // A later declaration of a name replaces the earlier one.
+                    match list.iter_mut().find(|(n, _, _)| *n == property.0) {
+                        Some(existing) => *existing = property,
+                        None => list.push(property),
+                    }
+                }
+            }
+            "openapi" => {
+                section = Some(yaml_target(rest).unwrap_or_else(|message| {
+                    diagnostics
+                        .push(Diagnostic::new(Code::InvalidDirective, message).at(at(index)));
+                    Target::Ignored
+                }));
+            }
             "summary" => prose.summary(rest),
             "description" => prose.description(prose::margin(line), rest),
             // The plain lines after it are left out.
@@ -268,6 +362,9 @@ pub fn compile_channel(
     if !channel_messages.is_empty() {
         channel_object.insert("messages".into(), Value::Object(channel_messages));
     }
+    if let Some(binding) = websocket.binding() {
+        channel_object.insert("bindings".into(), json!({ "ws": binding }));
+    }
 
     let (summary, description) = prose.finish();
     let mut operations = Map::new();
@@ -308,17 +405,54 @@ pub fn compile_channel(
         operations.insert(operation_id, Value::Object(operation));
     }
 
+    let mut channel_object = Value::Object(channel_object);
+    let mut component_messages = Value::Object(component_messages);
+    let mut extra = Value::Object(Map::new());
+    let embedded = Embedded {
+        source: &source,
+        lines: &yaml,
+    };
+    embedded.merge_into(&Target::Channel, &mut channel_object, diagnostics);
+    for name in embedded.messages() {
+        let entry = match &mut component_messages {
+            Value::Object(map) => map.entry(name.clone()).or_insert_with(|| json!({})),
+            other => other,
+        };
+        embedded.merge_into(&Target::Message(name), entry, diagnostics);
+    }
+    if operations.is_empty() {
+        embedded.without_operation(diagnostics);
+    }
+    for operation in operations.values_mut() {
+        embedded.merge_into(&Target::Operation, operation, diagnostics);
+    }
+    embedded.merge_into(&Target::Document, &mut extra, diagnostics);
+
     let mut document = Map::new();
     let mut channels = Map::new();
-    channels.insert(id.clone(), Value::Object(channel_object));
+    channels.insert(id.clone(), channel_object);
     document.insert("channels".into(), Value::Object(channels));
     if !operations.is_empty() {
         document.insert("operations".into(), Value::Object(operations));
     }
-    if !component_messages.is_empty() {
+    if component_messages
+        .as_object()
+        .is_some_and(|m| !m.is_empty())
+    {
         document.insert(
             "components".into(),
             json!({ "messages": component_messages }),
+        );
+    }
+    let mut document = Value::Object(document);
+    for pointer in merge(&mut document, extra, Policy::Document) {
+        diagnostics.push(
+            Diagnostic::new(
+                Code::MergeConflict,
+                format!("embedded YAML overrides the DSL value at `{pointer}`"),
+            )
+            .with_severity(Severity::Note)
+            .at(source.location.clone()),
         );
     }
     let scopes = match scopes {
@@ -329,8 +463,256 @@ pub fn compile_channel(
         id,
         address,
         scopes,
-        document: Value::Object(document),
+        document,
     })
+}
+
+/// Whether a prose line of a channel block starts embedded YAML: a channel
+/// field (`bindings:`) or an extension (`x-…:`) followed by `:`.
+fn starts_channel_yaml(trimmed: &str) -> bool {
+    trimmed
+        .split_once(':')
+        .map(|(key, _)| key.trim())
+        .is_some_and(|key| {
+            !key.contains(char::is_whitespace)
+                && (CHANNEL_KEYS.contains(&key) || key.starts_with("x-"))
+        })
+}
+
+/// The target of `@openapi [channel | operation | document | message Name]`;
+/// the error says what is wrong.
+fn yaml_target(rest: &str) -> Result<Target, String> {
+    let mut words = rest.split_whitespace();
+    let target = match (words.next(), words.next()) {
+        (None | Some("channel"), None) => Target::Channel,
+        (Some("operation"), None) => Target::Operation,
+        (Some("document"), None) => Target::Document,
+        (Some("message"), Some(name)) if is_component_key(name) => {
+            Target::Message(name.to_string())
+        }
+        _ => {
+            return Err(format!(
+                "`@openapi {rest}` is no target of a channel block (use channel, operation, document or message Name); the YAML is ignored"
+            ));
+        }
+    };
+    match words.next() {
+        None => Ok(target),
+        Some(_) => Err(format!(
+            "`@openapi {rest}` is no target of a channel block (use channel, operation, document or message Name); the YAML is ignored"
+        )),
+    }
+}
+
+/// Parses `@ws-query`/`@ws-header` (`directive`) `rest` like a parameter of
+/// `location`; returns the property name, its schema and whether it is
+/// required. Flags that only parameters have are reported and ignored.
+fn ws_property(
+    directive: &str,
+    location: &str,
+    rest: &str,
+    source: &ChannelSource<'_>,
+    index: usize,
+    diagnostics: &mut Diagnostics,
+) -> Option<(String, Value, bool)> {
+    let at = match source.line_numbers.get(index) {
+        Some(line) => Location::new(source.location.file(), *line),
+        None => source.location.clone(),
+    };
+    let Some(parameter) = params::parse(location, rest, source.types) else {
+        diagnostics.push(
+            Diagnostic::new(
+                Code::InvalidDirective,
+                format!("`@{directive}` needs `name: [Type] [flags] [\"description\"]`"),
+            )
+            .at(at),
+        );
+        return None;
+    };
+    for problem in &parameter.problems {
+        diagnostics.push(Diagnostic::new(Code::InvalidDirective, problem.clone()).at(at.clone()));
+    }
+    let Value::Object(mut fields) = parameter.value else {
+        return None;
+    };
+    let required = fields.shift_remove("required") == Some(json!(true));
+    let mut schema = fields.shift_remove("schema").unwrap_or_else(|| json!({}));
+    if let Value::Object(schema) = &mut schema {
+        if let Some(description) = fields.shift_remove("description") {
+            schema.insert("description".into(), description);
+        }
+        if let Some(deprecated) = fields.shift_remove("deprecated") {
+            schema.insert("deprecated".into(), deprecated);
+        }
+        if let Some(example) = fields.shift_remove("example") {
+            schema.insert("examples".into(), json!([example]));
+        }
+    }
+    for flag in fields
+        .keys()
+        .filter(|key| !matches!(key.as_str(), "name" | "in"))
+    {
+        diagnostics.push(
+            Diagnostic::new(
+                Code::InvalidDirective,
+                format!("`{flag}` does not apply to `@{directive}` and was ignored"),
+            )
+            .at(at.clone()),
+        );
+    }
+    Some((parameter.name, schema, required))
+}
+
+impl WebSocket {
+    /// The `ws` channel binding, `None` without `@ws-query` and
+    /// `@ws-header`.
+    fn binding(&self) -> Option<Value> {
+        if self.query.is_empty() && self.headers.is_empty() {
+            return None;
+        }
+        let mut binding = Map::new();
+        for (key, properties) in [("query", &self.query), ("headers", &self.headers)] {
+            if !properties.is_empty() {
+                binding.insert(key.into(), object_schema(properties));
+            }
+        }
+        binding.insert("bindingVersion".into(), json!(WS_BINDING_VERSION));
+        Some(Value::Object(binding))
+    }
+}
+
+/// An object schema with `properties`, and `required` when a property is.
+fn object_schema(properties: &[(String, Value, bool)]) -> Value {
+    let mut schema = Map::new();
+    schema.insert("type".into(), json!("object"));
+    schema.insert(
+        "properties".into(),
+        Value::Object(
+            properties
+                .iter()
+                .map(|(name, schema, _)| (name.clone(), schema.clone()))
+                .collect(),
+        ),
+    );
+    let required: Vec<&String> = properties
+        .iter()
+        .filter(|(_, _, required)| *required)
+        .map(|(name, _, _)| name)
+        .collect();
+    if !required.is_empty() {
+        schema.insert("required".into(), json!(required));
+    }
+    Value::Object(schema)
+}
+
+/// The embedded YAML of a channel block.
+struct Embedded<'s, 'a> {
+    /// The block, for locations.
+    source: &'s ChannelSource<'a>,
+    /// Every YAML line: its target, its entry in the block and its text.
+    lines: &'s [(Target, usize, String)],
+}
+
+impl Embedded<'_, '_> {
+    /// The source location of entry `index` of the block.
+    fn at(&self, index: usize) -> Location {
+        match self.source.line_numbers.get(index) {
+            Some(line) => Location::new(self.source.location.file(), *line),
+            None => self.source.location.clone(),
+        }
+    }
+
+    /// The names of the `@openapi message Name` sections, sorted.
+    fn messages(&self) -> Vec<String> {
+        let names: std::collections::BTreeSet<String> = self
+            .lines
+            .iter()
+            .filter_map(|(target, _, _)| match target {
+                Target::Message(name) => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        names.into_iter().collect()
+    }
+
+    /// Reports `@openapi operation` YAML in a block without operation.
+    fn without_operation(&self, diagnostics: &mut Diagnostics) {
+        if let Some((_, index, _)) = self
+            .lines
+            .iter()
+            .find(|(target, _, line)| *target == Target::Operation && !line.trim().is_empty())
+        {
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::InvalidRouteYaml,
+                    "`@openapi operation` needs a `@send` or `@receive` in the block; the YAML is ignored",
+                )
+                .at(self.at(*index)),
+            );
+        }
+    }
+
+    /// Merges the YAML of `target` into `value`: the YAML wins, and a value
+    /// it changes is reported as a note at its line. YAML that is invalid
+    /// or not a mapping is reported and ignored.
+    fn merge_into(&self, target: &Target, value: &mut Value, diagnostics: &mut Diagnostics) {
+        let lines: Vec<(usize, &str)> = self
+            .lines
+            .iter()
+            .filter(|(t, _, _)| t == target)
+            .map(|(_, index, line)| (*index, line.as_str()))
+            .collect();
+        let text: Vec<&str> = lines.iter().map(|(_, line)| *line).collect();
+        if text.iter().all(|line| line.trim().is_empty()) {
+            return;
+        }
+        let first = lines.first().map(|(index, _)| *index).unwrap_or_default();
+        match yaml::parse(&text.join("\n")) {
+            Ok(Value::Null) => {}
+            Ok(parsed) if !parsed.is_object() => diagnostics.push(
+                Diagnostic::new(
+                    Code::InvalidRouteYaml,
+                    "embedded AsyncAPI YAML must be a mapping and was ignored",
+                )
+                .at(self.at(first)),
+            ),
+            Ok(parsed) => {
+                let policy = if *target == Target::Document {
+                    Policy::Document
+                } else {
+                    Policy::Operation
+                };
+                for pointer in merge(value, parsed, policy) {
+                    let index = conflict_line(&text, &pointer)
+                        .and_then(|i| lines.get(i))
+                        .map_or(first, |(index, _)| *index);
+                    diagnostics.push(
+                        Diagnostic::new(
+                            Code::MergeConflict,
+                            format!("embedded YAML overrides the DSL value at `{pointer}`"),
+                        )
+                        .with_severity(Severity::Note)
+                        .at(self.at(index)),
+                    );
+                }
+            }
+            Err(error) => {
+                let index = lines
+                    .get(error.line.saturating_sub(1))
+                    .map_or(first, |(index, _)| *index);
+                diagnostics.push(
+                    Diagnostic::new(
+                        Code::InvalidRouteYaml,
+                        format!(
+                            "embedded AsyncAPI YAML is invalid and was ignored: {}",
+                            error.message
+                        ),
+                    )
+                    .at(self.at(index)),
+                );
+            }
+        }
+    }
 }
 
 /// The `@scope` of the innermost module defaults that have one; an invalid

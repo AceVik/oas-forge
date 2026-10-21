@@ -171,3 +171,79 @@ fn shared_schemas_are_found_by_escaped_references() {
         json!({ "type": "object" })
     );
 }
+
+/// A WebSocket channel whose YAML refers to schemas with smart references.
+const WEBSOCKET: &str = r#"
+/// Pending work.
+/// @openapi
+struct Pending { jobs: Vec<Job> }
+
+/// A job.
+/// @openapi
+struct Job { id: u64 }
+
+/// A filter.
+/// @openapi
+#[derive(Deserialize)]
+enum Filter { All, Mine }
+
+/// Live updates
+/// @channel live
+/// @ws-query filter: $Filter "What to watch"
+/// @ws-header Authorization: String
+/// @send Update: application/json
+/// @openapi message Update
+/// payload: { $ref: $Pending }
+/// @openapi
+/// bindings: { ws: { method: GET } }
+fn live() {}
+"#;
+
+#[test]
+fn smart_references_in_channel_yaml_resolve_and_share_their_schemas() {
+    let (spec, _project) = spec_of(&[("lib.rs", &format!("{ROOT}{WEBSOCKET}"))]);
+    assert!(spec.diagnostics().is_empty(), "{:#?}", spec.diagnostics());
+    let document = spec.render(OutputKind::AsyncApi).unwrap();
+    assert_eq!(
+        document["components"]["messages"]["Update"],
+        json!({
+            "name": "Update",
+            "contentType": "application/json",
+            "payload": { "$ref": "#/components/schemas/Pending" },
+        })
+    );
+    assert_eq!(
+        document["channels"]["live"]["bindings"]["ws"]["query"]["properties"]["filter"],
+        json!({ "$ref": "#/components/schemas/Filter", "description": "What to watch" })
+    );
+    let schemas = document["components"]["schemas"].as_object().unwrap();
+    assert_eq!(
+        schemas.keys().collect::<Vec<_>>(),
+        ["Filter", "Job", "Pending"]
+    );
+    assert!(
+        spec::validate(&document).is_empty(),
+        "{:?}",
+        spec::validate(&document)
+    );
+}
+
+#[test]
+fn schemas_of_channel_yaml_survive_the_pruning_of_a_scope() {
+    let project = crate::common::Project::new();
+    project.file("src/lib.rs", &format!("{ROOT}{WEBSOCKET}"));
+    let spec = oas_forge::Generator::new()
+        .input(project.path("src"))
+        .without_package()
+        .scope("public")
+        .build()
+        .unwrap();
+    let document = spec.render(OutputKind::AsyncApi).unwrap();
+    let schemas = document["components"]["schemas"].as_object().unwrap();
+    assert_eq!(
+        schemas.keys().collect::<Vec<_>>(),
+        ["Filter", "Job", "Pending"]
+    );
+    // The OpenAPI document of the scope has no operation that uses them.
+    assert!(spec.document().get("components").is_none());
+}
