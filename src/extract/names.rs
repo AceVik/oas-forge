@@ -72,7 +72,10 @@ struct Documented {
     component: String,
     /// Where it is declared.
     location: Location,
-    /// Whether it is a template (generic types are not qualified).
+    /// Whether it is a template (a generic type, or `@openapi<T>`).
+    /// Templates and schemas are separate namespaces: a template `Page`
+    /// and a schema `Page` do not collide, and a name written with type
+    /// arguments means a template.
     generic: bool,
 }
 
@@ -341,21 +344,21 @@ impl NameTable {
     }
 
     /// Gives the documented types whose component names collide their
-    /// qualified names and reports each.
+    /// qualified names and reports each; templates collide with templates,
+    /// schemas with schemas.
     fn qualify(&mut self, diagnostics: &mut Diagnostics) {
-        let mut claims: BTreeMap<String, Vec<Segments>> = BTreeMap::new();
+        let mut claims: BTreeMap<(bool, String), Vec<Segments>> = BTreeMap::new();
         for (path, documented) in &self.documented {
-            if !documented.generic {
-                claims
-                    .entry(documented.component.clone())
-                    .or_default()
-                    .push(path.clone());
-            }
+            claims
+                .entry((documented.generic, documented.component.clone()))
+                .or_default()
+                .push(path.clone());
         }
-        for (component, paths) in claims {
+        for ((generic, component), paths) in claims {
             if paths.len() < 2 {
                 continue;
             }
+            let kind = if generic { "template" } else { "schema" };
             let all: Vec<String> = paths
                 .iter()
                 .map(|p| format!("`{}`", p.join("::")))
@@ -369,7 +372,7 @@ impl NameTable {
                     Diagnostic::new(
                         Code::DuplicateSchema,
                         format!(
-                            "schema `{component}` is defined by several types ({}); this one is named `{}`; give them distinct names with `@openapi rename`",
+                            "{kind} `{component}` is defined by several types ({}); this one is named `{}`; give them distinct names with `@openapi rename`",
                             all.join(", "),
                             documented.component
                         ),
@@ -390,33 +393,34 @@ impl NameTable {
     }
 
     /// What the type written as `written` (path segments) in the module
-    /// `scope` means.
-    pub(crate) fn resolve(&self, scope: &[String], written: &[String]) -> Resolved {
+    /// `scope` means; `generic` when it is written with type arguments (it
+    /// then means a template).
+    pub(crate) fn resolve(&self, scope: &[String], written: &[String], generic: bool) -> Resolved {
         let Some(name) = written.last() else {
             return Resolved::Unknown;
         };
         let found = match written {
-            [_] => self.bare(scope, name),
-            _ => self.qualified_path(scope, written),
+            [_] => self.bare(scope, name, generic),
+            _ => self.qualified_path(scope, written, generic),
         };
-        found.unwrap_or_else(|| self.by_name(name))
+        found.unwrap_or_else(|| self.by_name(name, generic))
     }
 
     /// A name without path: defined in `scope`, imported or brought in by a
     /// glob import. `None` when `scope` says nothing about it.
-    fn bare(&self, scope: &[String], name: &str) -> Option<Resolved> {
+    fn bare(&self, scope: &[String], name: &str, generic: bool) -> Option<Resolved> {
         let module = self.modules.get(scope)?;
         let mut path = scope.to_vec();
         path.push(name.to_string());
         if let Some(definition) = module.defined.get(name) {
-            return Some(self.defined(&path, *definition));
+            return Some(self.defined(&path, *definition, generic));
         }
         if let Some(target) = module.uses.get(name) {
             let target = self.absolute(scope, target);
             return Some(
-                self.follow(&target, 0)
-                    .or_else(|| self.by_suffix(&target))
-                    .unwrap_or_else(|| self.by_name(name)),
+                self.follow(&target, 0, generic)
+                    .or_else(|| self.by_suffix(&target, generic))
+                    .unwrap_or_else(|| self.by_name(name, generic)),
             );
         }
         let mut found: BTreeSet<String> = BTreeSet::new();
@@ -424,7 +428,7 @@ impl NameTable {
         for glob in &module.globs {
             let mut candidate = self.absolute(scope, glob);
             candidate.push(name.to_string());
-            if let Some(Resolved::Component(component)) = self.follow(&candidate, 0)
+            if let Some(Resolved::Component(component)) = self.follow(&candidate, 0, generic)
                 && found.insert(component)
             {
                 paths.push(candidate.join("::"));
@@ -438,7 +442,12 @@ impl NameTable {
     }
 
     /// A written path (`baylee_cardtext::Printing`, `crate::model::Status`).
-    fn qualified_path(&self, scope: &[String], written: &[String]) -> Option<Resolved> {
+    fn qualified_path(
+        &self,
+        scope: &[String],
+        written: &[String],
+        generic: bool,
+    ) -> Option<Resolved> {
         let segments;
         // A path that starts with an imported name (`use a::model; model::X`).
         if let Some(first) = written.first()
@@ -458,19 +467,19 @@ impl NameTable {
                 .fold(start, |path, segment| step(scope, path, segment));
             segments = self.absolute(scope, &path);
         }
-        self.follow(&segments, 0)
-            .or_else(|| self.by_suffix(&segments))
+        self.follow(&segments, 0, generic)
+            .or_else(|| self.by_suffix(&segments, generic))
     }
 
-    /// The meaning of the type `path`, defined as `definition` in its module.
-    fn defined(&self, path: &Segments, definition: Definition) -> Resolved {
+    /// The meaning of the type `path`, defined as `definition` in its module;
+    /// `generic` for a name written with type arguments.
+    fn defined(&self, path: &Segments, definition: Definition, generic: bool) -> Resolved {
         if let Some(documented) = self.documented.get(path) {
             return Resolved::Component(documented.component.clone());
         }
         let others = path
             .last()
-            .and_then(|name| self.by_name.get(name))
-            .is_some_and(|paths| !paths.is_empty());
+            .is_some_and(|name| !self.named(name, generic).is_empty());
         match definition {
             // A transparent alias is replaced where the references are
             // resolved.
@@ -483,7 +492,7 @@ impl NameTable {
     /// The meaning of the absolute `path`: a documented type, a type of a
     /// scanned module, or what a `use` of its module re-exports. `None` when
     /// the scanned sources do not define it.
-    fn follow(&self, path: &Segments, depth: usize) -> Option<Resolved> {
+    fn follow(&self, path: &Segments, depth: usize, generic: bool) -> Option<Resolved> {
         if let Some(documented) = self.documented.get(path) {
             return Some(Resolved::Component(documented.component.clone()));
         }
@@ -496,15 +505,15 @@ impl NameTable {
         if let Some(definition) = module.defined.get(name) {
             let mut path = parent.clone();
             path.push(name.clone());
-            return Some(self.defined(&path, *definition));
+            return Some(self.defined(&path, *definition, generic));
         }
         if let Some(target) = module.uses.get(name) {
-            return self.follow(&self.absolute(&parent, target), depth + 1);
+            return self.follow(&self.absolute(&parent, target), depth + 1, generic);
         }
         module.globs.iter().find_map(|glob| {
             let mut candidate = self.absolute(&parent, glob);
             candidate.push(name.clone());
-            self.follow(&candidate, depth + 1)
+            self.follow(&candidate, depth + 1, generic)
         })
     }
 
@@ -526,11 +535,13 @@ impl NameTable {
     /// The documented types whose full paths end with `path` (without its
     /// first segment when nothing matches it whole: a crate re-exporting
     /// the type from a module).
-    fn by_suffix(&self, path: &Segments) -> Option<Resolved> {
+    fn by_suffix(&self, path: &Segments, generic: bool) -> Option<Resolved> {
+        let kind = |documented: &Documented| documented.generic == generic;
         let ends_with = |suffix: &[String]| -> Vec<&Segments> {
             self.documented
-                .keys()
-                .filter(|full| full.ends_with(suffix))
+                .iter()
+                .filter(|(full, documented)| full.ends_with(suffix) && kind(documented))
+                .map(|(full, _)| full)
                 .collect()
         };
         let mut matches = ends_with(path);
@@ -540,17 +551,36 @@ impl NameTable {
             // `baylee_catalog::Printing` for `baylee_catalog::model::Printing`.
             matches = self
                 .documented
-                .keys()
-                .filter(|full| full.first() == Some(first) && full.last() == Some(name))
+                .iter()
+                .filter(|(full, documented)| {
+                    full.first() == Some(first) && full.last() == Some(name) && kind(documented)
+                })
+                .map(|(full, _)| full)
                 .collect();
         }
         self.unique(&matches)
     }
 
-    /// The one documented type named `name`, else ambiguous or unknown.
-    fn by_name(&self, name: &str) -> Resolved {
-        let paths: Vec<&Segments> = self.by_name.get(name).into_iter().flatten().collect();
-        self.unique(&paths).unwrap_or(Resolved::Unknown)
+    /// The one documented type named `name` (a template when `generic`),
+    /// else ambiguous or unknown.
+    fn by_name(&self, name: &str, generic: bool) -> Resolved {
+        self.unique(&self.named(name, generic))
+            .unwrap_or(Resolved::Unknown)
+    }
+
+    /// The full paths of the documented types named `name`: templates when
+    /// `generic`, else schemas.
+    fn named(&self, name: &str, generic: bool) -> Vec<&Segments> {
+        self.by_name
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter(|path| {
+                self.documented
+                    .get(*path)
+                    .is_some_and(|documented| documented.generic == generic)
+            })
+            .collect()
     }
 
     /// The component of the only path of `paths`; several are ambiguous,

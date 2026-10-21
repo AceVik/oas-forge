@@ -12,6 +12,16 @@ All notable changes to `oas-forge` will be documented in this file.
   inline `mod` blocks and on them, and files declared by a file that
   `#[path]` moved, get the module path rustc gives them (it decides the
   `crate.module.Name` of colliding types and which type a path means).
+- Two documented generic types of one name in different modules were merged
+  silently (every `Page<T>` used the last one). Templates are now qualified
+  like other types (`crate.module.Page`, instances `crate.module.Page_User`,
+  each reported as `OF1004`), and a generic type resolves its template by
+  module path like any other type; a template and a schema of one name do
+  not collide.
+- A type argument (or template) that does not name one documented type,
+  such as `Page<User>` with two documented `User`s, is reported (`OF3014`)
+  and nothing is instantiated, instead of an instance that pointed to a
+  schema that does not exist.
 
 ## [0.2.0] — 2026-10-21
 

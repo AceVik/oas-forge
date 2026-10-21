@@ -414,19 +414,25 @@ directory too. A name resolves, in this order, to:
 
 The reference uses the schema name of that type, renames applied: with
 `use baylee_catalog::Printing;`, a field `Vec<Printing>` points to
-`CatalogPrinting` when that type is renamed so. Several candidates, or a
+`CatalogPrinting` when that type is renamed so. A name written with type
+arguments (`Page<User>`) means a template (a generic type), one without
+means a schema, so a template `Page<T>` and a struct `Page` do not mix; the
+template and every argument are looked up so. Several candidates, or a
 type of the same module that is not documented while other documented
 types have its name, are reported (`OF3014`); the schema then has no
-reference. A `$Name` written in a directive or in YAML is a schema name and
-is not looked up by module.
+reference, and a generic type with such a template or argument is not
+instantiated. A `$Name` written in a directive or in YAML is a schema name
+and is not looked up by module.
 
 Two documented types whose schema names are equal (no rename) are no longer
 merged: each is named by its module path with dots, `crate.module.Name`
 (`baylee_catalog.model.Status`), each is reported (`OF1004`), and the
 references above point to these names. Give them distinct names with
 `@openapi rename` to choose the names yourself. The same type read twice
-(the same file and module) is one type. Templates (generic types) and
-schemas written in YAML keep their names.
+(the same file and module) is one type. Two templates of one name are
+qualified the same way (`baylee_catalog.model.Page`, instances
+`baylee_catalog.model.Page_User`); a template and a schema of one name do
+not collide. Schemas written in YAML keep their names.
 
 ## References in YAML
 

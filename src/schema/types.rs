@@ -617,11 +617,12 @@ impl TypeMapper {
     }
 
     /// What the Rust type written as `path` means in the module of this
-    /// mapper (unknown without a name table, and for a type parameter).
-    fn resolve(&self, path: &[String]) -> Resolved {
+    /// mapper (unknown without a name table, and for a type parameter);
+    /// `generic` when it is written with type arguments.
+    fn resolve(&self, path: &[String], generic: bool) -> Resolved {
         match (&self.names, path) {
             (_, [name]) if self.params.contains(name) => Resolved::Unknown,
-            (Some((names, scope)), _) => names.resolve(scope, path),
+            (Some((names, scope)), _) => names.resolve(scope, path, generic),
             (None, _) => Resolved::Unknown,
         }
     }
@@ -634,45 +635,67 @@ impl TypeMapper {
     fn reference(&self, path: &[String], resolve: bool) -> Value {
         let name = path.last().map(String::as_str).unwrap_or_default();
         let resolved = if resolve {
-            self.resolve(path)
+            self.resolve(path, false)
         } else {
             Resolved::Unknown
         };
-        match resolved {
-            Resolved::Component(component) => json!({ "$ref": format!("${component}") }),
-            Resolved::Ambiguous(paths) => json!({
-                "$ref": format!("${name}"),
-                UNRESOLVED_KEY: format!(
-                    "`{}` may be any of the documented types {}; write its path or import it with `use`",
-                    path.join("::"),
-                    paths.iter().map(|p| format!("`{p}`")).collect::<Vec<_>>().join(", ")
-                ),
-            }),
-            Resolved::Undocumented(defined) => json!({
-                "$ref": format!("${name}"),
-                UNRESOLVED_KEY: format!(
-                    "`{name}` is `{defined}` here, which is not documented; document it with `@openapi`"
-                ),
-            }),
-            Resolved::Unknown => json!({ "$ref": format!("${name}") }),
+        if let Resolved::Component(component) = &resolved {
+            return json!({ "$ref": format!("${component}") });
         }
+        let mut reference = Map::new();
+        reference.insert("$ref".into(), json!(format!("${name}")));
+        if let Some(finding) = finding(path, &resolved) {
+            reference.insert(UNRESOLVED_KEY.into(), json!(finding));
+        }
+        Value::Object(reference)
+    }
+
+    /// A generic reference without the `$` (`Page<$User>`) for the generic
+    /// type written as `path` with `args`: the template and the named
+    /// arguments by the component names of the documented types they mean
+    /// (`resolve`). A name that does not say which documented type it means
+    /// adds its finding to `findings`.
+    fn generic_text(
+        &self,
+        path: &[String],
+        args: &[TypeExpr],
+        resolve: bool,
+        findings: &mut Vec<String>,
+    ) -> String {
+        let written = path.last().map(String::as_str).unwrap_or_default();
+        let template = match resolve.then(|| self.resolve(path, true)) {
+            Some(Resolved::Component(component)) => component,
+            resolved => {
+                findings.extend(resolved.and_then(|resolved| finding(path, &resolved)));
+                written.to_string()
+            }
+        };
+        let args: Vec<String> = args
+            .iter()
+            .map(|arg| self.generic_arg(arg, findings))
+            .collect();
+        format!("{template}<{}>", args.join(", "))
     }
 
     /// A generic argument of a raw reference. Named types carry a `$`
     /// (`$Page<$T>`, `$Page<$Vec<$T>>`), so that the generics stage
     /// substitutes the type parameters of a blueprint also inside nested
     /// arguments; a documented type is named by its component name, and a
-    /// reference is its target (`&str` is `$str`).
-    fn generic_arg(&self, ty: &TypeExpr) -> String {
+    /// reference is its target (`&str` is `$str`). A name that does not say
+    /// which documented type it means adds its finding to `findings`.
+    fn generic_arg(&self, ty: &TypeExpr, findings: &mut Vec<String>) -> String {
         match ty {
-            TypeExpr::Reference(inner) => self.generic_arg(inner),
-            TypeExpr::Named { path, args, .. } if args.is_empty() => match self.resolve(path) {
-                Resolved::Component(component) => format!("${component}"),
-                _ => format!("${}", path.join("::")),
-            },
+            TypeExpr::Reference(inner) => self.generic_arg(inner, findings),
+            TypeExpr::Named { path, args, .. } if args.is_empty() => {
+                let resolved = self.resolve(path, false);
+                if let Resolved::Component(component) = resolved {
+                    return format!("${component}");
+                }
+                findings.extend(finding(path, &resolved));
+                format!("${}", path.join("::"))
+            }
             TypeExpr::Named { path, args, .. } => {
-                let args: Vec<String> = args.iter().map(|arg| self.generic_arg(arg)).collect();
-                format!("${}<{}>", path.join("::"), args.join(", "))
+                format!("${}", self.generic_text(path, args, true, findings))
             }
             other => other.to_string(),
         }
@@ -950,13 +973,41 @@ impl TypeMapper {
             // A function pointer or trait object as an argument has no name.
             _ if args.iter().any(|arg| !arg.undocumentable().is_empty()) => json!({}),
             // `Page<User>`: a generic type, instantiated from its blueprint.
+            // A template or argument that does not say which documented
+            // type it means is reported, and nothing is instantiated.
             _ if !args.is_empty() => {
-                let args: Vec<String> = args.iter().map(|arg| self.generic_arg(arg)).collect();
-                json!({ "$ref": format!("${name}<{}>", args.join(", ")) })
+                let mut findings = Vec::new();
+                let text = self.generic_text(path, args, resolve, &mut findings);
+                match findings.into_iter().next() {
+                    Some(finding) => json!({ UNRESOLVED_KEY: finding }),
+                    None => json!({ "$ref": format!("${text}") }),
+                }
             }
             _ => self.reference(path, resolve),
         };
         MappedType::required(schema)
+    }
+}
+
+/// The finding for the type written as `path` when `resolved` does not
+/// identify one documented type: several documented types, or an
+/// undocumented type of its module while documented types have its name.
+fn finding(path: &[String], resolved: &Resolved) -> Option<String> {
+    let name = path.last().map(String::as_str).unwrap_or_default();
+    match resolved {
+        Resolved::Undocumented(defined) => Some(format!(
+            "`{name}` is `{defined}` here, which is not documented; document it with `@openapi`"
+        )),
+        Resolved::Ambiguous(paths) => Some(format!(
+            "`{}` may be any of the documented types {}; write its path or import it with `use`",
+            path.join("::"),
+            paths
+                .iter()
+                .map(|p| format!("`{p}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+        Resolved::Component(_) | Resolved::Unknown => None,
     }
 }
 
