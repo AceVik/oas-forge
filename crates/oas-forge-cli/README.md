@@ -46,7 +46,7 @@ oas-forge -i src -o openapi.yaml --check --deny-warnings   # in CI
 | Flag | Meaning |
 | :--- | :--- |
 | `-i`, `--input DIR` | Directory read recursively (repeatable) |
-| `-I`, `--include FILE` | YAML or JSON file to merge (repeatable) |
+| `-I`, `--include FILE` | YAML, JSON or `.proto` file (repeatable) |
 | `-o`, `--output FILE` | Full document (`.json` or `.yaml`) |
 | `--output-schemas`, `--output-paths`, `--output-fragments FILE` | Parts of the document |
 | `--output-openapi-30`, `--output-swagger2`, `--output-json-schema`, `--output-asyncapi FILE` | Exports |

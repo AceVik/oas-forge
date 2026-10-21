@@ -121,6 +121,114 @@ The method and anything else go into the YAML:
 pub async fn live() {}
 ```
 
+## Protocol Buffers
+
+Messages whose frames are protobuf messages name them with
+`proto(package.Message)`:
+
+```rust,ignore
+/// @send Frame: proto(baylee.v1.Envelope) "A frame"
+```
+
+`.proto` files are inputs like Rust and YAML files: found in input
+directories and accepted by `include`. Their `package` and top-level
+`message` declarations are indexed (nested messages, enums and services
+are not), and the message's payload becomes a
+[Multi Format Schema Object](https://www.asyncapi.com/docs/reference/specification/v3.0.0#multiFormatSchemaObject)
+with the whole file as its schema:
+
+```yaml
+contentType: application/x-protobuf
+payload:
+  schemaFormat: application/vnd.google.protobuf;version=3
+  schema: |
+    syntax = "proto3";
+    package baylee.v1;
+    ...
+x-protobuf-message: baylee.v1.Envelope
+```
+
+- `contentType` is `application/x-protobuf` unless the directive names a
+  media type. The schema format says `version=2` for `syntax = "proto2"`.
+- `x-protobuf-message` names the message in the file. Imports are not
+  followed: the schema is the file that declares the message.
+- A name that no `.proto` input declares is reported (`OF2009`) and the
+  message left out; a file that cannot be read (an unclosed brace,
+  comment or string, a second `package`) is reported (`OF0006`) and not
+  indexed. A message that two files declare keeps the first (in input
+  order) and is reported.
+- `.proto` files never reach the OpenAPI documents. Build scripts rerun
+  when they change (`cargo:rerun-if-changed` covers the input directories
+  and every include).
+
+## A WebSocket example
+
+A gateway whose clients talk protobuf over one WebSocket connection, with
+`src/proto/baylee.proto`:
+
+```proto
+syntax = "proto3";
+
+package baylee.v1;
+
+// Every frame on the gateway socket.
+message Envelope {
+  uint64 sequence = 1;
+  oneof body {
+    Hello hello = 2;
+    Event event = 3;
+  }
+}
+
+message Hello {
+  string client = 1;
+}
+
+message Event {
+  string topic = 1;
+  bytes data = 2;
+}
+```
+
+<!-- corpus: guide_websocket -->
+```rust
+//! @asyncapi
+//! asyncapi: 3.0.0
+//! info:
+//!   title: Gateway events
+//!   version: 1.0.0
+//! servers:
+//!   gateway:
+//!     host: gateway.example.com
+//!     protocol: wss
+
+/// Gateway socket
+///
+/// One connection per client; frames are `baylee.v1.Envelope` messages in
+/// both directions.
+/// @channel socket /ws
+/// @ws-query token: String "Session token from the login"
+/// @ws-query resume: Option<u64> "Sequence number to resume after"
+/// @ws-header Sec-WebSocket-Protocol: String example="baylee.v1"
+/// @send ServerFrame: proto(baylee.v1.Envelope) "A frame from the gateway"
+/// @receive ClientFrame: proto(baylee.v1.Envelope) "A frame from the client"
+/// @tag Gateway
+/// servers:
+///   - $ref: '#/servers/gateway'
+/// bindings:
+///   ws:
+///     method: GET
+/// @openapi message ServerFrame
+/// title: Server frame
+pub async fn socket() {}
+```
+
+The channel gets the `ws` binding with the handshake's `token` and
+`resume` query parameters (only `token` is required) and the
+`Sec-WebSocket-Protocol` header, plus `method: GET` from the YAML. Both
+messages carry the file as their payload schema, and `ServerFrame` the
+title from its `@openapi message` section.
+
 ## Embedded YAML
 
 A line of a channel block that starts with a field of the Channel Object

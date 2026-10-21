@@ -18,6 +18,7 @@ mod lint;
 mod merge;
 mod output;
 mod package;
+mod proto;
 mod schema;
 mod source;
 mod template;

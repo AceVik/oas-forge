@@ -38,6 +38,7 @@ fn kinds_are_decided_by_extension() {
         ("a.yaml", Some(SourceKind::Yaml)),
         ("a.yml", Some(SourceKind::Yaml)),
         ("a.json", Some(SourceKind::Json)),
+        ("a.proto", Some(SourceKind::Proto)),
         ("a.md", None),
         ("Makefile", None),
         ("a.RS", None),
@@ -116,6 +117,32 @@ fn includes_follow_inputs_and_missing_ones_are_reported() {
     assert_eq!(set.files()[1].kind(), SourceKind::Json);
     assert!(set.watched().contains(&project.path("base.json")));
     assert_eq!(codes(&diagnostics), [Code::MissingInclude]);
+}
+
+#[test]
+fn proto_files_are_inputs_in_directories_and_as_includes() {
+    let project = Project::new();
+    project
+        .file("src/a.rs", "")
+        .file("src/proto/chat.proto", "message A {}")
+        .file("shared/events.proto", "message B {}");
+    let (set, diagnostics) = discover(
+        &[project.path("src")],
+        &[project.path("shared/events.proto")],
+        &DiscoverOptions::default(),
+    );
+    let set = set.unwrap();
+    assert!(diagnostics.is_empty());
+    assert_eq!(
+        names(&set, project.root()),
+        ["src/a.rs", "src/proto/chat.proto", "shared/events.proto"]
+    );
+    assert_eq!(set.files()[1].kind(), SourceKind::Proto);
+    // The include is watched on its own, the directory covers the rest.
+    assert_eq!(
+        set.watched(),
+        [project.path("src"), project.path("shared/events.proto")]
+    );
 }
 
 #[test]

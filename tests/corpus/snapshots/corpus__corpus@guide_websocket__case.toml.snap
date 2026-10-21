@@ -1,0 +1,174 @@
+---
+source: tests/corpus/main.rs
+expression: snapshot
+input_file: tests/corpus/cases/guide_websocket/case.toml
+---
+{
+  "asyncapi": {
+    "document": {
+      "asyncapi": "3.0.0",
+      "channels": {
+        "socket": {
+          "address": "/ws",
+          "bindings": {
+            "ws": {
+              "bindingVersion": "0.1.0",
+              "headers": {
+                "properties": {
+                  "Sec-WebSocket-Protocol": {
+                    "examples": [
+                      "baylee.v1"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "Sec-WebSocket-Protocol"
+                ],
+                "type": "object"
+              },
+              "method": "GET",
+              "query": {
+                "properties": {
+                  "resume": {
+                    "description": "Sequence number to resume after",
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "token": {
+                    "description": "Session token from the login",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "messages": {
+            "ClientFrame": {
+              "$ref": "#/components/messages/ClientFrame"
+            },
+            "ServerFrame": {
+              "$ref": "#/components/messages/ServerFrame"
+            }
+          },
+          "servers": [
+            {
+              "$ref": "#/servers/gateway"
+            }
+          ]
+        }
+      },
+      "components": {
+        "messages": {
+          "ClientFrame": {
+            "contentType": "application/x-protobuf",
+            "description": "A frame from the client",
+            "name": "ClientFrame",
+            "payload": {
+              "schema": "syntax = \"proto3\";\n\npackage baylee.v1;\n\n// Every frame on the gateway socket.\nmessage Envelope {\n  uint64 sequence = 1;\n  oneof body {\n    Hello hello = 2;\n    Event event = 3;\n  }\n}\n\nmessage Hello {\n  string client = 1;\n}\n\nmessage Event {\n  string topic = 1;\n  bytes data = 2;\n}\n",
+              "schemaFormat": "application/vnd.google.protobuf;version=3"
+            },
+            "x-protobuf-message": "baylee.v1.Envelope"
+          },
+          "ServerFrame": {
+            "contentType": "application/x-protobuf",
+            "description": "A frame from the gateway",
+            "name": "ServerFrame",
+            "payload": {
+              "schema": "syntax = \"proto3\";\n\npackage baylee.v1;\n\n// Every frame on the gateway socket.\nmessage Envelope {\n  uint64 sequence = 1;\n  oneof body {\n    Hello hello = 2;\n    Event event = 3;\n  }\n}\n\nmessage Hello {\n  string client = 1;\n}\n\nmessage Event {\n  string topic = 1;\n  bytes data = 2;\n}\n",
+              "schemaFormat": "application/vnd.google.protobuf;version=3"
+            },
+            "title": "Server frame",
+            "x-protobuf-message": "baylee.v1.Envelope"
+          }
+        }
+      },
+      "info": {
+        "title": "Gateway events",
+        "version": "1.0.0"
+      },
+      "operations": {
+        "socket_receive": {
+          "action": "receive",
+          "channel": {
+            "$ref": "#/channels/socket"
+          },
+          "description": "One connection per client; frames are `baylee.v1.Envelope` messages in\nboth directions.",
+          "messages": [
+            {
+              "$ref": "#/channels/socket/messages/ClientFrame"
+            }
+          ],
+          "summary": "Gateway socket",
+          "tags": [
+            {
+              "name": "Gateway"
+            }
+          ]
+        },
+        "socket_send": {
+          "action": "send",
+          "channel": {
+            "$ref": "#/channels/socket"
+          },
+          "description": "One connection per client; frames are `baylee.v1.Envelope` messages in\nboth directions.",
+          "messages": [
+            {
+              "$ref": "#/channels/socket/messages/ServerFrame"
+            }
+          ],
+          "summary": "Gateway socket",
+          "tags": [
+            {
+              "name": "Gateway"
+            }
+          ]
+        }
+      },
+      "servers": {
+        "gateway": {
+          "host": "gateway.example.com",
+          "protocol": "wss"
+        }
+      }
+    },
+    "lints": [],
+    "validation": []
+  },
+  "description": "Guide (asyncapi.md): a WebSocket channel with handshake parameters, protobuf frames from a .proto input and embedded YAML",
+  "diagnostics": [],
+  "fragments": {
+    "document": {},
+    "lints": []
+  },
+  "full": {
+    "error": "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields."
+  },
+  "json_schema": {
+    "document": {
+      "$defs": {},
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "lints": [],
+    "validation": []
+  },
+  "openapi_30": {
+    "error": "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields."
+  },
+  "paths": {
+    "document": {},
+    "lints": []
+  },
+  "schemas": {
+    "document": {},
+    "lints": []
+  },
+  "swagger_2": {
+    "error": "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields."
+  }
+}

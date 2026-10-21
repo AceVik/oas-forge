@@ -82,6 +82,7 @@ pub(crate) mod lint;
 pub mod merge;
 pub mod output;
 pub mod package;
+pub mod proto;
 pub mod schema;
 pub(crate) mod scope;
 pub mod source;

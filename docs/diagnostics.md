@@ -27,6 +27,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF0003` | note | A configured output inside an input directory was not read | Nothing to do |
 | `OF0004` | note | No `openapi`/`info` root in the sources; it was generated from the package | Write a root to choose the values yourself, or call `without_package()` |
 | `OF0005` | warning | A symbolic link in an input directory is broken or forms a loop; it was skipped | Fix or remove the link |
+| `OF0006` | warning | A `.proto` file cannot be indexed (an unclosed brace, comment or string, a second `package`, a malformed `message` line) and was skipped, or declares a message another file declares (the first is used) | Fix the file, or rename the message |
 
 ## Extraction (OF1xxx)
 
@@ -55,6 +56,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF2006` | warning | Unknown directive | Fix the spelling; see the [directive table](route-dsl.md#directives) |
 | `OF2007` | warning | A handler's `Path` extractor does not fit the placeholders | Align the extractor with the path, or use `@no-infer` |
 | `OF2008` | warning | `@query-params $Struct` (or an inferred `Query<T>`) names no documented struct | Add `@openapi` to the struct, or declare the parameters |
+| `OF2009` | warning | `proto(package.Message)` names no top-level message of the `.proto` inputs; the message is left out | Qualify the name with the package, and add the `.proto` file to an input directory or as an include |
 
 ## Templates and references (OF3xxx)
 

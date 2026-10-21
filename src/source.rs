@@ -1,8 +1,8 @@
 //! Discovery of input files.
 //!
 //! Input directories are walked recursively in sorted order, so the result does
-//! not depend on the file system. Rust files and YAML/JSON files are read; all
-//! other files are ignored. Files that are configured as outputs are never read
+//! not depend on the file system. Rust files, YAML/JSON files and Protocol
+//! Buffers definitions (`.proto`) are read; all other files are ignored. Files that are configured as outputs are never read
 //! back as inputs.
 
 use super::diagnostics::{Code, Diagnostic, Diagnostics, Location};
@@ -23,6 +23,7 @@ pub const DEFAULT_MAX_FILE_SIZE: u64 = 16 * 1024 * 1024;
 ///
 /// assert_eq!(SourceKind::of(Path::new("src/api.rs")), Some(SourceKind::Rust));
 /// assert_eq!(SourceKind::of(Path::new("openapi/root.yml")), Some(SourceKind::Yaml));
+/// assert_eq!(SourceKind::of(Path::new("proto/chat.proto")), Some(SourceKind::Proto));
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
@@ -33,6 +34,9 @@ pub enum SourceKind {
     Yaml,
     /// A JSON document (`.json`).
     Json,
+    /// A Protocol Buffers definition (`.proto`), for `proto(package.Message)`
+    /// payloads of AsyncAPI messages.
+    Proto,
 }
 
 impl SourceKind {
@@ -53,6 +57,7 @@ impl SourceKind {
             "rs" => Some(Self::Rust),
             "yaml" | "yml" => Some(Self::Yaml),
             "json" => Some(Self::Json),
+            "proto" => Some(Self::Proto),
             _ => None,
         }
     }

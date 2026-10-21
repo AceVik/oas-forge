@@ -234,6 +234,8 @@ codes! {
     GeneratedRoot = "OF0004", Note;
     /// A symbolic link in an input directory is broken or forms a loop.
     UnreadableLink = "OF0005", Warning;
+    /// A `.proto` file cannot be indexed, or defines a message another one defines.
+    InvalidProto = "OF0006", Warning;
 
     /// An `@openapi` override is not valid YAML.
     InvalidOverride = "OF1001", Warning;
@@ -272,6 +274,8 @@ codes! {
     SignatureMismatch = "OF2007", Warning;
     /// `@query-params $Struct` (or an inferred extractor) names no documented struct.
     UnresolvedExpansion = "OF2008", Warning;
+    /// `proto(package.Message)` names no message of the `.proto` inputs.
+    UnknownProtoMessage = "OF2009", Warning;
 
     /// `@insert` or `@extend` names an unknown fragment.
     UnknownFragment = "OF3001", Warning;

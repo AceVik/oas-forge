@@ -66,6 +66,8 @@ fn main() {
   document does not touch the file, so crates that embed it are not
   rebuilt.
 - Configured outputs are never read as inputs.
+- `.proto` inputs only describe [protobuf payloads](asyncapi.md#protocol-buffers)
+  of the AsyncAPI document; they never reach an OpenAPI output.
 - `Spec::check()` (CLI `--check`) lists outputs whose file is missing or
   different, without writing.
 - Line endings do not count: a file that Git checked out with `\r\n`

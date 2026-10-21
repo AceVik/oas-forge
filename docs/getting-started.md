@@ -24,8 +24,9 @@ fn main() {
 ```
 
 - `input` directories are read recursively in sorted order: `.rs` files are
-  parsed, `.yaml`, `.yml` and `.json` files are merged as OpenAPI snippets.
-  `include` adds single files. Configured outputs are never read back as
+  parsed, `.yaml`, `.yml` and `.json` files are merged as OpenAPI snippets,
+  and `.proto` files are indexed for [protobuf payloads](asyncapi.md#protocol-buffers)
+  of AsyncAPI messages. `include` adds single files. Configured outputs are never read back as
   inputs, even inside an input directory. Symbolic links are followed
   (broken links and loops are reported as `OF0005`), and a file that is
   reached twice (overlapping inputs, an include inside an input directory)
@@ -106,7 +107,7 @@ oas-forge -i src -o openapi.yaml --var STAGE=prod
 | Flag | Meaning |
 | :--- | :--- |
 | `-i`, `--input DIR` | Directory read recursively (repeatable) |
-| `-I`, `--include FILE` | Single YAML or JSON file to merge (repeatable) |
+| `-I`, `--include FILE` | Single YAML, JSON or `.proto` file (repeatable) |
 | `-o`, `--output FILE` (alias `--out`) | Full document |
 | `--output-schemas FILE` | Only `components.schemas` |
 | `--output-paths FILE` | Only `paths` |

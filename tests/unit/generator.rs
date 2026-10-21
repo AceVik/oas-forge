@@ -1605,6 +1605,37 @@ mod checks {
     }
 }
 
+mod proto_inputs {
+    use super::*;
+
+    #[test]
+    fn proto_includes_are_watched_by_cargo() {
+        let project = Project::new();
+        project
+            .file("src/root.rs", ROOT_DOC)
+            .file("proto/chat.proto", "message Hello {}");
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .include(project.path("proto/chat.proto"))
+            .build()
+            .unwrap();
+        assert!(spec.diagnostics().is_empty(), "{:#?}", spec.diagnostics());
+        let mut out = Vec::new();
+        spec.write_cargo_directives(&mut out).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert!(
+            out.contains(&format!(
+                "cargo:rerun-if-changed={}\n",
+                project.path("proto/chat.proto").display()
+            )),
+            "{out}"
+        );
+        // A `.proto` file is no OpenAPI snippet.
+        assert_eq!(spec.document()["info"]["title"], "Test API");
+        assert!(spec.document().get("paths").is_none());
+    }
+}
+
 mod output_builders {
     use super::*;
 

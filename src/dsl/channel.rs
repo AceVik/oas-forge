@@ -19,6 +19,7 @@ use super::tokens::{split_directive, trailing_description};
 use super::{SCOPE_SYNTAX, conflict_line, params};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
 use crate::merge::{Policy, merge};
+use crate::proto::{self, PROTOBUF_MEDIA_TYPE, ProtoIndex};
 use crate::schema::TypeMapper;
 use crate::scope;
 use crate::yaml;
@@ -85,6 +86,8 @@ pub struct ChannelSource<'a> {
     /// each starting with its header; only their `@scope` applies to a
     /// channel.
     pub defaults: &'a [String],
+    /// The `.proto` files that `proto(package.Message)` payloads name.
+    pub protos: &'a ProtoIndex,
 }
 
 impl<'a> ChannelSource<'a> {
@@ -97,6 +100,7 @@ impl<'a> ChannelSource<'a> {
             location,
             types: TypeMapper::builtin(),
             defaults: &[],
+            protos: &proto::EMPTY,
         }
     }
 
@@ -141,6 +145,47 @@ impl<'a> ChannelSource<'a> {
     /// ```
     pub fn defaults(mut self, defaults: &'a [String]) -> Self {
         self.defaults = defaults;
+        self
+    }
+
+    /// Sets the `.proto` files for `proto(package.Message)` payloads.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::diagnostics::{Diagnostics, Location};
+    /// use oas_forge::dsl::{ChannelSource, compile_channel};
+    /// use oas_forge::proto::ProtoIndex;
+    /// use oas_forge::source::{SourceFile, SourceKind};
+    /// use serde_json::json;
+    ///
+    /// let text = "syntax = \"proto3\";\npackage chat.v1;\nmessage Hello { string name = 1; }\n";
+    /// let mut protos = ProtoIndex::new();
+    /// protos.add(&SourceFile::new("chat.proto", SourceKind::Proto, text), &mut Diagnostics::new());
+    ///
+    /// let lines = ["@channel chat", "@send Hello: proto(chat.v1.Hello)"].map(String::from);
+    /// let location = Location::new("chat.rs", 1);
+    /// let channel = compile_channel(
+    ///     ChannelSource::new(&lines, &location).protos(&protos),
+    ///     &mut Diagnostics::new(),
+    /// )
+    /// .ok_or("the channel is invalid")?;
+    /// assert_eq!(
+    ///     channel.document["components"]["messages"]["Hello"],
+    ///     json!({
+    ///         "name": "Hello",
+    ///         "contentType": "application/x-protobuf",
+    ///         "payload": {
+    ///             "schemaFormat": "application/vnd.google.protobuf;version=3",
+    ///             "schema": text,
+    ///         },
+    ///         "x-protobuf-message": "chat.v1.Hello",
+    ///     })
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn protos(mut self, protos: &'a ProtoIndex) -> Self {
+        self.protos = protos;
         self
     }
 }
@@ -260,6 +305,31 @@ pub fn compile_channel(
                 object.insert("name".into(), json!(message));
                 if let Some(media) = media.first() {
                     object.insert("contentType".into(), json!(media));
+                }
+                if let Some(name) = proto_name(&type_text) {
+                    let Some(file) = source.protos.message(name) else {
+                        diagnostics.push(
+                            Diagnostic::new(
+                                Code::UnknownProtoMessage,
+                                format!("`proto({name})` names no message of the `.proto` inputs (package and message, e.g. `proto(chat.v1.Hello)`); the message is left out"),
+                            )
+                            .at(at(index)),
+                        );
+                        continue;
+                    };
+                    if media.is_empty() {
+                        object.insert("contentType".into(), json!(PROTOBUF_MEDIA_TYPE));
+                    }
+                    object.insert(
+                        "payload".into(),
+                        json!({ "schemaFormat": file.schema_format(), "schema": file.text() }),
+                    );
+                    if let Some(text) = text {
+                        object.insert("description".into(), json!(text));
+                    }
+                    object.insert("x-protobuf-message".into(), json!(name));
+                    messages.push((action, message.to_string(), Value::Object(object)));
+                    continue;
                 }
                 if !type_text.is_empty() {
                     match type_schema(&type_text, source.types) {
@@ -465,6 +535,15 @@ pub fn compile_channel(
         scopes,
         document,
     })
+}
+
+/// The message name of a `proto(package.Message)` type, `None` for other
+/// types.
+fn proto_name(type_text: &str) -> Option<&str> {
+    type_text
+        .strip_prefix("proto(")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .map(str::trim)
 }
 
 /// Whether a prose line of a channel block starts embedded YAML: a channel

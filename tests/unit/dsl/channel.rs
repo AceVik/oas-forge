@@ -631,3 +631,97 @@ mod embedded_yaml {
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 }
+
+mod protobuf {
+    use super::*;
+    use oas_forge::proto::ProtoIndex;
+    use oas_forge::source::{SourceFile, SourceKind};
+
+    const CHAT: &str =
+        "syntax = \"proto3\";\npackage chat.v1;\nmessage Envelope { bytes body = 1; }\n";
+
+    fn compile(src: &[&str]) -> (Option<Value>, Diagnostics) {
+        let mut protos = ProtoIndex::new();
+        let mut diagnostics = Diagnostics::new();
+        protos.add(
+            &SourceFile::new("chat.proto", SourceKind::Proto, CHAT),
+            &mut diagnostics,
+        );
+        let lines = lines(src);
+        let numbers: Vec<usize> = (1..=src.len()).collect();
+        let location = here();
+        let compiled = compile_channel(
+            ChannelSource::new(&lines, &location)
+                .line_numbers(&numbers)
+                .protos(&protos),
+            &mut diagnostics,
+        );
+        (compiled.map(|c| c.document), diagnostics)
+    }
+
+    #[test]
+    fn a_proto_message_is_a_multi_format_payload() {
+        let (document, diagnostics) = compile(&[
+            "@channel chat",
+            r#"@send Envelope: proto(chat.v1.Envelope) "Every frame""#,
+            "@receive Raw: proto( chat.v1.Envelope ) application/octet-stream",
+        ]);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let messages = &document.unwrap()["components"]["messages"];
+        assert_eq!(
+            messages["Envelope"],
+            json!({
+                "name": "Envelope",
+                "contentType": "application/x-protobuf",
+                "payload": {
+                    "schemaFormat": "application/vnd.google.protobuf;version=3",
+                    "schema": CHAT,
+                },
+                "description": "Every frame",
+                "x-protobuf-message": "chat.v1.Envelope",
+            })
+        );
+        // A media type wins over the protobuf default.
+        assert_eq!(messages["Raw"]["contentType"], "application/octet-stream");
+        assert_eq!(messages["Raw"]["x-protobuf-message"], "chat.v1.Envelope");
+    }
+
+    #[test]
+    fn unknown_proto_messages_are_reported_and_left_out() {
+        let (document, diagnostics) = compile(&[
+            "@channel chat",
+            "@send Envelope: proto(Envelope)",
+            "@send Other: proto(chat.v1.Other)",
+            "@send Ok: u8",
+        ]);
+        assert_eq!(
+            codes(&diagnostics),
+            [Code::UnknownProtoMessage, Code::UnknownProtoMessage]
+        );
+        let first = diagnostics.iter().next().unwrap();
+        assert_eq!(first.location().map(|l| l.line()), Some(2));
+        assert!(
+            first
+                .message()
+                .starts_with("`proto(Envelope)` names no message"),
+            "{}",
+            first.message()
+        );
+        let document = document.unwrap();
+        let names: Vec<&String> = document["components"]["messages"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect();
+        assert_eq!(names, ["Ok"]);
+    }
+
+    #[test]
+    fn without_an_index_every_proto_message_is_unknown() {
+        let lines = lines(&["@channel chat", "@send Envelope: proto(chat.v1.Envelope)"]);
+        let location = here();
+        let mut diagnostics = Diagnostics::new();
+        compile_channel(ChannelSource::new(&lines, &location), &mut diagnostics);
+        assert_eq!(codes(&diagnostics), [Code::UnknownProtoMessage]);
+    }
+}

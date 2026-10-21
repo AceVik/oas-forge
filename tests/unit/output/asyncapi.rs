@@ -247,3 +247,61 @@ fn schemas_of_channel_yaml_survive_the_pruning_of_a_scope() {
     // The OpenAPI document of the scope has no operation that uses them.
     assert!(spec.document().get("components").is_none());
 }
+
+const PROTO: &str = "syntax = \"proto3\";\n\npackage baylee.v1;\n\n// A frame on the socket.\nmessage Envelope {\n  oneof body {\n    string text = 1;\n    bytes data = 2;\n  }\n}\n";
+
+#[test]
+fn proto_payloads_are_valid_multi_format_schemas() {
+    let project = crate::common::Project::new();
+    project
+        .file(
+            "src/lib.rs",
+            &format!(
+                "{ROOT}\n/// Frames\n/// @channel frames\n/// @send Envelope: proto(baylee.v1.Envelope)\nfn frames() {{}}\n"
+            ),
+        )
+        .file("src/proto/baylee.proto", PROTO);
+    let spec = oas_forge::Generator::new()
+        .input(project.path("src"))
+        .package(oas_forge::Package::new("shop", "1.0.0"))
+        .build()
+        .unwrap();
+    assert_eq!(codes(spec.diagnostics()), [Code::GeneratedRoot]);
+    let (document, findings) = spec.render_with_diagnostics(OutputKind::AsyncApi).unwrap();
+    assert!(findings.is_empty(), "{findings:#?}");
+    assert_eq!(
+        document["components"]["messages"]["Envelope"]["payload"],
+        json!({ "schemaFormat": "application/vnd.google.protobuf;version=3", "schema": PROTO })
+    );
+    assert!(document["components"].get("schemas").is_none());
+    assert!(
+        spec::validate(&document).is_empty(),
+        "{:?}",
+        spec::validate(&document)
+    );
+    // The OpenAPI documents know nothing of it.
+    let openapi = spec.render(OutputKind::Full).unwrap();
+    assert!(!openapi.to_string().contains("protobuf"), "{openapi:#}");
+}
+
+#[test]
+fn broken_proto_files_and_unknown_messages_are_reported() {
+    let project = crate::common::Project::new();
+    project
+        .file(
+            "src/lib.rs",
+            &format!("{ROOT}\n/// @channel frames\n/// @send Envelope: proto(baylee.v1.Envelope)\nfn frames() {{}}\n"),
+        )
+        .file("src/baylee.proto", "package baylee.v1;\nmessage Envelope {\n");
+    let spec = oas_forge::Generator::new()
+        .input(project.path("src"))
+        .without_package()
+        .build()
+        .unwrap();
+    assert_eq!(
+        codes(spec.diagnostics()),
+        [Code::InvalidProto, Code::UnknownProtoMessage]
+    );
+    let finding = spec.diagnostics().iter().next().unwrap();
+    assert!(finding.to_string().contains("baylee.proto:2"), "{finding}");
+}

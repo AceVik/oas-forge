@@ -11,6 +11,7 @@ use super::lint::{self, Lints};
 use super::merge::{Policy, merge};
 use super::output::{self, Format, OutputKind};
 use super::package::Package;
+use super::proto::ProtoIndex;
 use super::schema::TypeMapper;
 use super::schema::dialect::{self, Dialect};
 use super::scope;
@@ -215,7 +216,8 @@ impl Generator {
     }
 
     /// Adds a directory that is scanned recursively for Rust (`.rs`), YAML
-    /// (`.yaml`, `.yml`) and JSON (`.json`) files; other files are ignored.
+    /// (`.yaml`, `.yml`), JSON (`.json`) and Protocol Buffers (`.proto`)
+    /// files; other files are ignored.
     ///
     /// # Examples
     ///
@@ -235,7 +237,7 @@ impl Generator {
         self
     }
 
-    /// Adds a single YAML/JSON file. A missing file is reported
+    /// Adds a single YAML, JSON or `.proto` file. A missing file is reported
     /// ([`Code::MissingInclude`]) and skipped.
     ///
     /// # Examples
@@ -1610,6 +1612,8 @@ pub(crate) fn prepare(
     } = settings;
     // Pass 1: extraction and template registration.
     let mut collected = Collected::default();
+    // `.proto` files, for `proto(package.Message)` payloads.
+    let mut protos = ProtoIndex::new();
     for file in sources.files() {
         match file.kind() {
             SourceKind::Rust => {
@@ -1637,6 +1641,7 @@ pub(crate) fn prepare(
                     },
                 ));
             }
+            SourceKind::Proto => protos.add(file, diagnostics),
         }
     }
     let Collected {
@@ -1659,7 +1664,12 @@ pub(crate) fn prepare(
         expanded: BTreeMap::new(),
     };
     for (position, item) in pending {
-        if let Some(snippet) = materialize(item, &registry, settings, &mut defaults, diagnostics)? {
+        let context = Context {
+            registry: &registry,
+            protos: &protos,
+            settings,
+        };
+        if let Some(snippet) = materialize(item, context, &mut defaults, diagnostics)? {
             known.collect_from(&snippet.value);
             ordered.push((position * 2 + 1, snippet));
         }
@@ -1983,6 +1993,17 @@ impl Collected {
     }
 }
 
+/// What pass 2 reads besides the pending text.
+#[derive(Clone, Copy)]
+struct Context<'a> {
+    /// The templates and fragments.
+    registry: &'a Registry,
+    /// The `.proto` files, for `proto(…)` payloads of channel messages.
+    protos: &'a ProtoIndex,
+    /// The settings of the run.
+    settings: Settings<'a>,
+}
+
 /// How many `mod name;` declarations a route's defaults are looked up
 /// through, a bound for chains Rust would not compile anyway.
 const MAX_MODULE_DEPTH: usize = 64;
@@ -1998,11 +2019,15 @@ struct RouteDefaults {
 /// Lexical expansion and parsing of one pending text.
 fn materialize(
     pending: Pending,
-    registry: &Registry,
-    settings: Settings<'_>,
+    context: Context<'_>,
     route_defaults: &mut RouteDefaults,
     diagnostics: &mut Diagnostics,
 ) -> Result<Option<Snippet>> {
+    let Context {
+        registry,
+        protos,
+        settings,
+    } = context;
     let Settings {
         variables,
         types,
@@ -2086,7 +2111,8 @@ fn materialize(
                     .line_numbers(&line_numbers)
                     .operation_id(channel.operation_id.as_deref())
                     .types(types)
-                    .defaults(&channel.defaults),
+                    .defaults(&channel.defaults)
+                    .protos(protos),
                 diagnostics,
             );
             let Some(compiled) = compiled else {

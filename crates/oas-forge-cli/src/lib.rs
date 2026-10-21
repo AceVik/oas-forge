@@ -32,7 +32,7 @@ pub struct Cli {
     #[arg(short = 'i', long = "input")]
     pub input: Option<Vec<PathBuf>>,
 
-    /// Specific files to include (e.g., .json, .yaml)
+    /// Specific files to include (.yaml, .json or .proto)
     #[arg(short = 'I', long = "include")]
     pub include: Option<Vec<PathBuf>>,
 

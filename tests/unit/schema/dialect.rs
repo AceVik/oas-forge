@@ -323,3 +323,19 @@ fn querystring_parameters_of_path_items_need_32() {
     );
     assert!(!diagnostics.is_empty());
 }
+
+#[test]
+fn asyncapi_lowering_leaves_multi_format_payloads_alone() {
+    let payload = json!({
+        "schemaFormat": "application/vnd.google.protobuf;version=3",
+        "schema": "syntax = \"proto3\";\nmessage A { repeated int32 prefixItems = 1; }\n",
+    });
+    let mut document = json!({
+        "asyncapi": "3.0.0",
+        "components": { "messages": { "A": { "payload": payload.clone() } } },
+    });
+    let mut diagnostics = Diagnostics::new();
+    lower(&mut document, Dialect::AsyncApi3, &mut diagnostics);
+    assert_eq!(document["components"]["messages"]["A"]["payload"], payload);
+    assert!(diagnostics.is_empty());
+}
