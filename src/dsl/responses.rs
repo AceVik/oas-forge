@@ -120,7 +120,11 @@ pub(super) fn header(rest: &str, types: &TypeMapper) -> Option<(String, String, 
     }
     let (mut type_text, description) = trailing_description(spec);
     let mut required = false;
-    while let Some((rest, flag)) = trailing_word(type_text, &["required", "optional"]) {
+    // At most one flag per word: the loop ends however the words read.
+    for _ in 0..type_text.split_whitespace().count() {
+        let Some((rest, flag)) = trailing_word(type_text, &["required", "optional"]) else {
+            break;
+        };
         required |= flag == "required";
         type_text = rest;
     }

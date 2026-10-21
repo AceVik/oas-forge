@@ -390,3 +390,28 @@ mod rustdoc_friendly {
         );
     }
 }
+
+#[test]
+fn backticks_after_a_quoted_description_are_unwrapped() {
+    // Flags may follow the description; the quote is closed by then.
+    let op = op(&[
+        "@route GET /x",
+        r#"@query-param q: String "Search \"all\"" `default=a` `deprecated`"#,
+    ]);
+    let param = &op["parameters"][0];
+    assert_eq!(param["description"], r#"Search "all""#);
+    assert_eq!(param["schema"]["default"], "a");
+    assert_eq!(param["deprecated"], true);
+}
+
+#[test]
+fn only_whole_items_and_values_lose_their_backticks() {
+    let op = op(&[
+        "@route GET /x",
+        r#"@query-param q: String enum=[`a`, "b,c"] default=`a`b`"#,
+    ]);
+    let schema = &op["parameters"][0]["schema"];
+    assert_eq!(schema["enum"], json!(["a", "b,c"]));
+    // Not one pair of backticks around the value: it stays as written.
+    assert_eq!(schema["default"], "`a`b`");
+}

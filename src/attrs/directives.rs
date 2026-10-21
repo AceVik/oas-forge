@@ -282,7 +282,9 @@ impl ItemDocs {
                 section = Section::Document {
                     indent: indentation(&line.text),
                 };
-                docs.documents.push(vec![DocLine::new(trimmed, line.line)]);
+                // With its margin, like the lines after it, so that their
+                // shared indentation is removed alike.
+                docs.documents.push(vec![line.clone()]);
                 fence_target = Some(Fenced::Document);
                 document_scopes = true;
             } else if let Some(rest) = trimmed.strip_prefix("@openapi") {

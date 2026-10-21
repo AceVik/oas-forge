@@ -603,8 +603,10 @@ pub struct PatternItem {
 /// };
 /// assert_eq!(owner.rust_name, "Owner");
 /// assert_eq!(owner.schema, json!({ "$ref": "$User" }));
+/// assert_eq!(owner.target, "$User");
 /// assert_eq!(paged.params, ["T"]);
 /// assert_eq!(paged.schema, json!({ "type": "array", "items": { "$ref": "$T" } }));
+/// assert_eq!(paged.target, "$Vec<$T>");
 /// assert_eq!(paged.location.line(), 3);
 /// // Reported only where `Hook` is used.
 /// assert_eq!(hook.undocumentable, ["dyn Fn(u8)"]);
@@ -620,6 +622,10 @@ pub struct AliasItem {
     /// The schema of the target type; references to other types are
     /// `{"$ref": "$Name"}`.
     pub schema: Value,
+    /// The target type as a generic argument (`$User`, `$Vec<$T>`), named
+    /// types by their schema names; a type argument that is the alias
+    /// stands for it, so `Page<Owner>` is `Page_User`.
+    pub target: String,
     /// The parts of the target that cannot be documented (function
     /// pointers, trait objects, …); they are reported where the alias is
     /// used.
