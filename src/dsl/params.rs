@@ -3,7 +3,7 @@
 //! `@querystring-param`, inline path parameters and struct expansion
 //! (`@query-params $Pagination`).
 
-use super::tokens::{quoted_text, tokenize, unquote};
+use super::tokens::{quoted_text, tokenize, unquote, untick_items, unticked};
 use crate::attrs::validate::{Constraints, LengthUnit, Rule};
 use crate::diagnostics::Location;
 use crate::schema::{TypeExpr, TypeMapper, shadow};
@@ -65,8 +65,9 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
             description.push(token);
             continue;
         }
+        // A value may be in Markdown backticks (`default=`20``).
         let (flag, value) = match token.split_once('=') {
-            Some((flag, value)) => (flag, Some(value)),
+            Some((flag, value)) => (flag, Some(unticked(value))),
             None => (token.as_str(), None),
         };
         let parsed = || value.map(scalar);
@@ -98,7 +99,7 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
                 keywords.push(("default", parsed().unwrap_or_default()));
                 has_default = true;
             }
-            ("enum", Some(_)) => match parsed() {
+            ("enum", Some(list)) => match Some(scalar(&untick_items(list))) {
                 Some(Value::Array(values)) => keywords.push(("enum", Value::Array(values))),
                 _ => ignored.push(token.clone()),
             },

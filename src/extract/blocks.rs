@@ -168,8 +168,14 @@ pub(super) fn item_fragment(path: &Path, header: &DocLine, body: &[DocLine]) -> 
     })
 }
 
-/// `Name(a, b)` → (`Name`, [`a`, `b`]); `Name` → (`Name`, []).
+/// `Name(a, b)` → (`Name`, [`a`, `b`]); `Name` → (`Name`, []). The
+/// signature may be in Markdown backticks (`` `Name(a, b)` ``).
 fn signature(text: &str) -> (String, Vec<String>) {
+    let text = text
+        .strip_prefix('`')
+        .and_then(|inner| inner.strip_suffix('`'))
+        .filter(|inner| !inner.contains('`'))
+        .unwrap_or(text);
     match text.split_once('(') {
         Some((name, params)) => {
             let params = params

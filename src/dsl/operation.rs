@@ -41,13 +41,19 @@ pub(super) fn security(rest: &str) -> Option<Security> {
     (!requirement.is_empty()).then_some(Security::Requirement(requirement))
 }
 
-/// `URL ["description"]` of `@external-docs` and `@server`.
+/// `URL ["description"]` of `@external-docs` and `@server`; the URL may be
+/// a Markdown autolink (`<https://…>`).
 pub(super) fn url_with_description(rest: &str) -> Option<Value> {
     let (url, description) = trailing_description(rest);
     let tokens = tokenize(url);
     let [url] = tokens.as_slice() else {
         return None;
     };
+    // A Markdown autolink: `<https://example.com>`.
+    let url = url
+        .strip_prefix('<')
+        .and_then(|u| u.strip_suffix('>'))
+        .unwrap_or(url);
     let mut value = Map::new();
     value.insert("url".into(), json!(url));
     if let Some(description) = description {

@@ -296,3 +296,97 @@ mod backticks {
         );
     }
 }
+
+/// More arguments in Markdown backticks (or autolinks) for
+/// `clippy::doc_markdown`: names, URLs, flag values and inline schemas.
+mod rustdoc_friendly {
+    use super::*;
+    use oas_forge::dsl::{CompiledChannel, CompiledRoute, RouteSource};
+
+    fn route(src: &[&str]) -> CompiledRoute {
+        let block = lines(src);
+        let location = here();
+        let mut diagnostics = Diagnostics::new();
+        let route = dsl::compile(
+            RouteSource::new(&block, &location).operation_id(Some("op")),
+            &mut diagnostics,
+        );
+        assert!(diagnostics.is_empty(), "{src:?}: {diagnostics:#?}");
+        route.unwrap()
+    }
+
+    fn channel(src: &[&str]) -> CompiledChannel {
+        let block = lines(src);
+        let location = here();
+        let mut diagnostics = Diagnostics::new();
+        let channel = dsl::compile_channel(ChannelSource::new(&block, &location), &mut diagnostics);
+        assert!(diagnostics.is_empty(), "{src:?}: {diagnostics:#?}");
+        channel.unwrap()
+    }
+
+    #[test]
+    fn names_urls_flags_and_inline_schemas() {
+        assert_eq!(
+            route(&[
+                "@route GET `/art/{id: u64}`",
+                "@operation-id `get_art`",
+                "@server <https://eu.example.com> \"EU\"",
+                "@external-docs `<https://docs.example.com>`",
+                "@query-param crop: String enum=[`art_crop`, `art_full`] default=`art_crop`",
+                "@query-param size: `enum=[small, large]` `default=small`",
+                "@query-param slug: `String` `pattern=^[a-z]+$` `format=slug`",
+                "@return 200: `{ type: object, properties: { connected_secs: { type: integer } } }` \"Uptime\"",
+                "@body `{ type: string, format: binary }` `application/octet-stream`",
+                "@scope `admin`, `public`",
+                "@tag `Art`",
+                "@security `oauth(read)`",
+            ]),
+            route(&[
+                "@route GET /art/{id: u64}",
+                "@operation-id get_art",
+                "@server https://eu.example.com \"EU\"",
+                "@external-docs https://docs.example.com",
+                "@query-param crop: String enum=[art_crop, art_full] default=art_crop",
+                "@query-param size: enum=[small, large] default=small",
+                "@query-param slug: String pattern=^[a-z]+$ format=slug",
+                "@return 200: { type: object, properties: { connected_secs: { type: integer } } } \"Uptime\"",
+                "@body { type: string, format: binary } application/octet-stream",
+                "@scope admin, public",
+                "@tag Art",
+                "@security oauth(read)",
+            ])
+        );
+    }
+
+    #[test]
+    fn enum_items_keep_quotes_and_commas() {
+        let op = op(&[
+            "@route GET /x",
+            r#"@query-param q: String enum=[`a`, "b, c", `d`]"#,
+        ]);
+        assert_eq!(
+            op["parameters"][0]["schema"]["enum"],
+            json!(["a", "b, c", "d"])
+        );
+    }
+
+    #[test]
+    fn channel_directives_take_backticked_schemas_and_parameters() {
+        assert_eq!(
+            channel(&[
+                "@channel `pings`",
+                "@ws-query `token`: `String` \"Token\"",
+                "@ws-header `X-Client`: `String` `deprecated`",
+                "@send `Ping`: `{ type: integer }` \"A ping\"",
+                "@receive `Pong`: `$Pong`",
+            ]),
+            channel(&[
+                "@channel pings",
+                "@ws-query token: String \"Token\"",
+                "@ws-header X-Client: String deprecated",
+                "@send Ping: { type: integer } \"A ping\"",
+                "@receive Pong: $Pong",
+            ])
+        );
+    }
+}

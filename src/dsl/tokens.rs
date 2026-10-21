@@ -174,6 +174,46 @@ pub(super) fn untick(text: &str) -> Cow<'_, str> {
     Cow::Owned(unticked)
 }
 
+/// `text` without the single pair of Markdown backticks that wraps all of
+/// it (`` `20` `` is `20`); other text as it is.
+pub(super) fn unticked(text: &str) -> &str {
+    text.strip_prefix('`')
+        .and_then(|inner| inner.strip_suffix('`'))
+        .filter(|inner| !inner.is_empty() && !inner.contains('`'))
+        .unwrap_or(text)
+}
+
+/// A YAML flow list with the Markdown backticks around whole items removed:
+/// `` [`a`, `b`] `` is `[a, b]`. Commas in double quotes do not separate
+/// items.
+pub(super) fn untick_items(list: &str) -> Cow<'_, str> {
+    let Some(inner) = list.strip_prefix('[').and_then(|l| l.strip_suffix(']')) else {
+        return Cow::Borrowed(list);
+    };
+    if !inner.contains('`') {
+        return Cow::Borrowed(list);
+    }
+    let mut items = Vec::new();
+    let mut start = 0;
+    let mut quoted = false;
+    for (index, c) in inner.char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            ',' if !quoted => {
+                items.push(inner.get(start..index).unwrap_or_default());
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    items.push(inner.get(start..).unwrap_or_default());
+    let items: Vec<&str> = items
+        .into_iter()
+        .map(|item| unticked(item.trim()))
+        .collect();
+    Cow::Owned(format!("[{}]", items.join(", ")))
+}
+
 /// The position of the backtick that closes a whole argument opened just
 /// before `from` (see [`untick`]).
 fn closing_backtick(text: &str, from: usize) -> Option<usize> {

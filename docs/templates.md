@@ -170,8 +170,9 @@ pub async fn reports() {}
   is reported (`OF3010`); the repeated `@insert` or `@extend` is skipped.
 - Arguments are separated by commas; quote an argument that contains one
   (`Secured("a, b")`).
-- The fragment may be written in Markdown backticks for rustdoc
-  (`` @insert `Paging` ``, `` @extend `Secured(admin)` ``).
+- The fragment may be written in Markdown backticks for rustdoc, where it is
+  used (`` @insert `Paging` ``, `` @extend `Secured(admin)` ``) and where it
+  is defined (`` @openapi-fragment `Secured(role)` ``).
 
 Unknown fragments (`OF3001`), invalid fragment YAML (`OF3002`), missing
 arguments (`OF3003`) and extra arguments (`OF3011`, ignored) are reported.

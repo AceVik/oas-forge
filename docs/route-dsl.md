@@ -55,8 +55,12 @@ parameters say, see [below](#signature-inference).
   `` @return 404: `$ErrorBody` "No such deck" `` is the same as
   `@return 404: $ErrorBody "No such deck"`. A backtick at the start of a
   token wraps everything up to the next backtick before whitespace, `:` or
-  `,` (`` @route GET `/decks/{id: u64 "Deck id"}` ``); backticks inside
-  quoted descriptions and in `@summary` and `@description` stay Markdown.
+  `,` (`` @route GET `/decks/{id: u64 "Deck id"}` ``, a whole inline schema
+  `` `{ type: integer }` `` or flag `` `default=20` ``). A flag value
+  (`` default=`20` ``) and the items of a list (`` enum=[`crop`, `full`] ``)
+  may be in backticks too, and the URL of `@server` and `@external-docs` an
+  autolink (`<https://docs.example.com>`). Backticks inside quoted
+  descriptions and in `@summary` and `@description` stay Markdown.
 - Descriptions in directives are quoted: `"No such deck"`. Inside the
   quotes `\"` is a quote and `\\` a backslash; everything else, Markdown
   included, is kept as written (`` "not `{\"enabled\": true}`" ``).

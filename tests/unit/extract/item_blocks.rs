@@ -300,3 +300,13 @@ mod prose {
         assert_eq!(document_items(&items)[0].text, "tags: [{ name: users }]");
     }
 }
+
+#[test]
+fn fragment_names_may_be_in_backticks() {
+    let items = crate::common::extract(
+        "/// @openapi-fragment `Paged(limit, offset)`\n/// limit: {{limit}}\nfn _fragments() {}\n\n/// @openapi-fragment `Plain`\n/// a: 1\npub struct Hidden;",
+    );
+    let paged = fragment(&items, "Paged");
+    assert_eq!(paged.params, ["limit", "offset"]);
+    assert_eq!(fragment(&items, "Plain").body, "a: 1");
+}
