@@ -28,6 +28,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF0004` | note | No `openapi`/`info` root in the sources; it was generated from the package | Write a root to choose the values yourself, or call `without_package()` |
 | `OF0005` | warning | A symbolic link in an input directory is broken or forms a loop; it was skipped | Fix or remove the link |
 | `OF0006` | warning | A `.proto` file cannot be indexed (an unclosed brace, comment or string, a second `package`, a malformed `message` line) and was skipped, or declares a message another file declares (the first is used) | Fix the file, or rename the message |
+| `OF0007` | warning | The `Cargo.toml` next to a scanned `src` directory cannot be read or has no `[package] name`; the crate's types are qualified with the directory's name instead (`crate.module.Name`) | Fix the manifest |
 
 ## Extraction (OF1xxx)
 

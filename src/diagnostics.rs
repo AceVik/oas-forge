@@ -236,6 +236,8 @@ codes! {
     UnreadableLink = "OF0005", Warning;
     /// A `.proto` file cannot be indexed, or defines a message another one defines.
     InvalidProto = "OF0006", Warning;
+    /// The `Cargo.toml` of a scanned crate cannot be read; the crate is named after its directory.
+    UnreadableManifest = "OF0007", Warning;
 
     /// An `@openapi` override is not valid YAML.
     InvalidOverride = "OF1001", Warning;

@@ -4,7 +4,8 @@
 //!
 //! Every Rust file has a module path: the crate (the `[package] name` of the
 //! `Cargo.toml` next to its `src` directory, `-` read as `_`; else the name
-//! of that directory) and the modules below `src` (`#[path]` of top-level
+//! of that directory, an unreadable manifest reported) and the modules
+//! below `src` (`#[path]` of top-level
 //! `mod` declarations honoured). A name written in a type position resolves
 //! in this order: a definition of the same module, an explicit `use`, glob
 //! imports, a written path (exact, then by its last segments), the one
@@ -112,7 +113,7 @@ impl NameTable {
         let mut table = Self::default();
         let mut crates = BTreeMap::new();
         for (path, _) in files {
-            let module = file_module(path, &mut crates);
+            let module = file_module(path, &mut crates, diagnostics);
             table.files.insert(normalize(path), (module, Vec::new()));
         }
         // `#[path = "…"] mod name;` puts a file under the declaring module.
@@ -605,8 +606,12 @@ fn step(module: &[String], mut path: UsePath, segment: &str) -> UsePath {
 /// modules below the last `src` directory (`mod.rs`, `lib.rs` and `main.rs`
 /// are their directory's module). Without `src`, the crate is the file's
 /// directory and the module the file's name. `crates` caches the crate
-/// names by directory.
-fn file_module(path: &Path, crates: &mut BTreeMap<PathBuf, String>) -> Segments {
+/// names by directory, so an unreadable manifest is reported once.
+fn file_module(
+    path: &Path,
+    crates: &mut BTreeMap<PathBuf, String>,
+    diagnostics: &mut Diagnostics,
+) -> Segments {
     let components: Vec<Component<'_>> = path.components().collect();
     let src = components
         .iter()
@@ -623,7 +628,7 @@ fn file_module(path: &Path, crates: &mut BTreeMap<PathBuf, String>) -> Segments 
     };
     let name = crates
         .entry(crate_dir.clone())
-        .or_insert_with(|| crate_name(&crate_dir))
+        .or_insert_with(|| crate_name(&crate_dir, diagnostics))
         .clone();
     let mut module = vec![name];
     let count = below.len();
@@ -647,21 +652,24 @@ fn file_module(path: &Path, crates: &mut BTreeMap<PathBuf, String>) -> Segments 
 /// The crate name of the crate in `dir`: the `[package] name` of its
 /// `Cargo.toml`, else the directory's name, else `crate`; as an identifier
 /// (`-` and other characters as `_`). An empty `dir` (an in-memory file) is
-/// not looked up.
-fn crate_name(dir: &Path) -> String {
-    let manifest = (!dir.as_os_str().is_empty())
-        .then(|| {
-            Package::from_manifest(dir.join("Cargo.toml"))
-                .ok()
-                .flatten()
-        })
-        .flatten();
-    let name = match manifest {
-        Some(package) => package.name,
-        None => dir
-            .file_name()
+/// not looked up. A manifest that exists but cannot be read, or has no
+/// `[package] name`, is reported ([`Code::UnreadableManifest`]).
+fn crate_name(dir: &Path, diagnostics: &mut Diagnostics) -> String {
+    let directory = || {
+        dir.file_name()
             .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "crate".to_string()),
+            .unwrap_or_else(|| "crate".to_string())
+    };
+    let manifest = dir.join("Cargo.toml");
+    let (name, unreadable) = if dir.as_os_str().is_empty() || !manifest.is_file() {
+        (directory(), None)
+    } else {
+        match Package::from_manifest(&manifest) {
+            Ok(Some(package)) => (package.name, None),
+            // A virtual workspace manifest names no crate.
+            Ok(None) => (directory(), None),
+            Err(error) => (directory(), Some(error)),
+        }
     };
     let mut name: String = name
         .chars()
@@ -675,6 +683,18 @@ fn crate_name(dir: &Path) -> String {
         .collect();
     if !name.starts_with(|c: char| c.is_alphabetic() || c == '_') {
         name.insert(0, '_');
+    }
+    if let Some(error) = unreadable {
+        // The first line names the file and the position of a TOML error.
+        let error = error.to_string();
+        let reason = error.lines().next().unwrap_or_default();
+        diagnostics.push(
+            Diagnostic::new(
+                Code::UnreadableManifest,
+                format!("{reason}; the crate is named `{name}` after its directory"),
+            )
+            .at(Location::new(&manifest, 1)),
+        );
     }
     name
 }

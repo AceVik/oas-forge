@@ -577,6 +577,68 @@ mod edges {
     }
 
     #[test]
+    fn an_unreadable_manifest_is_reported_once_and_the_directory_names_the_crate() {
+        let project = Project::new();
+        project
+            .file("shop-api/Cargo.toml", "[package\nname = \"shop\"\n")
+            .file("shop-api/src/lib.rs", &format!("{ROOT}mod a;\nmod b;"))
+            .file(
+                "shop-api/src/a.rs",
+                "/// @openapi\npub struct User { pub id: u64 }",
+            )
+            .file(
+                "shop-api/src/b.rs",
+                "/// @openapi\npub struct User { pub name: String }",
+            )
+            .file("nameless/Cargo.toml", "[package]\nversion = \"1.0.0\"\n")
+            .file(
+                "nameless/src/lib.rs",
+                "/// @openapi\npub struct Tag { pub name: String }",
+            );
+        let spec = Generator::new()
+            .without_package()
+            .input(project.path("shop-api/src"))
+            .input(project.path("nameless/src"))
+            .build()
+            .unwrap();
+        let schemas = &spec.document()["components"]["schemas"];
+        assert!(schemas.get("shop_api.a.User").is_some(), "{schemas}");
+        assert!(schemas.get("Tag").is_some(), "{schemas}");
+        let unreadable: Vec<_> = spec
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code() == Code::UnreadableManifest)
+            .collect();
+        assert_eq!(unreadable.len(), 2, "{:?}", spec.diagnostics());
+        let files: Vec<_> = unreadable
+            .iter()
+            .map(|d| d.location().unwrap().file().to_path_buf())
+            .collect();
+        assert!(
+            files.contains(&project.path("shop-api/Cargo.toml")),
+            "{files:?}"
+        );
+        assert!(
+            files.contains(&project.path("nameless/Cargo.toml")),
+            "{files:?}"
+        );
+        let messages: Vec<&str> = unreadable.iter().map(|d| d.message()).collect();
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("TOML parse error at line 1")
+                    && m.ends_with("the crate is named `shop_api` after its directory")
+                    && !m.contains('\n')),
+            "{messages:?}"
+        );
+        assert!(
+            messages.iter().any(|m| m.contains("has no `name`")
+                && m.ends_with("the crate is named `nameless` after its directory")),
+            "{messages:?}"
+        );
+    }
+
+    #[test]
     fn crate_directories_are_identifiers() {
         let project = Project::new();
         project
