@@ -3861,6 +3861,37 @@ fn copies_of_route_defaults_count_against_the_run_budget() {
     assert_eq!(limits, 200 - with_defaults, "{diagnostics:?}");
 }
 
+/// A block that fragment expansion cuts at 65 536 lines (an error) was
+/// still compiled from the lines left; it is left out, so that the work for
+/// a block stays bounded.
+#[test]
+fn a_block_cut_by_the_expansion_limit_is_not_compiled() {
+    let mut text = String::from(
+        "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! @asyncapi\n//! asyncapi: 3.0.0\n//! info: { title: A, version: '1' }\n\n/// @route GET /x\n",
+    );
+    for i in 0..70_000 {
+        text.push_str(&format!("/// @param query q{i}: String\n"));
+    }
+    text.push_str("fn x() {}\n\n/// @channel chat\n");
+    for i in 0..70_000 {
+        text.push_str(&format!("/// @send M{i}: String\n"));
+    }
+    text.push_str("fn chat() {}\n\n/// @route GET /y\n/// @return 204:\nfn y() {}\n");
+    let (spec, _project) = crate::common::spec_of(&[("a.rs", &text)]);
+    let limits: Vec<usize> = spec
+        .diagnostics()
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .filter_map(|d| d.location().map(oas_forge::Location::line))
+        .collect();
+    assert_eq!(limits, [65_544, 135_547], "{:?}", codes(spec.diagnostics()));
+    let document = spec.document();
+    assert!(document["paths"].get("/x").is_none(), "the cut route block");
+    assert!(document["paths"]["/y"].is_object(), "the other route");
+    let asyncapi = spec.render(OutputKind::AsyncApi).unwrap();
+    assert!(asyncapi.get("channels").is_none(), "the cut channel block");
+}
+
 /// Only pasted fragment lines count for the run: inputs that hold more
 /// than 32 MiB of their own text are generated as before.
 #[test]

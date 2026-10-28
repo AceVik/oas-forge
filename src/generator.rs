@@ -2312,6 +2312,7 @@ fn materialize(
         }
         Pending::Channel(channel) => {
             let text = channel.lines.join("\n");
+            let before = diagnostics.len();
             // A channel block has no embedded YAML: no placeholder is quoted.
             let expanded = lexical::expand_block(
                 &text,
@@ -2321,6 +2322,9 @@ fn materialize(
                 diagnostics,
                 |lines| vec![false; lines.len()],
             );
+            if cut_by_limit(diagnostics, before) {
+                return Ok(None);
+            }
             let line_numbers = source_lines(&expanded, &channel.line_numbers, &channel.location);
             let lines: Vec<String> = expanded.into_iter().map(|(line, _)| line).collect();
             let types = &in_module(types, names, &channel.location);
@@ -2354,6 +2358,7 @@ fn materialize(
         }
         Pending::Route(route) => {
             let text = route.lines.join("\n");
+            let before = diagnostics.len();
             let expanded = lexical::expand_block(
                 &text,
                 registry,
@@ -2362,6 +2367,9 @@ fn materialize(
                 diagnostics,
                 dsl::yaml_lines,
             );
+            if cut_by_limit(diagnostics, before) {
+                return Ok(None);
+            }
             let line_numbers = source_lines(&expanded, &route.line_numbers, &route.location);
             let lines: Vec<String> = expanded.into_iter().map(|(line, _)| line).collect();
             let (defaults, default_locations): (Vec<String>, Vec<Location>) =
@@ -2397,6 +2405,19 @@ fn materialize(
             ))
         }
     }
+}
+
+/// Whether the expansion of a block reported an expansion limit (its
+/// findings are the ones after the first `before` in `diagnostics`). The
+/// lines left of a block that was cut (at 65 536 lines, or when a fragment
+/// does not fit) are not compiled: they would make a route or channel of
+/// part of the block, at the cost of compiling 65 536 lines for a block
+/// that is an error anyway.
+fn cut_by_limit(diagnostics: &Diagnostics, before: usize) -> bool {
+    diagnostics
+        .iter()
+        .skip(before)
+        .any(|finding| finding.code() == Code::ExpansionLimit)
 }
 
 /// The Rust files of `sources` with their syntax trees (`None` for a file

@@ -32,7 +32,10 @@ All notable changes to `oas-forge` will be documented in this file.
   large fragment, or 1500 routes under 1500 lines of defaults, filled
   gigabytes. Text written in the inputs does not count. The copy of a
   `.proto` file in each `proto(...)` message counts too; 40 messages of
-  one 8 MiB file took 1.8 GB.
+  one 8 MiB file took 1.8 GB. A route or channel block that the expansion
+  cut (at 65 536 lines, or because a fragment did not fit) is left out
+  with its finding; before, the lines left were compiled as an operation
+  of part of the block.
 - Channel blocks that define one message name differently are compared
   through a set; 10 000 of them took a minute. So are the messages of one
   block (20 000 `@send` lines of one name took minutes), the messages its
