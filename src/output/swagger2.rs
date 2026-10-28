@@ -10,7 +10,7 @@ use super::refs::rewrite_refs;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics};
 use crate::schema::dialect::{self, Dialect};
 use serde_json::{Map, Value, json};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
 
 /// Methods a Swagger 2.0 path item has.
@@ -49,6 +49,7 @@ pub(super) fn export(canonical: &Value, diagnostics: &mut Diagnostics) -> Value 
             .unwrap_or_else(|| json!({})),
         lost: RefCell::new(BTreeSet::new()),
         dropped_schemes: BTreeSet::new(),
+        dropped_requirements: Cell::new(false),
     };
     let mut out = Map::new();
     out.insert("swagger".into(), json!("2.0"));
@@ -86,6 +87,13 @@ pub(super) fn export(canonical: &Value, diagnostics: &mut Diagnostics) -> Value 
     ] {
         rewrite_refs(&mut document, from, to);
     }
+    // Readers of the export would see weaker authentication: a warning.
+    if converter.dropped_requirements.get() {
+        diagnostics.push(Diagnostic::new(
+            Code::UnsupportedFeature,
+            "Swagger 2.0 cannot express some security schemes; requirements that name them were left out of the export (kept as `x-security` where no alternative remains)",
+        ));
+    }
     for what in converter.lost.into_inner() {
         diagnostics.push(Diagnostic::new(
             Code::LossyLowering,
@@ -105,6 +113,8 @@ struct Converter {
     lost: RefCell<BTreeSet<String>>,
     /// Security schemes Swagger 2.0 cannot express (left out).
     dropped_schemes: BTreeSet<String>,
+    /// Whether security requirements that name such schemes were left out.
+    dropped_requirements: Cell<bool>,
 }
 
 impl Converter {
@@ -328,9 +338,7 @@ impl Converter {
             out.insert("security".into(), requirements.clone());
             return;
         }
-        self.lose(
-            "security requirements that name schemes it cannot express (kept as `x-security` when no alternative remains)",
-        );
+        self.dropped_requirements.set(true);
         if kept.is_empty() {
             out.insert("x-security".into(), requirements.clone());
         } else {
@@ -651,7 +659,11 @@ impl Converter {
     /// header API key.
     fn security_scheme(&self, scheme: &Value) -> Option<Value> {
         let description = scheme.get("description").cloned();
-        let mut out = match scheme["type"].as_str()? {
+        let Some(kind) = scheme["type"].as_str() else {
+            self.lose("security schemes without a `type`");
+            return None;
+        };
+        let mut out = match kind {
             "http"
                 if scheme["scheme"]
                     .as_str()
@@ -669,18 +681,24 @@ impl Converter {
             }
             "apiKey" => json!({ "type": "apiKey", "in": scheme["in"], "name": scheme["name"] }),
             "oauth2" => {
-                let flows = scheme.get("flows").and_then(Value::as_object)?;
+                let Some(flows) = scheme.get("flows").and_then(Value::as_object) else {
+                    self.lose("OAuth2 schemes without `flows`");
+                    return None;
+                };
                 if flows.len() > 1 {
                     self.lose("several OAuth2 flows in one scheme (the first in Swagger order is used: implicit, password, application, accessCode)");
                 }
-                let (flow, settings) = [
+                let Some((flow, settings)) = [
                     "implicit",
                     "password",
                     "clientCredentials",
                     "authorizationCode",
                 ]
                 .iter()
-                .find_map(|name| flows.get(*name).map(|settings| (*name, settings)))?;
+                .find_map(|name| flows.get(*name).map(|settings| (*name, settings))) else {
+                    self.lose("OAuth2 schemes without a known flow");
+                    return None;
+                };
                 let mut out = Map::new();
                 out.insert("type".into(), json!("oauth2"));
                 out.insert(

@@ -69,6 +69,11 @@ All notable changes to `oas-forge` will be documented in this file.
   another annotation set (at the root, on a path or an operation) is
   reported (`OF4001`). The lists are joined, so a second `security: [{}]`
   made authentication optional without a finding.
+- The Swagger 2.0 export reports what it changed silently: `writeOnly`
+  kept as `x-writeOnly` (`OF6001`), and security schemes without `type`,
+  OAuth2 schemes without `flows` or a known flow, which it leaves out.
+  Security requirements it removes because they name such schemes are a
+  warning (`OF6002`) instead of a note.
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of
   silently naming the crate after its directory.

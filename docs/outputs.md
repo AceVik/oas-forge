@@ -146,7 +146,8 @@ and `kind`, response `summary`, `components.pathItems` and `mediaTypes`, and
 - Schema keywords Swagger lacks are kept as extensions: `nullable` as
   `x-nullable`, `oneOf`/`anyOf`/`not` as `x-oneOf`/…, `writeOnly` and
   `deprecated` as `x-writeOnly`/`x-deprecated`; the discriminator becomes a
-  property name.
+  property name. `x-writeOnly` is reported (`OF6001`): tools that ignore it
+  show a write-only property, such as a password, in responses.
 
 Left out or approximated, each reported once (`OF6001`, `OF6002`): cookie
 parameters (and references to them), `TRACE` operations, callbacks, response
@@ -155,12 +156,15 @@ operation wins), operation and path item `servers`, path item
 `summary`/`description`, HTTP authentication other than basic (documented as
 an `Authorization` header), OpenID Connect, mutual TLS, API keys in cookies,
 more than one OAuth2 flow per scheme (the first in Swagger order is used),
+OAuth2 schemes without `flows` or a known flow, schemes without `type`,
 `info.summary`, `license.identifier` and tag extensions.
 
 A security requirement alternative that names a left-out scheme (OpenID
 Connect, mutual TLS, an API key in a cookie) is removed; when no
 alternative remains, the requirements are kept as `x-security` instead of
-`security`, so the operation is not documented as public. References to
+`security`, so the operation is not documented as public. Either is a
+warning (`OF6002`), since readers of the export see weaker authentication.
+References to
 `components.headers` are resolved into the response headers.
 
 ## JSON Schema

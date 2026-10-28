@@ -254,6 +254,8 @@ fn security_schemes_become_security_definitions() {
     code: { type: oauth2, flows: { authorizationCode: { authorizationUrl: 'https://a', tokenUrl: 'https://t', scopes: {} }, implicit: { authorizationUrl: 'https://a', scopes: {} } } }
     oidc: { type: openIdConnect, openIdConnectUrl: 'https://o' }
     broken: { type: oauth2, flows: {} }
+    noflows: { type: oauth2 }
+    untyped: { description: no type }
 security:
   - basic: []"#,
         ),
@@ -278,14 +280,25 @@ security:
         definitions["code"]["flow"], "implicit",
         "the first flow in Swagger order"
     );
-    for missing in ["cookie", "oidc", "broken"] {
+    for missing in ["cookie", "oidc", "broken", "noflows", "untyped"] {
         assert!(definitions.get(missing).is_none(), "{missing}");
     }
     assert_eq!(document["security"], json!([{ "basic": [] }]));
+    // Schemes that are left out are reported, also malformed ones.
+    for expected in [
+        "OAuth2 schemes without a known flow",
+        "OAuth2 schemes without `flows`",
+        "security schemes without a `type`",
+    ] {
+        assert!(
+            messages.iter().any(|m| m.contains(expected)),
+            "{expected}: {messages:?}"
+        );
+    }
     assert_eq!(
         messages.len(),
-        5,
-        "cookie, bearer, OIDC, several flows, info.summary: {messages:?}"
+        8,
+        "cookie, bearer, OIDC, several flows, no known flow, no flows, no type, info.summary: {messages:?}"
     );
 }
 
@@ -576,7 +589,7 @@ components:
         assert!(
             messages
                 .iter()
-                .any(|m| m.contains("security requirements that name")),
+                .any(|m| m.contains("cannot express some security schemes")),
             "{messages:?}"
         );
     }

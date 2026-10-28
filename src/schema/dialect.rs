@@ -647,6 +647,11 @@ fn lower_20(schema: &mut Map<String, Value>, lost: &mut BTreeSet<String>) {
     ] {
         if let Some(value) = schema.remove(keyword) {
             schema.insert(extension.into(), value);
+            // Tools read `x-nullable` and `x-deprecated`; a write-only
+            // property (a password) would read as part of responses.
+            if keyword == "writeOnly" {
+                lost.insert(format!("`{keyword}` (kept as `{extension}`)"));
+            }
         }
     }
     for keyword in ["oneOf", "anyOf", "not"] {
