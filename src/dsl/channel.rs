@@ -343,6 +343,31 @@ pub fn compile_channel(
                         None
                     }
                 };
+                // The id is a key of `channels`, each placeholder of the
+                // address a key of the channel's `parameters`: a reserved
+                // name rejects the block.
+                let reserved = channel.as_ref().and_then(|(id, address)| {
+                    std::iter::once(("channel id", id.clone()))
+                        .chain(
+                            placeholders(address)
+                                .into_iter()
+                                .map(|name| ("channel parameter", name)),
+                        )
+                        .find(|(_, name)| reserved::is_name(name))
+                });
+                if let Some((what, name)) = reserved {
+                    diagnostics.push(
+                        Diagnostic::new(
+                            Code::ReservedKey,
+                            reserved::name_message(
+                                format_args!("{what} `{name}`"),
+                                "the block is ignored",
+                            ),
+                        )
+                        .at(at(index)),
+                    );
+                    channel = None;
+                }
             }
             "send" | "receive" => {
                 let action = if name == "send" { "send" } else { "receive" };
@@ -362,6 +387,21 @@ pub fn compile_channel(
                         Diagnostic::new(
                             Code::InvalidDirective,
                             format!("message name `{message}` may only contain letters, digits, `.`, `-` and `_`"),
+                        )
+                        .at(at(index)),
+                    );
+                    continue;
+                }
+                // The name is a key of the channel's `messages` and of
+                // `components.messages`.
+                if reserved::is_name(message) {
+                    diagnostics.push(
+                        Diagnostic::new(
+                            Code::ReservedKey,
+                            reserved::name_message(
+                                format_args!("message `{message}`"),
+                                &format!("the `@{name}` line is ignored"),
+                            ),
                         )
                         .at(at(index)),
                     );
@@ -448,6 +488,20 @@ pub fn compile_channel(
             },
             "ws-query" | "ws-header" => {
                 if let Some(property) = ws_property(name, rest, &source, index, diagnostics) {
+                    // The name is a key of the binding's properties.
+                    if reserved::is_name(&property.0) {
+                        diagnostics.push(
+                            Diagnostic::new(
+                                Code::ReservedKey,
+                                reserved::name_message(
+                                    format_args!("`@{name}` parameter `{}`", property.0),
+                                    &format!("the `@{name}` line is ignored"),
+                                ),
+                            )
+                            .at(at(index)),
+                        );
+                        continue;
+                    }
                     let properties = if name == "ws-query" {
                         &mut websocket.query
                     } else {

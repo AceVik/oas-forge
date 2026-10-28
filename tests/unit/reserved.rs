@@ -993,6 +993,181 @@ pub struct User { pub id: u64 }
     );
 }
 
+/// Compiles a channel block whose lines are numbered from 1.
+fn channel(src: &[&str]) -> (Option<Value>, Diagnostics) {
+    let lines = lines(src);
+    let numbers: Vec<usize> = (1..=lines.len()).collect();
+    let mut diagnostics = Diagnostics::new();
+    let compiled = compile_channel(
+        ChannelSource::new(&lines, &here()).line_numbers(&numbers),
+        &mut diagnostics,
+    );
+    (compiled.map(|c| c.document), diagnostics)
+}
+
+/// The id of `@channel` (written, or derived from the address), the
+/// placeholders of its address, the names of `@send` and `@receive`
+/// messages and of `@ws-query` and `@ws-header` parameters become keys
+/// of the AsyncAPI document: a reserved one is rejected at its line. The
+/// block is ignored for its id or a placeholder, a message or handshake
+/// line on its own. Before, a channel or message of such a name was
+/// removed by a stage, which left its operations with dangling
+/// references, or reached the output.
+#[test]
+fn a_reserved_name_in_a_channel_block_is_rejected() {
+    let block = |what: &str, name: &str| {
+        format!(
+            "1: error OF0009 {}",
+            reserved_name(what, name, "the block is ignored")
+        )
+    };
+    let (document, diagnostics) =
+        channel(&["@channel x-oas-forge-builtin events/a", "@send M: u8"]);
+    assert!(document.is_none(), "{document:#?}");
+    assert_eq!(
+        findings(&diagnostics),
+        [block("channel id", "x-oas-forge-builtin")]
+    );
+    let (document, diagnostics) = channel(&["@channel x-oas-forge-nothing", "@send M: u8"]);
+    assert!(document.is_none(), "{document:#?}");
+    assert_eq!(
+        findings(&diagnostics),
+        [block("channel id", "x-oas-forge-nothing")]
+    );
+    let (document, diagnostics) = channel(&[
+        "@channel cp events/{ok}/{x-oas-forge-builtin}",
+        "@send M: u8",
+    ]);
+    assert!(document.is_none(), "{document:#?}");
+    assert_eq!(
+        findings(&diagnostics),
+        [block("channel parameter", "x-oas-forge-builtin")]
+    );
+
+    let (document, diagnostics) = channel(&[
+        "@channel ok events/b",
+        "@send x-oas-forge-unresolved: u8 \"m1\"",
+        "@receive x-oas-forge-nothing: u8 \"m2\"",
+        "@send Kept: u8",
+        "@ws-query x-oas-forge-pattern: String",
+        "@ws-header x-oas-forge-extend-1: String",
+        "@ws-query token: String",
+    ]);
+    let document = document.expect("compiled");
+    let keys = |value: &Value| -> Vec<String> {
+        value
+            .as_object()
+            .map(|map| map.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    assert_eq!(keys(&document["channels"]["ok"]["messages"]), ["Kept"]);
+    assert_eq!(keys(&document["components"]["messages"]), ["Kept"]);
+    assert_eq!(keys(&document["operations"]), ["send_ok"]);
+    let ws = &document["channels"]["ok"]["bindings"]["ws"];
+    assert_eq!(keys(&ws["query"]["properties"]), ["token"]);
+    assert!(ws.get("headers").is_none(), "{ws:#}");
+    assert_clean(&document);
+    let line = |what: &str, name: &str, directive: &str| {
+        reserved_name(what, name, &format!("the `@{directive}` line is ignored"))
+    };
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            format!(
+                "2: error OF0009 {}",
+                line("message", "x-oas-forge-unresolved", "send")
+            ),
+            format!(
+                "3: error OF0009 {}",
+                line("message", "x-oas-forge-nothing", "receive")
+            ),
+            format!(
+                "5: error OF0009 {}",
+                line("`@ws-query` parameter", "x-oas-forge-pattern", "ws-query")
+            ),
+            format!(
+                "6: error OF0009 {}",
+                line(
+                    "`@ws-header` parameter",
+                    "x-oas-forge-extend-1",
+                    "ws-header"
+                )
+            ),
+        ]
+    );
+}
+
+/// Through the pipeline: the AsyncAPI document of blocks with reserved
+/// channel and message names has no key of the prefix and no reference
+/// to a channel or message that is gone.
+#[test]
+fn reserved_channel_names_leave_no_dangling_reference_in_the_asyncapi_document() {
+    let (spec, _project) = spec_of(&[(
+        "lib.rs",
+        "\
+//! @asyncapi
+//! asyncapi: 3.0.0
+//! info: { title: A, version: 1.0.0 }
+
+/// @openapi
+pub struct User { pub id: u64 }
+
+/// Channel named like a marker
+/// @channel x-oas-forge-builtin events/a
+/// @send x-oas-forge-builtin: $User \"msg\"
+pub fn c1() {}
+
+/// Message named like other markers
+/// @channel ok events/b
+/// @send x-oas-forge-unresolved: $User \"m1\"
+/// @receive x-oas-forge-nothing: $User \"m2\"
+pub fn c2() {}
+",
+    )]);
+    let asyncapi = spec.render(OutputKind::AsyncApi).expect("rendered");
+    assert_clean(&asyncapi);
+    assert_eq!(
+        asyncapi["channels"],
+        json!({ "ok": { "address": "events/b" } })
+    );
+    assert!(asyncapi.get("operations").is_none(), "{asyncapi:#}");
+    assert!(asyncapi.get("components").is_none(), "{asyncapi:#}");
+    assert_eq!(
+        findings(spec.diagnostics()),
+        [
+            format!(
+                "9: error OF0009 {}",
+                reserved_name("channel id", "x-oas-forge-builtin", "the block is ignored")
+            ),
+            // The lines of the ignored block are read all the same.
+            format!(
+                "10: error OF0009 {}",
+                reserved_name(
+                    "message",
+                    "x-oas-forge-builtin",
+                    "the `@send` line is ignored"
+                )
+            ),
+            format!(
+                "15: error OF0009 {}",
+                reserved_name(
+                    "message",
+                    "x-oas-forge-unresolved",
+                    "the `@send` line is ignored"
+                )
+            ),
+            format!(
+                "16: error OF0009 {}",
+                reserved_name(
+                    "message",
+                    "x-oas-forge-nothing",
+                    "the `@receive` line is ignored"
+                )
+            ),
+        ]
+    );
+}
+
 /// Each removed key was looked up among the keys removed before, so many
 /// distinct reserved keys took time in the square of their number.
 #[test]
