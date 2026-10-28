@@ -581,13 +581,43 @@ mod schema_positions {
 
 mod budget {
     use super::*;
-    use oas_forge::template::generics::MAX_INSTANTIATED_SIZE;
+    use oas_forge::diagnostics::Diagnostic;
+    use oas_forge::template::generics::{INSTANCE_COST, MAX_INSTANTIATED_SIZE, VALUE_COST};
     use std::time::{Duration, Instant};
 
-    /// The documentation promises 16 MiB.
+    /// The documentation promises 16 MiB, 32 per value and 256 per instance.
     #[test]
     fn the_budget_is_16_mib() {
         assert_eq!(MAX_INSTANTIATED_SIZE, 16 << 20);
+        assert_eq!(VALUE_COST, 32);
+        assert_eq!(INSTANCE_COST, 256);
+    }
+
+    /// What a built value costs: `VALUE_COST` per value plus the bytes of
+    /// its strings and keys.
+    fn size(value: &Value) -> usize {
+        match value {
+            Value::String(s) => VALUE_COST + s.len(),
+            Value::Array(items) => VALUE_COST + items.iter().map(size).sum::<usize>(),
+            Value::Object(map) => {
+                VALUE_COST + map.iter().map(|(k, v)| k.len() + size(v)).sum::<usize>()
+            }
+            _ => VALUE_COST,
+        }
+    }
+
+    /// What the instances cost: `INSTANCE_COST` and the name each, plus
+    /// their bodies.
+    fn charged(concrete: &BTreeMap<String, Value>) -> usize {
+        concrete
+            .iter()
+            .map(|(name, body)| INSTANCE_COST + name.len() + size(body))
+            .sum()
+    }
+
+    /// The findings of `code`.
+    fn findings(diagnostics: &Diagnostics, code: Code) -> Vec<&Diagnostic> {
+        diagnostics.iter().filter(|d| d.code() == code).collect()
     }
 
     /// Every instance refers to two larger ones: the instances grew
@@ -609,21 +639,51 @@ mod budget {
             "{:?}",
             started.elapsed()
         );
-        let limits: Vec<_> = diagnostics
-            .iter()
-            .filter(|d| d.code() == Code::InstantiationLimit)
-            .collect();
-        assert_eq!(limits.len(), 1, "{diagnostics:#?}");
+        assert_eq!(
+            findings(&diagnostics, Code::InstantiationLimit).len(),
+            1,
+            "{diagnostics:#?}"
+        );
         assert!(diagnostics.has_errors());
-        let size: usize = concrete
-            .iter()
-            .map(|(name, schema)| name.len() + schema.to_string().len())
-            .sum();
-        assert!(size <= 2 * MAX_INSTANTIATED_SIZE, "{size}");
+        assert!(charged(&concrete) <= MAX_INSTANTIATED_SIZE);
     }
 
-    /// The instance `Pad_A` of `{ "description": text }` costs its name
-    /// (5), the object (1), the key (11) and the string (1 + its length).
+    /// Every instance refers to two instances one level deeper, each a
+    /// little larger (`Vec<T>`, `Option<T>`): 2^16 small instances fit the
+    /// depth limit, and 16 MiB of their text took 1.6 GB. Each instance
+    /// costs `INSTANCE_COST` besides its text.
+    #[test]
+    fn fan_out_is_bounded_by_the_instance_cost() {
+        let reg = registry(&[(
+            "Two",
+            &["T"],
+            json!({ "type": "object", "properties": {
+                "a": { "$ref": "$Two<Vec<T>>" },
+                "b": { "$ref": "$Two<Option<T>>" },
+                "c": { "$ref": "$T" }
+            } }),
+        )]);
+        let started = Instant::now();
+        let (_, concrete, diagnostics) = run(&reg, json!({ "$ref": "$Two<u8>" }));
+        assert!(
+            started.elapsed() < Duration::from_secs(60),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(!findings(&diagnostics, Code::InstantiationDepth).is_empty());
+        assert_eq!(findings(&diagnostics, Code::InstantiationLimit).len(), 1);
+        let charged = charged(&concrete);
+        assert!(charged <= MAX_INSTANTIATED_SIZE, "{charged}");
+        assert!(
+            concrete.len() <= MAX_INSTANTIATED_SIZE / INSTANCE_COST,
+            "{}",
+            concrete.len()
+        );
+    }
+
+    /// Whether the instance `Pad_A` of `{ "description": text }` fits: it
+    /// costs `INSTANCE_COST`, its name (5), the object, the key (11) and
+    /// the string (`VALUE_COST` each, plus the string's length).
     fn fits(text: &str) -> bool {
         let reg = registry(&[("Pad", &["T"], json!({ "description": text }))]);
         let (value, concrete, diagnostics) = run(&reg, json!({ "$ref": "$Pad<A>" }));
@@ -635,11 +695,13 @@ mod budget {
         !limit
     }
 
+    /// What `Pad_A` costs besides the description's text.
+    const PAD_A: usize = INSTANCE_COST + 5 + VALUE_COST + 11 + VALUE_COST;
+
     #[test]
     fn strings_count_with_their_length_after_substitution() {
-        let fixed = 5 + 1 + 11 + 1;
         // `$T` becomes `$A`: the same length.
-        let room = MAX_INSTANTIATED_SIZE - fixed - 2;
+        let room = MAX_INSTANTIATED_SIZE - PAD_A - 2;
         assert!(fits(&format!("{}$T", "x".repeat(room))));
         assert!(!fits(&format!("{}$T", "x".repeat(room + 1))));
         // A longer binding counts with its length.
@@ -655,22 +717,40 @@ mod budget {
         );
     }
 
+    /// The body fits either way; the inline schema of the std container
+    /// that the body's reference becomes may not (then the reference keeps
+    /// its text and is reported).
     #[test]
     fn generic_references_count_with_their_rebound_length() {
-        // `$Box<A, xxx…>`: `$`, `Box<`, `A`, `, `, the `x`s and `>`.
-        let fixed = 5 + 1 + 11 + 1 + 1 + 4 + 1 + 2 + 1;
+        // `$Box<A, xxx…>`: `$`, `Box<`, `A`, `, `, the `x`s and `>`; then
+        // the inline schema of the std container, `{ "$ref": "$A" }`.
+        let fixed = PAD_A + 1 + 4 + 1 + 2 + 1 + size(&json!({ "$ref": "$A" }));
         let room = MAX_INSTANTIATED_SIZE - fixed;
         for (pad, expected) in [(room, true), (room + 1, false)] {
             let text = format!("$Box<T, {}>", "x".repeat(pad));
-            assert_eq!(fits(&text), expected, "{pad}");
+            let reg = registry(&[("Pad", &["T"], json!({ "description": text }))]);
+            let (value, concrete, diagnostics) = run(&reg, json!({ "$ref": "$Pad<A>" }));
+            assert_eq!(value, json!({ "$ref": "$Pad_A" }), "{pad}");
+            let description = if expected {
+                json!({ "$ref": "$A" })
+            } else {
+                json!(format!("$Box<A, {}>", "x".repeat(pad)))
+            };
+            assert_eq!(concrete["Pad_A"]["description"], description, "{pad}");
+            assert_eq!(
+                codes(&diagnostics).contains(&Code::InstantiationLimit),
+                !expected,
+                "{pad}: {diagnostics:#?}"
+            );
         }
     }
 
     #[test]
     fn keys_and_other_values_count() {
         // `Pad_A`, the outer object, the key `description`, the inner
-        // object, its key (the `x`s), the array and its three values.
-        let fixed = 5 + 1 + 11 + 1 + 1 + 3;
+        // object (the value of `PAD_A`), its key (the `x`s), the array and
+        // its three values.
+        let fixed = PAD_A + VALUE_COST + 3 * VALUE_COST;
         let room = MAX_INSTANTIATED_SIZE - fixed;
         for (pad, expected) in [(room, true), (room + 1, false)] {
             let reg = registry(&[(
@@ -681,5 +761,98 @@ mod budget {
             let (_, concrete, _) = run(&reg, json!({ "$ref": "$Pad<A>" }));
             assert_eq!(concrete.contains_key("Pad_A"), expected, "{pad}");
         }
+    }
+
+    /// A template of a thousand properties `{ $ref: '$T' }` instantiated
+    /// with `Vec<Vec<…<u8>>>` wrote each level as five bytes of text and
+    /// held it as an object: the inline schema of a std container counts
+    /// with its values while an instance is built. The instance is created
+    /// (its body fit); a reference whose schema does not fit keeps its text
+    /// and is reported.
+    #[test]
+    fn inline_container_schemas_count_while_instantiating() {
+        let inline = json!({ "type": "array", "items": { "type": "boolean" } });
+        let fixed = INSTANCE_COST
+            + "Pad_Vec_bool".len()
+            + size(&json!({ "description": "", "items": { "$ref": "$Vec<bool>" } }))
+            + size(&inline);
+        let room = MAX_INSTANTIATED_SIZE - fixed;
+        for (pad, expected) in [(room, true), (room + 1, false)] {
+            let reg = registry(&[(
+                "Pad",
+                &["T"],
+                json!({ "description": "x".repeat(pad), "items": { "$ref": "$T" } }),
+            )]);
+            let (value, concrete, diagnostics) = run(&reg, json!({ "$ref": "$Pad<Vec<bool>>" }));
+            assert_eq!(value, json!({ "$ref": "$Pad_Vec_bool" }), "{pad}");
+            if expected {
+                assert_eq!(concrete["Pad_Vec_bool"]["items"], inline, "{pad}");
+                assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+            } else {
+                assert_eq!(
+                    concrete["Pad_Vec_bool"]["items"],
+                    json!({ "$ref": "$Vec<bool>" }),
+                    "{pad}"
+                );
+                assert_eq!(codes(&diagnostics), [Code::InstantiationLimit]);
+                let finding = diagnostics.iter().next().expect("the limit");
+                assert!(finding.message().starts_with("`$Vec<bool>`"), "{finding:?}");
+            }
+        }
+    }
+
+    /// A `$Name` where a schema is expected becomes `{ "$ref": "$Name" }`:
+    /// one object and key more than the string. The instance is created
+    /// (its body fit), the reference stays a string and is reported.
+    #[test]
+    fn wrapped_references_count_while_instantiating() {
+        let fixed = INSTANCE_COST
+            + "Pad_A".len()
+            + size(&json!({ "description": "", "items": "$A" }))
+            + VALUE_COST
+            + "$ref".len();
+        let room = MAX_INSTANTIATED_SIZE - fixed;
+        for (pad, expected) in [(room, true), (room + 1, false)] {
+            let reg = registry(&[(
+                "Pad",
+                &["T"],
+                json!({ "description": "x".repeat(pad), "items": "$T" }),
+            )]);
+            let (_, concrete, diagnostics) = run(&reg, json!({ "$ref": "$Pad<A>" }));
+            let items = if expected {
+                json!({ "$ref": "$A" })
+            } else {
+                json!("$A")
+            };
+            assert_eq!(concrete["Pad_A"]["items"], items, "{pad}");
+            assert_eq!(
+                codes(&diagnostics).contains(&Code::InstantiationLimit),
+                !expected,
+                "{pad}: {diagnostics:#?}"
+            );
+        }
+    }
+
+    /// Outside an instance or alias target, what the inputs write is
+    /// bounded by their size: the inline schemas and wrapped references of
+    /// a snippet do not use the budget.
+    #[test]
+    fn snippets_do_not_use_the_budget() {
+        let reg = registry(&[(
+            "Pad",
+            &["T"],
+            json!({ "description": "x".repeat(MAX_INSTANTIATED_SIZE - PAD_A) }),
+        )]);
+        let (value, concrete, diagnostics) = run(
+            &reg,
+            json!({ "items": "$Vec<bool>", "not": "$Other", "pad": { "$ref": "$Pad<A>" } }),
+        );
+        assert_eq!(
+            value["items"],
+            json!({ "type": "array", "items": { "type": "boolean" } })
+        );
+        assert_eq!(value["not"], json!({ "$ref": "$Other" }));
+        assert!(concrete.contains_key("Pad_A"), "{diagnostics:#?}");
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 }

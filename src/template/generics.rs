@@ -20,11 +20,29 @@ use std::sync::LazyLock;
 pub const MAX_DEPTH: usize = 16;
 
 /// The total size of the concrete schemas of one run, counted as the bytes
-/// of their names, strings and keys plus one per value. Instantiations
+/// of their names, strings and keys plus [`VALUE_COST`] per value and
+/// [`INSTANCE_COST`] per instance; the inline schemas of std containers
+/// (`$Vec<T>`) and the references wrapped (`$T` → `{"$ref": …}`) while an
+/// instance or alias target is built count the same way. Instantiations
 /// beyond it are reported ([`Code::InstantiationLimit`]): a blueprint whose
 /// instances refer to two larger instances would grow exponentially within
 /// [`MAX_DEPTH`].
 pub const MAX_INSTANTIATED_SIZE: usize = 16 * 1024 * 1024;
+
+/// What a value (an object, array, string, number, boolean or null) of a
+/// concrete schema or alias target costs of [`MAX_INSTANTIATED_SIZE`]
+/// besides its text: as a value it takes far more memory than as text. A
+/// template of a thousand properties `{ $ref: '$T' }`, instantiated with
+/// arguments `Vec<Vec<…<u8>>>` of growing depth, wrote each level as five
+/// bytes of text and held it as an object; 16 MiB of text took 4.9 GB.
+pub const VALUE_COST: usize = 32;
+
+/// What a concrete schema costs of [`MAX_INSTANTIATED_SIZE`] besides its
+/// name and body: its name is held in several indexes and its body wrapped
+/// into a snippet of its own. A blueprint whose body names two more
+/// instances of itself (`$Two<Vec<T>>`, `$Two<Option<T>>`) created tens of
+/// thousands of small instances from 483 bytes and took 1.6 GB.
+pub const INSTANCE_COST: usize = 256;
 
 /// What replacing a type alias costs of [`MAX_INSTANTIATED_SIZE`] besides
 /// its target: finding and replacing it is work even for a small target.
@@ -65,32 +83,50 @@ const SCHEMA_MAP_KEYS: &[&str] = &[
 const DATA_KEYS: &[&str] = &["example", "examples", "default", "enum", "const", "value"];
 
 /// Turns each whole `$Name` (or `$Page<User>`) string of `map` that stands
-/// where a schema is expected into `{"$ref": "$Name"}`.
-fn wrap_references(map: &mut Map<String, Value>) {
-    let wrap = |value: &mut Value| {
+/// where a schema is expected into `{"$ref": "$Name"}`. Each one is an
+/// object with a key more and takes [`VALUE_COST`] and the key from
+/// `budget`; the first that does not fit stays a string and is returned.
+fn wrap_references(map: &mut Map<String, Value>, budget: &mut usize) -> Result<(), String> {
+    let mut wrap = |value: &mut Value| {
         if let Value::String(text) = value
             && text.starts_with('$')
             && (reference_name(text).is_some() || GenericRef::parse(text).is_some())
         {
+            if spend(budget, VALUE_COST + "$ref".len()).is_none() {
+                return Err(text.clone());
+            }
             let mut reference = Map::new();
             reference.insert("$ref".into(), Value::String(std::mem::take(text)));
             *value = Value::Object(reference);
         }
+        Ok(())
     };
     for (key, value) in map.iter_mut() {
         let key = key.as_str();
         if SCHEMA_KEYS.contains(&key) {
-            wrap(value);
+            wrap(value)?;
         } else if SCHEMA_LIST_KEYS.contains(&key)
             && let Value::Array(items) = value
         {
-            items.iter_mut().for_each(wrap);
+            items.iter_mut().try_for_each(&mut wrap)?;
         } else if SCHEMA_MAP_KEYS.contains(&key)
             && let Value::Object(schemas) = value
         {
-            schemas.values_mut().for_each(wrap);
+            schemas.values_mut().try_for_each(&mut wrap)?;
         }
     }
+    Ok(())
+}
+
+/// What the inline schema of a `$Vec<T>`-style shorthand is.
+enum Inline {
+    /// The schema, within the budget.
+    Schema(Value),
+    /// The reference names no std container (a blueprint, or a type the
+    /// table maps to a reference).
+    Other,
+    /// The schema does not fit in [`MAX_INSTANTIATED_SIZE`]; reported.
+    Exhausted,
 }
 
 /// A parsed generic reference.
@@ -496,7 +532,17 @@ impl<'a> Instantiator<'a> {
                     );
                 }
                 if !self.in_data {
-                    wrap_references(map);
+                    // What the inputs write is bounded by their size; what
+                    // an instance or alias target wraps uses the budget.
+                    let mut unlimited = usize::MAX;
+                    let budget = if self.creating() {
+                        &mut self.budget
+                    } else {
+                        &mut unlimited
+                    };
+                    if let Err(reference) = wrap_references(map, budget) {
+                        self.report_budget(&reference, location, diagnostics);
+                    }
                 }
                 // A type alias stands for its target (`$Owner`, `$Paged<User>`),
                 // resolved in the alias's file.
@@ -509,18 +555,26 @@ impl<'a> Instantiator<'a> {
                 }
                 // `{$ref: $Vec<User>}`: the shorthand replaces the whole schema;
                 // sibling keywords such as `description` are kept.
-                let inline = map.get("$ref").and_then(Value::as_str).and_then(|r| {
-                    let generic = GenericRef::parse(r)?;
-                    self.std_container(r, &generic, location, diagnostics)
-                });
-                if let Some(Value::Object(mut schema)) = inline {
-                    map.remove("$ref");
-                    for (key, mut child) in std::mem::take(map) {
-                        self.apply_child(&key, &mut child, location, diagnostics);
-                        schema.insert(key, child);
+                let inline = match map.get("$ref").and_then(Value::as_str) {
+                    Some(r) => match GenericRef::parse(r) {
+                        Some(generic) => self.std_container(r, &generic, location, diagnostics),
+                        None => Inline::Other,
+                    },
+                    None => Inline::Other,
+                };
+                match inline {
+                    Inline::Schema(Value::Object(mut schema)) => {
+                        map.remove("$ref");
+                        for (key, mut child) in std::mem::take(map) {
+                            self.apply_child(&key, &mut child, location, diagnostics);
+                            schema.insert(key, child);
+                        }
+                        *map = schema;
+                        return;
                     }
-                    *map = schema;
-                    return;
+                    // The reference keeps its text (reported).
+                    Inline::Exhausted => return,
+                    Inline::Schema(_) | Inline::Other => {}
                 }
                 for (key, child) in map.iter_mut() {
                     self.apply_child(key, child, location, diagnostics);
@@ -601,31 +655,46 @@ impl<'a> Instantiator<'a> {
 
     /// The inline schema of a `$Vec<T>`-style shorthand: std containers and
     /// other types of the type table that are not shadowed by a blueprint of
-    /// the same name.
+    /// the same name. While an instance or alias target is built, the schema
+    /// uses the budget: `$Vec<Vec<…<u8>>>` is a few bytes of text per level
+    /// and an object each.
     fn std_container(
         &mut self,
         text: &str,
         generic: &GenericRef,
         location: &Location,
         diagnostics: &mut Diagnostics,
-    ) -> Option<Value> {
+    ) -> Inline {
         if self
             .registry
             .blueprint(last_segment(&generic.name))
             .is_some()
         {
-            return None;
+            return Inline::Other;
         }
-        let ty = TypeExpr::parse(text)?;
+        let Some(ty) = TypeExpr::parse(text) else {
+            return Inline::Other;
+        };
         let mapped = self.types.map(&ty);
         if !is_container(last_segment(&generic.name)) && mapped.schema.get("$ref").is_some() {
-            return None;
+            return Inline::Other;
         }
         // A bare built-in name (`$Vec<Duration>`) may stand for a documented
         // schema.
         let mut schema = shadow::typed(self.types, &ty, MappedType::into_schema);
+        if self.creating() && spend(&mut self.budget, size(&schema)).is_none() {
+            self.report_budget(text, location, diagnostics);
+            return Inline::Exhausted;
+        }
         self.apply(&mut schema, location, diagnostics);
-        Some(schema)
+        Inline::Schema(schema)
+    }
+
+    /// Whether an instance or the target of a type alias is being built,
+    /// whose values use the budget: what the inputs write is bounded by
+    /// their size, what a template makes of it is not.
+    fn creating(&self) -> bool {
+        !self.in_progress.is_empty() || !self.aliasing.is_empty()
     }
 
     /// The concrete schemas created so far, by name, with the location of
@@ -686,11 +755,13 @@ impl<'a> Instantiator<'a> {
         diagnostics: &mut Diagnostics,
     ) -> Option<Value> {
         // `$Vec<T>` and other std containers are inline arrays, not templates.
-        if let Some(schema) = self.std_container(text, generic, location, diagnostics) {
-            return Some(schema);
+        match self.std_container(text, generic, location, diagnostics) {
+            Inline::Schema(schema) => Some(schema),
+            Inline::Exhausted => None,
+            Inline::Other => self
+                .instantiate(generic, location, diagnostics)
+                .map(|name| Value::String(format!("${name}"))),
         }
-        self.instantiate(generic, location, diagnostics)
-            .map(|name| Value::String(format!("${name}")))
     }
 
     /// Creates the concrete schema for `generic`; returns its name.
@@ -781,8 +852,9 @@ impl<'a> Instantiator<'a> {
         Some(name)
     }
 
-    /// Reports once that the instance or type alias `reference` exceeds
-    /// [`MAX_INSTANTIATED_SIZE`], which is used up from now on.
+    /// Reports once that the instance, type alias, inline schema or wrapped
+    /// reference `reference` exceeds [`MAX_INSTANTIATED_SIZE`], which is
+    /// used up from now on.
     fn report_budget(
         &mut self,
         reference: &str,
@@ -804,15 +876,17 @@ impl<'a> Instantiator<'a> {
         }
     }
 
-    /// The body of the instance `name` of `schema`, if the name and the
-    /// body fit in what is left of [`MAX_INSTANTIATED_SIZE`]; they use it.
+    /// The body of the instance `name` of `schema`, if [`INSTANCE_COST`],
+    /// the name and the body fit in what is left of
+    /// [`MAX_INSTANTIATED_SIZE`]; they use it.
     fn within_budget(
         &mut self,
         name: &str,
         schema: &Value,
         bindings: &BTreeMap<&str, &str>,
     ) -> Option<Value> {
-        let mut left = self.budget.checked_sub(name.len())?;
+        let mut left = self.budget;
+        spend(&mut left, INSTANCE_COST.saturating_add(name.len()))?;
         let body = substitute_within(schema, bindings, &mut left)?;
         self.budget = left;
         Some(body)
@@ -946,8 +1020,8 @@ pub(crate) fn substitute(schema: &Value, bindings: &BTreeMap<&str, &str>) -> Val
 }
 
 /// [`substitute`] within `budget`, which the result uses as counted for
-/// [`MAX_INSTANTIATED_SIZE`]; `None` if it does not fit. Every string is
-/// measured before it is built.
+/// [`MAX_INSTANTIATED_SIZE`] (see [`size`]); `None` if it does not fit.
+/// Every string is measured before it is built.
 fn substitute_within(
     schema: &Value,
     bindings: &BTreeMap<&str, &str>,
@@ -958,16 +1032,16 @@ fn substitute_within(
         // `$` (reflection writes `$Envelope<T>` for a field `Envelope<T>`).
         Value::String(s) => Some(Value::String(match GenericRef::parse(s) {
             Some(generic) => {
-                spend(budget, 2 + rebound_len(&generic, bindings))?;
+                spend(budget, VALUE_COST + 1 + rebound_len(&generic, bindings))?;
                 format!("${}", rebind(&generic, bindings))
             }
             None => {
-                spend(budget, 1 + replaced_len(s, bindings))?;
+                spend(budget, VALUE_COST + replaced_len(s, bindings))?;
                 replace_placeholders(s, bindings)
             }
         })),
         Value::Array(items) => {
-            spend(budget, 1)?;
+            spend(budget, VALUE_COST)?;
             items
                 .iter()
                 .map(|item| substitute_within(item, bindings, budget))
@@ -975,7 +1049,7 @@ fn substitute_within(
                 .map(Value::Array)
         }
         Value::Object(map) => {
-            spend(budget, 1)?;
+            spend(budget, VALUE_COST)?;
             let mut out = Map::new();
             for (key, value) in map {
                 spend(budget, replaced_len(key, bindings))?;
@@ -985,9 +1059,27 @@ fn substitute_within(
             Some(Value::Object(out))
         }
         other => {
-            spend(budget, 1)?;
+            spend(budget, VALUE_COST)?;
             Some(other.clone())
         }
+    }
+}
+
+/// What the built `value` costs of [`MAX_INSTANTIATED_SIZE`]: the bytes of
+/// its strings and keys and [`VALUE_COST`] per value, as
+/// [`substitute_within`] counts before building.
+fn size(value: &Value) -> usize {
+    match value {
+        Value::String(s) => VALUE_COST.saturating_add(s.len()),
+        Value::Array(items) => items
+            .iter()
+            .map(size)
+            .fold(VALUE_COST, usize::saturating_add),
+        Value::Object(map) => map
+            .iter()
+            .map(|(key, value)| key.len().saturating_add(size(value)))
+            .fold(VALUE_COST, usize::saturating_add),
+        _ => VALUE_COST,
     }
 }
 

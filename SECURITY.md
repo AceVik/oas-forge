@@ -44,7 +44,9 @@ make a run fail or produce a wrong document. To keep that bounded:
   bytes besides its text); struct parameter expansion has a size and a
   work budget per document; the
   concrete schemas of generic instantiation and the targets of replaced
-  type aliases have a total size budget,
+  type aliases have a total size budget (each value counted with 32 bytes
+  besides its text and each instance with 256, so that filling it takes
+  about half a gigabyte),
 - outputs use exclusively created, unique temporary files and are replaced
   atomically at the configured paths; an existing output is compared only
   when it is a regular file, reading no more than a current one can hold,

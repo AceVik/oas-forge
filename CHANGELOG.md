@@ -87,7 +87,20 @@ All notable changes to `oas-forge` will be documented in this file.
   budget (in the generics and the references stage): a chain of aliases
   whose target names the next alias twice, such as
   `type T0<X> = (T1<X>, T1<X>);`, doubled with every link, so 20 links ran
-  for minutes and wrote 700 MB.
+  for minutes and wrote 700 MB. The budget counted text, but memory grows
+  per value: each value of a concrete schema or alias target now costs 32
+  bytes besides its text and each instance 256, and the inline schemas of
+  std containers (`$Vec<…>`) and the references wrapped into `{ $ref: … }`
+  while an instance is built count too. A template of 1000 properties
+  `{ $ref: '$T' }` used with 400 arguments `Vec<Vec<…<u8>>>` of growing
+  depth (68 KB) took 4.9 GB before the budget stopped it, now 320 MB; one
+  of 4000 properties used with 400 own types (172 KB) 2.3 GB, now 470 MB.
+  A template whose body names two more instances of itself
+  (`$Two<Vec<T>>`, `$Two<Option<T>>`; 483 bytes) created 30 000 small
+  instances within the depth limit and took 1.6 GB, now 290 MB. About 220 000
+  properties `{ $ref: … }` across all instances fit; a template of 2000 of
+  them used with 200 types (88 KB, 22 MB of output) now exceeds the budget
+  after 109 instances.
 - Rust sources are parsed on a thread with a 256 MiB stack (32 MiB on
   32-bit targets) in `Generator::build`, `generate_from_sources` and
   `extract::extract`. `syn` recurses once per nesting level, so about 150
