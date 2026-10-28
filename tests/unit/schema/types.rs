@@ -395,23 +395,23 @@ mod table {
     }
 
     /// The schema of a range holds its element twice, so nested ranges
-    /// doubled with each level: 18 levels (586 bytes) took 3 GB. Six levels
-    /// are mapped; the element of a range around more is `{}`.
+    /// doubled with each level: 18 levels (586 bytes) took 3 GB. Four
+    /// levels are mapped; the element of a range around more is `{}`.
     #[test]
-    fn nested_ranges_are_mapped_six_levels_deep() {
+    fn nested_ranges_are_mapped_four_levels_deep() {
         let nested = |depth: usize| format!("{}u8{}", "Range<".repeat(depth), ">".repeat(depth));
-        let six = schema(&nested(6));
-        let mut inner = &six;
-        for _ in 0..6 {
+        let four = schema(&nested(4));
+        let mut inner = &four;
+        for _ in 0..4 {
             assert_eq!(inner["properties"]["start"], inner["properties"]["end"]);
             inner = &inner["properties"]["end"];
         }
         assert_eq!(inner["type"], "integer");
-        let seven = schema(&nested(7));
-        assert_eq!(seven["properties"]["start"], json!({}));
-        assert_eq!(seven["properties"]["end"], json!({}));
+        let five = schema(&nested(5));
+        assert_eq!(five["properties"]["start"], json!({}));
+        assert_eq!(five["properties"]["end"], json!({}));
         // Ranges in a tuple count together.
-        let pair = schema(&format!("Range<({}, {})>", nested(5), nested(5)));
+        let pair = schema(&format!("Range<({}, {})>", nested(3), nested(3)));
         assert_eq!(pair["properties"]["start"], json!({}));
         let deep = schema(&nested(30)).to_string();
         assert!(deep.len() < 200, "{deep}");

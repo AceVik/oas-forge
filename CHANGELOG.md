@@ -166,7 +166,7 @@ All notable changes to `oas-forge` will be documented in this file.
   took 6 GB. A document over either limit is reported with the limits.
 - The schema of a `Range` holds its element twice, so nested ranges doubled
   with each level: `Range<Range<…>>` 18 levels deep (586 bytes) took
-  16 s and 3 GB. Nested ranges are mapped six levels deep; around more,
+  16 s and 3 GB. Nested ranges are mapped four levels deep; around more,
   the element is `{}`.
 - The Swagger 2.0 export reports what it changed silently: `writeOnly`
   kept as `x-writeOnly` (`OF6001`), and security schemes without `type`,

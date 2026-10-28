@@ -67,9 +67,10 @@ const MAX_TYPE_NESTING: usize = 32;
 /// How many types the element of a `Range` may spell out (see
 /// [`TypeExpr::spelled`]) before its schema is left as `{}`: the schema of
 /// a range holds its element twice, so `Range<Range<…>>` doubled with each
-/// level (18 levels, 586 bytes, took 3 GB). Nested ranges are mapped six
-/// levels deep.
-const MAX_RANGE_ELEMENT: usize = 64;
+/// level (18 levels, 586 bytes, took 3 GB). Nested ranges are mapped four
+/// levels deep, so that a range costs about what its text would as plain
+/// types (six levels still took 12 KB of memory per byte of input).
+const MAX_RANGE_ELEMENT: usize = 16;
 
 /// How deeply `text` nests brackets (`<`, `(`, `[`; the `>` of `->` closes
 /// nothing), and the number of `&` and `*`, whichever is larger.
