@@ -87,6 +87,47 @@ fn nullable_references_use_all_of() {
     );
 }
 
+/// The alternative that joins the schema is lowered with it: a `type`
+/// array became `type: [integer, string], nullable: true`, a `type: "null"`
+/// stayed, and `anyOf: [{type: "null"}]` became `anyOf: []`.
+#[test]
+fn the_merged_nullable_alternative_is_lowered_too() {
+    assert_eq!(
+        lowered(json!({ "anyOf": [{ "type": ["integer", "string"], "minimum": 1 }, { "type": "null" }] })).0,
+        json!({ "nullable": true, "minimum": 1, "anyOf": [{ "type": "integer" }, { "type": "string" }] })
+    );
+    assert_eq!(
+        lowered(json!({ "anyOf": [{ "type": "null" }] })).0,
+        json!({ "nullable": true, "enum": [null] })
+    );
+    assert_eq!(
+        lowered(
+            json!({ "anyOf": [{ "type": "null", "description": "inner" }, { "type": "null" }] })
+        )
+        .0,
+        json!({ "nullable": true, "description": "inner", "enum": [null] })
+    );
+    assert_eq!(
+        lowered(json!({ "anyOf": [{ "const": 5 }, { "type": "null" }] })).0,
+        json!({ "nullable": true, "enum": [5] })
+    );
+    // Swagger 2.0 lowers the same way, then keeps `anyOf` as an extension.
+    let mut document = json!({ "components": { "schemas": {
+        "A": { "anyOf": [{ "type": ["integer", "string"] }, { "type": "null" }] },
+        "E": { "anyOf": [{ "type": "null" }] }
+    } } });
+    let mut diagnostics = Diagnostics::new();
+    lower(&mut document, Dialect::Swagger20, &mut diagnostics);
+    assert_eq!(
+        document["components"]["schemas"],
+        json!({
+            "A": { "x-nullable": true, "x-anyOf": [{ "type": "integer" }, { "type": "string" }] },
+            "E": { "x-nullable": true, "enum": [null] }
+        })
+    );
+    assert_eq!(codes(&diagnostics), [Code::LossyLowering]); // `anyOf`
+}
+
 #[test]
 fn keywords_without_equivalent_are_rewritten() {
     assert_eq!(lowered(json!({ "const": 5 })).0, json!({ "enum": [5] }));

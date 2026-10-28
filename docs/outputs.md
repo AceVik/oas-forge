@@ -110,7 +110,8 @@ own root.
 
 | 2020-12 | 3.0 |
 | :--- | :--- |
-| `type: [T, "null"]`, `anyOf: [S, {type: "null"}]` | `type: T`, `nullable: true` (a reference is wrapped in `allOf`) |
+| `type: [T, "null"]`, `anyOf: [S, {type: "null"}]` | `type: T`, `nullable: true` (a reference is wrapped in `allOf`; the keywords of `S` are lowered with the schema) |
+| `type: "null"`, `anyOf: [{type: "null"}]` | `enum: [null]`, `nullable: true` |
 | `type: [A, B]` | `anyOf` of both types |
 | `const: v` | `enum: [v]` |
 | `exclusiveMinimum: n` | `minimum: n`, `exclusiveMinimum: true` |

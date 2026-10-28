@@ -507,6 +507,40 @@ fn walk_schema(value: &mut Value, f: &mut impl FnMut(&mut Map<String, Value>)) {
 
 /// OpenAPI 3.0: `nullable`, no `const`, boolean exclusive bounds, no tuples.
 fn lower_30(schema: &mut Map<String, Value>, lost: &mut BTreeSet<String>) {
+    // `anyOf: [S, {type: null}]`: first, so that the keywords of `S` that
+    // join the schema (a `type` array, `const`, …) are lowered with it.
+    if let Some(Value::Array(alternatives)) = schema.get_mut("anyOf")
+        && let Some(position) = alternatives.iter().position(is_null_schema)
+    {
+        alternatives.remove(position);
+        schema.insert("nullable".into(), json!(true));
+        let single = match schema.get("anyOf") {
+            // Only null was allowed: as `type: "null"`.
+            Some(Value::Array(rest)) if rest.is_empty() => Some(json!({ "type": "null" })),
+            Some(Value::Array(rest)) => match rest.as_slice() {
+                [single] => Some(single.clone()),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(single) = single {
+            schema.remove("anyOf");
+            match single {
+                Value::Object(inner) if inner.contains_key("$ref") => {
+                    schema.insert("allOf".into(), json!([inner]));
+                }
+                Value::Object(inner) => {
+                    for (k, v) in inner {
+                        schema.entry(k).or_insert(v);
+                    }
+                }
+                other => {
+                    schema.insert("allOf".into(), json!([other]));
+                }
+            }
+        }
+    }
+
     // `type: [T, "null"]` / `type: "null"`
     match schema.get("type").cloned() {
         Some(Value::Array(types)) => {
@@ -537,33 +571,6 @@ fn lower_30(schema: &mut Map<String, Value>, lost: &mut BTreeSet<String>) {
             schema.insert("nullable".into(), json!(true));
         }
         _ => {}
-    }
-
-    // `anyOf: [S, {type: null}]`
-    if let Some(Value::Array(alternatives)) = schema.get_mut("anyOf")
-        && let Some(position) = alternatives.iter().position(is_null_schema)
-    {
-        alternatives.remove(position);
-        schema.insert("nullable".into(), json!(true));
-        if let Some(Value::Array(alternatives)) = schema.get("anyOf")
-            && let [single] = alternatives.as_slice()
-        {
-            let single = single.clone();
-            schema.remove("anyOf");
-            match single {
-                Value::Object(inner) if inner.contains_key("$ref") => {
-                    schema.insert("allOf".into(), json!([inner]));
-                }
-                Value::Object(inner) => {
-                    for (k, v) in inner {
-                        schema.entry(k).or_insert(v);
-                    }
-                }
-                other => {
-                    schema.insert("allOf".into(), json!([other]));
-                }
-            }
-        }
     }
 
     content_as_format(schema);

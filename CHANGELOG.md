@@ -215,6 +215,12 @@ All notable changes to `oas-forge` will be documented in this file.
   does not fit on, form bodies are left out with error `OF3016`, which
   fails the run like a struct expansion that does not fit; a form is
   counted before it is built.
+- The OpenAPI 3.0 and Swagger 2.0 exports lower the alternative that
+  `anyOf: [S, {type: "null"}]` merges into its schema: `S` with
+  `type: [integer, string]` was written as `type: [integer, string]` with
+  `nullable: true`, which OpenAPI 3.0 rejects, and is now `anyOf` of both
+  types; `anyOf: [{type: "null"}]` was written as `anyOf: []` and is now
+  `enum: [null]` with `nullable: true`, like `type: "null"`.
 
 ### Security
 - `{{env:NAME}}` placeholders read only the environment variables you allow
