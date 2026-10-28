@@ -18,7 +18,9 @@ All notable changes to `oas-forge` will be documented in this file.
   longer split requirements or scope names.
 - Output writes use exclusively created, unique temporary files, preventing
   symlink attacks and collisions between concurrent writers. Replacing a Unix
-  output no longer widens its file permissions.
+  output no longer widens its file permissions. On Windows, which refuses to
+  replace a file while another writer replaces it, the replacement is
+  retried for about a second.
 - Generic reference parsing rejects more than 128 nested generic lists before
   exhausting the stack. Malformed generic references report error `OF3015`.
 - Fragment inserts and extensions have total work and text budgets, preventing

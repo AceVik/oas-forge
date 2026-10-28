@@ -388,6 +388,32 @@ pub(crate) fn write_if_changed(path: &Path, text: &str) -> Result<bool> {
         .map_err(|e| Error::io(path, e))?;
     temp.write_all(text.as_bytes())
         .map_err(|e| Error::io(path, e))?;
-    temp.persist(path).map_err(|e| Error::io(path, e.error))?;
+    replace(temp, path)?;
     Ok(true)
+}
+
+/// Moves `temp` to `path`, replacing the file there.
+#[cfg(not(windows))]
+fn replace(temp: tempfile::NamedTempFile, path: &Path) -> Result<()> {
+    temp.persist(path).map_err(|e| Error::io(path, e.error))?;
+    Ok(())
+}
+
+/// Moves `temp` to `path`, replacing the file there. Windows refuses to
+/// replace a file while another writer replaces it (`PermissionDenied`);
+/// that is retried with a growing pause, about a second in all.
+#[cfg(windows)]
+fn replace(mut temp: tempfile::NamedTempFile, path: &Path) -> Result<()> {
+    for attempt in 1..=20 {
+        match temp.persist(path) {
+            Ok(_) => return Ok(()),
+            Err(e) if e.error.kind() == std::io::ErrorKind::PermissionDenied => {
+                temp = e.file;
+                std::thread::sleep(std::time::Duration::from_millis(5 * attempt));
+            }
+            Err(e) => return Err(Error::io(path, e.error)),
+        }
+    }
+    temp.persist(path).map_err(|e| Error::io(path, e.error))?;
+    Ok(())
 }
