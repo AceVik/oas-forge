@@ -48,7 +48,16 @@ make a run fail or produce a wrong document. To keep that bounded:
   input nested deeper than that still overflows it, which aborts the
   process: the run fails, with no other effect. `TypeExpr::parse` accepts
   at most 32 nested levels,
+- findings and errors print control characters escaped, so the text of an
+  input cannot rewrite a terminal line or start a Cargo directive,
+- an annotation that adds to a `security` or `servers` list another one
+  set is reported (`OF4001`),
 - both crates use `#![forbid(unsafe_code)]`.
+
+Outputs are written at the paths you configure. Like any program, the
+generator follows a symbolic link to a directory on such a path, so do not
+configure outputs below a directory that an untrusted change can replace
+with a link.
 
 Dependencies are checked with `cargo deny` (advisories, licenses, sources)
 in CI.
