@@ -34,7 +34,12 @@ All notable changes to `oas-forge` will be documented in this file.
   `.proto` file in each `proto(...)` message counts too; 40 messages of
   one 8 MiB file took 1.8 GB.
 - Channel blocks that define one message name differently are compared
-  through a set; 10 000 of them took a minute.
+  through a set; 10 000 of them took a minute. So are the messages of one
+  block (20 000 `@send` lines of one name took minutes), the messages its
+  operations refer to, the lines of its `@openapi message` sections
+  (grouped once; 40 000 messages with a section each took over a minute)
+  and its `@ws-query` and `@ws-header` names (a later declaration still
+  replaces the earlier one in its place; 100 000 took a minute).
 - Variable substitution is size limited and preserves newlines and control
   characters in whole YAML string values. Multiline prose and subsequent
   YAML lines keep their original source locations.
