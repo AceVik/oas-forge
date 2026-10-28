@@ -3632,6 +3632,67 @@ mod joined_lists {
         }
     }
 
+    /// Any list from another annotation replaces the document's for the
+    /// operation, also one with fewer scopes, whichever comes first.
+    #[test]
+    fn security_from_another_annotation_is_reported_in_any_order() {
+        for (first, second) in [("a.rs", "b.rs"), ("b.rs", "a.rs")] {
+            let (document, diagnostics) = pipeline(&[
+                (
+                    "root.rs",
+                    "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! security: [{ oauth: [admin] }]",
+                ),
+                (
+                    first,
+                    "//! @openapi\n//! paths: { /admin: { get: { security: [{ oauth: [] }] } } }",
+                ),
+                (
+                    second,
+                    "/// @route GET /admin\n/// @return 204:\nfn admin() {}",
+                ),
+            ]);
+            assert_eq!(
+                document["paths"]["/admin"]["get"]["security"],
+                json!([{ "oauth": [] }])
+            );
+            let found = codes(&diagnostics)
+                .into_iter()
+                .filter(|code| *code == Code::MergeConflict)
+                .count();
+            assert_eq!(found, 1, "{first}: {diagnostics:?}");
+        }
+    }
+
+    /// A flow added to a scheme another annotation defined could send users
+    /// to another authorization server.
+    #[test]
+    fn additions_to_a_security_scheme_are_reported() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "a.rs",
+                "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! components: { securitySchemes: { oauth: { type: oauth2, flows: { authorizationCode: { authorizationUrl: 'https://a.example', tokenUrl: 'https://a.example/t', scopes: {} } } } } }",
+            ),
+            (
+                "b.rs",
+                "//! @openapi\n//! components: { securitySchemes: { oauth: { flows: { implicit: { authorizationUrl: 'https://evil.example', scopes: {} } } }, other: { type: http, scheme: basic } } }",
+            ),
+        ]);
+        assert!(
+            document["components"]["securitySchemes"]["oauth"]["flows"]["implicit"].is_object()
+        );
+        let found: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::MergeConflict)
+            .map(|d| d.message())
+            .collect();
+        assert_eq!(
+            found,
+            [
+                "`/components/securitySchemes/oauth/flows/implicit` is added by another annotation to a security scheme it does not define"
+            ]
+        );
+    }
+
     /// The items of a list are remembered between annotations; a value
     /// that replaces the list (and one that replaces it back) makes them
     /// stale, so they are forgotten.

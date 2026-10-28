@@ -88,7 +88,7 @@ The codes are stable: a code keeps its meaning across releases
 
 | Code | Severity | Cause | Fix |
 | :--- | :--- | :--- | :--- |
-| `OF4001` | warning | Two documents set the same value differently; the later one wins. Or a document adds entries to a `security` or `servers` list another document set (the lists are joined), or adds such a list to an operation or path another document defined (it replaces the list that applied there), or adds to an operation or path whose `servers` or anonymous `security` (`[]`, `{}`) another document set | Remove one of them, or set the list in one place |
+| `OF4001` | warning | Two documents set the same value differently; the later one wins. Or a document adds entries to a `security` or `servers` list another document set (the lists are joined), or adds such a list to an operation or path another document defined (it replaces the list that applied there), or adds to an operation or path whose `security` or `servers` another document set, or adds a key to a security scheme another document defined | Remove one of them, or set the list in one place |
 
 ## Lints (OF5xxx)
 

@@ -2653,6 +2653,9 @@ fn merge_documents(
                 ListChange::Elsewhere => format!(
                     "`{pointer}` is set by another annotation than this one, which adds to the same operation or path; that list replaces the one that applied there"
                 ),
+                ListChange::Scheme => format!(
+                    "`{pointer}` is added by another annotation to a security scheme it does not define"
+                ),
             };
             diagnostics
                 .push(Diagnostic::new(Code::MergeConflict, message).at(snippet.location.clone()));

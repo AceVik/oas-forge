@@ -39,15 +39,6 @@ pub enum Policy {
     Override,
 }
 
-/// Whether the `security` requirements `items` admit anonymous requests:
-/// none at all, or an empty alternative.
-fn admits_anonymous(items: &[Value]) -> bool {
-    items.is_empty()
-        || items
-            .iter()
-            .any(|item| item.as_object().is_some_and(Map::is_empty))
-}
-
 /// Keys whose array items are positional and therefore never de-duplicated.
 const POSITIONAL: &[&str] = &["prefixItems", "allOf", "oneOf", "anyOf"];
 
@@ -94,11 +85,13 @@ pub(crate) enum ListChange {
     /// The list was added to an existing object below the root, an
     /// operation or a path, where the document's list applied before.
     Introduced,
-    /// A source added to an object below the root whose `servers`, or
-    /// `security` that admits anonymous requests (`[]`, `{}`), another
-    /// source set: the list and the rest of the operation or path come from
-    /// different annotations, in either order.
+    /// A source added to an object below the root whose `security` or
+    /// `servers` another source set: the list and the rest of the operation
+    /// or path come from different annotations, in either order.
     Elsewhere,
+    /// A source added a key to a security scheme another source defined
+    /// (an `OAuth2` flow pointing elsewhere, for example).
+    Scheme,
 }
 
 /// Merges sources one after another into one target, as [`merge`] does
@@ -163,9 +156,7 @@ impl Merger {
                 if self.watch_lists && !pointer.is_empty() && !s.is_empty() {
                     for key in ["security", "servers"] {
                         let list = format!("{pointer}/{key}");
-                        if t.get(key)
-                            .and_then(Value::as_array)
-                            .is_some_and(|items| key == "servers" || admits_anonymous(items))
+                        if t.get(key).is_some_and(Value::is_array)
                             && !s.contains_key(key)
                             && self.elsewhere.insert(list.clone())
                         {
@@ -246,6 +237,13 @@ impl Merger {
                         && value.is_array()
                     {
                         self.changes.push((pointer.clone(), ListChange::Introduced));
+                    } else if self.watch_lists
+                        && pointer
+                            .get(..len)
+                            .and_then(|object| object.strip_prefix("/components/securitySchemes/"))
+                            .is_some_and(|rest| !rest.is_empty())
+                    {
+                        self.changes.push((pointer.clone(), ListChange::Scheme));
                     }
                     target.insert(key, value);
                 }
