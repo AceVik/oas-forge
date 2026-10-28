@@ -53,11 +53,11 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 walkdir = "2.5.0"
 toml = "1.1.8"
 regex = "1.13.1"
+tempfile = "3.27.0"
 
 [dev-dependencies]
 insta = { version = "1.49.0", features = ["json", "glob"] }
 jsonschema = { version = "0.59.0", default-features = false }
 proptest = "1.12.0"
-tempfile = "3.27.0"
 # The README examples compile against the real crate (doctests).
 validator = { version = "0.21.0", features = ["derive"] }

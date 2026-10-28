@@ -15,6 +15,7 @@ use super::error::{Error, Result};
 use super::template::registry::{FORMAT_KEY, FRAGMENTS_KEY, Registry, TEMPLATES_KEY};
 use super::yaml;
 use serde_json::{Map, Value};
+use std::io::Write;
 use std::path::Path;
 
 /// What part of the merged document an output receives.
@@ -360,17 +361,33 @@ pub(crate) fn write_if_changed(path: &Path, text: &str) -> Result<bool> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
     }
-    let file_name = path
-        .file_name()
+    path.file_name()
         .ok_or_else(|| Error::io(path, std::io::Error::other("output path has no file name")))?;
-    let mut temp_name = std::ffi::OsString::from(".");
-    temp_name.push(file_name);
-    temp_name.push(format!(".{}.tmp", std::process::id()));
-    let temp = path.with_file_name(temp_name);
-    std::fs::write(&temp, text).map_err(|e| Error::io(&temp, e))?;
-    std::fs::rename(&temp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&temp);
-        Error::io(path, e)
-    })?;
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    // Exclusive creation prevents following a pre-planted link; a unique
+    // name keeps simultaneous writers independent. Drop cleans up on errors.
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".oas-forge-").suffix(".tmp");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::symlink_metadata(path)
+            .ok()
+            .filter(|metadata| metadata.is_file())
+            .map_or_else(
+                || std::fs::Permissions::from_mode(0o666),
+                |metadata| metadata.permissions(),
+            );
+        builder.permissions(permissions);
+    }
+    let mut temp = builder
+        .tempfile_in(parent)
+        .map_err(|e| Error::io(path, e))?;
+    temp.write_all(text.as_bytes())
+        .map_err(|e| Error::io(path, e))?;
+    temp.persist(path).map_err(|e| Error::io(path, e.error))?;
     Ok(true)
 }
