@@ -4,6 +4,16 @@ All notable changes to `oas-forge` will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `@body` takes the flags `required` and `optional` after the type and its
+  media types, like `@param`: `@body Option<User> required` and
+  `@body Image image/png required` make the body required whatever its
+  type (the flag was reported as part of the type, `OF2004`, and lost),
+  `@body User optional` makes it optional. `required` wins over `optional`
+  with a finding (`OF2004`), on one line and across the `@body` lines of a
+  route. Idea and first implementation by Józef Curyłło
+  (AceVik/oas-forge#1).
+
 ### Fixed
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of

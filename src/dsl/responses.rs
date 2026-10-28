@@ -14,37 +14,95 @@ const STREAM_MEDIA: &str = "text/event-stream";
 /// The RFC 9457 problem details schema, added by `@problem`.
 pub(super) const PROBLEM_SCHEMA: &str = "ProblemDetails";
 
-/// A request body: `@body [optional] Type [media...] ["description"]`.
+/// The finding for a body marked both `required` and `optional`, on one
+/// `@body` line or on several lines of a route.
+pub(super) const BODY_CONFLICT: &str =
+    "a body cannot be `required` and `optional`; `required` wins";
+
+/// A request body: `@body [optional] Type [media...] [required | optional]
+/// ["description"]`.
 pub(super) struct Body {
     /// The Media Type objects by media type.
     pub(super) content: Map<String, Value>,
-    /// `false` for `optional` and for `Option<T>` types.
-    pub(super) required: bool,
+    /// Whether the body must be sent, and why.
+    pub(super) requirement: Requirement,
     /// The quoted description, if any.
     pub(super) description: Option<String>,
+    /// What is wrong with the flags (`required` and `optional` together);
+    /// reported, the body is used as `required`.
+    pub(super) problems: Vec<String>,
+}
+
+/// Whether a request body must be sent: what its type implies or what a flag
+/// says. The variants are ordered by strength; the `@body` lines of a route
+/// make one body, which takes the strongest of them.
+#[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Requirement {
+    /// Required, as its type (anything but `Option<T>`) implies.
+    #[default]
+    Implied,
+    /// Optional, as an `Option<T>` type implies.
+    OptionType,
+    /// Optional by the flag `optional`.
+    Optional,
+    /// Required by the flag `required`, whatever the type says.
+    Required,
+}
+
+impl Requirement {
+    /// Whether the body must be sent (`requestBody.required`).
+    pub(super) fn is_required(self) -> bool {
+        matches!(self, Self::Implied | Self::Required)
+    }
+
+    /// The requirement of a body that `self` and `other` describe (the
+    /// stronger), and whether one says `required` and the other `optional`.
+    pub(super) fn merge(self, other: Self) -> (Self, bool) {
+        let conflict = matches!(
+            (self, other),
+            (Self::Required, Self::Optional) | (Self::Optional, Self::Required)
+        );
+        (self.max(other), conflict)
+    }
 }
 
 /// Parses a `@body` directive; the error says what is wrong with it.
 pub(super) fn body(rest: &str, types: &TypeMapper) -> Result<Body, String> {
     let (rest, description) = trailing_description(rest);
-    let (rest, optional) = match rest.strip_prefix("optional") {
+    let (rest, flags) = trailing_flags(rest);
+    let (rest, leading) = match rest.strip_prefix("optional") {
         Some(after) if after.starts_with(char::is_whitespace) => (after.trim(), true),
         _ => (rest, false),
     };
+    let required = flags.contains(&"required");
+    let optional = leading || flags.contains(&"optional");
     let (type_text, media) = split_media(rest);
     if type_text.is_empty() {
         return Err("`@body` needs a type".into());
     }
-    let (schema, required) = mapped_schema(&type_text, types)?;
-    let optional = optional || !required;
+    let (schema, type_required) = mapped_schema(&type_text, types)?;
+    let mut problems = Vec::new();
+    if required && optional {
+        problems.push(BODY_CONFLICT.to_string());
+    }
+    let requirement = if required {
+        Requirement::Required
+    } else if optional {
+        Requirement::Optional
+    } else if type_required {
+        Requirement::Implied
+    } else {
+        Requirement::OptionType
+    };
     let mut content = Map::new();
     for media in media_or(&media, DEFAULT_MEDIA) {
         content.insert(media, json!({ "schema": schema }));
     }
     Ok(Body {
         content,
-        required: !optional,
+        requirement,
         description,
+        problems,
     })
 }
 
@@ -118,16 +176,9 @@ pub(super) fn header(rest: &str, types: &TypeMapper) -> Option<(String, String, 
     if name.is_empty() {
         return None;
     }
-    let (mut type_text, description) = trailing_description(spec);
-    let mut required = false;
-    // At most one flag per word: the loop ends however the words read.
-    for _ in 0..type_text.split_whitespace().count() {
-        let Some((rest, flag)) = trailing_word(type_text, &["required", "optional"]) else {
-            break;
-        };
-        required |= flag == "required";
-        type_text = rest;
-    }
+    let (type_text, description) = trailing_description(spec);
+    let (type_text, flags) = trailing_flags(type_text);
+    let required = flags.contains(&"required");
     let type_text = if type_text.is_empty() {
         "String"
     } else {
@@ -143,6 +194,21 @@ pub(super) fn header(rest: &str, types: &TypeMapper) -> Option<(String, String, 
         header.insert("description".into(), json!(description));
     }
     Some((code.to_string(), name.to_string(), Value::Object(header)))
+}
+
+/// The flags `required` and `optional` at the end of `text` (of `@body` and
+/// `@return-header`), and the text before them.
+fn trailing_flags(mut text: &str) -> (&str, Vec<&str>) {
+    let mut flags = Vec::new();
+    // At most one flag per word: the loop ends however the words read.
+    for _ in 0..text.split_whitespace().count() {
+        let Some((rest, flag)) = trailing_word(text, &["required", "optional"]) else {
+            break;
+        };
+        flags.push(flag);
+        text = rest;
+    }
+    (text, flags)
 }
 
 /// The last word of `text` if it is one of `words`, and the text before it.

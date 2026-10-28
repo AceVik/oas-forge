@@ -133,7 +133,7 @@ methods work like functions.
 | `@param` | `LOCATION name: [Type] [flags] ["description"]` | a parameter in `path`, `query`, `header`, `cookie` or `querystring` |
 | `@path-param`, `@query-param`, `@header-param`, `@cookie-param`, `@querystring-param` | `name: [Type] [flags] ["description"]` | the same, with the location in the name |
 | `@path-params`, `@query-params`, `@header-params`, `@cookie-params` | `$Struct` | one parameter per field of a documented struct |
-| `@body` | `[optional] Type [media…] ["description"]` | `requestBody` |
+| `@body` | `[optional] Type [media…] [required \| optional] ["description"]` | `requestBody` |
 | `@return` | `CODE: [Type] [media…] ["description"]` | a response |
 | `@return-header` | `CODE Name: [Type] [required \| optional] ["description"]` | a header of that response |
 | `@problem` | `CODE ["description"]` | an RFC 9457 `application/problem+json` response |
@@ -218,8 +218,18 @@ with a schema; it is written as
 ```
 
 The media type defaults to `application/json`. Several media types can
-follow the type, and several `@body` lines add media types to one body. A
-body is required unless it is `optional` or an `Option<T>`.
+follow the type, and several `@body` lines add media types to one body.
+
+**A body is required unless its type is `Option<T>` or it is marked
+`optional`** (before the type or after the media types). The flag
+`required` after the media types makes it required even with `Option<T>`
+(`@body Option<Draft> required`: it may be `null`, but must be sent); next
+to `optional`, `required` wins, with a finding.
+
+The `@body` lines of a route are one body and follow the same rules: it is
+required if one of them says `required`, and otherwise optional if one of
+them is `optional` or an `Option<T>`. `required` on one line and
+`optional` on another are reported like both on one line.
 
 ## Responses
 
