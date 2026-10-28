@@ -945,9 +945,17 @@ pub(crate) fn compile_with(
     }
     // Several `@route` lines: the block is compiled for each of them, and
     // findings about the lines they share are reported once. Each
-    // compilation after the first is a copy of the block, which counts for
-    // the run like pasted text: 500 lines with 500 `@param` lines took 2 GB.
-    let bytes = pasted_cost(source.lines.iter().map(String::as_str));
+    // compilation after the first is a copy of the block and of its module
+    // defaults, which counts for the run like pasted text: 500 lines with
+    // 500 `@param` lines took 2 GB, and 400 under 4000 lines of defaults
+    // 9.5 GB.
+    let bytes = pasted_cost(
+        source
+            .lines
+            .iter()
+            .chain(source.defaults)
+            .map(String::as_str),
+    );
     let mut compiled: Option<CompiledRoute> = None;
     let mut once: BTreeSet<String> = BTreeSet::new();
     for (copy, header) in headers.into_iter().enumerate() {

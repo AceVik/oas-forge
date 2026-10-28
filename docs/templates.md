@@ -187,8 +187,8 @@ arguments (`OF3003`) and extra arguments (`OF3011`, ignored) are reported.
 Expansion also has a total budget of 16 MiB of processed text and 65,536
 visited lines or extension resolutions per expansion, and a run pastes at
 most 32 MiB in all: inserted fragment lines, `@extend` bodies, the
-copies of `@route-defaults` in each route, of a block for each `@route`
-line after its first, and of `.proto` files in `proto(...)` messages (text
+copies of `@route-defaults` in each route, of a block and its defaults
+for each `@route` line after its first, and of `.proto` files in `proto(...)` messages (text
 written in the inputs does not count). Each pasted line costs 256 bytes
 besides its text, since a short line becomes kilobytes of document.
 Exceeding either reports error `OF3016`, even when the fragments form no

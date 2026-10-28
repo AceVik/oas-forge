@@ -4128,6 +4128,48 @@ fn copies_of_a_block_for_its_route_lines_may_fill_the_run_budget_exactly() {
     }
 }
 
+/// Each copy of a block for its `@route` lines compiles the module's
+/// defaults again: 400 lines under 4000 lines of defaults took 9.5 GB. The
+/// defaults count with each copy, which may use the run's 32 MiB exactly:
+/// five ` @route GET /rN` lines and the defaults (`@route-defaults` and
+/// ` x-d: …`), each line costing 256 besides its text.
+#[test]
+fn copies_of_a_block_for_its_route_lines_count_its_defaults() {
+    for (extra, limited) in [(0, false), (1, true)] {
+        let headers: String = (0..5)
+            .map(|i| format!("    /// @route GET /r{i}\n"))
+            .collect();
+        let value = "v".repeat(
+            (8 << 20)
+                - 5 * " @route GET /rN".len()
+                - "@route-defaults".len()
+                - " x-d: ".len()
+                - 7 * 256
+                + extra,
+        );
+        let text = format!(
+            "//! @openapi\n//! openapi: 3.1.0\n//! info: {{ title: T, version: '1' }}\n\n/// @route-defaults\n/// x-d: {value}\nmod api {{\n{headers}    fn many() {{}}\n}}\n"
+        );
+        let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+        let limits = codes(&diagnostics)
+            .into_iter()
+            .filter(|code| *code == Code::ExpansionLimit)
+            .count();
+        assert_eq!(
+            limits,
+            usize::from(limited),
+            "{extra}: {:?}",
+            codes(&diagnostics)
+        );
+        assert_eq!(
+            document["paths"].as_object().map(|p| p.len()),
+            Some(if limited { 4 } else { 5 }),
+            "{extra}"
+        );
+        assert!(document["paths"]["/r0"]["get"]["x-d"].is_string());
+    }
+}
+
 /// Each `proto(...)` message holds a copy of its `.proto` file: the copies
 /// count against the run's 32 MiB (seven of 4 MiB fit).
 #[test]

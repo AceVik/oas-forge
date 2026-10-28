@@ -39,9 +39,10 @@ make a run fail or produce a wrong document. To keep that bounded:
 - fragment expansion and variable substitution have total text and work
   budgets, including acyclic fanout and parameter substitution, per block
   and for the text the whole run pastes (fragments, `@extend` bodies,
-  copies of route defaults, of a block for each of its `@route` lines and
-  of `.proto` files, each pasted line counted with 256 bytes besides its
-  text); struct parameter expansion has a budget per document; the
+  copies of route defaults, of a block and its defaults for each of its
+  `@route` lines and of `.proto` files, each pasted line counted with 256
+  bytes besides its text); struct parameter expansion has a budget per
+  document; the
   concrete schemas of generic instantiation and the targets of replaced
   type aliases have a total size budget,
 - outputs use exclusively created, unique temporary files and are replaced

@@ -32,10 +32,11 @@ All notable changes to `oas-forge` will be documented in this file.
   large fragment, or 1500 routes under 1500 lines of defaults, filled
   gigabytes. Text written in the inputs does not count. The copy of a
   `.proto` file in each `proto(...)` message counts too; 40 messages of
-  one 8 MiB file took 1.8 GB. So do the copies of a block for its `@route`
-  lines after the first (a block is compiled once per line): 500 lines
-  over 500 `@param` lines took 2 GB; the lines that do not fit are left
-  out with one finding. Each pasted or copied line costs 256 bytes besides
+  one 8 MiB file took 1.8 GB. So do the copies of a block and of its
+  module defaults for its `@route` lines after the first (a block is
+  compiled once per line): 500 lines over 500 `@param` lines took 2 GB,
+  400 lines under 4000 lines of defaults 9.5 GB; the lines that do not
+  fit are left out with one finding. Each pasted or copied line costs 256 bytes besides
   its text (not the `.proto` copies, which stay one string): a short line
   such as `@param query q: u8` becomes kilobytes of document, and 32 MiB of
   them, pasted by a 150 KB input, took 11 GB. A route or channel block that the expansion cut
