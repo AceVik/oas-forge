@@ -306,12 +306,14 @@ fn self_references_in_all_of_are_followed_once() {
 
 /// Once the budget is used up, the fields of the struct were still copied
 /// and serialized for every later operation: 200 routes expanding a struct
-/// with 20 000 fields took a minute. An expansion that cannot fit is
-/// reported without copying a field.
+/// with 20 000 fields took a minute, and once they were counted first,
+/// 2000 routes still walked them all. An expansion that cannot fit is
+/// reported without copying a field, and the fields of a struct are
+/// counted once.
 #[test]
 fn expansions_over_the_budget_are_reported_without_copying_fields() {
     let fields: String = (0..20_000).map(|i| format!("pub f{i}: u64, ")).collect();
-    let routes: String = (0..200)
+    let routes: String = (0..2000)
         .map(|i| format!("/// @route GET /r{i}\n/// @query-params $Big\nfn r{i}() {{}}\n"))
         .collect();
     let text = format!("/// @openapi\npub struct Big {{ {fields} }}\n{routes}");
@@ -322,7 +324,7 @@ fn expansions_over_the_budget_are_reported_without_copying_fields() {
         "{:?}",
         started.elapsed()
     );
-    let expanded = (0..200)
+    let expanded = (0..2000)
         .filter(|i| {
             document["paths"][format!("/r{i}")]["get"]["parameters"]
                 .as_array()
@@ -334,7 +336,7 @@ fn expansions_over_the_budget_are_reported_without_copying_fields() {
         .iter()
         .filter(|d| d.code() == Code::ExpansionLimit)
         .count();
-    assert_eq!(limits, 198, "{:?}", diagnostics.iter().next());
+    assert_eq!(limits, 1998, "{:?}", diagnostics.iter().next());
     // The routes that fit come first; the others have no parameters.
     assert!(document["paths"]["/r1"]["get"]["parameters"].is_array());
     assert!(document["paths"]["/r2"]["get"].get("parameters").is_none());
@@ -370,4 +372,44 @@ fn struct_expansions_of_a_document_share_a_budget() {
             .count();
         assert_eq!(found, limited, "{:?}", diagnostics.iter().next());
     }
+}
+
+/// A struct that many other structs flatten was walked again for each of
+/// them. The walks of a document visit at most 4 194 304 schemas,
+/// properties and required names: each of the structs `S0`…`S99` below
+/// visits 100 004 (itself, the reference, `Hub`, its property and its
+/// 100 000 parts), so 41 fit.
+#[test]
+fn walks_of_a_document_share_a_budget() {
+    let parts = vec!["{}"; 100_000].join(", ");
+    let structs: String = (0..100)
+        .map(|i| format!("S{i}: {{ allOf: [{{ $ref: '#/components/schemas/Hub' }}] }}, "))
+        .collect();
+    let routes: String = (0..100)
+        .map(|i| format!("/// @route GET /r{i}\n/// @query-params $S{i}\nfn r{i}() {{}}\n"))
+        .collect();
+    let started = std::time::Instant::now();
+    let (document, diagnostics) = pipeline(&[
+        (
+            "schemas.yaml",
+            &format!(
+                "components: {{ schemas: {{ {structs}Hub: {{ type: object, properties: {{ p: {{ type: string }} }}, allOf: [{parts}] }} }} }}"
+            ),
+        ),
+        ("api.rs", &routes),
+    ]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    let expanded = (0..100)
+        .filter(|i| document["paths"][format!("/r{i}")]["get"]["parameters"][0]["name"] == "p")
+        .count();
+    assert_eq!(expanded, 41);
+    let limits = diagnostics
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 59, "{:?}", diagnostics.iter().next());
 }

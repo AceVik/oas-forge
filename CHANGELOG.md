@@ -119,8 +119,12 @@ All notable changes to `oas-forge` will be documented in this file.
   document share 16 MiB (each costs 256 besides its JSON text), since every
   operation copies the struct's fields: 40 000 fields for 20 routes took
   4.8 GB; an expansion that cannot fit is reported without copying a
-  field (once the budget was used up, 200 routes expanding 20 000 fields
-  still copied and serialized them all, for a minute); and each
+  field, and the fields of each struct are counted once (once the budget
+  was used up, 200 routes expanding 20 000 fields still copied and
+  serialized them all, for a minute, and 2000 routes walked them all); the
+  walks of a document visit at most 4 194 304 schemas, properties and
+  required names, since a struct that many structs flatten was walked for
+  each of them; and each
   referenced schema is followed once, since a schema whose `allOf` refers
   to itself 60 times took two minutes. Findings about type aliases (ambiguous names,
   cycles, chains) are reported once through a set; each was compared with

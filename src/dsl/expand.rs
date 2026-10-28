@@ -7,7 +7,7 @@ use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::document::for_each_operation;
 use crate::schema::strip_null;
 use serde_json::{Map, Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// How deep flattened structs (`#[serde(flatten)]`) are followed.
 const MAX_FLATTEN_DEPTH: usize = 8;
@@ -21,6 +21,11 @@ pub(crate) const MAX_EXPANDED_SIZE: usize = 16 * 1024 * 1024;
 /// JSON text: as a value it takes far more memory than as text.
 const PARAMETER_COST: usize = 256;
 
+/// How many schemas, properties and required names the struct expansions
+/// of one document may visit in all: a struct that many other structs
+/// flatten is walked again for each of them.
+pub(crate) const MAX_EXPANSION_STEPS: usize = 1 << 22;
+
 /// Replaces every expansion marker with one parameter per property of the
 /// referenced schema. Placeholders an expansion leaves undeclared are
 /// reported by the lints.
@@ -30,6 +35,12 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
         .cloned()
         .unwrap_or_else(|| json!({}));
     let mut left = MAX_EXPANDED_SIZE;
+    let mut steps = MAX_EXPANSION_STEPS;
+    // The number of fields of each struct expanded so far (by reference
+    // and whether optional): once the budget is used up, a struct that
+    // cannot fit is reported without walking it again. 2000 operations
+    // expanding 20 000 fields each walked them all, for ten seconds.
+    let mut counts: BTreeMap<(String, bool), usize> = BTreeMap::new();
     for_each_operation(document, |at, operation| {
         let Some(Value::Array(parameters)) = operation.get_mut("parameters") else {
             return;
@@ -82,10 +93,27 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
                     let expansion = Expansion {
                         target,
                         location: &location,
-                        optional,
                         fallback,
                     };
-                    match from_schema(schema, &schemas, &expansion, left) {
+                    let key = (target.to_string(), optional);
+                    let fits = |fields: usize| {
+                        parameter_count(fields, fallback.is_some()).saturating_mul(PARAMETER_COST)
+                            <= left
+                    };
+                    let expanded = match counts.get(&key) {
+                        Some(fields) if !fits(*fields) => None,
+                        _ => Fields::walk(schema, &schemas, optional, &mut steps).and_then(
+                            |fields| {
+                                counts.insert(key, fields.properties.len());
+                                if fits(fields.properties.len()) {
+                                    from_fields(fields, &expansion, left)
+                                } else {
+                                    None
+                                }
+                            },
+                        ),
+                    };
+                    match expanded {
                         Some((new, size)) => {
                             left = left.saturating_sub(size);
                             new
@@ -95,7 +123,7 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
                             diagnostics.push(place(Diagnostic::new(
                                 Code::ExpansionLimit,
                                 format!(
-                                    "the {location} parameters of `{struct_name}` for {} {} {} exceed what is left of the {MAX_EXPANDED_SIZE} bytes of struct expansion in a document; they are left out",
+                                    "the {location} parameters of `{struct_name}` for {} {} {} exceed what is left of the {MAX_EXPANDED_SIZE} bytes (or {MAX_EXPANSION_STEPS} visited schemas and fields) of struct expansion in a document; they are left out",
                                     at.method,
                                     at.section.trim_end_matches('s'),
                                     at.name
@@ -143,7 +171,6 @@ pub(super) fn identity(parameter: &Value) -> String {
 /// those of flattened structs (`allOf`; an optional one is
 /// `anyOf: [{$ref}, {}]`). They are borrowed from the schemas: a struct is
 /// copied once its parameters are known to fit the budget.
-#[derive(Default)]
 struct Fields<'a> {
     /// The properties in order; the first schema that has a name wins.
     properties: Vec<(&'a str, &'a Value)>,
@@ -155,15 +182,57 @@ struct Fields<'a> {
     /// following one again adds nothing, and a schema whose `allOf` refers
     /// to itself many times made the walk exponential.
     followed: BTreeSet<(&'a str, bool)>,
+    /// What is left of [`MAX_EXPANSION_STEPS`] for the document.
+    steps: usize,
+    /// Whether the steps ran out before the walk was complete.
+    exhausted: bool,
 }
 
 impl<'a> Fields<'a> {
+    /// The fields of `schema` (all optional with `optional` set), taking
+    /// the schemas, properties and required names visited from `steps`;
+    /// `None` when they run out.
+    fn walk(
+        schema: &'a Value,
+        schemas: &'a Value,
+        optional: bool,
+        steps: &mut usize,
+    ) -> Option<Self> {
+        let mut fields = Self {
+            properties: Vec::new(),
+            names: BTreeSet::new(),
+            required: BTreeSet::new(),
+            followed: BTreeSet::new(),
+            steps: *steps,
+            exhausted: false,
+        };
+        fields.collect(schema, schemas, optional, 0);
+        *steps = fields.steps;
+        (!fields.exhausted).then_some(fields)
+    }
+
+    /// Takes `count` steps; `false` (and the walk is exhausted) when fewer
+    /// are left.
+    fn spend(&mut self, count: usize) -> bool {
+        match self.steps.checked_sub(count) {
+            Some(rest) => {
+                self.steps = rest;
+                true
+            }
+            None => {
+                self.steps = 0;
+                self.exhausted = true;
+                false
+            }
+        }
+    }
+
     /// Adds the properties of `schema`, following references into
     /// `schemas` (`components.schemas`) and flattened `allOf` parts up to
     /// [`MAX_FLATTEN_DEPTH`]. With `optional` set, the properties it adds
     /// are not required.
     fn collect(&mut self, schema: &'a Value, schemas: &'a Value, optional: bool, depth: usize) {
-        if depth > MAX_FLATTEN_DEPTH {
+        if depth > MAX_FLATTEN_DEPTH || !self.spend(1) {
             return;
         }
         if let Some((name, target)) = schema
@@ -178,6 +247,9 @@ impl<'a> Fields<'a> {
             return;
         }
         if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
+            if !self.spend(properties.len()) {
+                return;
+            }
             for (name, property) in properties {
                 if self.names.insert(name.as_str()) {
                     self.properties.push((name.as_str(), property));
@@ -186,6 +258,9 @@ impl<'a> Fields<'a> {
         }
         if !optional {
             let required = schema.get("required").and_then(Value::as_array);
+            if !self.spend(required.map_or(0, Vec::len)) {
+                return;
+            }
             for name in required.into_iter().flatten().filter_map(Value::as_str) {
                 self.required.insert(name);
             }
@@ -196,9 +271,15 @@ impl<'a> Fields<'a> {
             .into_iter()
             .flatten()
         {
+            if self.exhausted {
+                return;
+            }
             match part.get("anyOf").and_then(Value::as_array) {
                 // `#[serde(flatten)] field: Option<T>`: every field optional.
-                Some(alternatives) if alternatives.iter().any(is_empty_or_null) => {
+                Some(alternatives)
+                    if self.spend(alternatives.len())
+                        && alternatives.iter().any(is_empty_or_null) =>
+                {
                     for alternative in alternatives.iter().filter(|a| !is_empty_or_null(a)) {
                         self.collect(alternative, schemas, true, depth + 1);
                     }
@@ -221,36 +302,33 @@ struct Expansion<'m> {
     target: &'m str,
     /// Where the parameters go (`query`, `path`, …).
     location: &'m str,
-    /// `Option<Query<T>>`: every field may be left out.
-    optional: bool,
     /// The name of the single parameter for a non-object schema.
     fallback: Option<&'m Value>,
 }
 
-/// One parameter per property of an object schema (flattened structs
-/// included, all optional if the `expansion` asks), or a single parameter
-/// called its fallback for a non-object schema, with what they cost of the
-/// budget; `None` when they do not fit in what is `left` of it. The
-/// parameters are counted before they are built (each costs at least
-/// [`PARAMETER_COST`]), so a struct that cannot fit is not copied: once
-/// the budget was used up, 200 operations expanding 20 000 fields still
-/// copied and serialized them all, for a minute.
-fn from_schema(
-    schema: &Value,
-    schemas: &Value,
+/// The number of parameters a struct with `fields` fields expands to: one
+/// per field, or the fallback parameter (if there is one) without fields.
+fn parameter_count(fields: usize, fallback: bool) -> usize {
+    if fields == 0 {
+        usize::from(fallback)
+    } else {
+        fields
+    }
+}
+
+/// One parameter per field (flattened structs included, all optional if
+/// the `expansion` asks), or a single parameter called its fallback for a
+/// non-object schema, with what they cost of the budget; `None` when they
+/// do not fit in what is `left` of it. The caller counts the parameters
+/// before they are built (each costs at least [`PARAMETER_COST`]), so a
+/// struct that cannot fit is not copied: once the budget was used up, 200
+/// operations expanding 20 000 fields still copied and serialized them
+/// all, for a minute.
+fn from_fields(
+    fields: Fields<'_>,
     expansion: &Expansion<'_>,
     left: usize,
 ) -> Option<(Vec<Value>, usize)> {
-    let mut fields = Fields::default();
-    fields.collect(schema, schemas, expansion.optional, 0);
-    let count = if fields.properties.is_empty() {
-        usize::from(expansion.fallback.is_some())
-    } else {
-        fields.properties.len()
-    };
-    if count.saturating_mul(PARAMETER_COST) > left {
-        return None;
-    }
     let location = expansion.location;
     let parameters: Vec<Value> = if fields.properties.is_empty() {
         expansion
