@@ -23,9 +23,10 @@ use crate::merge::{Policy, merge};
 use crate::proto::{self, PROTOBUF_MEDIA_TYPE, ProtoIndex};
 use crate::schema::TypeMapper;
 use crate::scope;
+use crate::template::lexical;
 use crate::yaml;
 use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Fields of the Channel Object that start an embedded YAML section in a
 /// channel block; `address:` overrides the `@channel` line (with a note).
@@ -354,6 +355,17 @@ pub fn compile_channel(
                         );
                         continue;
                     };
+                    // Each message holds a copy of the file: it counts for the run.
+                    if !lexical::charge_run(file.text().len()) {
+                        diagnostics.push(
+                            Diagnostic::new(
+                                Code::ExpansionLimit,
+                                format!("the `.proto` file of `proto({name})` exceeds what is left of the 32 MiB for the pasted text of the run; the message is left out"),
+                            )
+                            .at(at(index)),
+                        );
+                        continue;
+                    }
                     if media.is_empty() {
                         object.insert("contentType".into(), json!(PROTOBUF_MEDIA_TYPE));
                     }
@@ -600,14 +612,16 @@ pub fn compile_channel(
 /// operations refer to them already. A name that every block defines
 /// alike stays a shared component.
 pub(crate) fn channel_messages(channels: &mut [&mut Value]) {
-    let mut definitions: BTreeMap<String, Vec<&Value>> = BTreeMap::new();
+    // The JSON texts of the definitions of each name: a set, as comparing
+    // each with all before took minutes for thousands of blocks.
+    let mut definitions: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for document in channels.iter() {
         if let Some(Value::Object(messages)) = document.pointer("/components/messages") {
             for (name, message) in messages {
-                let seen = definitions.entry(name.clone()).or_default();
-                if !seen.contains(&message) {
-                    seen.push(message);
-                }
+                definitions
+                    .entry(name.clone())
+                    .or_default()
+                    .insert(message.to_string());
             }
         }
     }

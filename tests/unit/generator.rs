@@ -3859,3 +3859,40 @@ fn copies_of_route_defaults_may_fill_the_run_budget_exactly() {
         );
     }
 }
+
+/// Each `proto(...)` message holds a copy of its `.proto` file: the copies
+/// count against the run's 32 MiB (seven of 4 MiB fit).
+#[test]
+fn proto_payloads_count_against_the_run_budget() {
+    let proto = format!(
+        "syntax = \"proto3\";\npackage p;\nmessage M {{}}\n// {}\n",
+        "c".repeat(4 << 20)
+    );
+    let sends: String = (0..10)
+        .map(|i| format!("/// @send M{i}: proto(p.M)\n"))
+        .collect();
+    let text = format!("/// @channel live /ws\n{sends}fn live() {{}}\n");
+    let (_, diagnostics) = pipeline(&[("p.proto", &proto), ("a.rs", &text)]);
+    let limits = codes(&diagnostics)
+        .into_iter()
+        .filter(|code| *code == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 3, "{:?}", codes(&diagnostics));
+}
+
+/// The differing definitions of a message name were compared with all
+/// before: 10 000 channel blocks took a minute.
+#[test]
+fn many_channels_defining_one_message_merge_quickly() {
+    let text: String = (0..10_000)
+        .map(|i| format!("/// @channel c{i} /c{i}\n/// @send M: {{ type: object }} \"d{i}\"\nfn c{i}() {{}}\n"))
+        .collect();
+    let started = std::time::Instant::now();
+    let (_, diagnostics) = pipeline(&[("a.rs", &text)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(!diagnostics.has_errors(), "{:?}", codes(&diagnostics));
+}

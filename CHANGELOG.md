@@ -30,7 +30,11 @@ All notable changes to `oas-forge` will be documented in this file.
   `@extend` bodies and the copies of `@route-defaults` in each route):
   each block stayed within its 16 MiB, but a hundred blocks inserting one
   large fragment, or 1500 routes under 1500 lines of defaults, filled
-  gigabytes. Text written in the inputs does not count.
+  gigabytes. Text written in the inputs does not count. The copy of a
+  `.proto` file in each `proto(...)` message counts too; 40 messages of
+  one 8 MiB file took 1.8 GB.
+- Channel blocks that define one message name differently are compared
+  through a set; 10 000 of them took a minute.
 - Variable substitution is size limited and preserves newlines and control
   characters in whole YAML string values. Multiline prose and subsequent
   YAML lines keep their original source locations.
