@@ -621,7 +621,9 @@ mod budget {
     }
 
     /// Every instance refers to two larger ones: the instances grew
-    /// exponentially although none was nested deeper than the limit.
+    /// exponentially although none was nested deeper than the limit, until
+    /// the memory was exhausted. Filling the budget takes about 20 s in a
+    /// debug build; the bound leaves room for slower machines.
     #[test]
     fn exponential_instantiation_is_stopped_and_reported_once() {
         let reg = registry(&[(
@@ -635,7 +637,7 @@ mod budget {
         let started = Instant::now();
         let (_, concrete, diagnostics) = run(&reg, json!({ "$ref": "$B<User>" }));
         assert!(
-            started.elapsed() < Duration::from_secs(30),
+            started.elapsed() < Duration::from_secs(120),
             "{:?}",
             started.elapsed()
         );

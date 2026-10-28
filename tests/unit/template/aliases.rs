@@ -223,6 +223,8 @@ fn generic_alias_arguments_count_with_their_length() {
 
 /// Each ambiguous use is a finding of its own; checking a new one against
 /// all findings so far made 16 000 uses take seconds and 40 000 minutes.
+/// Most of the time below goes to reading 30 000 structs in a debug build;
+/// the bound leaves room for slower machines.
 #[test]
 fn many_ambiguous_uses_are_reported_quickly() {
     let structs: String = (0..30_000)
@@ -235,7 +237,7 @@ fn many_ambiguous_uses_are_reported_quickly() {
         ("c.rs", &structs),
     ]);
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(30),
+        started.elapsed() < std::time::Duration::from_secs(90),
         "{:?}",
         started.elapsed()
     );
