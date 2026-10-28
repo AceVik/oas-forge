@@ -342,21 +342,24 @@ fn expansions_over_the_budget_are_reported_without_copying_fields() {
 
 /// Every operation copies the fields of the struct it expands: the copies
 /// of a document share 16 MiB (each parameter costs 256 more than its
-/// text). 40 000 fields for 20 routes took 4.8 GB.
+/// text). 40 000 fields for 20 routes took 4.8 GB. A struct without fields
+/// (`Empty`, expanded last) adds no parameter and still fits when nothing
+/// is left.
 #[test]
 fn struct_expansions_of_a_document_share_a_budget() {
     for (fields, routes, limited) in [(1_000, 20, 0), (40_000, 3, 2)] {
         let fields: String = (0..fields)
             .map(|i| format!("p{i}: {{ type: string }}, "))
             .collect();
-        let routes: String = (0..routes)
+        let mut routes: String = (0..routes)
             .map(|i| format!("/// @route GET /r{i}\n/// @query-params $Big\nfn r{i}() {{}}\n"))
             .collect();
+        routes.push_str("/// @route GET /z\n/// @query-params $Empty\nfn z() {}\n");
         let (_, diagnostics) = pipeline(&[
             (
                 "big.yaml",
                 &format!(
-                    "components: {{ schemas: {{ Big: {{ type: object, properties: {{ {fields} }} }} }} }}"
+                    "components: {{ schemas: {{ Big: {{ type: object, properties: {{ {fields} }} }}, Empty: {{ type: object }} }} }}"
                 ),
             ),
             ("api.rs", &routes),

@@ -1028,6 +1028,35 @@ mod message_names {
     }
 }
 
+/// Messages of one name are compared by content, whatever order the keys
+/// of their objects have, also inside lists.
+#[test]
+fn messages_with_equal_content_in_another_key_order_agree() {
+    let types = oas_forge::schema::TypeMapper::new()
+        .with_type(
+            "T1",
+            json!({ "oneOf": [{ "type": "string", "format": "x" }] }),
+        )
+        .with_type(
+            "T2",
+            json!({ "oneOf": [{ "format": "x", "type": "string" }] }),
+        )
+        .with_type(
+            "T3",
+            json!({ "oneOf": [{ "type": "string", "format": "y" }] }),
+        );
+    let lines = lines(&["@channel chat", "@send A: T1", "@send A: T2", "@send A: T3"]);
+    let location = here();
+    let mut diagnostics = Diagnostics::new();
+    compile_channel(
+        ChannelSource::new(&lines, &location).types(&types),
+        &mut diagnostics,
+    )
+    .expect("a valid channel");
+    // Only `T3` differs.
+    assert_eq!(codes(&diagnostics), [Code::MergeConflict]);
+}
+
 /// Large blocks: the messages, YAML lines and handshake parameters of a
 /// block were scanned for each new one, so tens of thousands took minutes.
 mod large_blocks {

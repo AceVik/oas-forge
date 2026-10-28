@@ -580,6 +580,31 @@ mod module_defaults {
         document["paths"][path]["get"].clone()
     }
 
+    /// A parameter of the defaults that the route declares again is not
+    /// added: the route's declaration stays in its place.
+    #[test]
+    fn parameters_the_route_declares_again_stay_in_their_place() {
+        let defaults = [
+            "@route-defaults",
+            "@param query a: String",
+            "@param query x: String",
+        ];
+        let route = [
+            "@route GET /x",
+            "@param query b: String",
+            "@param query x: u64",
+        ];
+        let op = op(&route, &defaults, "/x");
+        let names: Vec<&str> = op["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["a", "b", "x"]);
+        assert_eq!(op["parameters"][2]["schema"]["type"], "integer");
+    }
+
     #[test]
     fn inner_module_security_replaces_the_outer_one() {
         let defaults = [
