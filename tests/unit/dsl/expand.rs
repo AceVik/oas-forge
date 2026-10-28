@@ -309,14 +309,17 @@ fn self_references_in_all_of_are_followed_once() {
 /// with 20 000 fields took a minute, and once they were counted first,
 /// 2000 routes still walked them all. An expansion that cannot fit is
 /// reported without copying a field, and the fields of a struct are
-/// counted once.
+/// counted once: walking them for each route would use up the budget for
+/// walks, and `Empty`, expanded last, would be reported.
 #[test]
 fn expansions_over_the_budget_are_reported_without_copying_fields() {
     let fields: String = (0..20_000).map(|i| format!("pub f{i}: u64, ")).collect();
     let routes: String = (0..2000)
         .map(|i| format!("/// @route GET /r{i}\n/// @query-params $Big\nfn r{i}() {{}}\n"))
         .collect();
-    let text = format!("/// @openapi\npub struct Big {{ {fields} }}\n{routes}");
+    let text = format!(
+        "/// @openapi\npub struct Big {{ {fields} }}\n/// @openapi\npub struct Empty {{}}\n{routes}/// @route GET /z\n/// @query-params $Empty\nfn z() {{}}\n"
+    );
     let started = std::time::Instant::now();
     let (document, diagnostics) = pipeline(&[("api.rs", &text)]);
     assert!(
