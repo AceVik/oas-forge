@@ -1186,6 +1186,20 @@ impl Compiler<'_, '_> {
                         return;
                     }
                 };
+                // A scheme is a key of the requirement: a reserved name is
+                // rejected with the whole line (without the scheme, the
+                // requirement would require less).
+                if let Some(scheme) = requirement.keys().find(|scheme| reserved::is_name(scheme)) {
+                    self.report(
+                        Code::ReservedKey,
+                        at,
+                        reserved::name_message(
+                            format_args!("security scheme `{scheme}`"),
+                            "the `@security` line is ignored",
+                        ),
+                    );
+                    return;
+                }
                 if std::mem::take(&mut b.outer_security) {
                     b.security = None;
                 }
@@ -1216,6 +1230,17 @@ impl Compiler<'_, '_> {
             }
             "body" => match responses::body(rest, types) {
                 Ok(body) => {
+                    if let Some(media) = reserved_media(body.content.keys()) {
+                        self.report(
+                            Code::ReservedKey,
+                            at,
+                            reserved::name_message(
+                                format_args!("media type `{media}`"),
+                                "the `@body` line is ignored",
+                            ),
+                        );
+                        return;
+                    }
                     let request = b
                         .operation
                         .entry("requestBody")
@@ -1233,11 +1258,37 @@ impl Compiler<'_, '_> {
                 Err(message) => self.invalid(at, message),
             },
             "return" => match responses::response(rest, types) {
-                Ok(response) => add_response(b, response, at),
+                Ok(response) => {
+                    let content = response.value.get("content").and_then(Value::as_object);
+                    if let Some(media) = reserved_media(content.into_iter().flat_map(Map::keys)) {
+                        self.report(
+                            Code::ReservedKey,
+                            at,
+                            reserved::name_message(
+                                format_args!("media type `{media}`"),
+                                "the `@return` line is ignored",
+                            ),
+                        );
+                        return;
+                    }
+                    add_response(b, response, at);
+                }
                 Err(message) => self.invalid(at, message),
             },
             "return-header" => match responses::header(rest, types) {
                 Some((code, name, header)) => {
+                    // The name is a key of the response's headers.
+                    if reserved::is_name(&name) {
+                        self.report(
+                            Code::ReservedKey,
+                            at,
+                            reserved::name_message(
+                                format_args!("response header `{name}`"),
+                                "the `@return-header` line is ignored",
+                            ),
+                        );
+                        return;
+                    }
                     let response = b.responses.entry(code.clone()).or_insert_with(
                         || json!({ "description": responses::reason_phrase(&code) }),
                     );
@@ -2105,6 +2156,12 @@ fn add_response(b: &mut Builder, response: responses::Response, at: At) {
             b.responses.insert(code, value);
         }
     }
+}
+
+/// The first of the `media` types of a `@body` or `@return` line, keys of
+/// its `content`, that has the reserved prefix (`x-oas-forge-x/json`).
+fn reserved_media<'m>(media: impl IntoIterator<Item = &'m String>) -> Option<&'m String> {
+    media.into_iter().find(|media| reserved::is_name(media))
 }
 
 /// Whether two `content` maps of responses give one media type different

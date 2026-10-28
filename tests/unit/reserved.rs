@@ -647,6 +647,160 @@ pub fn live() {}
     );
 }
 
+/// The finding about a reserved `name` that a directive would make a key
+/// of the document; `what` names the item, `effect` what is ignored.
+fn reserved_name(what: &str, name: &str, effect: &str) -> String {
+    format!(
+        "{what} `{name}` is a reserved name: the `x-oas-forge-` prefix is the generator's own; {effect}"
+    )
+}
+
+/// The scheme of `@security`, the name of `@return-header` and the media
+/// types of `@body` and `@return` become keys of the operation: one with
+/// the reserved prefix is rejected at its line, and the line is ignored
+/// as a whole (a requirement without the scheme would require less).
+/// Before, `@security x-oas-forge-builtin` gave `security: [{}]`, anonymous
+/// access, without a finding, and a header of such a name vanished.
+#[test]
+fn a_reserved_name_in_a_directive_is_rejected() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+/// @route POST /x
+/// @security x-oas-forge-builtin
+/// @security bearer + x-oas-forge-unresolved(read)
+/// @security x-oas-forge-extend-1
+/// @security bearer
+/// @body $User x-oas-forge-builtin/json
+/// @body $User application/json
+/// @return 200: $User x-oas-forge-nothing/json
+/// @return 201: $User application/json, x-oas-forge-pattern/json
+/// @return 202: $User
+/// @return-header 202 x-oas-forge-type-default: String \"a\"
+/// @return-header 202 X-Normal: String \"b\"
+pub fn x() {}
+
+/// @openapi
+pub struct User { pub id: u64 }
+
+/// @openapi
+/// components:
+///   securitySchemes:
+///     bearer: { type: http, scheme: bearer }
+pub struct Root;
+",
+    )]);
+    let operation = &document["paths"]["/x"]["post"];
+    assert_eq!(operation["security"], json!([{ "bearer": [] }]));
+    let media = |value: &Value| -> Vec<String> {
+        value["content"]
+            .as_object()
+            .map(|content| content.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    assert_eq!(media(&operation["requestBody"]), ["application/json"]);
+    let responses = operation["responses"].as_object().expect("responses");
+    assert_eq!(responses.keys().collect::<Vec<_>>(), ["202"]);
+    assert_eq!(media(&responses["202"]), ["application/json"]);
+    assert_eq!(
+        responses["202"]["headers"],
+        json!({ "X-Normal": { "schema": { "type": "string" }, "description": "b" } })
+    );
+    assert_clean(&document);
+    let ignored = |what: &str, name: &str, directive: &str| {
+        reserved_name(what, name, &format!("the `@{directive}` line is ignored"))
+    };
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            format!(
+                "2: error OF0009 {}",
+                ignored("security scheme", "x-oas-forge-builtin", "security")
+            ),
+            format!(
+                "3: error OF0009 {}",
+                ignored("security scheme", "x-oas-forge-unresolved", "security")
+            ),
+            format!(
+                "4: error OF0009 {}",
+                ignored("security scheme", "x-oas-forge-extend-1", "security")
+            ),
+            format!(
+                "6: error OF0009 {}",
+                ignored("media type", "x-oas-forge-builtin/json", "body")
+            ),
+            format!(
+                "8: error OF0009 {}",
+                ignored("media type", "x-oas-forge-nothing/json", "return")
+            ),
+            format!(
+                "9: error OF0009 {}",
+                ignored("media type", "x-oas-forge-pattern/json", "return")
+            ),
+            format!(
+                "11: error OF0009 {}",
+                ignored(
+                    "response header",
+                    "x-oas-forge-type-default",
+                    "return-header"
+                )
+            ),
+        ]
+    );
+}
+
+/// A `@security` line of module defaults applies to every route of the
+/// module: a reserved scheme is reported once, at its line, and the
+/// routes keep the security of the root instead of anonymous access.
+#[test]
+fn a_reserved_security_scheme_in_the_defaults_is_rejected_once() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+//! @openapi
+//! openapi: 3.1.0
+//! info: { title: T, version: 1.0.0 }
+//! security:
+//!   - bearer: []
+//! components:
+//!   securitySchemes:
+//!     bearer: { type: http, scheme: bearer }
+
+/// @route-defaults
+/// @security x-oas-forge-builtin(admin)
+pub mod admin {
+    /// @route DELETE /everything
+    /// @return 204:
+    pub fn delete_everything() {}
+
+    /// @route GET /things
+    /// @return 204:
+    pub fn things() {}
+}
+",
+    )]);
+    for path in ["/everything", "/things"] {
+        let item = &document["paths"][path];
+        let operation = item.as_object().and_then(|item| item.values().next());
+        assert!(
+            operation.is_some_and(|operation| operation.get("security").is_none()),
+            "{item:#}"
+        );
+    }
+    assert_clean(&document);
+    assert_eq!(
+        findings(&diagnostics),
+        [format!(
+            "11: error OF0009 {}",
+            reserved_name(
+                "security scheme",
+                "x-oas-forge-builtin",
+                "the `@security` line is ignored"
+            )
+        )]
+    );
+}
+
 /// Each removed key was looked up among the keys removed before, so many
 /// distinct reserved keys took time in the square of their number.
 #[test]

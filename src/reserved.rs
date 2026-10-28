@@ -22,6 +22,7 @@ use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::template::lexical::EXTEND_KEY;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
+use std::fmt;
 
 /// The prefix of the generator's keys.
 pub(crate) const PREFIX: &str = "x-oas-forge-";
@@ -70,6 +71,22 @@ impl Removed {
     pub(crate) fn finding(&self) -> Diagnostic {
         Diagnostic::new(Code::ReservedKey, self.message())
     }
+}
+
+/// Whether `name`, a name a source chose that the DSL or reflection makes
+/// a key of the document (a security scheme, a response header, a media
+/// type, the serialized name of a field, a channel id, …), has the
+/// reserved prefix. Such a name is rejected where the key would be made
+/// ([`name_message`]): once it is a key, it cannot be told from a marker.
+pub(crate) fn is_name(name: &str) -> bool {
+    name.starts_with(PREFIX)
+}
+
+/// What the finding ([`Code::ReservedKey`]) about a reserved name says:
+/// `what` names the item with the name (``security scheme `x-oas-forge-x` ``),
+/// `effect` what is left out for it (``the `@security` line is ignored``).
+pub(crate) fn name_message(what: impl fmt::Display, effect: &str) -> String {
+    format!("{what} is a reserved name: the `{PREFIX}` prefix is the generator's own; {effect}")
 }
 
 /// Whether `key` is reserved, given what `keep` allows.
