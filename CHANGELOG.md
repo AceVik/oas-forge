@@ -26,8 +26,11 @@ All notable changes to `oas-forge` will be documented in this file.
 - Fragment inserts and extensions have total work and text budgets, preventing
   exponential expansion even without cycles. Oversized substituted fragment
   bodies are rejected before allocation (error `OF3016`). The expansions
-  of a run also share 64 MiB: each block stayed within its 16 MiB, but a
-  hundred blocks inserting one large fragment filled gigabytes.
+  of a run also share 32 MiB of pasted text (inserted fragment lines,
+  `@extend` bodies and the copies of `@route-defaults` in each route):
+  each block stayed within its 16 MiB, but a hundred blocks inserting one
+  large fragment, or 1500 routes under 1500 lines of defaults, filled
+  gigabytes. Text written in the inputs does not count.
 - Variable substitution is size limited and preserves newlines and control
   characters in whole YAML string values. Multiline prose and subsequent
   YAML lines keep their original source locations.

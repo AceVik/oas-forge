@@ -2498,7 +2498,22 @@ fn expand_defaults(
             match line {
                 Some(line) => {
                     let key = (file.to_path_buf(), line);
-                    expanded.extend(cache.entry(key).or_insert_with(expand).iter().cloned());
+                    let copy = cache.contains_key(&key);
+                    let block = cache.entry(key).or_insert_with(expand);
+                    // Expanding was charged once; every further route
+                    // copies the lines again.
+                    let size = block.iter().map(|(text, _)| text.len()).sum();
+                    if copy && !lexical::charge_run(size) {
+                        diagnostics.push(
+                            Diagnostic::new(
+                                Code::ExpansionLimit,
+                                "the route defaults of this route exceed what is left of the 32 MiB for the fragment expansions of the run; they are left out",
+                            )
+                            .at(route.location.clone()),
+                        );
+                        continue;
+                    }
+                    expanded.extend(block.iter().cloned());
                 }
                 None => expanded.extend(expand()),
             }

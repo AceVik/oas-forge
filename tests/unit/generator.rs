@@ -3692,7 +3692,7 @@ fn many_tags_merge_quickly() {
 
 /// Each block stayed within its 16 MiB of fragment expansion, but many
 /// blocks inserting one large fragment filled the memory. The expansions of
-/// a run share 64 MiB.
+/// a run share 32 MiB.
 #[test]
 fn fragment_expansions_of_a_run_share_a_budget() {
     let mut text =
@@ -3722,10 +3722,67 @@ fn fragment_expansions_of_a_run_share_a_budget() {
                 .is_some_and(|s| s.len() > 8_000_000)
         })
         .count();
-    assert_eq!(expanded, 8, "64 MiB hold eight blocks");
+    assert_eq!(expanded, 4, "32 MiB hold four blocks");
     let limits = diagnostics
         .iter()
         .filter(|d| d.code() == Code::ExpansionLimit)
         .count();
-    assert_eq!(limits, 4, "{diagnostics:?}");
+    assert_eq!(limits, 8, "{diagnostics:?}");
+}
+
+/// The defaults of a module were expanded once and copied into each route
+/// without being counted: 1500 routes under 1500 lines of defaults took a
+/// minute and 2 GB. The copies count against the run's 32 MiB.
+#[test]
+fn copies_of_route_defaults_count_against_the_run_budget() {
+    let mut text = String::from(
+        "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n\n/// @route-defaults\n",
+    );
+    for i in 0..200 {
+        text.push_str(&format!("/// x-default-{i}: {}\n", "v".repeat(1000)));
+    }
+    text.push_str("mod api {\n");
+    for i in 0..200 {
+        text.push_str(&format!(
+            "    /// @route GET /r{i}\n    /// @return 204:\n    fn r{i}() {{}}\n"
+        ));
+    }
+    text.push_str("}\n");
+    let started = std::time::Instant::now();
+    let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(60),
+        "{:?}",
+        started.elapsed()
+    );
+    let with_defaults = (0..200)
+        .filter(|i| {
+            document["paths"][format!("/r{i}")]["get"]
+                .get("x-default-0")
+                .is_some()
+        })
+        .count();
+    assert!((100..200).contains(&with_defaults), "{with_defaults}");
+    let limits = codes(&diagnostics)
+        .into_iter()
+        .filter(|code| *code == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 200 - with_defaults, "{diagnostics:?}");
+}
+
+/// Only pasted fragment lines count for the run: inputs that hold more
+/// than 32 MiB of their own text are generated as before.
+#[test]
+fn text_written_in_the_inputs_is_not_counted_for_the_run() {
+    let big = "v".repeat(11 << 20);
+    let files: Vec<(String, String)> = (0..3)
+        .map(|i| (format!("f{i}.yaml"), format!("x-{i}: {big}\n")))
+        .collect();
+    let files: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+    let (document, diagnostics) = pipeline(&files);
+    assert!(diagnostics.is_empty(), "{:?}", codes(&diagnostics));
+    assert_eq!(document["x-2"].as_str().map(str::len), Some(11 << 20));
 }

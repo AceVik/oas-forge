@@ -35,15 +35,35 @@ pub(super) const MAX_EXPANSION_BYTES: usize = 16 * 1024 * 1024;
 /// Total lines visited, including directives that produce no output.
 pub(super) const MAX_EXPANSION_STEPS: usize = 65_536;
 
-/// Total bytes of lines all fragment expansions of one generator run visit
-/// together: each block stays below [`MAX_EXPANSION_BYTES`], but many
-/// blocks inserting one large fragment would fill the memory.
-pub(crate) const MAX_RUN_EXPANSION_BYTES: usize = 64 * 1024 * 1024;
+/// Total bytes of the lines all `@insert`s of one generator run paste
+/// together, copies of expanded route defaults included (text written in
+/// the inputs is not counted): each block stays below
+/// [`MAX_EXPANSION_BYTES`], but many blocks inserting one large fragment
+/// would fill the memory (parsed, the text takes about twenty times its
+/// size).
+pub(crate) const MAX_RUN_EXPANSION_BYTES: usize = 32 * 1024 * 1024;
 
 thread_local! {
     /// What is left of [`MAX_RUN_EXPANSION_BYTES`] while a generator run
     /// prepares its snippets on this thread; `None` outside a run.
     static RUN_BUDGET: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+/// Takes `bytes` of [`MAX_RUN_EXPANSION_BYTES`] for expanded text that is
+/// copied again (the defaults of one more route); `false` when too little
+/// is left, which uses the rest up. Outside a run nothing is counted.
+pub(crate) fn charge_run(bytes: usize) -> bool {
+    match RUN_BUDGET.get() {
+        Some(left) if bytes > left => {
+            RUN_BUDGET.set(Some(0));
+            false
+        }
+        Some(left) => {
+            RUN_BUDGET.set(Some(left - bytes));
+            true
+        }
+        None => true,
+    }
 }
 
 /// Runs `task` with the whole [`MAX_RUN_EXPANSION_BYTES`] for the fragment
@@ -320,16 +340,15 @@ fn paste(
     location: &Location,
     diagnostics: &mut Diagnostics,
 ) -> (Vec<String>, Vec<usize>) {
-    let run = RUN_BUDGET.get();
-    let bytes = run.map_or(MAX_EXPANSION_BYTES, |left| left.min(MAX_EXPANSION_BYTES));
     let mut expansion = Expansion {
         registry,
         lines: Vec::new(),
         counter: 0,
         stack: Vec::new(),
         cycles: BTreeSet::new(),
-        remaining_bytes: bytes,
+        remaining_bytes: MAX_EXPANSION_BYTES,
         remaining_steps: MAX_EXPANSION_STEPS,
+        run_bytes: RUN_BUDGET.get(),
         exhausted: false,
         diagnostics,
     };
@@ -340,12 +359,10 @@ fn paste(
         }
     }
     let Expansion {
-        lines,
-        remaining_bytes,
-        ..
+        lines, run_bytes, ..
     } = expansion;
-    if let Some(left) = run {
-        RUN_BUDGET.set(Some(left - (bytes - remaining_bytes)));
+    if run_bytes.is_some() {
+        RUN_BUDGET.set(run_bytes);
     }
     lines.into_iter().unzip()
 }
@@ -479,6 +496,9 @@ struct Expansion<'a> {
     remaining_bytes: usize,
     /// Unspent line budget, also bounding empty fragments and diagnostics.
     remaining_steps: usize,
+    /// What is left of [`MAX_RUN_EXPANSION_BYTES`] for inserted lines;
+    /// `None` outside a generator run.
+    run_bytes: Option<usize>,
     /// Whether a budget violation has already stopped this expansion.
     exhausted: bool,
     /// Receives cycles, argument count mismatches and unknown or too deeply
@@ -493,7 +513,7 @@ impl Expansion<'_> {
         self.diagnostics.push(
             Diagnostic::new(
                 Code::ExpansionLimit,
-                "fragment expansion exceeds 16 MiB of processed text or 65536 lines, or the fragment expansions of the run together exceed 64 MiB",
+                "fragment expansion exceeds 16 MiB of processed text or 65536 lines, or the fragment expansions of the run together exceed 32 MiB",
             )
             .at(location.clone()),
         );
@@ -502,12 +522,20 @@ impl Expansion<'_> {
     /// Expands one line; `offset` is its source line within the text. The
     /// argument of `@insert` and `@extend` may be written in backticks.
     fn line(&mut self, line: &str, location: &Location, offset: usize) {
-        if self.remaining_steps == 0 || line.len() > self.remaining_bytes {
+        // Lines of fragments also count for the run.
+        let run = self.run_bytes.filter(|_| !self.stack.is_empty());
+        if self.remaining_steps == 0
+            || line.len() > self.remaining_bytes
+            || run.is_some_and(|left| line.len() > left)
+        {
             self.exhaust(location);
             return;
         }
         self.remaining_steps -= 1;
         self.remaining_bytes -= line.len();
+        if let Some(left) = run {
+            self.run_bytes = Some(left - line.len());
+        }
         let line = TICKED_RE.replace(line, "$1$2");
         let line = line.as_ref();
         if let Some(caps) = INSERT_RE.captures(line) {

@@ -203,8 +203,9 @@ impl Extension<'_> {
         if let Some(finding) = lexical::argument_count(name, fragment.params.len(), args.len()) {
             self.diagnostics.push(finding.at(self.location.clone()));
         }
+        // The body is a copy: it counts for the run too.
         let Some(size) = lexical::substituted_size(&fragment.body, &fragment.params, &args)
-            .filter(|size| *size <= self.remaining_bytes)
+            .filter(|size| *size <= self.remaining_bytes && lexical::charge_run(*size))
         else {
             self.exhaust();
             return None;
@@ -243,7 +244,7 @@ impl Extension<'_> {
         self.exhausted = true;
         self.report(
             Code::ExpansionLimit,
-            "fragment extensions exceed 16 MiB of processed text or 65536 resolutions".into(),
+            "fragment extensions exceed 16 MiB of processed text or 65536 resolutions, or the fragment expansions of the run together exceed 32 MiB".into(),
         );
     }
 }
