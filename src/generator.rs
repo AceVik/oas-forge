@@ -1799,6 +1799,7 @@ fn prepare_here(
     let mut defaults = RouteDefaults {
         modules,
         expanded: BTreeMap::new(),
+        reported: BTreeSet::new(),
     };
     for (position, item) in pending {
         let context = Context {
@@ -2223,6 +2224,10 @@ struct RouteDefaults {
     modules: BTreeMap<PathBuf, Vec<extract::ModuleItem>>,
     /// Expanded blocks by file and header line, each line with its location.
     expanded: BTreeMap<(PathBuf, usize), Vec<(String, Location)>>,
+    /// The findings about the defaults the route compiler reported so far
+    /// (their texts): every route compiles its module's defaults again, and
+    /// each finding about them is reported once.
+    reported: BTreeSet<String>,
 }
 
 /// Lexical expansion and parsing of one pending text.
@@ -2364,7 +2369,7 @@ fn materialize(
                     .into_iter()
                     .unzip();
             let types = &in_module(types, names, &route.location);
-            let compiled = dsl::compile(
+            let compiled = dsl::compile_with(
                 RouteSource::new(&lines, &route.location)
                     .line_numbers(&line_numbers)
                     .operation_id(route.operation_id.as_deref())
@@ -2374,6 +2379,7 @@ fn materialize(
                     .default_locations(&default_locations)
                     .signature(route.signature.as_ref().filter(|_| infer)),
                 diagnostics,
+                &mut route_defaults.reported,
             );
             let Some(compiled) = compiled else {
                 return Ok(None);
@@ -2444,6 +2450,7 @@ fn expand_defaults(
     let RouteDefaults {
         modules,
         expanded: cache,
+        ..
     } = defaults;
     // The file, defaults and line numbers of each part, innermost first.
     let mut parts = vec![(

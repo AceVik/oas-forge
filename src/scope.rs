@@ -18,16 +18,14 @@ const DIRECTIVE: &str = "@scope";
 /// comma-separated, each made of letters, digits, `.`, `-` and `_`. `None`
 /// when there is no name or one is invalid.
 pub(crate) fn names(text: &str) -> Option<Vec<String>> {
-    let mut names = Vec::new();
+    let mut names = Names::default();
     for name in text.split(',').map(str::trim) {
         if !is_name(name) {
             return None;
         }
-        if !names.iter().any(|n| n == name) {
-            names.push(name.to_string());
-        }
+        names.add(name);
     }
-    Some(names)
+    Some(names.into_vec())
 }
 
 /// Whether `name` is a valid scope name: not empty, only letters, digits,
@@ -39,12 +37,36 @@ fn is_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
 }
 
-/// Appends the `names` that `list` does not contain yet, in order.
-pub(crate) fn add(list: &mut Vec<String>, names: Vec<String>) {
-    for name in names {
-        if !list.contains(&name) {
-            list.push(name);
+/// Names (scopes, tags) in the order they were first given, without
+/// duplicates. Membership is a set lookup: a list with 100 000 names that
+/// was scanned for each new name took a minute.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct Names {
+    /// The names in order.
+    list: Vec<String>,
+    /// The names, for membership.
+    set: BTreeSet<String>,
+}
+
+impl Names {
+    /// Appends `name` unless it is in the list already.
+    pub(crate) fn add(&mut self, name: &str) {
+        if !self.set.contains(name) {
+            self.set.insert(name.to_string());
+            self.list.push(name.to_string());
         }
+    }
+
+    /// Appends the `names` that the list does not contain yet, in order.
+    pub(crate) fn extend(&mut self, names: impl IntoIterator<Item = String>) {
+        for name in names {
+            self.add(&name);
+        }
+    }
+
+    /// The names in order.
+    pub(crate) fn into_vec(self) -> Vec<String> {
+        self.list
     }
 }
 
@@ -76,11 +98,12 @@ pub(crate) fn take_lines(text: &str) -> ScopeLines {
         return found;
     }
     let mut lines = Vec::new();
+    let mut scopes = Names::default();
     for (index, line) in text.split('\n').enumerate() {
         match directive(line) {
             Some(rest) => {
                 match names(rest) {
-                    Some(names) => add(&mut found.names, names),
+                    Some(names) => scopes.extend(names),
                     None => found.invalid.push(index),
                 }
                 lines.push("");
@@ -88,6 +111,7 @@ pub(crate) fn take_lines(text: &str) -> ScopeLines {
             None => lines.push(line),
         }
     }
+    found.names = scopes.into_vec();
     found.text = lines.join("\n");
     found
 }

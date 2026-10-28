@@ -29,9 +29,10 @@ use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
 use crate::docs::{closes_fence, yaml_fence};
 use crate::merge::{Policy, merge};
 use crate::schema::{MappedType, TypeExpr, TypeMapper, shadow};
-use crate::scope;
+use crate::scope::{self, Names};
 use crate::template::lexical::{DEFAULTS_MARKER, EXTEND_KEY};
 use crate::yaml;
+use expand::identity;
 use operation::Security;
 use prose::{ImplicitYaml, Prose, Text};
 use regex::Regex;
@@ -501,7 +502,7 @@ struct Builder {
     operation: Map<String, Value>,
     /// Parameters and struct expansion markers in declaration order; a later
     /// declaration of the same name and location replaces an earlier one.
-    parameters: Vec<Value>,
+    parameters: Parameters,
     /// The responses of `@return`, `@return-header` and `@problem`, by
     /// status code.
     responses: Map<String, Value>,
@@ -516,7 +517,7 @@ struct Builder {
     security: Option<Vec<Value>>,
     /// The `@tag` names without duplicates; `None` without a `@tag` line, so
     /// that the default tags apply.
-    tags: Option<Vec<String>>,
+    tags: Option<Names>,
     /// The summary and description.
     prose: Prose,
     /// Where the lines read so far leave the next one.
@@ -544,9 +545,96 @@ struct Builder {
     /// Where the YAML of each module's defaults starts in `yaml`.
     module_yaml: Vec<usize>,
     /// The `@scope` names; `None` without a `@scope` line.
-    scopes: Option<Vec<String>>,
+    scopes: Option<Names>,
     /// Like `outer_tags`, for the scopes.
     outer_scopes: bool,
+}
+
+/// The parameters (and struct expansion markers) of a block in declaration
+/// order. A later declaration of the same name and location replaces the
+/// earlier one in its place; the place is found through an index, as
+/// scanning the list for each of 20 000 parameters took two minutes.
+#[derive(Default)]
+struct Parameters {
+    /// The parameters in order.
+    list: Vec<Value>,
+    /// The entry in `list` of each parameter with a name, by [`identity`].
+    index: BTreeMap<String, usize>,
+}
+
+impl Parameters {
+    /// Adds a parameter; a later declaration of the same name and location
+    /// replaces the earlier one. A marker (without `name`) is appended.
+    fn add(&mut self, parameter: Value) {
+        if parameter.get("name").is_none() {
+            self.list.push(parameter);
+            return;
+        }
+        match self.index.get(&identity(&parameter)) {
+            Some(at) => {
+                if let Some(existing) = self.list.get_mut(*at) {
+                    *existing = parameter;
+                }
+            }
+            None => {
+                self.index.insert(identity(&parameter), self.list.len());
+                self.list.push(parameter);
+            }
+        }
+    }
+
+    /// Whether a parameter with the same name and location exists (a marker
+    /// never does).
+    fn has(&self, parameter: &Value) -> bool {
+        parameter.get("name").is_some() && self.index.contains_key(&identity(parameter))
+    }
+
+    /// Puts `front` before the parameters.
+    fn prepend(&mut self, mut front: Vec<Value>) {
+        front.append(&mut self.list);
+        self.list = front;
+        self.index.clear();
+        for (at, parameter) in self.list.iter().enumerate() {
+            if parameter.get("name").is_some() {
+                self.index.entry(identity(parameter)).or_insert(at);
+            }
+        }
+    }
+
+    /// Whether there are no parameters.
+    fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+
+    /// The parameters in order.
+    fn iter(&self) -> std::slice::Iter<'_, Value> {
+        self.list.iter()
+    }
+
+    /// The parameters in order.
+    fn into_vec(self) -> Vec<Value> {
+        self.list
+    }
+}
+
+/// The JSON text of `value` with the keys of its objects sorted: the same
+/// text for equal values, whichever order their keys have, so that values
+/// can be compared through a set.
+fn canonical(value: &Value) -> String {
+    /// Sorts the keys of every object in `value`.
+    fn sort_keys(value: &mut Value) {
+        match value {
+            Value::Object(map) => {
+                map.sort_keys();
+                map.values_mut().for_each(sort_keys);
+            }
+            Value::Array(items) => items.iter_mut().for_each(sort_keys),
+            _ => {}
+        }
+    }
+    let mut sorted = value.clone();
+    sort_keys(&mut sorted);
+    sorted.to_string()
 }
 
 /// The line of a block (or of its module defaults) a finding is about.
@@ -812,6 +900,39 @@ pub fn is_route(lines: &[String]) -> bool {
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn compile(source: RouteSource<'_>, diagnostics: &mut Diagnostics) -> Option<CompiledRoute> {
+    let mut reported = reported_defaults(source, diagnostics);
+    compile_with(source, diagnostics, &mut reported)
+}
+
+/// The findings about the module defaults of `source` that `diagnostics`
+/// has already (from the routes compiled before that share them), keyed as
+/// [`Compiler::report`] keys them. A finding about a default line is at the
+/// line's location, or at the block's when the line has none.
+fn reported_defaults(source: RouteSource<'_>, diagnostics: &Diagnostics) -> BTreeSet<String> {
+    if source.defaults.is_empty() {
+        return BTreeSet::new();
+    }
+    let locations: BTreeSet<&Location> = source
+        .default_locations
+        .iter()
+        .chain([source.location])
+        .collect();
+    diagnostics
+        .iter()
+        .filter(|finding| finding.location().is_some_and(|at| locations.contains(at)))
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// [`compile`] with `reported`, the findings about the module defaults
+/// reported so far (each once, however many routes share the defaults),
+/// which the generator keeps for the run: finding them again among the
+/// findings of a run took minutes for thousands of routes.
+pub(crate) fn compile_with(
+    source: RouteSource<'_>,
+    diagnostics: &mut Diagnostics,
+    reported: &mut BTreeSet<String>,
+) -> Option<CompiledRoute> {
     let headers: Vec<usize> = source
         .lines
         .iter()
@@ -820,24 +941,17 @@ pub fn compile(source: RouteSource<'_>, diagnostics: &mut Diagnostics) -> Option
         .map(|(index, _)| index)
         .collect();
     if headers.len() < 2 {
-        return compile_route(source, None, diagnostics);
+        return compile_route(source, None, diagnostics, reported);
     }
     // Several `@route` lines: the block is compiled for each of them, and
     // findings about the lines they share are reported once.
     let mut compiled: Option<CompiledRoute> = None;
-    let mut reported: Vec<Diagnostic> = Vec::new();
+    let mut once: BTreeSet<String> = BTreeSet::new();
     for header in headers {
         let mut findings = Diagnostics::new();
-        let route = compile_route(source, Some(header), &mut findings);
+        let route = compile_route(source, Some(header), &mut findings, reported);
         for finding in findings.into_vec() {
-            // Findings about the defaults may come from earlier blocks too.
-            let about_defaults = finding
-                .location()
-                .is_some_and(|location| source.default_locations.contains(location));
-            let repeated = reported.contains(&finding)
-                || (about_defaults && diagnostics.iter().any(|d| *d == finding));
-            if !repeated {
-                reported.push(finding.clone());
+            if once.insert(finding.to_string()) {
                 diagnostics.push(finding);
             }
         }
@@ -854,15 +968,18 @@ pub fn compile(source: RouteSource<'_>, diagnostics: &mut Diagnostics) -> Option
 
 /// Compiles a block for one of its `@route` lines (`route`, the entry of
 /// [`RouteSource::lines`]; `None` when the block has at most one).
+/// `reported` holds the findings about the defaults reported so far.
 fn compile_route(
     source: RouteSource<'_>,
     route: Option<usize>,
     diagnostics: &mut Diagnostics,
+    reported: &mut BTreeSet<String>,
 ) -> Option<CompiledRoute> {
     let mut compiler = Compiler {
         source,
         diagnostics,
         route,
+        reported,
     };
     // Module defaults are compiled like a block without `@route`.
     let mut defaults = Builder::default();
@@ -896,6 +1013,9 @@ struct Compiler<'s, 'd> {
     /// In a block with several `@route` (or `@webhook`) lines, the one this
     /// compilation is for; the others are left alone.
     route: Option<usize>,
+    /// The findings about the module defaults reported so far (their
+    /// texts), by every route that shares them.
+    reported: &'d mut BTreeSet<String>,
 }
 
 impl Compiler<'_, '_> {
@@ -920,7 +1040,7 @@ impl Compiler<'_, '_> {
         let finding = Diagnostic::new(code, message).at(self.location(at));
         // Every route of a module compiles the module's defaults again: a
         // finding about them that is reported already is not repeated.
-        if matches!(at, At::Default(_)) && self.diagnostics.iter().any(|d| *d == finding) {
+        if matches!(at, At::Default(_)) && !self.reported.insert(finding.to_string()) {
             return;
         }
         self.diagnostics.push(finding);
@@ -989,11 +1109,9 @@ impl Compiler<'_, '_> {
                 if std::mem::take(&mut b.outer_tags) {
                     b.tags = None;
                 }
-                let tags = b.tags.get_or_insert_with(Vec::new);
+                let tags = b.tags.get_or_insert_with(Names::default);
                 for tag in rest.split(',').map(str::trim).filter(|t| !t.is_empty()) {
-                    if !tags.iter().any(|t| t == tag) {
-                        tags.push(tag.to_string());
-                    }
+                    tags.add(tag);
                 }
             }
             "scope" => match scope::names(rest) {
@@ -1001,7 +1119,7 @@ impl Compiler<'_, '_> {
                     if std::mem::take(&mut b.outer_scopes) {
                         b.scopes = None;
                     }
-                    scope::add(b.scopes.get_or_insert_with(Vec::new), names);
+                    b.scopes.get_or_insert_with(Names::default).extend(names);
                 }
                 None => self.invalid(at, SCOPE_SYNTAX),
             },
@@ -1067,7 +1185,7 @@ impl Compiler<'_, '_> {
                     );
                 } else {
                     let here = self.location(at);
-                    b.parameters.push(params::expansion(location, rest, &here));
+                    b.parameters.add(params::expansion(location, rest, &here));
                 }
             }
             "body" => match responses::body(rest, types) {
@@ -1168,7 +1286,7 @@ impl Compiler<'_, '_> {
         if location == "path" {
             b.declared.insert(parameter.name);
         }
-        add_parameter(&mut b.parameters, parameter.value);
+        b.parameters.add(parameter.value);
     }
 
     /// Reads `@route METHOD /path`, declaring the path's inline parameters.
@@ -1216,7 +1334,7 @@ impl Compiler<'_, '_> {
             b.declared.insert(name.to_string());
             let param =
                 params::inline_path(name, type_text, description.as_deref(), self.source.types);
-            add_parameter(&mut b.parameters, param);
+            b.parameters.add(param);
         }
         path.push_str(raw_path.get(last..).unwrap_or_default());
         path
@@ -1272,11 +1390,13 @@ impl Compiler<'_, '_> {
         }
         // Defaults: parameters first, the rest only where the route has none.
         // A webhook has no path, so path parameters do not apply to it.
-        for parameter in defaults.parameters.into_iter().rev() {
-            if !has_parameter(&b.parameters, &parameter) && !(webhook && is_path(&parameter)) {
-                b.parameters.insert(0, parameter);
-            }
-        }
+        let front: Vec<Value> = defaults
+            .parameters
+            .into_vec()
+            .into_iter()
+            .filter(|parameter| !b.parameters.has(parameter) && !(webhook && is_path(parameter)))
+            .collect();
+        b.parameters.prepend(front);
         if !webhook {
             b.declared.extend(defaults.declared);
         }
@@ -1287,7 +1407,12 @@ impl Compiler<'_, '_> {
         if b.security.is_none() {
             b.security = defaults.security;
         }
-        let scopes = b.scopes.take().or(defaults.scopes).unwrap_or_default();
+        let scopes = b
+            .scopes
+            .take()
+            .or(defaults.scopes)
+            .map(Names::into_vec)
+            .unwrap_or_default();
         self.default_responses(&mut b, defaults.responses, defaults.explained);
         describe_responses(&mut b.responses, &b.explained);
         for (key, value) in defaults.operation {
@@ -1326,14 +1451,14 @@ impl Compiler<'_, '_> {
         let tags = b
             .tags
             .take()
-            .unwrap_or_else(|| self.source.default_tags.to_vec());
+            .map_or_else(|| self.source.default_tags.to_vec(), Names::into_vec);
         if !tags.is_empty() {
             operation.insert("tags".into(), json!(tags));
         }
         if !b.parameters.is_empty() {
             operation.insert(
                 "parameters".into(),
-                Value::Array(std::mem::take(&mut b.parameters)),
+                Value::Array(std::mem::take(&mut b.parameters).into_vec()),
             );
         }
         if let Some(requirements) = b.security.take() {
@@ -1343,8 +1468,12 @@ impl Compiler<'_, '_> {
                 .iter()
                 .any(|r| r.as_object().is_none_or(|r| !r.is_empty()))
             {
+                // A repeated requirement is one, whichever order its schemes
+                // have; comparing each with all before took a minute for
+                // 40 000 lines.
+                let mut seen: BTreeSet<String> = BTreeSet::new();
                 for requirement in requirements {
-                    if !security.contains(&requirement) {
+                    if seen.insert(canonical(&requirement)) {
                         security.push(requirement);
                     }
                 }
@@ -1456,14 +1585,14 @@ impl Compiler<'_, '_> {
                 {
                     expand.insert("name".into(), json!(only));
                 }
-                b.parameters.push(marker);
+                b.parameters.add(marker);
                 true
             }
             positional if positional.len() == placeholders.len() => {
                 for (name, ty) in placeholders.iter().zip(positional) {
                     if b.declared.insert(name.clone()) {
                         let param = params::inline_path(name, Some(&ty.to_string()), None, types);
-                        add_parameter(&mut b.parameters, param);
+                        b.parameters.add(param);
                     }
                 }
                 pending
@@ -1489,7 +1618,9 @@ impl Compiler<'_, '_> {
     /// after the expansion.
     fn check_path(&mut self, b: &Builder, deferred: bool) -> bool {
         let mut valid = true;
+        let mut placeholders: BTreeSet<&str> = BTreeSet::new();
         for caps in PLACEHOLDER_RE.captures_iter(&b.path) {
+            placeholders.insert(caps.get(1).map_or("", |name| name.as_str()));
             if !b.declared.contains(&caps[1]) && !deferred {
                 self.report(
                     Code::UndeclaredPathParam,
@@ -1502,8 +1633,12 @@ impl Compiler<'_, '_> {
                 valid = false;
             }
         }
+        // A declared name is usually a placeholder; one the placeholder
+        // pattern does not match may still be in the path as text.
         for declared in &b.declared {
-            if !b.path.contains(&format!("{{{declared}}}")) {
+            if !placeholders.contains(declared.as_str())
+                && !b.path.contains(&format!("{{{declared}}}"))
+            {
                 self.report(
                     Code::UnusedPathParam,
                     At::Block,
@@ -1845,33 +1980,21 @@ fn is_path_expansion(parameter: &Value) -> bool {
 }
 
 /// Removes the parameters of default YAML that the operation (or path
-/// item) already declares, so the route's own declaration wins.
+/// item) already declares (by name and location), so the route's own
+/// declaration wins. A parameter without a name is never known.
 fn drop_known_parameters(value: &mut Value, target: &Value) {
-    let known = target.get("parameters").and_then(Value::as_array);
-    if let (Some(known), Some(Value::Array(parameters))) = (known, value.get_mut("parameters")) {
-        parameters.retain(|p| !has_parameter(known, p));
-    }
-}
-
-/// Whether a parameter with the same name and location exists.
-fn has_parameter(parameters: &[Value], parameter: &Value) -> bool {
-    parameter.get("name").is_some()
-        && parameters
-            .iter()
-            .any(|p| p.get("name") == parameter.get("name") && p.get("in") == parameter.get("in"))
-}
-
-/// Adds a parameter; a later declaration of the same name and location
-/// replaces the earlier one.
-fn add_parameter(parameters: &mut Vec<Value>, parameter: Value) {
-    let existing = parameter.get("name").and_then(|_| {
-        parameters
-            .iter_mut()
-            .find(|p| p.get("name") == parameter.get("name") && p.get("in") == parameter.get("in"))
-    });
-    match existing {
-        Some(existing) => *existing = parameter,
-        None => parameters.push(parameter),
+    let known: BTreeSet<String> = target
+        .get("parameters")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|parameter| parameter.get("name").is_some())
+        .map(identity)
+        .collect();
+    if let Some(Value::Array(parameters)) = value.get_mut("parameters") {
+        parameters.retain(|parameter| {
+            parameter.get("name").is_none() || !known.contains(&identity(parameter))
+        });
     }
 }
 

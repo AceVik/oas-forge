@@ -126,7 +126,7 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
 }
 
 /// The name and location of a parameter, as JSON texts.
-fn identity(parameter: &Value) -> String {
+pub(super) fn identity(parameter: &Value) -> String {
     let part = |key: &str| {
         parameter
             .get(key)

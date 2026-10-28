@@ -2629,6 +2629,36 @@ mod route_defaults_findings {
             .collect();
         assert_eq!(expansions, ["OF2008 api.rs:2", "OF2008 api.rs:2"]);
     }
+
+    /// Every route compiles its module's defaults again, and each of their
+    /// findings was compared with all findings of the run so far: 10 000
+    /// invalid lines under 100 routes took a minute.
+    #[test]
+    fn many_findings_of_many_routes_are_reported_once_quickly() {
+        let mut text = String::from("/// @route-defaults\n");
+        for i in 0..10_000 {
+            text.push_str(&format!("/// @bogus{i}\n"));
+        }
+        text.push_str("mod api {\n");
+        for i in 0..100 {
+            text.push_str(&format!(
+                "    /// @route GET /p{i}\n    /// @return 204:\n    fn r{i}() {{}}\n"
+            ));
+        }
+        text.push_str("}\n");
+        let started = std::time::Instant::now();
+        let (document, diagnostics) = pipeline(&[("api.rs", &text)]);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(30),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(document["paths"].as_object().map(|p| p.len()), Some(100));
+        let found = found(&diagnostics);
+        assert_eq!(found.len(), 10_000, "{:?}", &found[9_995..]);
+        assert_eq!(found[0], "OF2006 api.rs:2");
+        assert_eq!(found[9_999], "OF2006 api.rs:10001");
+    }
 }
 
 mod scopes {

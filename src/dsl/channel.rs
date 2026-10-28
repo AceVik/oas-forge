@@ -22,7 +22,7 @@ use crate::docs::{closes_fence, yaml_fence};
 use crate::merge::{Policy, merge};
 use crate::proto::{self, PROTOBUF_MEDIA_TYPE, ProtoIndex};
 use crate::schema::TypeMapper;
-use crate::scope;
+use crate::scope::{self, Names};
 use crate::template::lexical;
 use crate::yaml;
 use serde_json::{Map, Value, json};
@@ -236,7 +236,7 @@ pub fn compile_channel(
     // What plain lines continue.
     let mut text = Text::Free;
     let mut tags: Vec<String> = Vec::new();
-    let mut scopes: Option<Vec<String>> = None;
+    let mut scopes: Option<Names> = None;
     let mut messages: Vec<(&'static str, String, Value)> = Vec::new();
     let mut websocket = WebSocket::default();
     // Embedded YAML: the open section and every line with its target.
@@ -414,7 +414,7 @@ pub fn compile_channel(
                     .filter(|t| !t.is_empty()),
             ),
             "scope" => match scope::names(rest) {
-                Some(names) => scope::add(scopes.get_or_insert_with(Vec::new), names),
+                Some(names) => scopes.get_or_insert_with(Names::default).extend(names),
                 None => diagnostics
                     .push(Diagnostic::new(Code::InvalidDirective, SCOPE_SYNTAX).at(at(index))),
             },
@@ -595,7 +595,7 @@ pub fn compile_channel(
     let mut document = Value::Object(document);
     embedded.merge_into(&Target::Document, &mut document, diagnostics);
     let scopes = match scopes {
-        Some(scopes) => scopes,
+        Some(scopes) => scopes.into_vec(),
         None => default_scopes(source, diagnostics),
     };
     Some(CompiledChannel {
@@ -973,7 +973,7 @@ impl Embedded<'_, '_> {
 /// The `@scope` of the innermost module defaults that have one; an invalid
 /// `@scope` line is reported at the block.
 fn default_scopes(source: ChannelSource<'_>, diagnostics: &mut Diagnostics) -> Vec<String> {
-    let mut scopes: Option<Vec<String>> = None;
+    let mut scopes: Option<Names> = None;
     let mut outer = false;
     for line in source.defaults {
         if line.trim() == "@route-defaults" {
@@ -988,14 +988,14 @@ fn default_scopes(source: ChannelSource<'_>, diagnostics: &mut Diagnostics) -> V
                 if std::mem::take(&mut outer) {
                     scopes = None;
                 }
-                scope::add(scopes.get_or_insert_with(Vec::new), names);
+                scopes.get_or_insert_with(Names::default).extend(names);
             }
             None => diagnostics.push(
                 Diagnostic::new(Code::InvalidDirective, SCOPE_SYNTAX).at(source.location.clone()),
             ),
         }
     }
-    scopes.unwrap_or_default()
+    scopes.map(Names::into_vec).unwrap_or_default()
 }
 
 /// A component key (`^[\w\d.\-_]+$`).

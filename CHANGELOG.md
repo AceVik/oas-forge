@@ -107,6 +107,15 @@ All notable changes to `oas-forge` will be documented in this file.
   `allOf` refers to itself 60 times took two minutes. Findings about type aliases (ambiguous names,
   cycles, chains) are reported once through a set; each was compared with
   all findings so far, so 40 000 uses of an ambiguous alias took minutes.
+  The lists a route block builds are indexed as well: `@param` lines (a
+  later declaration of a name replaces the earlier one in its place; 20 000
+  took two minutes), the parameters of `@route-defaults` YAML a route
+  declares again, `@security` requirements and their scopes (a repeated
+  requirement is one whichever order its schemes have), `@tag` and `@scope`
+  names (100 000 names took a minute), the placeholders of a path, and the
+  findings a block with several `@route` lines or the routes of a module
+  report once (2000 invalid default lines under 2000 routes took forty
+  seconds).
 - The Swagger 2.0 export reports what it changed silently: `writeOnly`
   kept as `x-writeOnly` (`OF6001`), and security schemes without `type`,
   OAuth2 schemes without `flows` or a known flow, which it leaves out.
