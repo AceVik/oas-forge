@@ -4,7 +4,34 @@ All notable changes to `oas-forge` will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Refresh locked dependencies in the main and example workspaces, including
+  `annotate-snippets` 0.12.17, `encoding_rs` 0.8.42, `indexmap` 2.14.2 and the
+  ICU crates 2.4. Rust 1.89 remains supported.
+- Example crates declare their minimum Rust version, MIT license and
+  dependency version bounds so they also pass the repository's dependency
+  policy checks.
+
 ### Fixed
+- Combined `@security` requirements retain all scopes when a scheme is
+  repeated. Plus signs inside scopes and commas inside quoted scopes no
+  longer split requirements or scope names.
+- Output writes use exclusively created, unique temporary files, preventing
+  symlink attacks and collisions between concurrent writers. Replacing a Unix
+  output no longer widens its file permissions. On Windows, which refuses to
+  replace a file while another writer replaces it, the replacement is
+  retried for about a second.
+- Generic reference parsing rejects more than 128 nested generic lists before
+  exhausting the stack. Malformed generic references report error `OF3015`.
+- Fragment inserts and extensions have total work and text budgets, preventing
+  exponential expansion even without cycles. Oversized substituted fragment
+  bodies are rejected before allocation (error `OF3016`).
+- Variable substitution is size limited and preserves newlines and control
+  characters in whole YAML string values. Multiline prose and subsequent
+  YAML lines keep their original source locations.
+- A finding with line breaks, for example one quoting a YAML string, is
+  printed as one `cargo:warning=` per line. Before, its second line reached
+  Cargo as a directive of its own, such as `cargo:rustc-cfg=…`.
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of
   silently naming the crate after its directory.

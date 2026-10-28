@@ -41,6 +41,47 @@ mod generic_ref {
     }
 
     #[test]
+    fn parser_nesting_is_bounded_before_recursing() {
+        let nested = |depth| format!("${}User{}", "Page<".repeat(depth), ">".repeat(depth));
+        assert!(GenericRef::parse(&nested(128)).is_some());
+        for depth in [129, 10_000] {
+            assert_eq!(GenericRef::parse(&nested(depth)), None);
+        }
+        // Siblings do not consume each other's nesting budget.
+        let wide = format!("$Tuple<{}>", vec!["Page<User>"; 200].join(","));
+        assert_eq!(GenericRef::parse(&wide).unwrap().args.len(), 200);
+    }
+
+    #[test]
+    fn malformed_and_excessively_nested_references_are_reported() {
+        for reference in [
+            "$Page<User".to_string(),
+            format!("${}User{}", "Page<".repeat(129), ">".repeat(129)),
+        ] {
+            let input = json!({ "$ref": reference });
+            let (value, concrete, diagnostics) = run(&Registry::new(), input.clone());
+            assert_eq!(value, input);
+            assert!(concrete.is_empty());
+            assert_eq!(codes(&diagnostics), [Code::InvalidGenericReference]);
+            let finding = diagnostics.iter().next().unwrap();
+            assert!(finding.is_error());
+            assert_eq!(finding.location(), Some(&here()));
+        }
+    }
+
+    #[test]
+    fn generic_diagnostics_do_not_reject_data_or_external_references() {
+        let input = json!({
+            "example": { "$ref": "$not<a-reference" },
+            "x-data": { "$ref": "$not<a-reference" },
+            "properties": { "x": { "$ref": "other.json#/$defs/a<b" } }
+        });
+        let (value, _, diagnostics) = run(&Registry::new(), input.clone());
+        assert_eq!(value, input);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
     fn parses_names_and_nested_arguments() {
         assert_eq!(
             GenericRef::parse("$Page<User>"),
@@ -170,6 +211,22 @@ mod instantiation {
             concrete["Wrapper_Inner_Item"],
             json!({ "x-of": "wraps $Inner_Item", "$Inner_Item": true })
         );
+    }
+
+    #[test]
+    fn nested_blueprints_are_instantiated_even_when_the_outer_parameter_is_unused() {
+        let reg = registry(&[
+            ("Outer", &["T"], json!({ "type": "object" })),
+            ("Inner", &["T"], json!({ "payload": { "$ref": "$T" } })),
+        ]);
+        let (value, concrete, diagnostics) = run(&reg, json!({ "$ref": "$Outer<Inner<User>>" }));
+        assert_eq!(value, json!({ "$ref": "$Outer_Inner_User" }));
+        assert_eq!(concrete["Outer_Inner_User"], json!({ "type": "object" }));
+        assert_eq!(
+            concrete["Inner_User"],
+            json!({ "payload": { "$ref": "$User" } })
+        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

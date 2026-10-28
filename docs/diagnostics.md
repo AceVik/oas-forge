@@ -78,6 +78,8 @@ The codes are stable: a code keeps its meaning across releases
 | `OF3012` | warning | A type alias name used without `@openapi` names aliases with different targets in several files; the reference is not resolved | Rename one of the aliases, or document the type the name should mean |
 | `OF3013` | warning | A type alias refers to itself through other aliases; the reference is not resolved | Remove the cycle |
 | `OF3014` | warning | A Rust type name in a field, type argument, signature or route means several documented types (none of them defined or imported in its module), or names an undocumented type of its module while other documented types have the name; the schema has no reference | Import the type with `use`, write its path, or document the local type |
+| `OF3015` | error | A generic `$ref` is malformed or contains more than 128 nested generic lists | Fix the reference or reduce its nesting |
+| `OF3016` | error | Fragment expansion or variable substitution exceeds 16 MiB of processed text or 65,536 visited lines or extension resolutions | Reduce repeated expansion or the size of arguments and variables |
 
 ## Merging (OF4xxx)
 

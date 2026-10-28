@@ -63,6 +63,7 @@ fn collection_tracks_errors_and_can_deny_warnings() {
     let mut diagnostics = Diagnostics::new();
     assert!(diagnostics.is_empty());
     diagnostics.push(Diagnostic::new(Code::UnknownFragment, "w"));
+    assert!(!diagnostics.is_empty());
     diagnostics.extend([Diagnostic::new(Code::OutputNotRead, "n")]);
     assert_eq!(diagnostics.len(), 2);
     assert!(!diagnostics.has_errors());

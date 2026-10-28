@@ -2,10 +2,12 @@
 name = "microservice"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license.workspace = true
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-shared-models = { path = "../shared-models" }
+serde = { version = "1.0.229", features = ["derive"] }
+shared-models = { path = "../shared-models", version = "0.1.0" }
 
 [build-dependencies]
-oas-forge = { path = "../.." }
+oas-forge = { path = "../..", version = "0.2.0" }

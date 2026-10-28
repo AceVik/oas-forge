@@ -4,6 +4,14 @@
 # Mutants that cannot change observable behaviour (or need the process's
 # working directory), each with the reason.
 exclude_re = [
+    # `persist_retrying` is compiled on Windows only, so mutating it cannot
+    # change what tests elsewhere see. The Windows CI job runs
+    # `concurrent_writers_publish_complete_documents`, which needs it.
+    "src/output/mod.rs:.*persist_retrying",
+    # The early variable-size check avoids allocating an oversized quoted
+    # string. `append_bounded` independently checks the final length, so
+    # relaxing this precheck cannot change text or diagnostics.
+    "src/template/lexical.rs:.*replace - with \\+ in substitute_line",
     # Delegates to `load_from(".")`; testing it would change the working
     # directory of the whole test process. `load_from` is tested.
     "replace Config::load -> ",

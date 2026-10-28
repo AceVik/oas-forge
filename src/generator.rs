@@ -1498,8 +1498,8 @@ impl Spec {
     }
 
     /// Writes the inputs as `cargo:rerun-if-changed=`, the environment
-    /// variables they read as `cargo:rerun-if-env-changed=` and the warnings
-    /// and errors as `cargo:warning=`, one per line.
+    /// variables they read as `cargo:rerun-if-env-changed=` and each line of
+    /// the warnings and errors as `cargo:warning=`.
     ///
     /// # Errors
     /// Errors of `out`.
@@ -1530,7 +1530,11 @@ impl Spec {
         }
         for diagnostic in &self.diagnostics {
             if diagnostic.severity() != Severity::Note {
-                writeln!(out, "cargo:warning={diagnostic}")?;
+                // Cargo reads one directive per line: every line of a
+                // finding gets the prefix, so its text cannot start another.
+                for line in diagnostic.to_string().lines() {
+                    writeln!(out, "cargo:warning={line}")?;
+                }
             }
         }
         Ok(())

@@ -28,8 +28,12 @@ make a run fail or produce a wrong document. To keep that bounded:
 
 - input files over 16 MiB are skipped (`Generator::max_file_size`),
 - YAML documents are limited in size and nesting depth,
-- fragment inserts and generic instantiation have fixed depth limits,
-- outputs are written atomically and only to the configured paths,
+- fragment inserts and generic instantiation have fixed depth limits;
+  generic reference parsing is also limited to 128 nested generic lists,
+- fragment expansion and variable substitution have total text and work
+  budgets, including acyclic fanout and parameter substitution,
+- outputs use exclusively created, unique temporary files and are replaced
+  atomically at the configured paths,
 - both crates use `#![forbid(unsafe_code)]`.
 
 Dependencies are checked with `cargo deny` (advisories, licenses, sources)

@@ -2,11 +2,13 @@
 name = "shared-models"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
+license.workspace = true
 # Orders the build scripts and passes metadata to dependents (`DEP_SHARED_MODELS_*`).
 links = "shared_models"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
 
 [build-dependencies]
-oas-forge = { path = "../.." }
+oas-forge = { path = "../..", version = "0.2.0" }

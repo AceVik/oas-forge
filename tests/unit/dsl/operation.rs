@@ -26,6 +26,26 @@ mod security {
     }
 
     #[test]
+    fn combined_requirements_keep_every_scope_of_a_repeated_scheme() {
+        assert_eq!(
+            security(&["@security oauth(read) + key + oauth(write, read) + oauth"]),
+            json!([{ "oauth": ["read", "write"], "key": [] }])
+        );
+    }
+
+    #[test]
+    fn scope_punctuation_is_not_a_requirement_separator() {
+        assert_eq!(
+            security(&["@security oauth(user+read, \"a,b\", \"scope(with)+plus\") + key"]),
+            json!([{ "oauth": ["user+read", "a,b", "scope(with)+plus"], "key": [] }])
+        );
+        assert_eq!(
+            security(&["@security oauth(\"scope(\", \"scope)\", user+read) + key"]),
+            json!([{ "oauth": ["scope(", "scope)", "user+read"], "key": [] }])
+        );
+    }
+
+    #[test]
     fn multiple_requirements_accumulate() {
         assert_eq!(
             security(&["@security Basic", "@security oidcAuth(\"read\")"]),
