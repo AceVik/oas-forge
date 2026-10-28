@@ -82,7 +82,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF3015` | error | A generic `$ref` is malformed or contains more than 128 nested generic lists | Fix the reference or reduce its nesting |
 | `OF3016` | error | Fragment expansion or variable substitution exceeds 16 MiB of processed text or 65,536 visited lines or extension resolutions | Reduce repeated expansion or the size of arguments and variables |
 | `OF3017` | warning | A type alias is reached through a chain of more than 64 type aliases; the reference is not resolved | Shorten the chain |
-| `OF3018` | error | The concrete schemas of generic instantiation exceed 16 MiB in all (names, strings and keys, plus one per value); later instances are not created | Look for a generic type whose instances refer to growing instances of itself |
+| `OF3018` | error | The concrete schemas of generic instantiation, or the targets of replaced type aliases, exceed 16 MiB in all (names, strings and keys, plus one per value and 64 per replaced alias); later instances and aliases are not created | Look for a generic type whose instances refer to growing instances of itself, or type aliases whose target names the next alias several times |
 
 ## Merging (OF4xxx)
 

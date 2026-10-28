@@ -345,7 +345,10 @@ pub struct Repo {
 - Chains of aliases are followed; the target of each alias is read in the
   file that defines it. An alias that refers to itself through other aliases
   is reported (`OF3013`); `type User = models::User;` is no cycle. A chain
-  of more than 64 aliases is reported (`OF3017`) and not resolved.
+  of more than 64 aliases is reported (`OF3017`) and not resolved, and the
+  targets of all replaced aliases share the 16 MiB budget of generic
+  instantiation (`OF3018`): an alias whose target names the next one twice
+  doubles with every link.
 - A built-in name written bare (`Duration`) means an alias of that name only
   in the file that defines it.
 - A target that cannot be documented (a function pointer, `dyn Trait`,

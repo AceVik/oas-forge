@@ -26,6 +26,10 @@ pub const MAX_DEPTH: usize = 16;
 /// [`MAX_DEPTH`].
 pub const MAX_INSTANTIATED_SIZE: usize = 16 * 1024 * 1024;
 
+/// What replacing a type alias costs of [`MAX_INSTANTIATED_SIZE`] besides
+/// its target: finding and replacing it is work even for a small target.
+pub(crate) const ALIAS_COST: usize = 64;
+
 /// Parser recursion budget, independent of the instantiation depth limit.
 const MAX_PARSE_DEPTH: usize = 128;
 
@@ -542,7 +546,7 @@ impl<'a> Instantiator<'a> {
     /// The type alias that the `$ref` of `map` names (`$Owner`,
     /// `$Paged<User>`) and its schema with the type arguments bound.
     fn alias(
-        &self,
+        &mut self,
         map: &Map<String, Value>,
         location: &Location,
         diagnostics: &mut Diagnostics,
@@ -577,7 +581,16 @@ impl<'a> Instantiator<'a> {
             .map(String::as_str)
             .zip(args.iter().map(String::as_str))
             .collect();
-        Some((alias, substitute(&alias.schema, &bindings)))
+        // A target that names the next alias twice doubles per link.
+        let mut left = self.budget;
+        let Some(schema) = spend(&mut left, ALIAS_COST)
+            .and_then(|()| substitute_within(&alias.schema, &bindings, &mut left))
+        else {
+            self.report_budget(text, location, diagnostics);
+            return None;
+        };
+        self.budget = left;
+        Some((alias, schema))
     }
 
     /// The inline schema of a `$Vec<T>`-style shorthand: std containers and
@@ -670,7 +683,11 @@ impl<'a> Instantiator<'a> {
         location: &Location,
         diagnostics: &mut Diagnostics,
     ) -> Option<String> {
-        let generic = &self.unaliased(generic, location);
+        let Some(generic) = self.unaliased(generic, location) else {
+            self.report_budget(&format!("${}", generic.text()), location, diagnostics);
+            return None;
+        };
+        let generic = &generic;
         let Some(blueprint) = self.registry.blueprint(last_segment(&generic.name)) else {
             diagnostics.push(
                 Diagnostic::new(
@@ -736,19 +753,7 @@ impl<'a> Instantiator<'a> {
             .zip(arg_names.iter().map(String::as_str))
             .collect();
         let Some(mut body) = self.within_budget(&name, &blueprint.schema, &bindings) else {
-            if !self.budget_reported {
-                self.budget_reported = true;
-                diagnostics.push(
-                    Diagnostic::new(
-                        Code::InstantiationLimit,
-                        format!(
-                            "instantiating `{}` exceeds the total size of {MAX_INSTANTIATED_SIZE} bytes for concrete schemas; it and later instances are not created",
-                            generic.text()
-                        ),
-                    )
-                    .at(location.clone()),
-                );
-            }
+            self.report_budget(&format!("${}", generic.text()), location, diagnostics);
             return None;
         };
 
@@ -757,6 +762,29 @@ impl<'a> Instantiator<'a> {
         self.in_progress.pop();
         self.concrete.insert(name.clone(), (body, location.clone()));
         Some(name)
+    }
+
+    /// Reports once that the instance or type alias `reference` exceeds
+    /// [`MAX_INSTANTIATED_SIZE`], which is used up from now on.
+    fn report_budget(
+        &mut self,
+        reference: &str,
+        location: &Location,
+        diagnostics: &mut Diagnostics,
+    ) {
+        self.budget = 0;
+        if !self.budget_reported {
+            self.budget_reported = true;
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::InstantiationLimit,
+                    format!(
+                        "`{reference}` exceeds the total size of {MAX_INSTANTIATED_SIZE} bytes for concrete schemas and type alias targets; it and later ones are not created"
+                    ),
+                )
+                .at(location.clone()),
+            );
+        }
     }
 
     /// The body of the instance `name` of `schema`, if the name and the
@@ -777,29 +805,36 @@ impl<'a> Instantiator<'a> {
     /// replaced by the alias's target, also inside nested arguments, so that
     /// `Page<Owner>` (`type Owner = User;`) is the instance `Page_User`. An
     /// argument whose alias cannot replace it (ambiguous, a cycle) stays; it
-    /// is reported where its schema is resolved.
-    fn unaliased(&self, generic: &GenericRef, location: &Location) -> GenericRef {
+    /// is reported where its schema is resolved. The alias targets use the
+    /// budget of [`MAX_INSTANTIATED_SIZE`]: an alias whose target names the
+    /// next one twice doubles the argument per link. `None` when it runs
+    /// out.
+    fn unaliased(&mut self, generic: &GenericRef, location: &Location) -> Option<GenericRef> {
         let mut expanding = self.aliasing.clone();
-        GenericRef {
+        let mut budget = self.budget;
+        let args = generic
+            .args
+            .iter()
+            .map(|arg| self.unalias(arg, location, &mut expanding, &mut budget))
+            .collect::<Option<Vec<_>>>();
+        self.budget = budget;
+        Some(GenericRef {
             name: generic.name.clone(),
-            args: generic
-                .args
-                .iter()
-                .map(|arg| self.unalias(arg, location, &mut expanding))
-                .collect(),
-        }
+            args: args?,
+        })
     }
 
     /// `arg` with transparent aliases replaced by their targets (see
     /// [`Self::unaliased`]); names in a target are looked up at the alias.
     /// `expanding` holds the aliases being replaced, so that a cycle stops
-    /// with the name as written.
+    /// with the name as written; the targets use `budget`.
     fn unalias(
         &self,
         arg: &GenericArg,
         location: &Location,
         expanding: &mut Vec<String>,
-    ) -> GenericArg {
+        budget: &mut usize,
+    ) -> Option<GenericArg> {
         let (name, args): (&str, Vec<GenericArg>) = match arg {
             GenericArg::Name(name) => (last_segment(name), Vec::new()),
             GenericArg::Generic(inner) => (
@@ -807,8 +842,8 @@ impl<'a> Instantiator<'a> {
                 inner
                     .args
                     .iter()
-                    .map(|arg| self.unalias(arg, location, expanding))
-                    .collect(),
+                    .map(|arg| self.unalias(arg, location, expanding, budget))
+                    .collect::<Option<_>>()?,
             ),
         };
         let lookup = Lookup {
@@ -824,27 +859,32 @@ impl<'a> Instantiator<'a> {
             &mut Diagnostics::new(),
         );
         if let Found::Alias(alias) = found
-            && let Some(target) = bound_target(alias, &args)
+            && let Some(target) = bound_target(alias, &args, budget)?
         {
             expanding.push(alias.rust_name.clone());
-            let target = self.unalias(&target, &alias.location, expanding);
+            let target = self.unalias(&target, &alias.location, expanding, budget);
             expanding.pop();
             return target;
         }
-        match arg {
+        Some(match arg {
             GenericArg::Name(_) => arg.clone(),
             GenericArg::Generic(inner) => GenericArg::Generic(GenericRef {
                 name: inner.name.clone(),
                 args,
             }),
-        }
+        })
     }
 }
 
 /// The target of `alias` with its type parameters bound to `args`, as a
-/// generic argument; `None` when the target is no named type (a tuple, an
-/// array).
-fn bound_target(alias: &AliasItem, args: &[GenericArg]) -> Option<GenericArg> {
+/// generic argument (`Some(None)` when the target is no named type: a tuple,
+/// an array). The texts of the arguments and of the target use `budget`;
+/// `None` when it runs out.
+fn bound_target(
+    alias: &AliasItem,
+    args: &[GenericArg],
+    budget: &mut usize,
+) -> Option<Option<GenericArg>> {
     let texts: Vec<String> = args
         .iter()
         .map(|arg| match arg {
@@ -852,17 +892,26 @@ fn bound_target(alias: &AliasItem, args: &[GenericArg]) -> Option<GenericArg> {
             GenericArg::Generic(inner) => inner.text(),
         })
         .collect();
+    spend(
+        budget,
+        ALIAS_COST + texts.iter().map(String::len).sum::<usize>(),
+    )?;
     let bindings: BTreeMap<&str, &str> = alias
         .params
         .iter()
         .map(String::as_str)
         .zip(texts.iter().map(String::as_str))
         .collect();
-    let Value::String(target) = substitute(&Value::String(alias.target.clone()), &bindings) else {
-        return None;
+    let Value::String(target) =
+        substitute_within(&Value::String(alias.target.clone()), &bindings, budget)?
+    else {
+        return Some(None);
     };
-    let (arg, rest) = parse_arg(&target, 0)?;
-    rest.trim().is_empty().then_some(arg)
+    Some(
+        parse_arg(&target, 0)
+            .filter(|(_, rest)| rest.trim().is_empty())
+            .map(|(arg, _)| arg),
+    )
 }
 
 /// A `$Param` identifier in a blueprint string; captures the name.
@@ -921,6 +970,20 @@ fn substitute_within(
             spend(budget, 1)?;
             Some(other.clone())
         }
+    }
+}
+
+/// The size of `value` as [`MAX_INSTANTIATED_SIZE`] counts it: the bytes
+/// of its strings and keys plus one per value.
+pub(crate) fn value_size(value: &Value) -> usize {
+    match value {
+        Value::String(s) => 1 + s.len(),
+        Value::Array(items) => items.iter().map(value_size).fold(1, usize::saturating_add),
+        Value::Object(map) => map
+            .iter()
+            .map(|(key, value)| key.len().saturating_add(value_size(value)))
+            .fold(1, usize::saturating_add),
+        _ => 1,
     }
 }
 

@@ -58,7 +58,11 @@ All notable changes to `oas-forge` will be documented in this file.
   schemas of a run (new error `OF3018`). A blueprint whose instances refer
   to two larger instances of itself grew exponentially within the depth
   limit and ran until the memory was exhausted; each body is measured
-  before it is built.
+  before it is built. The targets of replaced type aliases use the same
+  budget (in the generics and the references stage): a chain of aliases
+  whose target names the next alias twice, such as
+  `type T0<X> = (T1<X>, T1<X>);`, doubled with every link, so 20 links ran
+  for minutes and wrote 700 MB.
 - Rust sources are parsed on a thread with a 256 MiB stack (32 MiB on
   32-bit targets) in `Generator::build`, `generate_from_sources` and
   `extract::extract`. `syn` recurses once per nesting level, so about 150

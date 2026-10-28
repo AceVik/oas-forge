@@ -4,6 +4,7 @@
 //! instantiated with `$Page<String>`) becomes that type's schema.
 
 use super::aliases::{self, Found, Lookup};
+use super::generics::{ALIAS_COST, MAX_INSTANTIATED_SIZE, value_size};
 use super::lexical::ESCAPED_DOLLAR;
 use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
@@ -208,15 +209,93 @@ pub fn resolve(
     location: &Location,
     diagnostics: &mut Diagnostics,
 ) {
-    let mut reported = HashSet::new();
-    resolve_at(
+    resolve_within(
         value,
         targets,
         location,
         diagnostics,
-        &mut reported,
-        &mut Vec::new(),
+        &mut AliasBudget::new(),
     );
+}
+
+/// [`resolve`] with a budget for the targets of type aliases that the
+/// generator shares between its calls.
+pub(crate) fn resolve_within(
+    value: &mut Value,
+    targets: Targets<'_>,
+    location: &Location,
+    diagnostics: &mut Diagnostics,
+    budget: &mut AliasBudget,
+) {
+    let mut reported = HashSet::new();
+    let mut state = State {
+        diagnostics,
+        reported: &mut reported,
+        expanding: Vec::new(),
+        budget,
+    };
+    resolve_at(value, targets, location, &mut state);
+}
+
+/// What is left of [`MAX_INSTANTIATED_SIZE`] for the targets of replaced
+/// type aliases: a target that names the next alias twice doubles per link.
+#[derive(Debug)]
+pub(crate) struct AliasBudget {
+    /// The size left.
+    left: usize,
+    /// Whether running out was reported.
+    reported: bool,
+}
+
+impl AliasBudget {
+    /// The whole budget.
+    pub(crate) fn new() -> Self {
+        Self {
+            left: MAX_INSTANTIATED_SIZE,
+            reported: false,
+        }
+    }
+
+    /// Takes the size of `schema`, the target of the alias `name`; reports
+    /// once at `location` and returns `false` when too little is left.
+    fn spend(
+        &mut self,
+        name: &str,
+        schema: &Value,
+        location: &Location,
+        diagnostics: &mut Diagnostics,
+    ) -> bool {
+        if let Some(left) = self.left.checked_sub(ALIAS_COST + value_size(schema)) {
+            self.left = left;
+            return true;
+        }
+        self.left = 0;
+        if !self.reported {
+            self.reported = true;
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::InstantiationLimit,
+                    format!(
+                        "type alias `{name}` exceeds the total size of {MAX_INSTANTIATED_SIZE} bytes for concrete schemas and type alias targets; it and later aliases are not replaced"
+                    ),
+                )
+                .at(location.clone()),
+            );
+        }
+        false
+    }
+}
+
+/// The mutable state of [`resolve_at`].
+struct State<'d> {
+    /// Where findings go.
+    diagnostics: &'d mut Diagnostics,
+    /// The unknown names reported so far.
+    reported: &'d mut HashSet<String>,
+    /// The type aliases being replaced around the value.
+    expanding: Vec<String>,
+    /// The budget for alias targets.
+    budget: &'d mut AliasBudget,
 }
 
 /// The schema of a built-in or custom-mapped type named by
@@ -240,20 +319,13 @@ fn builtin(name: &str, targets: Targets<'_>) -> Option<serde_json::Map<String, V
     }
 }
 
-/// [`resolve`] at `value` and below. `reported` holds the unknown names
-/// reported so far, `expanding` the type aliases being replaced around
-/// `value`. In a mapping, the built-in alternatives are chosen first
-/// ([`shadow::choose`]), then a `$ref` of a type alias is replaced by its
-/// target (resolved in the alias's file), or one of a built-in type by its
-/// schema, then the children are resolved.
-fn resolve_at(
-    value: &mut Value,
-    targets: Targets<'_>,
-    location: &Location,
-    diagnostics: &mut Diagnostics,
-    reported: &mut HashSet<String>,
-    expanding: &mut Vec<String>,
-) {
+/// [`resolve`] at `value` and below, with the findings, reported names,
+/// aliases being replaced and the alias budget in `state`. In a mapping,
+/// the built-in alternatives are chosen first ([`shadow::choose`]), then a
+/// `$ref` of a type alias is replaced by its target (resolved in the alias's
+/// file) while the budget lasts, or one of a built-in type by its schema,
+/// then the children are resolved.
+fn resolve_at(value: &mut Value, targets: Targets<'_>, location: &Location, state: &mut State<'_>) {
     let Targets {
         known, registry, ..
     } = targets;
@@ -273,8 +345,8 @@ fn resolve_at(
             match target {
                 Some(target) => *s = format!("#/components/schemas/{target}"),
                 None => {
-                    if reported.insert(name.to_string()) {
-                        diagnostics.push(
+                    if state.reported.insert(name.to_string()) {
+                        state.diagnostics.push(
                             Diagnostic::new(
                                 Code::UnresolvedReference,
                                 format!("`${name}` does not name a known schema"),
@@ -287,7 +359,7 @@ fn resolve_at(
         }
         Value::Array(items) => {
             for item in items {
-                resolve_at(item, targets, location, diagnostics, reported, expanding);
+                resolve_at(item, targets, location, state);
             }
         }
         Value::Object(map) => {
@@ -305,8 +377,8 @@ fn resolve_at(
             // means: reported, and not resolved.
             if let Some(Value::String(finding)) = map.shift_remove(UNRESOLVED_KEY) {
                 map.shift_remove("$ref");
-                if reported.insert(finding.clone()) {
-                    diagnostics.push(
+                if state.reported.insert(finding.clone()) {
+                    state.diagnostics.push(
                         Diagnostic::new(Code::AmbiguousTypeName, finding).at(location.clone()),
                     );
                 }
@@ -317,25 +389,25 @@ fn resolve_at(
                 .and_then(reference_name)
                 .map(str::to_string)
             {
-                match lookup.find(&name, 0, location, expanding, diagnostics) {
-                    Found::Alias(alias) => {
+                match lookup.find(&name, 0, location, &state.expanding, state.diagnostics) {
+                    Found::Alias(alias)
+                        if state.budget.spend(
+                            &name,
+                            &alias.schema,
+                            location,
+                            state.diagnostics,
+                        ) =>
+                    {
                         aliases::replace(map, alias.schema.clone());
-                        expanding.push(name);
-                        resolve_at(
-                            value,
-                            targets,
-                            &alias.location,
-                            diagnostics,
-                            reported,
-                            expanding,
-                        );
-                        expanding.pop();
+                        state.expanding.push(name);
+                        resolve_at(value, targets, &alias.location, state);
+                        state.expanding.pop();
                         return;
                     }
+                    Found::Alias(_) | Found::Nothing => {}
                     Found::Reported => {
-                        reported.insert(name);
+                        state.reported.insert(name);
                     }
-                    Found::Nothing => {}
                 }
             }
             // `#[serde(default)]` of a documented type with a `default`.
@@ -362,7 +434,7 @@ fn resolve_at(
                 }
             }
             for child in map.values_mut() {
-                resolve_at(child, targets, location, diagnostics, reported, expanding);
+                resolve_at(child, targets, location, state);
             }
             // An unknown name (reported above) still becomes a pointer, so
             // the reference stays well-formed and the lints see it.
@@ -376,9 +448,9 @@ fn resolve_at(
             if let Some(Value::String(target)) = map.get("$ref")
                 && target.starts_with('$')
                 && !target.contains('<')
-                && reported.insert(target.clone())
+                && state.reported.insert(target.clone())
             {
-                diagnostics.push(
+                state.diagnostics.push(
                     Diagnostic::new(
                         Code::UnresolvedReference,
                         format!("`{target}` is not a schema name"),

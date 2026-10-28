@@ -1818,14 +1818,22 @@ pub(crate) fn prepare(
         known.insert(name.clone());
     }
 
-    // Pass 4: smart references and pattern constants.
+    // Pass 4: smart references and pattern constants. Alias targets share
+    // one budget across the run.
+    let mut budget = refs::AliasBudget::new();
     for snippet in &mut snippets {
         let targets = Targets {
             known: &known,
             registry: &registry,
             types,
         };
-        refs::resolve(&mut snippet.value, targets, &snippet.location, diagnostics);
+        refs::resolve_within(
+            &mut snippet.value,
+            targets,
+            &snippet.location,
+            diagnostics,
+            &mut budget,
+        );
         resolve_patterns(
             &mut snippet.value,
             &patterns,
@@ -1840,7 +1848,7 @@ pub(crate) fn prepare(
             registry: &registry,
             types,
         };
-        refs::resolve(&mut body, targets, &location, diagnostics);
+        refs::resolve_within(&mut body, targets, &location, diagnostics, &mut budget);
         resolve_patterns(&mut body, &patterns, &location, diagnostics);
         generated.push(Snippet::openapi(
             json!({ "components": { "schemas": { name: body } } }),

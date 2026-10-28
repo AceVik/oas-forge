@@ -123,3 +123,61 @@ fn longer_alias_chains_are_reported_not_followed() {
         assert!(found[0].contains("64"), "{found:?}");
     }
 }
+
+/// Type aliases whose target names the next alias twice, `depth` deep:
+/// `form` is `tuple` (`type T0<X> = (T1<X>, T1<X>);`), `plain` (the same
+/// without parameters) or `generic` (`type T0<X> = Pair<T1<X>, T1<X>>;`,
+/// a generic argument).
+fn doubling_aliases(form: &str, depth: usize) -> String {
+    let mut text = String::from("/// @openapi\npub struct User { pub id: u64 }\n");
+    text.push_str(match form {
+        "plain" => "/// @openapi\npub struct S { pub a: T0 }\n",
+        "tuple" => "/// @openapi\npub struct S { pub a: T0<u8> }\n",
+        _ => "/// @openapi\n/// properties: { a: { $ref: '$T0<User>' } }\npub struct S;\n",
+    });
+    for i in 0..depth {
+        let next = i + 1;
+        text.push_str(&match form {
+            "plain" => format!("pub type T{i} = (T{next}, T{next});\n"),
+            "tuple" => format!("pub type T{i}<X> = (T{next}<X>, T{next}<X>);\n"),
+            _ => format!("pub type T{i}<X> = Pair<T{next}<X>, T{next}<X>>;\n"),
+        });
+    }
+    text.push_str(&if form == "plain" {
+        format!("pub type T{depth} = u8;\n")
+    } else {
+        format!("pub type T{depth}<X> = X;\n")
+    });
+    text
+}
+
+#[test]
+fn doubling_aliases_resolve_within_the_budget() {
+    for form in ["plain", "tuple", "generic"] {
+        let (document, diagnostics) = pipeline(&[("a.rs", &doubling_aliases(form, 4))]);
+        assert!(
+            !codes(&diagnostics).contains(&Code::InstantiationLimit),
+            "{form}: {diagnostics:?}"
+        );
+        assert!(document["components"]["schemas"]["S"].is_object(), "{form}");
+    }
+}
+
+/// Each link doubled the work: 20 links ran for minutes and wrote 700 MB.
+/// The targets share the size budget of generic instantiation.
+#[test]
+fn doubling_aliases_stop_at_the_budget() {
+    for form in ["plain", "tuple", "generic"] {
+        let started = std::time::Instant::now();
+        let (_, diagnostics) = pipeline(&[("a.rs", &doubling_aliases(form, 30))]);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(60),
+            "{form}: {:?}",
+            started.elapsed()
+        );
+        assert!(
+            codes(&diagnostics).contains(&Code::InstantiationLimit),
+            "{form}: {diagnostics:?}"
+        );
+    }
+}
