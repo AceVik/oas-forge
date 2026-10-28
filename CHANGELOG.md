@@ -37,6 +37,11 @@ All notable changes to `oas-forge` will be documented in this file.
   as `src/x.yaml -> ~/.config/gh/hosts.yml` merged that file into the
   document. Links into any input are still followed; add a link's target
   as an input or include to read it.
+- An output path that leads to a FIFO, a device or another non-regular
+  file is replaced without being read, and of a regular file no more is
+  read than a current output can hold. Before, a committed link
+  `openapi.yaml -> /dev/zero` filled the memory and one to a FIFO blocked
+  the run.
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of
   silently naming the crate after its directory.

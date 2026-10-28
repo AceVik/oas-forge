@@ -35,7 +35,8 @@ make a run fail or produce a wrong document. To keep that bounded:
 - fragment expansion and variable substitution have total text and work
   budgets, including acyclic fanout and parameter substitution,
 - outputs use exclusively created, unique temporary files and are replaced
-  atomically at the configured paths,
+  atomically at the configured paths; an existing output is compared only
+  when it is a regular file, reading no more than a current one can hold,
 - both crates use `#![forbid(unsafe_code)]`.
 
 Dependencies are checked with `cargo deny` (advisories, licenses, sources)

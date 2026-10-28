@@ -15,7 +15,7 @@ use super::error::{Error, Result};
 use super::template::registry::{FORMAT_KEY, FRAGMENTS_KEY, Registry, TEMPLATES_KEY};
 use super::yaml;
 use serde_json::{Map, Value};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 
 /// What part of the merged document an output receives.
@@ -346,10 +346,23 @@ fn sort_entries(section: &mut Value) {
 
 /// Whether the file at `path` already has the content `text`. Line endings
 /// do not count, so a file that Git checked out with `\r\n` is current.
+/// Anything but a regular file is outdated without being opened (a FIFO
+/// would block), and no more is read than a current file can hold.
 pub(crate) fn is_current(path: &Path, text: &str) -> bool {
-    std::fs::read_to_string(path).is_ok_and(|existing| {
-        existing == text || (existing.contains('\r') && existing.replace("\r\n", "\n") == text)
-    })
+    if !std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file()) {
+        return false;
+    }
+    // `\r\n` endings add a byte per line; one byte more shows a longer file.
+    let longest = text.len() + text.matches('\n').count() + 1;
+    let mut existing = String::new();
+    std::fs::File::open(path)
+        .and_then(|file| {
+            file.take(u64::try_from(longest).unwrap_or(u64::MAX))
+                .read_to_string(&mut existing)
+        })
+        .is_ok_and(|_| {
+            existing == text || (existing.contains('\r') && existing.replace("\r\n", "\n") == text)
+        })
 }
 
 /// Writes `text` to `path` atomically, unless the file already has this

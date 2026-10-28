@@ -395,6 +395,55 @@ mod writing {
         assert!(matches!(result, Err(Error::Io { .. })), "{result:?}");
     }
 
+    /// An output path that leads to anything but a regular file is outdated
+    /// without being read: a FIFO would block, `/dev/zero` never ends.
+    #[cfg(unix)]
+    #[test]
+    fn outputs_that_are_not_regular_files_are_replaced_unread() {
+        use std::os::unix::fs::{FileTypeExt, symlink};
+
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC);
+        let fifo = project.path("fifo");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        // The FIFO comes first: before the fix, it blocks instead of
+        // letting `/dev/zero` fill the memory.
+        let outputs = [project.path("api.json"), project.path("api.yaml")];
+        symlink(&fifo, &outputs[0]).unwrap();
+        symlink("/dev/zero", &outputs[1]).unwrap();
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let (input, paths) = (project.path("src"), outputs.clone());
+        std::thread::spawn(move || {
+            let spec = Generator::new()
+                .input(input)
+                .output(&paths[0])
+                .output(&paths[1])
+                .build()
+                .unwrap();
+            let outdated = spec.check().unwrap();
+            spec.write().unwrap();
+            sender.send(outdated).unwrap();
+        });
+        let outdated = receiver
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("checking and writing finish");
+        assert_eq!(outdated, outputs);
+        for output in &outputs {
+            assert!(std::fs::symlink_metadata(output).unwrap().is_file());
+        }
+        assert!(
+            std::fs::symlink_metadata(&fifo)
+                .unwrap()
+                .file_type()
+                .is_fifo()
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn unchanged_files_are_not_rewritten() {
@@ -484,5 +533,23 @@ mod review_fixes {
             &project.read("api.yaml").replace("Test API", "Old"),
         );
         assert_eq!(spec.check().unwrap(), [project.path("api.yaml")]);
+    }
+
+    /// Only as much of an output is read as a current one can have; text
+    /// after an equivalent document still makes it outdated.
+    #[test]
+    fn text_after_an_equivalent_document_makes_it_outdated() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC);
+        let generator = Generator::new()
+            .input(project.path("src"))
+            .output(project.path("api.yaml"));
+        generator.generate().unwrap();
+        let crlf = project.read("api.yaml").replace('\n', "\r\n");
+        project.file("api.yaml", &format!("{crlf}x"));
+        assert_eq!(
+            generator.build().unwrap().check().unwrap(),
+            [project.path("api.yaml")]
+        );
     }
 }
