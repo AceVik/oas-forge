@@ -9,7 +9,7 @@
 
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::source::SourceFile;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// The media type of protobuf payloads (`contentType` of a message).
@@ -251,8 +251,10 @@ impl ProtoIndex {
         };
         let position = self.files.len();
         let mut names = Vec::with_capacity(scanned.messages.len());
+        // `names` keeps the order; the set finds duplicates in log time.
+        let mut seen = BTreeSet::new();
         for (name, line) in &scanned.messages {
-            if names.contains(name) {
+            if seen.contains(name.as_str()) {
                 diagnostics.push(
                     Diagnostic::new(
                         Code::InvalidProto,
@@ -284,6 +286,7 @@ impl ProtoIndex {
                 continue;
             }
             self.messages.insert(qualified, position);
+            seen.insert(name.as_str());
             names.push(name.clone());
         }
         self.files.push(ProtoFile {

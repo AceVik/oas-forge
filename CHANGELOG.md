@@ -42,6 +42,9 @@ All notable changes to `oas-forge` will be documented in this file.
   read than a current output can hold. Before, a committed link
   `openapi.yaml -> /dev/zero` filled the memory and one to a FIFO blocked
   the run.
+- Indexing a `.proto` file checks its messages for duplicates in
+  logarithmic time; a file with a few hundred thousand messages took
+  minutes before.
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of
   silently naming the crate after its directory.

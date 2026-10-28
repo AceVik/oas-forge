@@ -205,6 +205,27 @@ fn a_message_declared_twice_in_one_file_keeps_the_first() {
     );
 }
 
+/// Duplicates are found without comparing every pair of messages, which
+/// took minutes for a few hundred thousand.
+#[test]
+fn a_file_with_many_messages_is_indexed_quickly() {
+    let text: String = (0..200_000)
+        .map(|i| format!("message M{i} {{}}\n"))
+        .collect();
+    let started = std::time::Instant::now();
+    let (index, diagnostics) = index(&[("a.proto", &text)]);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert_eq!(
+        index.message("M199999").map(|f| f.messages().len()),
+        Some(200_000)
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
 #[test]
 fn messages_without_package_are_found_by_their_name() {
     let (index, _) = index(&[("a.proto", "message _Private1 {}")]);
