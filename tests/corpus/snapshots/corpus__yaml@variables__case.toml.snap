@@ -39,5 +39,6 @@ components:
       - version
       - other
       x-stage: prod
-x-built-by: oas-forge
 x-missing: "{{env:OAS_FORGE_CORPUS_UNSET}}"
+x-built-by: oas-forge
+x-not-allowed: "{{env:PATH}}"

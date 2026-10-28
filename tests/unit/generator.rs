@@ -246,10 +246,13 @@ mod builder {
         let project = Project::new();
         project
             .file("src/root.rs", ROOT_DOC)
-            .file("src/a.rs", "/// @route GET /x\n/// @frobnicate\n/// @description {{env:PATH}} {{env:OAS_FORGE_UNSET_X}} {{env:PATH}}\nfn x() {}");
+            .file("src/a.rs", "/// @route GET /x\n/// @frobnicate\n/// @description {{env:PATH}} {{env:OAS_FORGE_UNSET_X}} {{env:PATH}} {{env:HOME}}\nfn x() {}");
+        // `HOME` is used but not allowed: it is neither read nor watched.
         let generator = Generator::new()
             .input(project.path("src"))
             .output(project.path("api.yaml"))
+            .allow_env("PATH")
+            .allow_env("OAS_FORGE_UNSET_X")
             .emit_cargo_directives(true);
         generator.generate().unwrap();
 
@@ -268,14 +271,24 @@ mod builder {
         assert_eq!(lines[2], "cargo:rerun-if-env-changed=PATH");
         // Variables are substituted before the DSL is compiled.
         assert!(
-            lines[3].starts_with("cargo:warning=warning[OF3009]"),
+            lines[3].starts_with("cargo:warning=warning[OF3009]: environment variable `HOME`"),
             "{text}"
         );
         assert!(
-            lines[4].starts_with("cargo:warning=warning[OF2006]"),
+            lines[4].starts_with("cargo:warning=warning[OF3009]"),
             "{text}"
         );
-        assert_eq!(lines.len(), 5, "{text}");
+        assert!(
+            lines[5].starts_with("cargo:warning=warning[OF2006]"),
+            "{text}"
+        );
+        assert_eq!(lines.len(), 6, "{text}");
+        let description = spec.document()["paths"]["/x"]["get"]["description"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(description.ends_with(" {{env:HOME}}"), "{description}");
+        assert!(!description.starts_with("{{env:PATH}}"), "{description}");
     }
 
     /// `generate` prints the directives to the standard output of the build

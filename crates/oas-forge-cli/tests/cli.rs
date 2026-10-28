@@ -518,6 +518,43 @@ mod ci {
         assert!(!bad.status.success());
         assert!(stderr(&bad).contains("NAME=VALUE"));
     }
+
+    #[test]
+    fn only_allowed_environment_variables_are_read() {
+        let project = Project::new();
+        project.file(
+            "src/lib.rs",
+            "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! x-stage: {{env:OAS_FORGE_CLI_STAGE}}\n//! x-secret: {{env:OAS_FORGE_CLI_SECRET}}\n",
+        );
+        let output = Command::new(env!("CARGO_BIN_EXE_oas-forge"))
+            .args([
+                "-i",
+                "src",
+                "-o",
+                "api.yaml",
+                "--allow-env",
+                "OAS_FORGE_CLI_STAGE",
+            ])
+            .current_dir(project.root())
+            .env("OAS_FORGE_CLI_STAGE", "prod")
+            .env("OAS_FORGE_CLI_SECRET", "hunter2")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", stderr(&output));
+        let api = project.read_yaml("api.yaml");
+        assert_eq!(api["x-stage"], "prod");
+        assert_eq!(api["x-secret"], "{{env:OAS_FORGE_CLI_SECRET}}");
+        assert!(
+            stderr(&output).contains("--allow-env"),
+            "{}",
+            stderr(&output)
+        );
+        assert!(
+            !std::fs::read_to_string(project.root().join("api.yaml"))
+                .unwrap()
+                .contains("hunter2")
+        );
+    }
 }
 
 mod review_fixes {

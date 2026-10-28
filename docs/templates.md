@@ -209,7 +209,12 @@ override and `@example`:
 | :--- | :--- |
 | `{{CARGO_PKG_NAME}}`, `{{CARGO_PKG_VERSION}}`, `{{CARGO_PKG_VERSION_MAJOR}}`, …, `{{CARGO_PKG_DESCRIPTION}}`, `{{CARGO_PKG_LICENSE}}`, `{{CARGO_PKG_REPOSITORY}}`, `{{CARGO_PKG_HOMEPAGE}}` | the package; in a build script from Cargo, in the CLI from `Cargo.toml` |
 | `{{NAME}}` | `Generator::var("NAME", value)`, `[variables]` in the configuration or `--var NAME=VALUE` |
-| `{{env:NAME}}` | the environment variable `NAME` at build time; unset variables are reported (`OF3009`) |
+| `{{env:NAME}}` | the environment variable `NAME` at build time, if it is allowed with `Generator::allow_env("NAME")`, `allow_env = ["NAME"]` in the configuration or `--allow-env NAME`; other and unset variables are kept and reported (`OF3009`) |
+
+The sources choose the names of `{{env:…}}` placeholders, so only the
+variables you allow are read: a source from an untrusted change (a pull
+request built in CI) cannot copy a secret of the build environment into
+the document.
 
 A placeholder that is the whole value of a mapping entry or list item
 (also `- version: {{CARGO_PKG_VERSION}}`) is inserted as a quoted string, so
@@ -224,8 +229,8 @@ Whole YAML string values preserve newlines and control characters through
 escaped quoting. Variable substitution is limited to 16 MiB of expanded
 text and 65,536 source lines per call; exceeding either reports `OF3016`.
 
-With `emit_cargo_directives(true)`, every `{{env:NAME}}` in the inputs is
-also printed as `cargo:rerun-if-env-changed=NAME`, so Cargo reruns the
+With `emit_cargo_directives(true)`, every allowed `{{env:NAME}}` in the
+inputs is also printed as `cargo:rerun-if-env-changed=NAME`, so Cargo reruns the
 build script when the variable changes.
 
 ## Escapes

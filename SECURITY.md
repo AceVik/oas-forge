@@ -19,9 +19,12 @@ are released as patch versions and announced in the advisory.
 
 `oas-forge` runs at build time on the sources of your own crate. It reads
 files from the configured input directories and writes the configured
-outputs; it does not execute code from the sources, open network
-connections or read environment variables other than `CARGO_PKG_*`,
-`OUT_DIR` and those named in `{{env:NAME}}` placeholders.
+outputs; it does not execute code from the sources or open network
+connections. It reads the environment variables `CARGO_PKG_*`,
+`CARGO_MANIFEST_DIR` and `OUT_DIR` (the package), those you allow for
+`{{env:NAME}}` placeholders (`Generator::allow_env`, `allow_env`,
+`--allow-env`), and in the CLI `NO_COLOR` and `CLICOLOR_FORCE` (colors).
+A source cannot choose which environment variables are read.
 
 Untrusted input (for example sources from a pull request in CI) can at most
 make a run fail or produce a wrong document. To keep that bounded:

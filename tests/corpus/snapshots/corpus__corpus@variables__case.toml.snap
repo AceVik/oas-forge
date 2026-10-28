@@ -7,9 +7,10 @@ input_file: tests/corpus/cases/variables/case.toml
   "asyncapi": {
     "error": "Validation failed: No root AsyncAPI definition found. One `@asyncapi` block or file must contain 'asyncapi' and 'info' fields."
   },
-  "description": "Variables: {{NAME}} from Generator::var and {{env:NAME}} in roots, routes, type overrides and examples",
+  "description": "Variables: {{NAME}} from Generator::var and allowed {{env:NAME}} in roots, routes, type overrides and examples",
   "diagnostics": [
-    "warning[OF3009]: environment variable `OAS_FORGE_CORPUS_UNSET` is not set; `{{env:OAS_FORGE_CORPUS_UNSET}}` is kept (<case>/src/lib.rs:9)"
+    "warning[OF3009]: environment variable `OAS_FORGE_CORPUS_UNSET` is not allowed or not set; `{{env:OAS_FORGE_CORPUS_UNSET}}` is kept (allow it with `Generator::allow_env`, `allow_env` in the configuration or `--allow-env`) (<case>/src/lib.rs:9)",
+    "warning[OF3009]: environment variable `PATH` is not allowed or not set; `{{env:PATH}}` is kept (allow it with `Generator::allow_env`, `allow_env` in the configuration or `--allow-env`) (<case>/src/lib.rs:10)"
   ],
   "fragments": {
     "document": {
@@ -59,11 +60,13 @@ input_file: tests/corpus/cases/variables/case.toml
         }
       },
       "x-built-by": "oas-forge",
-      "x-missing": "{{env:OAS_FORGE_CORPUS_UNSET}}"
+      "x-missing": "{{env:OAS_FORGE_CORPUS_UNSET}}",
+      "x-not-allowed": "{{env:PATH}}"
     },
     "lints": [
       "/components/schemas/Config/properties/other/description: leftover `{{` in `Unknown placeholders stay, like {{NOT_SET}}.`",
-      "/x-missing: leftover `{{` in `{{env:OAS_FORGE_CORPUS_UNSET}}`"
+      "/x-missing: leftover `{{` in `{{env:OAS_FORGE_CORPUS_UNSET}}`",
+      "/x-not-allowed: leftover `{{` in `{{env:PATH}}`"
     ]
   },
   "full": {
@@ -124,11 +127,13 @@ input_file: tests/corpus/cases/variables/case.toml
         }
       ],
       "x-built-by": "oas-forge",
-      "x-missing": "{{env:OAS_FORGE_CORPUS_UNSET}}"
+      "x-missing": "{{env:OAS_FORGE_CORPUS_UNSET}}",
+      "x-not-allowed": "{{env:PATH}}"
     },
     "lints": [
       "/components/schemas/Config/properties/other/description: leftover `{{` in `Unknown placeholders stay, like {{NOT_SET}}.`",
-      "/x-missing: leftover `{{` in `{{env:OAS_FORGE_CORPUS_UNSET}}`"
+      "/x-missing: leftover `{{` in `{{env:OAS_FORGE_CORPUS_UNSET}}`",
+      "/x-not-allowed: leftover `{{` in `{{env:PATH}}`"
     ],
     "validation": []
   },
@@ -219,11 +224,13 @@ input_file: tests/corpus/cases/variables/case.toml
         }
       ],
       "x-built-by": "oas-forge",
-      "x-missing": "{{env:OAS_FORGE_CORPUS_UNSET}}"
+      "x-missing": "{{env:OAS_FORGE_CORPUS_UNSET}}",
+      "x-not-allowed": "{{env:PATH}}"
     },
     "lints": [
       "/components/schemas/Config/properties/other/description: leftover `{{` in `Unknown placeholders stay, like {{NOT_SET}}.`",
-      "/x-missing: leftover `{{` in `{{env:OAS_FORGE_CORPUS_UNSET}}`"
+      "/x-missing: leftover `{{` in `{{env:OAS_FORGE_CORPUS_UNSET}}`",
+      "/x-not-allowed: leftover `{{` in `{{env:PATH}}`"
     ],
     "validation": []
   },

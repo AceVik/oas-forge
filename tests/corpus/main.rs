@@ -16,6 +16,8 @@
 //! strict_lints = true         # optional: unused components, missing descriptions
 //! scopes = ["public", "admin"] # optional: snapshot the document of each scope
 //!
+//! allow_env = ["NAME"]        # optional `Generator::allow_env` names
+//!
 //! [variables]                 # optional `Generator::var` values
 //! STAGE = "prod"
 //!
@@ -51,6 +53,8 @@ struct Case {
     scopes: Vec<String>,
     #[serde(default)]
     variables: BTreeMap<String, String>,
+    #[serde(default)]
+    allow_env: Vec<String>,
     #[serde(default)]
     package: Option<CasePackage>,
 }
@@ -196,6 +200,9 @@ fn build(dir: &Path, case: &Case) -> oas_forge::Result<Spec> {
     }
     for (name, value) in &case.variables {
         generator = generator.var(name, value);
+    }
+    for name in &case.allow_env {
+        generator = generator.allow_env(name);
     }
     if let Some(package) = &case.package {
         generator = generator.package(package.to_package());

@@ -34,7 +34,9 @@ pub(super) const MAX_EXPANSION_BYTES: usize = 16 * 1024 * 1024;
 /// Total lines visited, including directives that produce no output.
 pub(super) const MAX_EXPANSION_STEPS: usize = 65_536;
 
-/// Values of `{{NAME}}` placeholders.
+/// Values of `{{NAME}}` placeholders. `{{env:NAME}}` takes the value of
+/// `env:NAME`, which [`Generator::allow_env`](crate::Generator::allow_env)
+/// sets from the environment; the sources never read it themselves.
 pub type Variables = BTreeMap<String, String>;
 
 /// An `@insert Name` or `@insert Name(args)` line, optionally a list item
@@ -335,11 +337,12 @@ pub fn environment_variables(text: &str) -> impl Iterator<Item = &str> {
         .filter_map(|caps| caps.get(1)?.as_str().strip_prefix("env:"))
 }
 
-/// Substitutes `{{NAME}}` from `variables` and `{{env:NAME}}` from the
-/// environment. A placeholder that is the whole, unquoted value of a mapping
-/// entry or list item is inserted as a quoted string so that values like
-/// `1.10` stay strings; inside block scalars (`|`, `>`) text is inserted as
-/// it is. Unset environment variables are kept and reported at their line
+/// Substitutes `{{NAME}}` from `variables`, `{{env:NAME}}` from the variable
+/// `env:NAME` ([`Variables`]). A placeholder that is the whole, unquoted
+/// value of a mapping entry or list item is inserted as a quoted string so
+/// that values like `1.10` stay strings; inside block scalars (`|`, `>`)
+/// text is inserted as it is. `{{env:NAME}}` without a value is kept (as a
+/// quoted string where it is a whole value) and reported at its line
 /// (`location` is the position of the first line of `text`).
 ///
 /// # Examples
@@ -350,12 +353,15 @@ pub fn environment_variables(text: &str) -> impl Iterator<Item = &str> {
 ///
 /// let mut variables = Variables::new();
 /// variables.insert("version".into(), "1.10".into());
+/// // What `Generator::allow_env("API_HOST")` sets.
+/// variables.insert("env:API_HOST".into(), "api.example.com".into());
 /// let text = "\
 /// version: {{version}}
 /// title: Shop {{version}}
 /// description: |
 ///   {{version}}
-/// host: {{env:OAS_FORGE_EXAMPLE_UNSET}}
+/// url: https://{{env:API_HOST}}
+/// token: {{env:OAS_FORGE_EXAMPLE_TOKEN}}
 /// ";
 /// let mut diagnostics = Diagnostics::new();
 /// let location = Location::new("src/lib.rs", 3);
@@ -368,12 +374,13 @@ pub fn environment_variables(text: &str) -> impl Iterator<Item = &str> {
 /// title: Shop 1.10
 /// description: |
 ///   1.10
-/// host: {{env:OAS_FORGE_EXAMPLE_UNSET}}
+/// url: https://api.example.com
+/// token: '{{env:OAS_FORGE_EXAMPLE_TOKEN}}'
 /// "
 /// );
 /// let finding = diagnostics.iter().next().ok_or("no finding")?;
 /// assert_eq!(finding.code(), Code::UnknownVariable);
-/// assert_eq!(finding.location(), Some(&Location::new("src/lib.rs", 7)));
+/// assert_eq!(finding.location(), Some(&Location::new("src/lib.rs", 8)));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn substitute(
@@ -416,7 +423,9 @@ fn report_missing(
             diagnostics.push(
                 Diagnostic::new(
                     Code::UnknownVariable,
-                    format!("environment variable `{variable}` is not set; `{{{{env:{variable}}}}}` is kept"),
+                    format!(
+                        "environment variable `{variable}` is not allowed or not set; `{{{{env:{variable}}}}}` is kept (allow it with `Generator::allow_env`, `allow_env` in the configuration or `--allow-env`)"
+                    ),
                 )
                 .at(location.offset(offset)),
             );
@@ -741,25 +750,21 @@ fn substitute_line(
         let whole = caps.get_match();
         append_bounded(&mut out, line.get(cursor..whole.start())?, max_bytes)?;
         let name = &caps[1];
-        let value = match name.strip_prefix("env:") {
-            Some(variable) => {
-                let value = std::env::var(variable).ok();
-                if value.is_none() {
-                    missing.push((offset, variable.to_string()));
-                }
-                value.map(Cow::Owned)
-            }
-            None => variables
-                .get(name)
-                .map(|value| Cow::Borrowed(value.as_str())),
-        };
-        let found = value.is_some();
+        let value = variables
+            .get(name)
+            .map(|value| Cow::Borrowed(value.as_str()));
+        if let (None, Some(variable)) = (&value, name.strip_prefix("env:")) {
+            missing.push((offset, variable.to_string()));
+        }
+        // A kept `{{env:NAME}}` is quoted like a value, so the YAML stays
+        // valid and the finding is reported instead of a YAML error.
+        let quotable = value.is_some() || name.starts_with("env:");
         let value = value.unwrap_or_else(|| Cow::Borrowed(whole.as_str()));
         if value.len() > max_bytes - out.len() {
             return None;
         }
         let is_whole_value = value_start == Some(whole.start())
-            && found
+            && quotable
             && line
                 .get(whole.end()..)
                 .is_some_and(|after| after.trim().is_empty());

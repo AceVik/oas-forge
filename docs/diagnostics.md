@@ -73,7 +73,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF3006` | error | Generic instantiation nested more than 16 levels | Look for a recursive generic type |
 | `OF3007` | warning | `$Name` does not name a known schema | Document the type, define it with `@openapi-type`, map it with `map_type`, or escape a literal `\$` |
 | `OF3008` | warning | Included templates use an unknown format version | Regenerate the fragments with this version |
-| `OF3009` | warning | `{{env:NAME}}` names an unset environment variable; the placeholder is kept | Set the variable for the build |
+| `OF3009` | warning | `{{env:NAME}}` names an environment variable that is not allowed or not set; the placeholder is kept | Allow it (`Generator::allow_env`, `allow_env`, `--allow-env`) and set it for the build |
 | `OF3010` | warning | A fragment inserts or extends itself, directly or through other fragments; the repeated `@insert`/`@extend` is skipped | Remove the cycle |
 | `OF3011` | warning | A fragment got more arguments than it has parameters; the extra ones are ignored | Remove the extra arguments, or quote an argument that contains a comma |
 | `OF3012` | warning | A type alias name used without `@openapi` names aliases with different targets in several files; the reference is not resolved | Rename one of the aliases, or document the type the name should mean |

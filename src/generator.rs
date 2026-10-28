@@ -55,6 +55,8 @@ pub struct Generator {
     scope: Option<String>,
     /// Values of `{{NAME}}` placeholders, `CARGO_PKG_*` included.
     variables: Variables,
+    /// The environment variables `{{env:NAME}}` placeholders may read.
+    allowed_env: BTreeSet<String>,
     /// Whether warnings are raised to errors after the run.
     deny_warnings: bool,
     /// The size limit per input file in bytes.
@@ -113,6 +115,7 @@ impl Default for Generator {
             outputs: Vec::new(),
             scope: None,
             variables,
+            allowed_env: BTreeSet::new(),
             deny_warnings: false,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             cargo_directives: false,
@@ -193,8 +196,10 @@ impl Generator {
             scope,
             types,
             variables,
+            allow_env,
             ..
         } = config;
+        self.allowed_env.extend(allow_env.unwrap_or_default());
         for (name, schema) in types.unwrap_or_default() {
             self.types = self.types.with_type(name, schema);
         }
@@ -637,6 +642,38 @@ impl Generator {
         self
     }
 
+    /// Lets `{{env:NAME}}` placeholders read the environment variable
+    /// `name` when the generator runs. Other `{{env:…}}` placeholders are
+    /// kept and reported ([`Code::UnknownVariable`]): the sources choose the
+    /// names, and a source from an untrusted change must not copy secrets of
+    /// the build environment into the document.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    /// use oas_forge::diagnostics::Code;
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// let root = dir.path().join("root.yaml");
+    /// std::fs::write(
+    ///     &root,
+    ///     "openapi: 3.1.0\ninfo:\n  title: Shop\n  version: '{{env:CARGO_PKG_VERSION}}'\n  description: '{{env:PATH}}'\n",
+    /// )?;
+    ///
+    /// // Cargo sets `CARGO_PKG_VERSION` for doctests too.
+    /// let spec = Generator::new().include(&root).allow_env("CARGO_PKG_VERSION").build()?;
+    /// assert_eq!(spec.document()["info"]["version"], env!("CARGO_PKG_VERSION"));
+    /// assert_eq!(spec.document()["info"]["description"], "{{env:PATH}}");
+    /// let codes: Vec<Code> = spec.diagnostics().iter().map(|d| d.code()).collect();
+    /// assert_eq!(codes, [Code::UnknownVariable]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn allow_env(mut self, name: impl Into<String>) -> Self {
+        self.allowed_env.insert(name.into());
+        self
+    }
+
     /// Documents the Rust type `name` (or path `my_crate::Name`) with `schema`
     /// instead of the built-in mapping or a `$ref`.
     ///
@@ -917,8 +954,16 @@ impl Generator {
             .with_max_file_size(self.max_file_size);
         let sources =
             SourceSet::discover(&self.inputs, &self.includes, &options, &mut diagnostics)?;
+        // `{{env:NAME}}` reads the variable `env:NAME`, set here for the
+        // allowed names that the environment has.
+        let mut variables = self.variables.clone();
+        for name in &self.allowed_env {
+            if let Ok(value) = std::env::var(name) {
+                variables.insert(format!("env:{name}"), value);
+            }
+        }
         let settings = Settings {
-            variables: &self.variables,
+            variables: &variables,
             types: &self.types,
             infer: self.infer,
         };
@@ -968,6 +1013,7 @@ impl Generator {
                 .files()
                 .iter()
                 .flat_map(|file| lexical::environment_variables(file.text()))
+                .filter(|name| self.allowed_env.contains(*name))
                 .map(str::to_string)
                 .collect::<BTreeSet<_>>()
                 .into_iter()
@@ -1232,7 +1278,8 @@ impl Spec {
         &self.watched
     }
 
-    /// Environment variables the inputs read with `{{env:NAME}}`, sorted.
+    /// Environment variables the inputs read with `{{env:NAME}}` and
+    /// [`Generator::allow_env`] allows, sorted.
     ///
     /// # Examples
     ///
@@ -1242,10 +1289,14 @@ impl Spec {
     /// let src = tempfile::tempdir()?;
     /// std::fs::write(
     ///     src.path().join("servers.yaml"),
-    ///     "servers:\n  - url: https://{{env:SHOP_API_HOST}}\n",
+    ///     "servers:\n  - url: https://{{env:SHOP_API_HOST}}/{{env:SHOP_SECRET}}\n",
     /// )?;
     ///
-    /// let spec = Generator::new().input(src.path()).without_package().build()?;
+    /// let spec = Generator::new()
+    ///     .input(src.path())
+    ///     .allow_env("SHOP_API_HOST")
+    ///     .without_package()
+    ///     .build()?;
     /// assert_eq!(spec.watched_env(), ["SHOP_API_HOST"]);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```

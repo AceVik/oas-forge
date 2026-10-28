@@ -287,6 +287,39 @@ mod type_mappings {
         );
     }
 
+    /// Cargo sets `CARGO_PKG_VERSION` and `CARGO_PKG_NAME` for test binaries.
+    #[test]
+    fn allowed_environment_variables_are_joined_and_read() {
+        let mut config = Config::from_toml_str("allow_env = [\"CARGO_PKG_NAME\"]").unwrap();
+        config.merge(
+            Config::from_toml_str("allow_env = [\"CARGO_PKG_VERSION\", \"CARGO_PKG_NAME\"]")
+                .unwrap(),
+        );
+        assert_eq!(
+            config.allow_env.as_deref(),
+            Some(
+                &[
+                    "CARGO_PKG_NAME".to_string(),
+                    "CARGO_PKG_VERSION".to_string()
+                ][..]
+            )
+        );
+
+        let project = Project::new();
+        project.file(
+            "src/root.rs",
+            "/// @openapi\n/// openapi: 3.1.0\n/// info: { title: '{{env:CARGO_PKG_NAME}}', version: {{env:CARGO_PKG_VERSION}} }\n/// x-path: {{env:PATH}}\nfn root() {}",
+        );
+        config.input = Some(vec![project.path("src")]);
+        let spec = Generator::new().with_config(config).build().unwrap();
+        assert_eq!(spec.document()["info"]["title"], env!("CARGO_PKG_NAME"));
+        assert_eq!(
+            spec.document()["info"]["version"],
+            env!("CARGO_PKG_VERSION")
+        );
+        assert_eq!(spec.document()["x-path"], "{{env:PATH}}");
+    }
+
     #[test]
     fn variables_must_be_strings() {
         assert!(Config::from_toml_str("[variables]\nN = 1").is_err());

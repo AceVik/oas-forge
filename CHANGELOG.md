@@ -92,6 +92,18 @@ All notable changes to `oas-forge` will be documented in this file.
   indentation of their YAML: a block with two top-level keys was a YAML
   error, because only its first line lost the doc comment's margin.
 
+### Security
+- `{{env:NAME}}` placeholders read only the environment variables you allow
+  with `Generator::allow_env`, `allow_env = [...]` in the configuration or
+  `--allow-env NAME` (all new). Before, the sources chose the name, so a
+  source from an untrusted change (a pull request built in CI) could copy
+  any secret of the build environment, such as `GITHUB_TOKEN`, into the
+  document or a warning. Other `{{env:…}}` placeholders are kept, quoted
+  where they are a whole YAML value, and reported (`OF3009`);
+  `cargo:rerun-if-env-changed` is printed for allowed names only. **If you
+  use `{{env:…}}`, allow its names.** `generate_from_sources` and
+  `lexical::substitute` take `{{env:NAME}}` from the variable `env:NAME`.
+
 ## [0.2.0] — 2026-10-21
 
 A rewrite of the generator around explicit pipeline stages, with full serde,
