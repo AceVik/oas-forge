@@ -2,6 +2,39 @@
 
 All notable changes to `oas-forge` will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- A `Cargo.toml` next to a scanned `src` directory that cannot be read or
+  has no `[package] name` is reported (new warning `OF0007`) instead of
+  silently naming the crate after its directory.
+- `mod` declarations are followed as rustc follows them: `#[path]` inside
+  inline `mod` blocks and on them, and files declared by a file that
+  `#[path]` moved, get the module path rustc gives them (it decides the
+  `crate.module.Name` of colliding types and which type a path means); a
+  file that `#[path]` names is read like a `mod.rs`, so its modules are
+  next to it.
+- Two documented generic types of one name in different modules were merged
+  silently (every `Page<T>` used the last one). Templates are now qualified
+  like other types (`crate.module.Page`, instances `crate.module.Page_User`,
+  each reported as `OF1004`), and a generic type resolves its template by
+  module path like any other type; a template and a schema of one name do
+  not collide.
+- A type argument (or template) that does not name one documented type,
+  such as `Page<User>` with two documented `User`s, is reported (`OF3014`)
+  and nothing is instantiated, instead of an instance that pointed to a
+  schema that does not exist.
+- A type alias without `@openapi` used as a type argument stands for its
+  target: `Page<Owner>` with `type Owner = User;` is the instance
+  `Page_User` (it was a second, identical `Page_Owner`), and
+  `Page<List<User>>` with `type List<T> = Vec<T>;` is `Page_Vec_User`.
+  `AliasItem` has the new field `target`.
+- A field whose type is a type alias of an `Option` (`type MaybeId =
+  Option<u64>;`, generic ones and aliases of aliases too) is optional like
+  an `Option` field: it was nullable but required. Serialize-only types and
+  `skip_serializing_if = "Option::is_none"` follow the `Option` rules, and
+  DSL parameters of such a type are optional.
+
 ## [0.2.0] — 2026-10-21
 
 A rewrite of the generator around explicit pipeline stages, with full serde,

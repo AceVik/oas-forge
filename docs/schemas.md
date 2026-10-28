@@ -349,9 +349,15 @@ pub struct Repo {
 - A target that cannot be documented (a function pointer, `dyn Trait`,
   `impl Trait`) is reported (`OF1010`) where the alias is used, once, at the
   alias; an unused alias is not.
-- The schema of the target replaces the reference, so an alias of an
-  `Option` makes the value nullable but not the field optional, and an alias
-  used as a type argument names the instance (`Page<Owner>` is `Page_Owner`).
+- The schema of the target replaces the reference. An alias of an `Option`
+  (`type MaybeId = Option<u64>;`, `type Maybe<T> = Option<T>;`, also through
+  other aliases) is optional like an `Option`: a field of that type is
+  nullable and not required, `skip_serializing_if` and output types apply
+  as for `Option`, and a query parameter of that type is optional.
+- An alias used as a type argument stands for its target, so the instance
+  is named as if the target were written: `Page<Owner>` is `Page_User`, and
+  `Page<List<User>>` with `type List<T> = Vec<T>;` is `Page_Vec_User`. A
+  target that is no named type (a tuple, an array) keeps the alias's name.
 
 ## Types from other crates
 
@@ -396,10 +402,12 @@ or a route directive (`@return 200: Printing`) is looked up by its module
 path, so two documented types with the same Rust name in different crates
 or modules do not mix. Each scanned file has a module path: its crate (the
 `[package] name` of the `Cargo.toml` next to its `src` directory, `-` read
-as `_`; without one, the directory's name) and the modules below `src`
-(`mod.rs`, `lib.rs` and `main.rs` are their directory's module;
-`#[path]` on a top-level `mod` declaration is honoured; inline `mod` blocks
-count). Single files given as input belong to the crate of their `src`
+as `_`; without one, the directory's name, and a manifest that cannot be
+read or has no name is reported, `OF0007`) and the modules below `src`
+(`mod.rs`, `lib.rs` and `main.rs` are their directory's module; a file
+named by a `mod` declaration belongs to the declaring module, `#[path]`
+included and also inside inline `mod` blocks, as rustc finds it; inline
+`mod` blocks count). Single files given as input belong to the crate of their `src`
 directory too. A name resolves, in this order, to:
 
 1. the type of that name defined in the same module,
@@ -412,19 +420,25 @@ directory too. A name resolves, in this order, to:
 
 The reference uses the schema name of that type, renames applied: with
 `use baylee_catalog::Printing;`, a field `Vec<Printing>` points to
-`CatalogPrinting` when that type is renamed so. Several candidates, or a
+`CatalogPrinting` when that type is renamed so. A name written with type
+arguments (`Page<User>`) means a template (a generic type), one without
+means a schema, so a template `Page<T>` and a struct `Page` do not mix; the
+template and every argument are looked up so. Several candidates, or a
 type of the same module that is not documented while other documented
 types have its name, are reported (`OF3014`); the schema then has no
-reference. A `$Name` written in a directive or in YAML is a schema name and
-is not looked up by module.
+reference, and a generic type with such a template or argument is not
+instantiated. A `$Name` written in a directive or in YAML is a schema name
+and is not looked up by module.
 
 Two documented types whose schema names are equal (no rename) are no longer
 merged: each is named by its module path with dots, `crate.module.Name`
 (`baylee_catalog.model.Status`), each is reported (`OF1004`), and the
 references above point to these names. Give them distinct names with
 `@openapi rename` to choose the names yourself. The same type read twice
-(the same file and module) is one type. Templates (generic types) and
-schemas written in YAML keep their names.
+(the same file and module) is one type. Two templates of one name are
+qualified the same way (`baylee_catalog.model.Page`, instances
+`baylee_catalog.model.Page_User`); a template and a schema of one name do
+not collide. Schemas written in YAML keep their names.
 
 ## References in YAML
 
