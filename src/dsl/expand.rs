@@ -79,26 +79,30 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
                     // `Option<Query<T>>`: every field may be left out.
                     let optional = marker.get("optional") == Some(&Value::Bool(true));
                     let fallback = marker.get("name");
-                    let new = from_schema(schema, &schemas, optional, target, &location, fallback);
-                    let size = new
-                        .iter()
-                        .map(|parameter| PARAMETER_COST + parameter.to_string().len())
-                        .fold(0, usize::saturating_add);
-                    if let Some(rest) = left.checked_sub(size) {
-                        left = rest;
-                        new
-                    } else {
-                        left = 0;
-                        diagnostics.push(place(Diagnostic::new(
-                            Code::ExpansionLimit,
-                            format!(
-                                "the {location} parameters of `{struct_name}` for {} {} {} exceed what is left of the {MAX_EXPANDED_SIZE} bytes of struct expansion in a document; they are left out",
-                                at.method,
-                                at.section.trim_end_matches('s'),
-                                at.name
-                            ),
-                        )));
-                        Vec::new()
+                    let expansion = Expansion {
+                        target,
+                        location: &location,
+                        optional,
+                        fallback,
+                    };
+                    match from_schema(schema, &schemas, &expansion, left) {
+                        Some((new, size)) => {
+                            left = left.saturating_sub(size);
+                            new
+                        }
+                        None => {
+                            left = 0;
+                            diagnostics.push(place(Diagnostic::new(
+                                Code::ExpansionLimit,
+                                format!(
+                                    "the {location} parameters of `{struct_name}` for {} {} {} exceed what is left of the {MAX_EXPANDED_SIZE} bytes of struct expansion in a document; they are left out",
+                                    at.method,
+                                    at.section.trim_end_matches('s'),
+                                    at.name
+                                ),
+                            )));
+                            Vec::new()
+                        }
                     }
                 }
                 None => {
@@ -137,25 +141,28 @@ pub(super) fn identity(parameter: &Value) -> String {
 
 /// The properties of an object schema with the names it requires, including
 /// those of flattened structs (`allOf`; an optional one is
-/// `anyOf: [{$ref}, {}]`).
+/// `anyOf: [{$ref}, {}]`). They are borrowed from the schemas: a struct is
+/// copied once its parameters are known to fit the budget.
 #[derive(Default)]
-struct Fields {
-    /// The properties by name; the first schema that has a name wins.
-    properties: Map<String, Value>,
+struct Fields<'a> {
+    /// The properties in order; the first schema that has a name wins.
+    properties: Vec<(&'a str, &'a Value)>,
+    /// The names in `properties`.
+    names: BTreeSet<&'a str>,
     /// The names of the required properties (none of optional schemas).
-    required: BTreeSet<String>,
+    required: BTreeSet<&'a str>,
     /// The referenced schemas followed so far, and whether as optional:
     /// following one again adds nothing, and a schema whose `allOf` refers
     /// to itself many times made the walk exponential.
-    followed: BTreeSet<(String, bool)>,
+    followed: BTreeSet<(&'a str, bool)>,
 }
 
-impl Fields {
+impl<'a> Fields<'a> {
     /// Adds the properties of `schema`, following references into
     /// `schemas` (`components.schemas`) and flattened `allOf` parts up to
     /// [`MAX_FLATTEN_DEPTH`]. With `optional` set, the properties it adds
     /// are not required.
-    fn collect(&mut self, schema: &Value, schemas: &Value, optional: bool, depth: usize) {
+    fn collect(&mut self, schema: &'a Value, schemas: &'a Value, optional: bool, depth: usize) {
         if depth > MAX_FLATTEN_DEPTH {
             return;
         }
@@ -165,22 +172,22 @@ impl Fields {
             .and_then(|r| r.strip_prefix("#/components/schemas/"))
             .and_then(|name| Some((name, schemas.get(name)?)))
         {
-            if self.followed.insert((name.to_string(), optional)) {
+            if self.followed.insert((name, optional)) {
                 self.collect(target, schemas, optional, depth + 1);
             }
             return;
         }
         if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
             for (name, property) in properties {
-                if !self.properties.contains_key(name) {
-                    self.properties.insert(name.clone(), property.clone());
+                if self.names.insert(name.as_str()) {
+                    self.properties.push((name.as_str(), property));
                 }
             }
         }
         if !optional {
             let required = schema.get("required").and_then(Value::as_array);
             for name in required.into_iter().flatten().filter_map(Value::as_str) {
-                self.required.insert(name.to_string());
+                self.required.insert(name);
             }
         }
         for part in schema
@@ -208,42 +215,74 @@ fn is_empty_or_null(schema: &Value) -> bool {
         || schema.get("type").and_then(Value::as_str) == Some("null")
 }
 
+/// What an expansion marker asks for.
+struct Expansion<'m> {
+    /// The reference of the struct's schema (`#/components/schemas/Name`).
+    target: &'m str,
+    /// Where the parameters go (`query`, `path`, …).
+    location: &'m str,
+    /// `Option<Query<T>>`: every field may be left out.
+    optional: bool,
+    /// The name of the single parameter for a non-object schema.
+    fallback: Option<&'m Value>,
+}
+
 /// One parameter per property of an object schema (flattened structs
-/// included, all `optional` if asked); a non-object schema is a single
-/// parameter called `fallback`.
+/// included, all optional if the `expansion` asks), or a single parameter
+/// called its fallback for a non-object schema, with what they cost of the
+/// budget; `None` when they do not fit in what is `left` of it. The
+/// parameters are counted before they are built (each costs at least
+/// [`PARAMETER_COST`]), so a struct that cannot fit is not copied: once
+/// the budget was used up, 200 operations expanding 20 000 fields still
+/// copied and serialized them all, for a minute.
 fn from_schema(
     schema: &Value,
     schemas: &Value,
-    optional: bool,
-    target: &str,
-    location: &str,
-    fallback: Option<&Value>,
-) -> Vec<Value> {
+    expansion: &Expansion<'_>,
+    left: usize,
+) -> Option<(Vec<Value>, usize)> {
     let mut fields = Fields::default();
-    fields.collect(schema, schemas, optional, 0);
-    if fields.properties.is_empty() {
-        return fallback
-            .map(|name| vec![json!({ "name": name, "in": location, "required": true, "schema": { "$ref": target } })])
-            .unwrap_or_default();
+    fields.collect(schema, schemas, expansion.optional, 0);
+    let count = if fields.properties.is_empty() {
+        usize::from(expansion.fallback.is_some())
+    } else {
+        fields.properties.len()
+    };
+    if count.saturating_mul(PARAMETER_COST) > left {
+        return None;
     }
-    let Fields {
-        properties,
-        required,
-        ..
-    } = fields;
-    properties
-        .into_iter()
-        .map(|(name, mut property)| {
-            let required = location == "path" || required.contains(&name);
-            let mut parameter = Map::new();
-            parameter.insert("name".into(), json!(name));
-            parameter.insert("in".into(), json!(location));
-            parameter.insert("required".into(), json!(required));
-            lift_annotations(&mut property, &mut parameter);
-            parameter.insert("schema".into(), strip_null(property));
-            Value::Object(parameter)
-        })
-        .collect()
+    let location = expansion.location;
+    let parameters: Vec<Value> = if fields.properties.is_empty() {
+        expansion
+            .fallback
+            .map(|name| vec![json!({ "name": name, "in": location, "required": true, "schema": { "$ref": expansion.target } })])
+            .unwrap_or_default()
+    } else {
+        let Fields {
+            properties,
+            required,
+            ..
+        } = fields;
+        properties
+            .into_iter()
+            .map(|(name, property)| {
+                let required = location == "path" || required.contains(name);
+                let mut property = property.clone();
+                let mut parameter = Map::new();
+                parameter.insert("name".into(), json!(name));
+                parameter.insert("in".into(), json!(location));
+                parameter.insert("required".into(), json!(required));
+                lift_annotations(&mut property, &mut parameter);
+                parameter.insert("schema".into(), strip_null(property));
+                Value::Object(parameter)
+            })
+            .collect()
+    };
+    let size = parameters
+        .iter()
+        .map(|parameter| PARAMETER_COST + parameter.to_string().len())
+        .fold(0, usize::saturating_add);
+    (size <= left).then_some((parameters, size))
 }
 
 /// Moves the keywords of a field's schema that the Parameter Object has

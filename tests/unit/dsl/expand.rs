@@ -304,6 +304,42 @@ fn self_references_in_all_of_are_followed_once() {
     );
 }
 
+/// Once the budget is used up, the fields of the struct were still copied
+/// and serialized for every later operation: 200 routes expanding a struct
+/// with 20 000 fields took a minute. An expansion that cannot fit is
+/// reported without copying a field.
+#[test]
+fn expansions_over_the_budget_are_reported_without_copying_fields() {
+    let fields: String = (0..20_000).map(|i| format!("pub f{i}: u64, ")).collect();
+    let routes: String = (0..200)
+        .map(|i| format!("/// @route GET /r{i}\n/// @query-params $Big\nfn r{i}() {{}}\n"))
+        .collect();
+    let text = format!("/// @openapi\npub struct Big {{ {fields} }}\n{routes}");
+    let started = std::time::Instant::now();
+    let (document, diagnostics) = pipeline(&[("api.rs", &text)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    let expanded = (0..200)
+        .filter(|i| {
+            document["paths"][format!("/r{i}")]["get"]["parameters"]
+                .as_array()
+                .is_some_and(|p| p.len() == 20_000)
+        })
+        .count();
+    assert_eq!(expanded, 2, "two copies of 20 000 fields fit in 16 MiB");
+    let limits = diagnostics
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 198, "{:?}", diagnostics.iter().next());
+    // The routes that fit come first; the others have no parameters.
+    assert!(document["paths"]["/r1"]["get"]["parameters"].is_array());
+    assert!(document["paths"]["/r2"]["get"].get("parameters").is_none());
+}
+
 /// Every operation copies the fields of the struct it expands: the copies
 /// of a document share 16 MiB (each parameter costs 256 more than its
 /// text). 40 000 fields for 20 routes took 4.8 GB.
