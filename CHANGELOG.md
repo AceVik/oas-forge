@@ -160,7 +160,10 @@ All notable changes to `oas-forge` will be documented in this file.
   document, block and file, so a hundred blocks of 690 bytes that expand
   five levels of aliases to 111 111 nodes each took 12 s and 5.5 GB.
   Plain YAML has about one node for two bytes; anchors reused in moderation
-  stay well below.
+  stay well below. Its scalars are limited the same way, to 16 bytes per
+  byte of text (and 1024): a 16 KB scalar aliased 4000 times (64 MiB per
+  document were allowed) in a 41 KB block that 16 `@route` lines copied
+  took 6 GB. A document over either limit is reported with the limits.
 - The schema of a `Range` holds its element twice, so nested ranges doubled
   with each level: `Range<Range<…>>` 18 levels deep (586 bytes) took
   16 s and 3 GB. Nested ranges are mapped six levels deep; around more,

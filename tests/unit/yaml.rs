@@ -180,6 +180,26 @@ fn aliases_expand_to_at_most_four_nodes_per_byte() {
     assert_eq!(value["q"][59], json!({ "a": 1, "b": 2, "c": 3, "d": 4 }));
 }
 
+/// The library allowed 64 MiB of scalars in each document, so a long
+/// anchored scalar repeated by aliases filled gigabytes when blocks were
+/// copied. A document holds at most 16 bytes of scalars per byte of its
+/// text, and 1024 more; the finding says so.
+#[test]
+fn aliases_expand_to_at_most_sixteen_scalar_bytes_per_byte() {
+    let long = "v".repeat(2000);
+    let doc = |uses: usize| format!("a: &a {long}\nb: [{}]\n", vec!["*a"; uses].join(", "));
+    // 20 uses: 42 000 bytes of scalars from 2 100 bytes of text.
+    let (_, message) = error(&doc(20));
+    assert!(message.contains("budget breached"), "{message}");
+    assert!(
+        message.contains("at most 4 nodes and 16 bytes of scalars per byte"),
+        "{message}"
+    );
+    // 5 uses: 12 000 bytes from 2 030.
+    let value = read(&doc(5));
+    assert_eq!(value["b"][4].as_str().map(str::len), Some(2000));
+}
+
 #[test]
 fn empty_documents_are_nothing() {
     for text in ["", "# only a comment", "~", "---\n"] {
