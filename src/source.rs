@@ -355,8 +355,8 @@ impl SourceSet {
                         return Err(walk_error(root, error));
                     }
                 };
-                if entry.depth() > 0
-                    && entry.path_is_symlink()
+                // An input that is a link leads to its own canonical root.
+                if entry.path_is_symlink()
                     && let Some(skipped) = link_outside(entry.path(), &roots)
                 {
                     diagnostics.push(skipped);

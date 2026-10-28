@@ -584,6 +584,12 @@ mod budget {
     use oas_forge::template::generics::MAX_INSTANTIATED_SIZE;
     use std::time::{Duration, Instant};
 
+    /// The documentation promises 16 MiB.
+    #[test]
+    fn the_budget_is_16_mib() {
+        assert_eq!(MAX_INSTANTIATED_SIZE, 16 << 20);
+    }
+
     /// Every instance refers to two larger ones: the instances grew
     /// exponentially although none was nested deeper than the limit.
     #[test]

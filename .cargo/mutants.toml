@@ -8,6 +8,9 @@ exclude_re = [
     # change what tests elsewhere see. The Windows CI job runs
     # `concurrent_writers_publish_complete_documents`, which needs it.
     "src/output/mod.rs:.*persist_retrying",
+    # A larger read limit only reads more of an outdated output: every
+    # current one, `\r\n` endings included, fits the exact limit.
+    "src/output/mod.rs:.*replace \\+ with \\* in is_current",
     # The early variable-size check avoids allocating an oversized quoted
     # string. `append_bounded` independently checks the final length, so
     # relaxing this precheck cannot change text or diagnostics.

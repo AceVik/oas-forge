@@ -44,11 +44,13 @@ make a run fail or produce a wrong document. To keep that bounded:
   atomically at the configured paths; an existing output is compared only
   when it is a regular file, reading no more than a current one can hold,
 - Rust sources are parsed and walked on a thread with a 256 MiB stack
-  (32 MiB on 32-bit targets), so nesting in the thousands of levels is
-  parsed instead of aborting the process (`syn` recurses once per level);
-  input nested deeper than that still overflows it, which aborts the
-  process: the run fails, with no other effect. `TypeExpr::parse` accepts
-  at most 32 nested levels,
+  (32 MiB on 32-bit targets): `syn` recurses once per nesting level, and
+  the main thread of a build script holds only about 150 nested types
+  (about 20 on Windows). The large stack holds several thousand levels; a
+  crafted file of a few kilobytes (about 8 000 nested references
+  `&&&…`) still overflows it, which aborts the process: the run fails,
+  with no other effect. `TypeExpr::parse` accepts at most 32 nested
+  levels,
 - findings and errors print control characters escaped, so the text of an
   input cannot rewrite a terminal line or start a Cargo directive,
 - an annotation that adds to a `security` or `servers` list another one

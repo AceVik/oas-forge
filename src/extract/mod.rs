@@ -892,9 +892,9 @@ pub fn extract_str(
 /// has 8 MiB (1 MiB on Windows), which about 150 (20) nested types already
 /// overflow; overflowing the stack aborts the process.
 const STACK_SIZE: usize = if cfg!(target_pointer_width = "64") {
-    256 << 20
+    0x1000_0000 // 256 MiB
 } else {
-    32 << 20
+    0x200_0000 // 32 MiB
 };
 
 /// Runs `task` on a thread with a [`STACK_SIZE`] stack and returns its
