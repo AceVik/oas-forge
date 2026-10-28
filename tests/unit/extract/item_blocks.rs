@@ -319,3 +319,21 @@ fn fenced_yaml_on_functions_and_modules() {
     assert_eq!(document_items(&items)[0].text, "paths:\n  /health: {}");
     assert_eq!(fragment(&items, "Limits").body, "x-limit: 1");
 }
+
+#[test]
+fn a_fenced_section_takes_exactly_its_lines() {
+    // The body starts like a JSON block and two `@scope` lines follow the
+    // closing fence: none of these lines is read again, and the block after
+    // them is not skipped.
+    let items = crate::common::extract(
+        "/// @openapi\n/// ```yaml\n/// x-a: 1\n/// { x-b: 2 }\n/// ```\n/// @scope a\n/// @scope b\n/// @openapi\n/// x-next: 1\nfn f() {}",
+    );
+    let texts: Vec<String> = document_items(&items)
+        .iter()
+        .map(|d| d.text.clone())
+        .collect();
+    assert_eq!(
+        texts,
+        ["x-a: 1\n{ x-b: 2 }\n\n@scope a\n@scope b", "x-next: 1"]
+    );
+}

@@ -34,6 +34,9 @@ All notable changes to `oas-forge` will be documented in this file.
   an `Option` field: it was nullable but required. Serialize-only types and
   `skip_serializing_if = "Option::is_none"` follow the `Option` rules, and
   DSL parameters of such a type are optional.
+- `@openapi document` (and `path`/`operation`) blocks on types keep the
+  indentation of their YAML: a block with two top-level keys was a YAML
+  error, because only its first line lost the doc comment's margin.
 
 ## [0.2.0] — 2026-10-21
 

@@ -96,7 +96,6 @@ pub(super) fn item_blocks(
                 Some((yaml, taken)) => {
                     section(path, &header_line, &yaml, tags, diagnostics, &mut items);
                     skip = taken;
-                    last_line = lines.get(index + taken).map(|l| l.line);
                 }
                 None => header = Some(header_line),
             }

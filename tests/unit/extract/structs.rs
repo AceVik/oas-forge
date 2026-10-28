@@ -1906,3 +1906,38 @@ mod fenced_overrides {
         );
     }
 }
+
+#[test]
+fn document_blocks_on_types_keep_the_indentation_of_their_yaml() {
+    let items = extract(
+        "/// @openapi document\n/// x-first: 1\n/// x-second:\n///   nested: 2\n/// @openapi\npub struct User { pub id: u64 }",
+    );
+    assert_eq!(
+        crate::extract::document_items(&items)[0].text,
+        "x-first: 1\nx-second:\n  nested: 2"
+    );
+}
+
+#[test]
+fn scope_lines_of_document_blocks_on_types() {
+    let items = extract(
+        "/// A user.\n/// @openapi document\n/// @scope admin\n/// ```yaml\n/// x-a: 1\n/// ```\n/// More about users.\n/// @openapi\npub struct User { pub id: u64 }\n\n/// @openapi document\n/// ```yaml\n/// x-b: 1\n/// ```\n/// @scope admin\n/// @openapi\npub struct Team { pub id: u64 }\n\n/// @openapi document\n/// x-c: 1\n/// @scope admin\n/// @openapi\npub struct Group { pub id: u64 }",
+    );
+    let texts: Vec<String> = crate::extract::document_items(&items)
+        .iter()
+        .map(|d| d.text.clone())
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            "@scope admin\n\nx-a: 1",
+            "x-b: 1\n\n@scope admin",
+            "x-c: 1\n@scope admin",
+        ]
+    );
+    // Prose after the closing fence is the type's description again.
+    assert_eq!(
+        schema(&items, "User")["description"],
+        "A user.\n\nMore about users."
+    );
+}

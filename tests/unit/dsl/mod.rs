@@ -1591,3 +1591,37 @@ mod yaml_and_prose {
         );
     }
 }
+
+/// Findings about module defaults in blocks with several routes.
+mod defaults_findings_of_several_routes {
+    use super::*;
+
+    fn found(blocks: &[&[&str]]) -> Vec<String> {
+        let defaults = lines(&["@route-defaults", "@return oops"]);
+        let locations = [Location::new("mod.rs", 3), Location::new("mod.rs", 4)];
+        let location = here();
+        let mut diagnostics = Diagnostics::new();
+        for block in blocks {
+            let block = lines(block);
+            dsl::compile(
+                RouteSource::new(&block, &location)
+                    .defaults(&defaults)
+                    .default_locations(&locations),
+                &mut diagnostics,
+            );
+        }
+        diagnostics
+            .iter()
+            .map(|d| format!("{} {}", d.code(), d.location().unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn are_reported_once_whichever_block_comes_first() {
+        let several: &[&str] = &["@route GET /a", "@route GET /b"];
+        let one: &[&str] = &["@route GET /c"];
+        for blocks in [vec![several], vec![one, several], vec![several, one]] {
+            assert_eq!(found(&blocks), ["OF2004 mod.rs:4"], "{blocks:?}");
+        }
+    }
+}
