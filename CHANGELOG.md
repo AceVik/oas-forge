@@ -27,6 +27,9 @@ All notable changes to `oas-forge` will be documented in this file.
 - Variable substitution is size limited and preserves newlines and control
   characters in whole YAML string values. Multiline prose and subsequent
   YAML lines keep their original source locations.
+- A finding with line breaks, for example one quoting a YAML string, is
+  printed as one `cargo:warning=` per line. Before, its second line reached
+  Cargo as a directive of its own, such as `cargo:rustc-cfg=…`.
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of
   silently naming the crate after its directory.

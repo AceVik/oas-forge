@@ -248,6 +248,36 @@ mod builder {
         assert!(printed.lines().any(|line| line == directive), "{printed}");
         assert!(!run("silent").contains("cargo:"));
     }
+
+    #[test]
+    fn a_finding_with_line_breaks_cannot_start_a_directive() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC).file(
+            "src/t.rs",
+            "/// @openapi\n/// properties:\n///   x:\n///     $ref: \"#/components/schemas/Gone\\ncargo:rustc-cfg=injected\"\npub struct T { pub x: u8 }",
+        );
+        let spec = Generator::new().input(project.path("src")).build().unwrap();
+        let message = spec
+            .diagnostics()
+            .iter()
+            .map(ToString::to_string)
+            .find(|message| message.contains("\ncargo:rustc-cfg=injected"));
+        assert!(message.is_some(), "{:#?}", spec.diagnostics());
+        let mut out = Vec::new();
+        spec.write_cargo_directives(&mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(
+            text.lines()
+                .all(|line| line.starts_with("cargo:rerun-if-")
+                    || line.starts_with("cargo:warning=")),
+            "{text}"
+        );
+        assert!(
+            text.lines()
+                .any(|line| line.starts_with("cargo:warning=cargo:rustc-cfg=injected")),
+            "{text}"
+        );
+    }
 }
 
 mod spec {
