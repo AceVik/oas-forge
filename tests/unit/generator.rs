@@ -342,8 +342,7 @@ mod builder {
         let message = spec
             .diagnostics()
             .iter()
-            .map(ToString::to_string)
-            .find(|message| message.contains("\ncargo:rustc-cfg=injected"));
+            .find(|d| d.message().contains("\ncargo:rustc-cfg=injected"));
         assert!(message.is_some(), "{:#?}", spec.diagnostics());
         let mut out = Vec::new();
         spec.write_cargo_directives(&mut out).unwrap();
@@ -354,9 +353,10 @@ mod builder {
                     || line.starts_with("cargo:warning=")),
             "{text}"
         );
+        // Displayed escaped, the line break stays in the warning.
         assert!(
-            text.lines()
-                .any(|line| line.starts_with("cargo:warning=cargo:rustc-cfg=injected")),
+            text.lines().any(|line| line.starts_with("cargo:warning=")
+                && line.contains("Gone\\ncargo:rustc-cfg=injected")),
             "{text}"
         );
     }

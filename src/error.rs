@@ -3,7 +3,7 @@
 //! Recoverable problems are [`Diagnostic`]s instead; a run fails with
 //! [`Error::Diagnostics`] when at least one diagnostic has error severity.
 
-use super::diagnostics::{Diagnostic, Location};
+use super::diagnostics::{Diagnostic, Location, printable};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -90,18 +90,26 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io { path, source } => write!(f, "IO error at {}: {source}", path.display()),
+            Self::Io { path, source } => write!(
+                f,
+                "IO error at {}: {source}",
+                printable(&path.display().to_string())
+            ),
             Self::Config { file, message } => {
                 write!(f, "Invalid configuration in {}: {message}", file.display())
             }
             Self::Parse { location, message } => {
-                write!(f, "Rust syntax error in {location}: {message}")
+                write!(f, "Rust syntax error in {location}: {}", printable(message))
             }
             Self::Yaml {
                 location,
                 message,
                 context,
-            } => write!(f, "YAML error in {location}: {message}\nContext:\n{context}"),
+            } => write!(
+                f,
+                "YAML error in {location}: {}\nContext:\n{context}",
+                printable(message)
+            ),
             Self::NoRootFound => f.write_str(
                 "Validation failed: No Root OpenAPI definition found. One definition must contain 'openapi' and 'info' fields.",
             ),

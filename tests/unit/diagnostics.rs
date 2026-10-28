@@ -15,6 +15,24 @@ fn locations_display_file_line_and_column() {
     assert_eq!(with_column.offset(3).to_string(), "src/api.rs:15");
 }
 
+/// Text from the inputs cannot rewrite a terminal line or start a line
+/// that looks like another finding; the message itself is unchanged.
+#[test]
+fn control_characters_are_displayed_escaped() {
+    let message = "unknown `$x\u{1b}[2K\rerror: fake\nwarning[OF0001]: also fake`";
+    let diagnostic = Diagnostic::new(Code::UnresolvedReference, message)
+        .at(Location::new("src/a\nb\u{202e}.rs", 3));
+    let text = diagnostic.to_string();
+    assert!(!text.chars().any(|c| c.is_control()), "{text:?}");
+    assert!(
+        text.contains("\\u{1b}[2K\\rerror: fake\\nwarning"),
+        "{text}"
+    );
+    assert!(text.ends_with("(src/a\\nb\\u{202e}.rs:3)"), "{text}");
+    assert_eq!(diagnostic.message(), message);
+    assert_eq!(text.lines().count(), 1);
+}
+
 #[test]
 fn codes_are_unique_stable_and_categorized() {
     let texts: BTreeSet<&str> = Code::ALL.iter().map(|c| c.as_str()).collect();

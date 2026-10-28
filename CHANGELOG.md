@@ -32,6 +32,12 @@ All notable changes to `oas-forge` will be documented in this file.
 - A finding with line breaks, for example one quoting a YAML string, is
   printed as one `cargo:warning=` per line. Before, its second line reached
   Cargo as a directive of its own, such as `cargo:rustc-cfg=…`.
+- Findings, locations and errors display control characters and
+  bidirectional formatting characters escaped (`\n`, `\u{1b}`, …; new
+  function `diagnostics::printable`), also in the CLI and in the context of
+  a YAML error. Before, text from the inputs could move the cursor, recolor
+  or overwrite a terminal line, or start a line that looked like another
+  finding. `Diagnostic::message` and the JSON output keep the text as it is.
 - A symbolic link in an input directory that leads outside every input
   directory is skipped with the new warning `OF0008`. Before, a link such
   as `src/x.yaml -> ~/.config/gh/hosts.yml` merged that file into the

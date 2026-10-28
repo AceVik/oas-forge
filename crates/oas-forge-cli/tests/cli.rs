@@ -520,6 +520,24 @@ mod ci {
     }
 
     #[test]
+    fn findings_print_control_characters_escaped() {
+        let project = Project::new();
+        project.file(
+            "src/lib.rs",
+            "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! x-a: { $ref: \"#/components/schemas/X\\e[2K\\rSUCCESS\" }\n",
+        );
+        let output = Command::new(env!("CARGO_BIN_EXE_oas-forge"))
+            .args(["-i", "src", "-o", "api.yaml"])
+            .current_dir(project.root())
+            .env("NO_COLOR", "1")
+            .output()
+            .unwrap();
+        let text = stderr(&output);
+        assert!(text.contains("\\u{1b}[2K\\rSUCCESS"), "{text}");
+        assert!(!text.contains('\u{1b}') && !text.contains('\r'), "{text:?}");
+    }
+
+    #[test]
     fn only_allowed_environment_variables_are_read() {
         let project = Project::new();
         project.file(

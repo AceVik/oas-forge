@@ -2,7 +2,7 @@
 
 use super::attrs::validate::{Patterns, resolve_patterns};
 use super::config::Config;
-use super::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
+use super::diagnostics::{self, Code, Diagnostic, Diagnostics, Location, Severity};
 use super::document::for_each_operation;
 use super::dsl::{self, RouteSource};
 use super::error::{Error, Result};
@@ -2553,7 +2553,11 @@ fn context(text: &str, location: &Location, focus: usize) -> String {
         .take(5)
         .map(|(i, line)| {
             let marker = if i + 1 == focus { '>' } else { ' ' };
-            format!("  {marker} {:02} | {line}", location.line() + i)
+            format!(
+                "  {marker} {:02} | {}",
+                location.line() + i,
+                diagnostics::printable(line)
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
