@@ -9,7 +9,7 @@
 use crate::document::for_each_operation_ref;
 use crate::lint;
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The directive that names the scopes of a block.
 const DIRECTIVE: &str = "@scope";
@@ -179,19 +179,27 @@ fn prune_tags(document: &mut Value) {
         return;
     };
     let name = |tag: &Value| tag.get("name").and_then(Value::as_str).map(str::to_string);
-    // Parents of used tags are used too, up the hierarchy.
-    loop {
-        let parents: Vec<String> = tags
-            .iter()
-            .filter(|tag| name(tag).is_some_and(|n| used.contains(&n)))
-            .filter_map(|tag| tag.get("parent").and_then(Value::as_str))
-            .filter(|parent| !used.contains(*parent))
-            .map(str::to_string)
-            .collect();
-        if parents.is_empty() {
-            break;
+    // Parents of used tags are used too, up the hierarchy: each name is
+    // looked up once (collecting the parents of the whole list again for
+    // each level took 15 s for a chain of 10 000 tags).
+    {
+        let mut parents: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        for tag in tags.iter() {
+            if let (Some(name), Some(parent)) = (
+                tag.get("name").and_then(Value::as_str),
+                tag.get("parent").and_then(Value::as_str),
+            ) {
+                parents.entry(name).or_default().push(parent);
+            }
         }
-        used.extend(parents);
+        let mut pending: Vec<String> = used.iter().cloned().collect();
+        while let Some(child) = pending.pop() {
+            for parent in parents.get(child.as_str()).into_iter().flatten() {
+                if used.insert((*parent).to_string()) {
+                    pending.push((*parent).to_string());
+                }
+            }
+        }
     }
     let before = tags.len();
     tags.retain(|tag| name(tag).is_some_and(|n| used.contains(&n)));

@@ -3128,6 +3128,37 @@ pub async fn locate() {}
         assert_eq!(openapi_30.count(), 1, "{messages:#?}");
     }
 
+    /// The parents of used tags are kept, up the hierarchy: each level
+    /// went through the whole list again, so a chain of 10 000 tags took
+    /// 15 s in a release build.
+    #[test]
+    fn long_tag_chains_are_pruned_quickly() {
+        let mut text = String::from(
+            "/// @openapi\n/// openapi: 3.2.0\n/// info: { title: Api, version: 1.0.0 }\n/// tags:\n///   - { name: t0 }\n",
+        );
+        for i in 1..10_000 {
+            text.push_str(&format!("///   - {{ name: t{i}, parent: t{} }}\n", i - 1));
+        }
+        text.push_str("///   - { name: unused, parent: t0 }\nfn root() {}\n\n/// @route GET /x\n/// @tag t9999\n/// @scope s\npub async fn x() {}\n");
+        let project = Project::new();
+        project.file("src/lib.rs", &text);
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .build()
+            .unwrap();
+        let started = std::time::Instant::now();
+        let scoped = spec.render_scoped(OutputKind::Full, "s").unwrap();
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "{:?}",
+            started.elapsed()
+        );
+        let tags = scoped["tags"].as_array().unwrap();
+        assert_eq!(tags.len(), 10_000);
+        assert!(tags.iter().all(|tag| tag["name"] != "unused"));
+    }
+
     #[test]
     fn pruning_keeps_what_the_scope_reaches() {
         let project = Project::new();
