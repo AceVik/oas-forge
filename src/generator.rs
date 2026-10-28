@@ -2652,11 +2652,13 @@ fn parse_any(
     if wire {
         output::strip_transport(&mut value);
     }
+    let key_lines = reserved::key_lines(&expanded);
     for removed in reserved::strip(&mut value, Keep::Markers) {
         // The line of the expanded text, mapped to the source line it comes
         // from (an `@insert` line for the lines it pastes).
-        let line = reserved::line_of(&expanded, &removed.key)
-            .and_then(|index| offsets.get(index).copied())
+        let line = key_lines
+            .get(removed.key.as_str())
+            .and_then(|index| offsets.get(*index).copied())
             .unwrap_or(0);
         diagnostics.push(removed.finding().at(location.offset(line)));
     }

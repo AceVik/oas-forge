@@ -644,7 +644,7 @@ pub(crate) fn channel_messages(channels: &mut [&mut Value]) {
             }
         }
     }
-    let differing: Vec<String> = definitions
+    let differing: BTreeSet<String> = definitions
         .into_iter()
         .filter(|(_, seen)| seen.len() > 1)
         .map(|(name, _)| name)
@@ -659,10 +659,16 @@ pub(crate) fn channel_messages(channels: &mut [&mut Value]) {
         let Some(Value::Object(messages)) = components.get_mut("messages") else {
             continue;
         };
-        let moved: Vec<(String, Value)> = differing
-            .iter()
-            .filter_map(|name| Some((name.clone(), messages.shift_remove(name)?)))
-            .collect();
+        // One pass that keeps the order of the others: removing each name
+        // on its own shifted the messages after it.
+        let mut moved: Vec<(String, Value)> = Vec::new();
+        messages.retain(|name, message| {
+            let keep = !differing.contains(name);
+            if !keep {
+                moved.push((name.clone(), std::mem::take(message)));
+            }
+            keep
+        });
         if messages.is_empty() {
             components.shift_remove("messages");
         }
@@ -973,9 +979,12 @@ impl<'s, 'a> Embedded<'s, 'a> {
             ),
             Ok(mut parsed) => {
                 // A reserved key is reported at the line that writes it.
+                let joined = text.join("\n");
+                let key_lines = reserved::key_lines(&joined);
                 for removed in reserved::strip(&mut parsed, Keep::Markers) {
-                    let index = reserved::line_of(&text.join("\n"), &removed.key)
-                        .and_then(|i| lines.get(i))
+                    let index = key_lines
+                        .get(removed.key.as_str())
+                        .and_then(|i| lines.get(*i))
                         .map_or(first, |(index, _)| *index);
                     diagnostics.push(removed.finding().at(self.at(index)));
                 }

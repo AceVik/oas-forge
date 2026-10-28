@@ -1793,10 +1793,16 @@ impl Compiler<'_, '_> {
     /// [`reserved`]) and reports each at the line of `lines` that writes
     /// it, or at the first line of the section.
     fn strip_reserved(&mut self, value: &mut Value, lines: &[(At, &str)]) {
-        let text: Vec<&str> = lines.iter().map(|(_, line)| *line).collect();
+        let text = lines
+            .iter()
+            .map(|(_, line)| *line)
+            .collect::<Vec<&str>>()
+            .join("\n");
+        let key_lines = reserved::key_lines(&text);
         for removed in reserved::strip(value, Keep::Markers) {
-            let at = reserved::line_of(&text.join("\n"), &removed.key)
-                .and_then(|i| lines.get(i))
+            let at = key_lines
+                .get(removed.key.as_str())
+                .and_then(|i| lines.get(*i))
                 .or_else(|| lines.first())
                 .map_or(At::Block, |(at, _)| *at);
             self.report(Code::ReservedKey, at, removed.message());

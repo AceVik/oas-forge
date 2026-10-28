@@ -559,3 +559,20 @@ components:
     );
     assert!(found[0].location().is_some(), "{found:?}");
 }
+
+/// Each removed key was looked up among the keys removed before, so many
+/// distinct reserved keys took time in the square of their number.
+#[test]
+fn many_distinct_reserved_keys_are_reported_quickly() {
+    let keys: String = (0..40_000)
+        .map(|i| format!("x-oas-forge-k{i}: 1\n"))
+        .collect();
+    let started = std::time::Instant::now();
+    let (_, diagnostics) = pipeline(&[("a.yaml", &keys)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(reserved(&diagnostics).len(), 40_000);
+}

@@ -19,6 +19,7 @@
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::template::lexical::EXTEND_KEY;
 use serde_json::{Map, Value};
+use std::collections::BTreeMap;
 
 /// The prefix of the generator's keys.
 pub(crate) const PREFIX: &str = "x-oas-forge-";
@@ -77,29 +78,59 @@ fn reserved(key: &str, keep: Keep) -> bool {
 /// Removes the reserved keys of `value` at any depth, except those `keep`
 /// allows; returns them by name, in the order of their first occurrence.
 pub(crate) fn strip(value: &mut Value, keep: Keep) -> Vec<Removed> {
-    let mut removed = Vec::new();
+    let mut removed = RemovedKeys::new();
     strip_at(value, keep, &mut String::new(), &mut removed);
-    removed
+    removed.keys
+}
+
+/// The keys [`strip`] removed so far, with the entry of each name: looking
+/// a name up among all removed before took minutes for 40 000 of them.
+struct RemovedKeys {
+    /// The keys in the order of their first occurrence.
+    keys: Vec<Removed>,
+    /// The entry in `keys` of each name.
+    index: BTreeMap<String, usize>,
+}
+
+impl RemovedKeys {
+    /// No removed keys yet.
+    fn new() -> Self {
+        Self {
+            keys: Vec::new(),
+            index: BTreeMap::new(),
+        }
+    }
 }
 
 /// [`strip`] at `value`, which is at `pointer`.
-fn strip_at(value: &mut Value, keep: Keep, pointer: &mut String, removed: &mut Vec<Removed>) {
+fn strip_at(value: &mut Value, keep: Keep, pointer: &mut String, removed: &mut RemovedKeys) {
     match value {
         Value::Object(map) => {
-            let keys: Vec<String> = map
-                .keys()
-                .filter(|key| reserved(key, keep))
-                .cloned()
-                .collect();
+            // One pass that keeps the order: removing each key on its own
+            // shifted the keys after it, for minutes with 40 000 keys.
+            let mut keys: Vec<String> = Vec::new();
+            map.retain(|key, _| {
+                let keep_it = !reserved(key, keep);
+                if !keep_it {
+                    keys.push(key.clone());
+                }
+                keep_it
+            });
             for key in keys {
-                map.shift_remove(&key);
                 let at = format!("{pointer}/{}", escape(&key));
-                match removed.iter_mut().find(|r| r.key == key) {
-                    Some(entry) => entry.pointers.push(at),
-                    None => removed.push(Removed {
-                        key,
-                        pointers: vec![at],
-                    }),
+                match removed.index.get(&key) {
+                    Some(&entry) => {
+                        if let Some(entry) = removed.keys.get_mut(entry) {
+                            entry.pointers.push(at);
+                        }
+                    }
+                    None => {
+                        removed.index.insert(key.clone(), removed.keys.len());
+                        removed.keys.push(Removed {
+                            key,
+                            pointers: vec![at],
+                        });
+                    }
                 }
             }
             for (key, child) in map.iter_mut() {
@@ -187,19 +218,31 @@ pub(crate) fn sweep(
     }
 }
 
-/// The line of `text` (0-based) that writes `key`: the first line where
-/// the key, possibly quoted, is followed by `:`. The text is YAML; a key
-/// written otherwise (in a flow mapping, folded) is found by this too, as
-/// long as it is on one line.
-pub(crate) fn line_of(text: &str, key: &str) -> Option<usize> {
-    text.lines().position(|line| {
-        line.match_indices(key).any(|(at, _)| {
-            let rest = line.get(at + key.len()..).unwrap_or_default();
-            rest.trim_start_matches(['\'', '"'])
+/// The line of `text` (0-based) that first writes each reserved key: a
+/// key of the prefix, possibly quoted, followed by `:`, also in a flow
+/// mapping, as long as it is on one line. One pass over the text: looking
+/// for each removed key in all of it took minutes for 40 000 keys.
+pub(crate) fn key_lines(text: &str) -> BTreeMap<&str, usize> {
+    let mut lines = BTreeMap::new();
+    for (index, line) in text.lines().enumerate() {
+        for (at, _) in line.match_indices(PREFIX) {
+            let rest = line.get(at..).unwrap_or_default();
+            let end = rest
+                .find(|c: char| {
+                    c == ':' || c == '"' || c == '\'' || c.is_whitespace() || ",{}[]".contains(c)
+                })
+                .unwrap_or(rest.len());
+            let (key, after) = rest.split_at(end);
+            if after
+                .trim_start_matches(['\'', '"'])
                 .trim_start()
                 .starts_with(':')
-        })
-    })
+            {
+                lines.entry(key).or_insert(index);
+            }
+        }
+    }
+    lines
 }
 
 /// A JSON pointer segment (`~` and `/` escaped, RFC 6901).
