@@ -3520,6 +3520,64 @@ mod joined_lists {
         assert_eq!(document["security"], json!([{ "bearer": [] }, {}]));
     }
 
+    /// An operation without its own `security` gets the document's; a
+    /// second annotation that adds one replaces it.
+    #[test]
+    fn lists_added_to_an_existing_operation_are_reported() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "a.rs",
+                "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! security: [{ bearer: [] }]\n\n/// @route GET /secrets\n/// @return 204:\nfn secrets() {}",
+            ),
+            (
+                "b.rs",
+                "//! @openapi\n//! paths: { /secrets: { get: { security: [{}] }, servers: [{ url: 'https://attacker.example' }] } }",
+            ),
+        ]);
+        let added: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::MergeConflict)
+            .map(|d| d.message())
+            .collect();
+        assert_eq!(added.len(), 2, "{diagnostics:#?}");
+        assert!(
+            added[0].starts_with("`/paths/~1secrets/get/security` is added by another annotation"),
+            "{added:?}"
+        );
+        assert!(
+            added[1].starts_with("`/paths/~1secrets/servers`"),
+            "{added:?}"
+        );
+        assert_eq!(
+            document["paths"]["/secrets"]["get"]["security"],
+            json!([{}])
+        );
+    }
+
+    /// The items of a list were serialized again for every annotation that
+    /// added to it: 4000 annotations took minutes.
+    #[test]
+    fn many_annotations_extending_one_list_merge_quickly() {
+        let mut text = String::from(
+            "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! servers: [{ url: 'https://a.example' }]\n",
+        );
+        for i in 0..4000 {
+            text.push_str(&format!(
+                "/// @openapi\n/// servers: [{{ url: 'https://h{i}.example' }}]\n/// x-list: [{i}]\nfn f{i}() {{}}\n"
+            ));
+        }
+        let started = std::time::Instant::now();
+        let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(30),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(document["servers"].as_array().map(Vec::len), Some(4001));
+        assert_eq!(document["x-list"].as_array().map(Vec::len), Some(4000));
+        assert_eq!(codes(&diagnostics).len(), 4000);
+    }
+
     #[test]
     fn repeating_the_same_entries_is_no_finding() {
         let (_, diagnostics) = pipeline(&[

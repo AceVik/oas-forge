@@ -66,9 +66,15 @@ All notable changes to `oas-forge` will be documented in this file.
   20 on Windows, whose main thread has 1 MiB) and aborted the process.
   `TypeExpr::parse` returns `None` for types nested more than 32 levels.
 - An annotation that adds entries to a `security` or `servers` list that
-  another annotation set (at the root, on a path or an operation) is
-  reported (`OF4001`). The lists are joined, so a second `security: [{}]`
-  made authentication optional without a finding.
+  another annotation set (at the root, on a path or an operation), or adds
+  such a list to an operation or path that another annotation defined, is
+  reported (`OF4001`). The lists are joined, or the operation's own list
+  replaces the document's, so a second `security: [{}]` made
+  authentication optional without a finding.
+- Merging annotations takes time in proportion to each annotation: the
+  items of a list were serialized again for every annotation that added to
+  it, and operation parameters were matched by scanning the list, so a few
+  thousand annotations adding to one list took minutes.
 - The Swagger 2.0 export reports what it changed silently: `writeOnly`
   kept as `x-writeOnly` (`OF6001`), and security schemes without `type`,
   OAuth2 schemes without `flows` or a known flow, which it leaves out.

@@ -9,7 +9,7 @@ use super::error::{Error, Result};
 use super::extract::names::NameTable;
 use super::extract::{self, Item};
 use super::lint::{self, Lints, Origins};
-use super::merge::{Policy, merge};
+use super::merge::{ListChange, Merger, Policy, merge};
 use super::output::{self, Format, OutputKind};
 use super::package::Package;
 use super::proto::ProtoIndex;
@@ -2604,20 +2604,23 @@ fn merge_documents(
             s.value
         },
     );
+    let mut merger = Merger::watching_lists();
     for snippet in others.into_iter().chain(generated) {
         origins.record(&snippet.value, &snippet.location);
-        let mut joined = Vec::new();
-        joined_lists(&document, &snippet.value, &mut String::new(), &mut joined);
-        for pointer in joined {
-            diagnostics.push(
-                Diagnostic::new(
-                    Code::MergeConflict,
-                    format!("`{pointer}` is also set by another annotation; the lists are joined, so the entries of both apply"),
-                )
-                .at(snippet.location.clone()),
-            );
+        let conflicts = merger.merge(&mut document, snippet.value, Policy::Document);
+        for (pointer, change) in merger.take_changes() {
+            let message = match change {
+                ListChange::Joined => format!(
+                    "`{pointer}` is also set by another annotation; the lists are joined, so the entries of both apply"
+                ),
+                ListChange::Introduced => format!(
+                    "`{pointer}` is added by another annotation to an existing operation or path; it replaces the list that applied there"
+                ),
+            };
+            diagnostics
+                .push(Diagnostic::new(Code::MergeConflict, message).at(snippet.location.clone()));
         }
-        for pointer in merge(&mut document, snippet.value, Policy::Document) {
+        for pointer in conflicts {
             diagnostics.push(
                 Diagnostic::new(
                     Code::MergeConflict,
@@ -2628,36 +2631,6 @@ fn merge_documents(
         }
     }
     Ok((document, origins))
-}
-
-/// The pointers of the `security` and `servers` lists that `snippet` adds
-/// entries to although `document` (at `pointer`) already sets them. Merging
-/// joins the lists, so without a finding a second annotation could make
-/// authentication optional (`security: [{}]`) or add a server.
-fn joined_lists(document: &Value, snippet: &Value, pointer: &mut String, found: &mut Vec<String>) {
-    let (Value::Object(target), Value::Object(source)) = (document, snippet) else {
-        return;
-    };
-    for (key, value) in source {
-        let Some(existing) = target.get(key) else {
-            continue;
-        };
-        let len = pointer.len();
-        pointer.push('/');
-        pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
-        match (existing, value) {
-            (Value::Array(existing), Value::Array(added))
-                if matches!(key.as_str(), "security" | "servers") =>
-            {
-                let known: BTreeSet<String> = existing.iter().map(Value::to_string).collect();
-                if added.iter().any(|item| !known.contains(&item.to_string())) {
-                    found.push(pointer.clone());
-                }
-            }
-            _ => joined_lists(existing, value, pointer, found),
-        }
-        pointer.truncate(len);
-    }
 }
 
 /// Final clean-ups of the merged document.
