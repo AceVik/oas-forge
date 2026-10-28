@@ -13,6 +13,7 @@ use super::merge::{ListChange, Merger, Policy, merge};
 use super::output::{self, Format, OutputKind};
 use super::package::Package;
 use super::proto::ProtoIndex;
+use super::reserved::{self, Keep};
 use super::schema::TypeMapper;
 use super::schema::dialect::{self, Dialect};
 use super::scope;
@@ -1958,6 +1959,15 @@ pub(crate) fn assemble(
     output::strip_transport(&mut document);
     normalize(&mut document, diagnostics);
     dsl::expand::expand_parameters(&mut document, diagnostics);
+    // No stage uses the generator's keys from here on: none may stay. The
+    // AsyncAPI document needs no sweep: its snippets come through the
+    // checked entry points, and it shares the schemas of this document
+    // below, after the sweep.
+    reserved::sweep(
+        &mut document,
+        |pointer| origins.nearest(pointer).cloned(),
+        diagnostics,
+    );
     // The AsyncAPI document shares the schemas its messages use, before
     // pruning removes those no operation of the scope uses.
     let has_asyncapi = asyncapi.as_object().is_some_and(|map| !map.is_empty());
@@ -2256,8 +2266,14 @@ fn materialize(
             tags,
         } => {
             let scoped = take_scopes(&text, &location, diagnostics);
-            let Some(mut value) =
-                parse_text(&scoped.text, registry, variables, &location, diagnostics)?
+            let Some(mut value) = parse_text(
+                &scoped.text,
+                registry,
+                variables,
+                &location,
+                diagnostics,
+                false,
+            )?
             else {
                 return Ok(None);
             };
@@ -2271,7 +2287,8 @@ fn materialize(
             text,
             location,
         } => {
-            let Some(value) = parse_any(&text, registry, variables, &location, diagnostics)? else {
+            let Some(value) = parse_any(&text, registry, variables, &location, diagnostics, false)?
+            else {
                 return Ok(None);
             };
             Ok(Some(Snippet::openapi(
@@ -2280,11 +2297,10 @@ fn materialize(
             )))
         }
         Pending::File { text, location } => {
-            let Some(mut value) = parse_text(&text, registry, variables, &location, diagnostics)?
+            let Some(value) = parse_text(&text, registry, variables, &location, diagnostics, true)?
             else {
                 return Ok(None);
             };
-            output::strip_transport(&mut value);
             // A file with an `asyncapi` root belongs to the AsyncAPI document.
             let asyncapi = value.get("asyncapi").is_some();
             Ok(Some(Snippet {
@@ -2297,8 +2313,14 @@ fn materialize(
         }
         Pending::AsyncApi { text, location } => {
             let scoped = take_scopes(&text, &location, diagnostics);
-            let Some(value) =
-                parse_text(&scoped.text, registry, variables, &location, diagnostics)?
+            let Some(value) = parse_text(
+                &scoped.text,
+                registry,
+                variables,
+                &location,
+                diagnostics,
+                false,
+            )?
             else {
                 return Ok(None);
             };
@@ -2579,14 +2601,17 @@ fn source_lines(expanded: &[(String, usize)], numbers: &[usize], at: &Location) 
 }
 
 /// Expands and parses a document text; it must be a mapping (or empty).
+/// `wire`: the text is an input file, whose `components` may carry the
+/// template wire format (read in pass 1; removed here).
 fn parse_text(
     text: &str,
     registry: &Registry,
     variables: &Variables,
     location: &Location,
     diagnostics: &mut Diagnostics,
+    wire: bool,
 ) -> Result<Option<Value>> {
-    let Some(value) = parse_any(text, registry, variables, location, diagnostics)? else {
+    let Some(value) = parse_any(text, registry, variables, location, diagnostics, wire)? else {
         return Ok(None);
     };
     let found = match &value {
@@ -2603,15 +2628,19 @@ fn parse_text(
     })
 }
 
-/// Expands and parses any YAML value; `None` for empty documents.
+/// Expands and parses any YAML value; `None` for empty documents. The
+/// reserved keys of the text are removed and reported, each at the line
+/// of the expanded text that writes it (see [`parse_text`] for `wire`).
 fn parse_any(
     text: &str,
     registry: &Registry,
     variables: &Variables,
     location: &Location,
     diagnostics: &mut Diagnostics,
+    wire: bool,
 ) -> Result<Option<Value>> {
-    let expanded = lexical::expand(text, registry, variables, location, diagnostics);
+    let (expanded, offsets) =
+        lexical::expand_with_offsets(text, registry, variables, location, diagnostics);
     let mut value = yaml::parse(&expanded).map_err(|e| Error::Yaml {
         location: location.offset(e.line - 1),
         message: e.message,
@@ -2619,6 +2648,17 @@ fn parse_any(
     })?;
     if value.is_null() {
         return Ok(None);
+    }
+    if wire {
+        output::strip_transport(&mut value);
+    }
+    for removed in reserved::strip(&mut value, Keep::Markers) {
+        // The line of the expanded text, mapped to the source line it comes
+        // from (an `@insert` line for the lines it pastes).
+        let line = reserved::line_of(&expanded, &removed.key)
+            .and_then(|index| offsets.get(index).copied())
+            .unwrap_or(0);
+        diagnostics.push(removed.finding().at(location.offset(line)));
     }
     extend::apply(&mut value, registry, variables, location, diagnostics);
     Ok(Some(value))

@@ -268,3 +268,84 @@ pub async fn list_users() {{}}
     );
     assert!(crate::common::spec::is_valid(document));
 }
+
+/// A shared generic type with a field of a bare built-in name (`Duration`)
+/// travels as a template whose body carries the generator's marker for
+/// the alternative. The importing crate instantiates it and chooses:
+/// its own `Duration` when it documents one, the built-in schema
+/// otherwise. The marker is no reserved key of the input, and none
+/// reaches the output.
+#[test]
+fn shared_templates_with_a_shadowable_name_follow_the_importing_crate() {
+    let shared = Project::new();
+    shared.file(
+        "src/lib.rs",
+        r#"
+/// A page of items with a time to live.
+/// @openapi
+pub struct Page<T> { pub items: Vec<T>, pub ttl: Duration }
+"#,
+    );
+    Generator::new()
+        .input(shared.path("src"))
+        .output_fragments(shared.path("shared.yaml"))
+        .generate()
+        .unwrap();
+    let body =
+        &shared.read_yaml("shared.yaml")["components"]["x-oas-forge-templates"]["Page"]["body"];
+    assert!(
+        body.as_str().unwrap().contains("x-oas-forge-builtin"),
+        "the template keeps the alternative of `Duration`: {body}"
+    );
+
+    let builtin = json!({
+        "type": "object",
+        "properties": {
+            "secs": { "type": "integer", "format": "int64", "minimum": 0 },
+            "nanos": { "type": "integer", "format": "int64", "minimum": 0, "maximum": 999_999_999 }
+        },
+        "required": ["secs", "nanos"]
+    });
+    let documented = json!({ "$ref": "#/components/schemas/Duration" });
+    for (own, expected) in [
+        ("", &builtin),
+        (
+            "/// Our own duration.\n/// @openapi\npub struct Duration { pub millis: u64 }\n",
+            &documented,
+        ),
+    ] {
+        let service = Project::new();
+        service.file(
+            "src/main.rs",
+            &format!(
+                "{ROOT_DOC}\n/// @openapi\npub struct Item {{ pub id: u64 }}\n{own}\n/// @route GET /items\n/// @return 200: $Page<Item>\nfn list() {{}}\n"
+            ),
+        );
+        let spec = Generator::new()
+            .input(service.path("src"))
+            .include(shared.path("shared.yaml"))
+            .output(service.path("openapi.yaml"))
+            .build()
+            .unwrap();
+        assert!(
+            spec.diagnostics().is_empty(),
+            "{own}: {:?}",
+            spec.diagnostics()
+        );
+        let schemas = &spec.document()["components"]["schemas"];
+        assert_eq!(
+            schemas["Page_Item"]["properties"]["ttl"], *expected,
+            "{own}"
+        );
+        assert_eq!(
+            schemas["Page_Item"]["properties"]["items"]["items"],
+            json!({ "$ref": "#/components/schemas/Item" })
+        );
+        assert!(
+            !spec.document().to_string().contains("x-oas-forge"),
+            "{own}: {:#}",
+            spec.document()
+        );
+        assert!(crate::common::spec::is_valid(spec.document()));
+    }
+}

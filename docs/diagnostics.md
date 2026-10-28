@@ -30,6 +30,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF0006` | warning | A `.proto` file cannot be indexed (an unclosed brace, comment or string, a second `package`, a malformed `message` line) and was skipped, or declares a message another file declares (the first is used) | Fix the file, or rename the message |
 | `OF0007` | warning | The `Cargo.toml` next to a scanned `src` directory cannot be read or has no `[package] name`; the crate's types are qualified with the directory's name instead (`crate.module.Name`) | Fix the manifest |
 | `OF0008` | warning | A symbolic link in an input directory leads outside every input directory; it was skipped | Add its target as an input or include, or remove the link |
+| `OF0009` | error | A source writes a key of the reserved prefix `x-oas-forge-`, the generator's own markers ([reserved keys](templates.md#reserved-keys)): in an `@openapi` block or override, an `@example`, a fragment, the YAML of a route or channel block, or a `.yaml`/`.json` input outside the template wire format in `components`; the key is removed. Also reported, without a source line, for a marker that an imported template left in a finished document | Remove the key (a directive whose inline schema or flag value writes one is ignored with `OF2004`) |
 
 ## Extraction (OF1xxx)
 

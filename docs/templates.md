@@ -278,6 +278,19 @@ A crate that `include`s the file can use the shared types, instantiate
 `$Paginated<User>` with its own `User`, and `@insert` or `@extend` the shared
 fragments. The `x-oas-forge-*` keys never appear in a full document.
 
+### Reserved keys
+
+The prefix `x-oas-forge-` is reserved: the generator carries information
+between its stages in such keys (the alternative of a bare built-in name,
+a struct expansion, an `@extend` line, the templates above), and a source
+must not write them. One written in an `@openapi` block or override, an
+`@example`, a fragment, the YAML of a route or channel block, or in an
+included `.yaml`/`.json` file anywhere but the wire format in `components`
+is removed and reported as an error (`OF0009`); a directive whose inline
+schema or flag value writes one is ignored (`OF2004`). The bodies of
+imported templates are the generator's own and keep their markers. No key
+of the prefix reaches an output.
+
 The [`examples/`](../examples) workspace shows the setup: `shared-models`
 declares `links`, so Cargo runs its build script first, and `microservice`
 depends on it and includes the file.

@@ -245,6 +245,18 @@ All notable changes to `oas-forge` will be documented in this file.
   first along with its schema.
 
 ### Security
+- Keys of the reserved prefix `x-oas-forge-`, the generator's own markers,
+  written in a source (an `@openapi` block or override, an `@example`, a
+  fragment, the YAML of a route or channel block, an input file outside
+  the template wire format in `components`) are removed and reported as
+  error `OF0009`; a directive whose inline schema or flag value writes one
+  is ignored (`OF2004`). Before, a written `x-oas-forge-builtin` marker was
+  honoured like the generator's own and replaced the object around it (a
+  schema, an operation, a security requirement) without a finding, and any
+  written `x-oas-forge-*` key reached every output and hid a dangling
+  reference below it from the lints. The lints no longer skip such keys,
+  and a marker left in a finished document (by an imported template) is
+  removed with a finding.
 - `{{env:NAME}}` placeholders read only the environment variables you allow
   with `Generator::allow_env`, `allow_env = [...]` in the configuration or
   `--allow-env NAME` (all new). Before, the sources chose the name, so a

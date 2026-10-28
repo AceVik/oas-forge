@@ -78,7 +78,10 @@ override that defines the structure itself (`type`, `properties`, `oneOf`,
 override sets `type` or `nullable` itself.
 
 Invalid YAML, and text that is not a YAML mapping (`/// @openapi The id`),
-is reported (`OF1001`) and ignored.
+is reported (`OF1001`) and ignored. Keys of the prefix `x-oas-forge-` are
+the generator's own ([reserved keys](templates.md#reserved-keys)); one
+written in an override or an `@example` is removed and reported
+(`OF0009`).
 
 ## Descriptions
 

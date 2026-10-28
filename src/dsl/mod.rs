@@ -28,6 +28,7 @@ pub(crate) use params::EXPAND_KEY;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
 use crate::docs::{closes_fence, yaml_fence};
 use crate::merge::{Policy, merge};
+use crate::reserved::{self, Keep};
 use crate::schema::{MappedType, TypeExpr, TypeMapper, shadow};
 use crate::scope::{self, Names};
 use crate::template::lexical::{DEFAULTS_MARKER, EXTEND_KEY, charge_run, pasted_cost};
@@ -1788,6 +1789,20 @@ impl Compiler<'_, '_> {
         }
     }
 
+    /// Removes the reserved keys of the embedded YAML `value` (see
+    /// [`reserved`]) and reports each at the line of `lines` that writes
+    /// it, or at the first line of the section.
+    fn strip_reserved(&mut self, value: &mut Value, lines: &[(At, &str)]) {
+        let text: Vec<&str> = lines.iter().map(|(_, line)| *line).collect();
+        for removed in reserved::strip(value, Keep::Markers) {
+            let at = reserved::line_of(&text.join("\n"), &removed.key)
+                .and_then(|i| lines.get(i))
+                .or_else(|| lines.first())
+                .map_or(At::Block, |(at, _)| *at);
+            self.report(Code::ReservedKey, at, removed.message());
+        }
+    }
+
     /// Merges the embedded YAML sections into the operation, the path item
     /// and the document. YAML of the module `defaults` only fills gaps.
     fn embedded_yaml(
@@ -1819,21 +1834,25 @@ impl Compiler<'_, '_> {
                     lines.first().map_or(At::Block, |(at, _)| *at),
                     "embedded OpenAPI YAML must be a mapping and was ignored",
                 ),
-                Ok(mut value) if defaults => match scope {
-                    Scope::Operation | Scope::PathItem => {
-                        let target = if scope == Scope::Operation {
-                            &mut *operation
-                        } else {
-                            &mut *path_item
-                        };
-                        drop_known_parameters(&mut value, target);
-                        merge(target, value, Policy::Extend);
+                Ok(mut value) if defaults => {
+                    self.strip_reserved(&mut value, &lines);
+                    match scope {
+                        Scope::Operation | Scope::PathItem => {
+                            let target = if scope == Scope::Operation {
+                                &mut *operation
+                            } else {
+                                &mut *path_item
+                            };
+                            drop_known_parameters(&mut value, target);
+                            merge(target, value, Policy::Extend);
+                        }
+                        Scope::Document => {
+                            merge(document, value, Policy::Document);
+                        }
                     }
-                    Scope::Document => {
-                        merge(document, value, Policy::Document);
-                    }
-                },
+                }
                 Ok(mut value) => {
+                    self.strip_reserved(&mut value, &lines);
                     if scope == Scope::Operation {
                         add_yaml_descriptions(&mut value, operation, explained);
                     }

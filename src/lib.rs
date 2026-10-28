@@ -83,6 +83,7 @@ pub mod merge;
 pub mod output;
 pub mod package;
 pub mod proto;
+pub(crate) mod reserved;
 pub mod schema;
 pub(crate) mod scope;
 pub mod source;

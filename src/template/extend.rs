@@ -9,6 +9,7 @@ use super::lexical::{self, DEFAULTS_MARKER, EXTEND_KEY, Variables, split_args, s
 use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::merge::{Policy, merge};
+use crate::reserved::{self, Keep};
 use crate::yaml;
 use serde_json::Value;
 use std::cmp::Reverse;
@@ -233,7 +234,15 @@ impl Extension<'_> {
         }
         self.remaining_bytes -= body.len();
         match yaml::parse(&body) {
-            Ok(value) => Some((name.to_string(), value)),
+            Ok(mut value) => {
+                for removed in reserved::strip(&mut value, Keep::Markers) {
+                    self.report(
+                        Code::ReservedKey,
+                        format!("fragment `{name}`: {}", removed.message()),
+                    );
+                }
+                Some((name.to_string(), value))
+            }
             Err(e) => {
                 self.report(
                     Code::InvalidFragment,

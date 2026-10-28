@@ -166,13 +166,34 @@ pub fn expand(
     location: &Location,
     diagnostics: &mut Diagnostics,
 ) -> String {
-    let (lines, _) = expand_text(text, registry, variables, location, diagnostics);
+    expand_with_offsets(text, registry, variables, location, diagnostics).0
+}
+
+/// [`expand`] with the 0-based offset of the line of `text` each line of
+/// the result (as `str::lines` splits it) comes from, so that a finding
+/// about a line of the expanded text can point at its source: lines pasted
+/// by `@insert` come from the `@insert` line.
+pub(crate) fn expand_with_offsets(
+    text: &str,
+    registry: &Registry,
+    variables: &Variables,
+    location: &Location,
+    diagnostics: &mut Diagnostics,
+) -> (String, Vec<usize>) {
+    let (lines, offsets) = expand_text(text, registry, variables, location, diagnostics);
+    // A substituted value may contain line breaks: each of its lines keeps
+    // the offset of the line it was substituted into.
+    let per_line = lines
+        .iter()
+        .zip(&offsets)
+        .flat_map(|(line, offset)| line.split('\n').map(move |_| *offset))
+        .collect();
     let mut joined = lines.join("\n");
     if text.ends_with('\n') {
         // A final line break is content for block scalars (`|`) at the end.
         joined.push('\n');
     }
-    joined.replace("\\$", ESCAPED_DOLLAR_TEXT)
+    (joined.replace("\\$", ESCAPED_DOLLAR_TEXT), per_line)
 }
 
 /// [`expand`] line by line: the lines of the result (as `str::lines` splits

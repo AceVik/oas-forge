@@ -903,10 +903,11 @@ mod pipeline_stages {
     }
 
     /// Overrides of types are not expanded: an `@extend` marker written
-    /// there by hand (the generator's own key) is dropped at any depth.
+    /// there by hand (the generator's own key) is dropped at any depth and
+    /// reported as a reserved key.
     #[test]
     fn unresolved_extend_markers_never_reach_the_output() {
-        let (document, _) = pipeline(&[(
+        let (document, diagnostics) = pipeline(&[(
             "lib.rs",
             "//! @openapi-fragment Base\n//! x-base: 1\n\n/// @openapi\n/// x-oas-forge-extend-7: Base\n/// x-list: [{ x-oas-forge-extend-8: Base, x-kept: 1 }]\nstruct S { a: u8 }",
         )]);
@@ -915,6 +916,11 @@ mod pipeline_stages {
         assert!(
             !document.to_string().contains("x-oas-forge-extend"),
             "{document:#}"
+        );
+        assert_eq!(
+            codes(&diagnostics),
+            [Code::ReservedKey, Code::ReservedKey],
+            "{diagnostics:#?}"
         );
     }
 
@@ -986,10 +992,12 @@ mod pipeline_stages {
             "##,
         )]);
         // `$Missing` is reported where it is written and, as a pointer that
-        // leads nowhere, by the lints.
+        // leads nowhere, by the lints. The reserved key is removed with its
+        // reference, which the lints therefore do not see.
         assert_eq!(
             codes(&diagnostics),
             [
+                Code::ReservedKey,
                 Code::UnresolvedReference,
                 Code::DanglingReference,
                 Code::DanglingReference,
@@ -1001,9 +1009,14 @@ mod pipeline_stages {
             .map(|d| d.message().to_string())
             .collect();
         assert!(
-            messages[0].contains("$Missing")
-                && messages[1].contains("#/components/schemas/Missing")
-                && messages[2].contains("Ignored"),
+            messages[0].contains("`x-oas-forge-note` at `/x-oas-forge-note`")
+                && messages[1].contains("$Missing")
+                && messages[2].contains("#/components/schemas/Missing")
+                && messages[3].contains("Ignored"),
+            "{messages:?}"
+        );
+        assert!(
+            !messages.iter().any(|m| m.contains("Internal")),
             "{messages:?}"
         );
     }

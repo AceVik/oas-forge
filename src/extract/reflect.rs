@@ -15,6 +15,7 @@ use crate::attrs::validate::Constraints;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::docs::{doc_lines, line_of};
 use crate::merge::{Policy, merge};
+use crate::reserved::{self, Keep};
 use crate::schema::types::{MappedType, TypeExpr, TypeMapper, undocumentable};
 use crate::schema::{accepts_null, nullable, shadow};
 use crate::template::refs::TYPE_DEFAULT_KEY;
@@ -290,7 +291,7 @@ impl<'a> Reflector<'a> {
                     let text = item.strip_prefix("- ").unwrap_or(&item);
                     // Text YAML reads as nothing (`@example # fff`) stays text;
                     // an explicit `null` is the value `null`.
-                    match yaml::parse(&item) {
+                    let mut value = match yaml::parse(&item) {
                         Ok(Value::Array(values)) => match values.into_iter().next() {
                             Some(Value::Null)
                                 if matches!(text.trim(), "null" | "Null" | "NULL" | "~") =>
@@ -301,7 +302,14 @@ impl<'a> Reflector<'a> {
                             _ => json!(text),
                         },
                         _ => json!(text),
-                    }
+                    };
+                    reserved::check(
+                        &mut value,
+                        Keep::Nothing,
+                        &Location::new(self.path, line.line),
+                        self.diagnostics,
+                    );
+                    value
                 })
                 .collect();
             annotations.examples = Some(examples);
@@ -312,16 +320,19 @@ impl<'a> Reflector<'a> {
             let text = lexical::substitute(&text, self.variables, &start, self.diagnostics);
             match yaml::parse(&text) {
                 Ok(Value::Null) => {}
-                Ok(Value::Object(value)) => match &mut annotations.overrides {
-                    Some(overrides) => {
-                        let mut merged = Value::Object(std::mem::take(overrides));
-                        merge(&mut merged, Value::Object(value), Policy::Override);
-                        if let Value::Object(merged) = merged {
-                            *overrides = merged;
+                Ok(Value::Object(mut value)) => {
+                    reserved::check_map(&mut value, Keep::Nothing, &start, self.diagnostics);
+                    match &mut annotations.overrides {
+                        Some(overrides) => {
+                            let mut merged = Value::Object(std::mem::take(overrides));
+                            merge(&mut merged, Value::Object(value), Policy::Override);
+                            if let Value::Object(merged) = merged {
+                                *overrides = merged;
+                            }
                         }
+                        None => annotations.overrides = Some(value),
                     }
-                    None => annotations.overrides = Some(value),
-                },
+                }
                 Ok(_) => {
                     self.diagnostics.push(
                         Diagnostic::new(

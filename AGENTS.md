@@ -53,6 +53,7 @@ MSRV build, `cargo publish --dry-run` on release, and audits the workflows with
 | Route and channel DSL | `src/dsl/` | `mod.rs` (compiler), `params.rs`, `responses.rs`, `operation.rs`, `channel.rs`, `expand.rs` |
 | Merging | `src/merge.rs` | policies `Document`, `Extend`, `Operation`, `Override` (ADR 0003) |
 | Scopes | `src/scope.rs` | `@scope` names, per-scope selection and pruning of a merged document |
+| Reserved keys | `src/reserved.rs` | the `x-oas-forge-` prefix: removed and reported where user YAML enters, swept from finished documents |
 | Protobuf | `src/proto.rs` | index of `.proto` inputs for `proto(package.Message)` payloads |
 | Types | `src/schema/types.rs`, `shadow.rs` | `TypeExpr` parser and `TypeMapper` table; `shadow.rs` lets documented types win over built-in names |
 | Dialects | `src/schema/dialect.rs` | 2020-12 → 3.0 / Swagger 2.0 / AsyncAPI lowering |

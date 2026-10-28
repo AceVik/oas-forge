@@ -385,6 +385,8 @@ codes! {
     InstantiationLimit = "OF3018", Error;
     /// The root of the sources is not in the scope of a document, which therefore lacks its `security`, `servers` and other root fields.
     RootOutOfScope = "OF4002", Warning;
+    /// A source writes a key of the reserved prefix `x-oas-forge-`, the generator's own markers; the key is removed.
+    ReservedKey = "OF0009", Error;
 }
 
 impl fmt::Display for Code {

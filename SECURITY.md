@@ -65,6 +65,11 @@ make a run fail or produce a wrong document. To keep that bounded:
   input cannot rewrite a terminal line or start a Cargo directive,
 - an annotation that adds to a `security` or `servers` list another one
   set is reported (`OF4001`),
+- keys of the reserved prefix `x-oas-forge-`, the generator's own markers,
+  written in a source are removed and reported (`OF0009`), so that a
+  source cannot pose as a stage of the generator: a forged marker could
+  replace the object around it, a security requirement for example,
+  without a trace,
 - both crates use `#![forbid(unsafe_code)]`.
 
 The configuration is trusted like `build.rs`: `openapi.toml`,

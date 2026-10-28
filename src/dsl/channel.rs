@@ -21,6 +21,7 @@ use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
 use crate::docs::{closes_fence, yaml_fence};
 use crate::merge::{Policy, merge};
 use crate::proto::{self, PROTOBUF_MEDIA_TYPE, ProtoIndex};
+use crate::reserved::{self, Keep};
 use crate::schema::TypeMapper;
 use crate::scope::{self, Names};
 use crate::template::lexical;
@@ -970,7 +971,14 @@ impl<'s, 'a> Embedded<'s, 'a> {
                 )
                 .at(self.at(first)),
             ),
-            Ok(parsed) => {
+            Ok(mut parsed) => {
+                // A reserved key is reported at the line that writes it.
+                for removed in reserved::strip(&mut parsed, Keep::Markers) {
+                    let index = reserved::line_of(&text.join("\n"), &removed.key)
+                        .and_then(|i| lines.get(i))
+                        .map_or(first, |(index, _)| *index);
+                    diagnostics.push(removed.finding().at(self.at(index)));
+                }
                 // The channel's summary and description are not the
                 // block's, but YAML that sets other ones changes what the
                 // block says.
