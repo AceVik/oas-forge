@@ -68,6 +68,14 @@ the first two from its working directory. To check an untrusted change in
 CI, run it from a directory outside the checkout, with the inputs and
 outputs as flags and a `--config` file that the change cannot edit.
 
+Memory use grows with the size of the annotations, by roughly two
+hundred bytes per byte: inputs with many megabytes of route or channel
+blocks need gigabytes. Budgets bound what a small input can expand into,
+not the size of the inputs. Each scope may have a root of its own (see
+[scopes](docs/route-dsl.md#scopes)); such a root replaces the shared one
+for its scope, including the global `security`, so review a new scoped
+root like a change of the root.
+
 Outputs are written at the paths you configure. Like any program, the
 generator follows a symbolic link to a directory on such a path, so do not
 configure outputs below a directory that an untrusted change can replace
