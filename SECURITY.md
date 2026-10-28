@@ -32,7 +32,9 @@ make a run fail or produce a wrong document. To keep that bounded:
 - input files over 16 MiB are skipped (`Generator::max_file_size`),
 - symbolic links in input directories are followed only into input
   directories (`OF0008`),
-- YAML documents are limited in size and nesting depth,
+- YAML documents are limited in size and nesting depth, and to four
+  nodes per byte of their text, so that aliases cannot expand a small
+  document into a large one,
 - fragment inserts, generic instantiation and chains of type aliases have
   fixed depth limits;
   generic reference parsing is also limited to 128 nested generic lists,

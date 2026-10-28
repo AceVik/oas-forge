@@ -7,7 +7,9 @@
 //! - Duplicate keys are errors.
 //! - Merge keys (`<<`) are expanded.
 //! - `.nan` and `.inf` become the strings `.nan` and `.inf` (JSON has no such numbers).
-//! - The default resource budget rejects alias bombs and excessive nesting.
+//! - The default resource budget rejects excessive nesting, and a document
+//!   holds at most [`NODES_PER_BYTE`] nodes per byte of its text (plus
+//!   [`MIN_NODES`]), so aliases cannot expand a small text into many nodes.
 
 use serde_json::Value;
 use serde_saphyr::{DefaultMessageFormatter, MessageFormatter, NonFiniteFloatPolicy, Options};
@@ -25,10 +27,26 @@ pub(crate) struct YamlError {
 /// users of this crate cannot set.
 const LIBRARY_HINT: &str = ", set DuplicateKeyPolicy in Options if acceptable";
 
-/// The pinned parser options listed in the module documentation. Snippets
-/// are off: callers report [`YamlError::line`] themselves.
-fn options() -> Options {
+/// How many nodes (mappings, sequences, scalars) a document may hold per
+/// byte of its text. Plain YAML has about one node for every two bytes at
+/// most; only aliases reach more. The library's 250 000 nodes are a limit
+/// for each document, and a hundred blocks of 690 bytes, each expanding
+/// five levels of aliases to 111 111 nodes, took 5.5 GB.
+const NODES_PER_BYTE: usize = 4;
+
+/// The nodes a document may hold besides [`NODES_PER_BYTE`].
+const MIN_NODES: usize = 64;
+
+/// The pinned parser options listed in the module documentation, for a
+/// text of `len` bytes. Snippets are off: callers report
+/// [`YamlError::line`] themselves.
+fn options(len: usize) -> Options {
+    let mut budget = serde_saphyr::budget::Budget::default();
+    budget.max_nodes = budget
+        .max_nodes
+        .min(len.saturating_mul(NODES_PER_BYTE).saturating_add(MIN_NODES));
     let mut options = Options::default();
+    options.budget = Some(budget);
     options.strict_booleans = true;
     options.duplicate_keys = serde_saphyr::DuplicateKeyPolicy::Error;
     options.merge_keys = serde_saphyr::MergeKeyPolicy::Merge;
@@ -42,7 +60,7 @@ fn options() -> Options {
 /// Mapping keys that are numbers or booleans (`200:`) become their text, so
 /// every document is representable as JSON.
 pub(crate) fn parse(text: &str) -> Result<Value, YamlError> {
-    serde_saphyr::from_str_with_options(text, options()).map_err(|error| {
+    serde_saphyr::from_str_with_options(text, options(text.len())).map_err(|error| {
         let error = error.without_snippet();
         let message: String = DefaultMessageFormatter
             .format_message(error)

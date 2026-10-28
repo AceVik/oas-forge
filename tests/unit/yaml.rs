@@ -154,6 +154,32 @@ fn alias_bombs_and_deep_nesting_are_rejected() {
     error(&format!("x: {}{}", "[".repeat(10_000), "]".repeat(10_000)));
 }
 
+/// The library's 250 000 nodes were a limit for each document, so a
+/// hundred blocks of 690 bytes that expand five levels of aliases to
+/// 111 111 nodes took 5.5 GB. A document holds at most four nodes per byte
+/// of its text, and 64 more; reusing an anchor sixty times stays well
+/// below.
+#[test]
+fn aliases_expand_to_at_most_four_nodes_per_byte() {
+    let mut bomb = String::from("a0: &a0 [x, x, x, x, x, x, x, x, x, x]\n");
+    for i in 1..5 {
+        let refs = vec![format!("*a{}", i - 1); 10].join(", ");
+        bomb.push_str(&format!("a{i}: &a{i} [{refs}]\n"));
+    }
+    assert!(bomb.len() < 1000);
+    let (line, message) = error(&bomb);
+    assert!((1..=5).contains(&line), "{line}: {message}");
+    assert!(message.contains("budget"), "{message}");
+    // Nine nodes per alias of four bytes: 555 nodes from 270 bytes.
+    let reuse = format!(
+        "p: &p {{ a: 1, b: 2, c: 3, d: 4 }}\nq: [{}]\n",
+        vec!["*p"; 60].join(", ")
+    );
+    let value = read(&reuse);
+    assert_eq!(value["q"].as_array().map(Vec::len), Some(60));
+    assert_eq!(value["q"][59], json!({ "a": 1, "b": 2, "c": 3, "d": 4 }));
+}
+
 #[test]
 fn empty_documents_are_nothing() {
     for text in ["", "# only a comment", "~", "---\n"] {

@@ -155,6 +155,12 @@ All notable changes to `oas-forge` will be documented in this file.
   seconds). Scope pruning finds the parents of used tags with one lookup
   per name; going through all tags again for each level took 15 s for a
   chain of 10 000 tags.
+- A YAML document holds at most four nodes per byte of its text (and 64
+  more): the 250 000 nodes the YAML library allows were a limit for each
+  document, block and file, so a hundred blocks of 690 bytes that expand
+  five levels of aliases to 111 111 nodes each took 12 s and 5.5 GB.
+  Plain YAML has about one node for two bytes; anchors reused in moderation
+  stay well below.
 - The schema of a `Range` holds its element twice, so nested ranges doubled
   with each level: `Range<Range<…>>` 18 levels deep (586 bytes) took
   16 s and 3 GB. Nested ranges are mapped six levels deep; around more,
