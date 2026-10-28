@@ -95,7 +95,9 @@ All notable changes to `oas-forge` will be documented in this file.
   merged by name through an index; 40 000 tags took a minute. Struct
   expansion (`@query-params $Struct`, inferred `Query<T>`) checks
   duplicates and required fields through sets; a struct with 10 000 fields
-  took a minute and a half.
+  took a minute and a half. Findings about type aliases (ambiguous names,
+  cycles, chains) are reported once through a set; each was compared with
+  all findings so far, so 40 000 uses of an ambiguous alias took minutes.
 - The Swagger 2.0 export reports what it changed silently: `writeOnly`
   kept as `x-writeOnly` (`OF6001`), and security schemes without `type`,
   OAuth2 schemes without `flows` or a known flow, which it leaves out.

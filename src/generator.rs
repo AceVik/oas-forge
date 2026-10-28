@@ -1823,7 +1823,7 @@ fn prepare_here(
         instantiator.apply(&mut snippet.value, &snippet.location, diagnostics);
     }
     // The references stage replaces aliases with what is left.
-    let (left, reported) = instantiator.budget_left();
+    let handed_over = instantiator.hand_over();
     let concrete = instantiator.into_concrete();
     for name in concrete.keys() {
         known.insert(name.clone());
@@ -1831,7 +1831,7 @@ fn prepare_here(
 
     // Pass 4: smart references and pattern constants. Alias targets share
     // one budget across the run.
-    let mut budget = refs::AliasBudget::after(left, reported);
+    let mut budget = refs::AliasBudget::after(handed_over);
     for snippet in &mut snippets {
         let targets = Targets {
             known: &known,

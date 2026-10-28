@@ -13,7 +13,7 @@ use crate::schema::shadow;
 use crate::schema::types::{MappedType, TypeExpr, TypeMapper, is_container};
 use regex::{Captures, Regex};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 /// Maximum nesting of instantiations (`$A<$B<$C<…>>>`).
@@ -352,6 +352,8 @@ pub struct Instantiator<'a> {
     budget: usize,
     /// Whether running out of the budget was reported.
     budget_reported: bool,
+    /// The alias findings reported so far, each once.
+    alias_findings: BTreeSet<String>,
 }
 
 impl<'a> Instantiator<'a> {
@@ -385,6 +387,7 @@ impl<'a> Instantiator<'a> {
             in_data: false,
             budget: MAX_INSTANTIATED_SIZE,
             budget_reported: false,
+            alias_findings: BTreeSet::new(),
         }
     }
 
@@ -570,9 +573,14 @@ impl<'a> Instantiator<'a> {
             registry: self.registry,
             known: self.known,
         };
-        let Found::Alias(alias) =
-            lookup.find(&name, args.len(), location, &self.aliasing, diagnostics)
-        else {
+        let Found::Alias(alias) = lookup.find(
+            &name,
+            args.len(),
+            location,
+            &self.aliasing,
+            diagnostics,
+            &mut self.alias_findings,
+        ) else {
             return None;
         };
         let bindings: BTreeMap<&str, &str> = alias
@@ -656,10 +664,15 @@ impl<'a> Instantiator<'a> {
         self.concrete
     }
 
-    /// What is left of [`MAX_INSTANTIATED_SIZE`], and whether running out
-    /// was reported; the references stage continues with it.
-    pub(crate) fn budget_left(&self) -> (usize, bool) {
-        (self.budget, self.budget_reported)
+    /// What is left of [`MAX_INSTANTIATED_SIZE`], whether running out was
+    /// reported, and the alias findings reported: the references stage
+    /// continues with them.
+    pub(crate) fn hand_over(&mut self) -> (usize, bool, BTreeSet<String>) {
+        (
+            self.budget,
+            self.budget_reported,
+            std::mem::take(&mut self.alias_findings),
+        )
     }
 
     /// The replacement of the generic reference `text`: the inline schema of
@@ -861,6 +874,7 @@ impl<'a> Instantiator<'a> {
             location,
             expanding,
             &mut Diagnostics::new(),
+            &mut BTreeSet::new(),
         );
         if let Found::Alias(alias) = found
             && let Some(target) = bound_target(alias, &args, budget)?

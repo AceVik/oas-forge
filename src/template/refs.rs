@@ -245,18 +245,24 @@ pub(crate) struct AliasBudget {
     left: usize,
     /// Whether running out was reported.
     reported: bool,
+    /// The alias findings reported so far, each once.
+    findings: BTreeSet<String>,
 }
 
 impl AliasBudget {
     /// The whole budget.
     pub(crate) fn new() -> Self {
-        Self::after(MAX_INSTANTIATED_SIZE, false)
+        Self::after((MAX_INSTANTIATED_SIZE, false, BTreeSet::new()))
     }
 
     /// The budget `left` after an earlier stage, which `reported` running
-    /// out already.
-    pub(crate) fn after(left: usize, reported: bool) -> Self {
-        Self { left, reported }
+    /// out already and reported the alias `findings`.
+    pub(crate) fn after((left, reported, findings): (usize, bool, BTreeSet<String>)) -> Self {
+        Self {
+            left,
+            reported,
+            findings,
+        }
     }
 
     /// The target `schema` of the alias `name`, if it fits; otherwise
@@ -393,7 +399,14 @@ fn resolve_at(value: &mut Value, targets: Targets<'_>, location: &Location, stat
                 .and_then(reference_name)
                 .map(str::to_string)
             {
-                match lookup.find(&name, 0, location, &state.expanding, state.diagnostics) {
+                match lookup.find(
+                    &name,
+                    0,
+                    location,
+                    &state.expanding,
+                    state.diagnostics,
+                    &mut state.budget.findings,
+                ) {
                     Found::Alias(alias) => {
                         if let Some(target) =
                             state

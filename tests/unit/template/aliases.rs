@@ -221,3 +221,28 @@ fn generic_alias_arguments_count_with_their_length() {
     );
     assert!(codes(&diagnostics).contains(&Code::UnknownBlueprint));
 }
+
+/// Each ambiguous use is a finding of its own; checking a new one against
+/// all findings so far made 16 000 uses take seconds and 40 000 minutes.
+#[test]
+fn many_ambiguous_uses_are_reported_quickly() {
+    let structs: String = (0..30_000)
+        .map(|i| format!("/// @openapi\npub struct S{i} {{ pub a: Code }}\n"))
+        .collect();
+    let started = std::time::Instant::now();
+    let (_, diagnostics) = pipeline(&[
+        ("a.rs", "type Code = u8;"),
+        ("b.rs", "type Code = String;"),
+        ("c.rs", &structs),
+    ]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    let ambiguous = codes(&diagnostics)
+        .into_iter()
+        .filter(|code| *code == Code::AmbiguousAlias)
+        .count();
+    assert_eq!(ambiguous, 30_000);
+}
