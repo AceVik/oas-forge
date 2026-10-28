@@ -155,6 +155,10 @@ All notable changes to `oas-forge` will be documented in this file.
   seconds). Scope pruning finds the parents of used tags with one lookup
   per name; going through all tags again for each level took 15 s for a
   chain of 10 000 tags.
+- The schema of a `Range` holds its element twice, so nested ranges doubled
+  with each level: `Range<Range<…>>` 18 levels deep (586 bytes) took
+  16 s and 3 GB. Nested ranges are mapped six levels deep; around more,
+  the element is `{}`.
 - The Swagger 2.0 export reports what it changed silently: `writeOnly`
   kept as `x-writeOnly` (`OF6001`), and security schemes without `type`,
   OAuth2 schemes without `flows` or a known flow, which it leaves out.

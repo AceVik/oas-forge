@@ -63,6 +63,13 @@ const SMART_MARKER: &str = "__oas_forge_smart__";
 /// The deepest nesting [`TypeExpr::parse`] accepts.
 const MAX_TYPE_NESTING: usize = 32;
 
+/// How many types the element of a `Range` may spell out (see
+/// [`TypeExpr::spelled`]) before its schema is left as `{}`: the schema of
+/// a range holds its element twice, so `Range<Range<…>>` doubled with each
+/// level (18 levels, 586 bytes, took 3 GB). Nested ranges are mapped six
+/// levels deep.
+const MAX_RANGE_ELEMENT: usize = 64;
+
 /// How deeply `text` nests brackets (`<`, `(`, `[`; the `>` of `->` closes
 /// nothing), and the number of `&` and `*`, whichever is larger.
 fn nesting(text: &str) -> usize {
@@ -237,6 +244,32 @@ impl TypeExpr {
     /// ```
     pub fn is_smart(&self) -> bool {
         matches!(self, Self::Named { smart: true, .. })
+    }
+
+    /// How many types the schema of the type spells out: one for each type
+    /// written, and the element of a `Range` twice (its schema holds it as
+    /// `start` and `end`). Saturating.
+    fn spelled(&self) -> usize {
+        match self {
+            Self::Named { args, .. } => {
+                let inner = args
+                    .iter()
+                    .map(Self::spelled)
+                    .fold(0, usize::saturating_add);
+                let twice = matches!(self.name(), Some("Range" | "RangeInclusive"));
+                inner
+                    .saturating_mul(if twice { 2 } else { 1 })
+                    .saturating_add(1)
+            }
+            Self::Tuple(items) => items
+                .iter()
+                .map(Self::spelled)
+                .fold(1, usize::saturating_add),
+            Self::Array { elem, .. } | Self::Slice(elem) | Self::Reference(elem) => {
+                elem.spelled().saturating_add(1)
+            }
+            Self::Other(_) => 1,
+        }
     }
 
     /// The parts of the type that cannot be documented: function pointers,
@@ -935,11 +968,18 @@ impl TypeMapper {
                 json!({ "type": "object" })
             }
             "Value" => json!({}),
-            "Range" | "RangeInclusive" => json!({
-                "type": "object",
-                "properties": { "start": element(), "end": element() },
-                "required": ["start", "end"],
-            }),
+            "Range" | "RangeInclusive" => {
+                // The element twice: a nested range doubles with each level.
+                let element = match first {
+                    Some(inner) if inner.spelled() > MAX_RANGE_ELEMENT => json!({}),
+                    _ => element(),
+                };
+                json!({
+                    "type": "object",
+                    "properties": { "start": element.clone(), "end": element },
+                    "required": ["start", "end"],
+                })
+            }
             "PhantomData" => json!({ "type": "null" }),
             "Uuid" => json!({ "type": "string", "format": "uuid" }),
             "Ulid" => json!({ "type": "string", "format": "ulid" }),
