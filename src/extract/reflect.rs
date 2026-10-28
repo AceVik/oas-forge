@@ -243,6 +243,57 @@ impl<'a> Reflector<'a> {
         }
     }
 
+    /// Whether an exported type (`what`, e.g. ``struct `S` ``, at `line`)
+    /// would make a key of the document from a reserved name: its own name
+    /// (`components.schemas`, the schemas of its tagged variants), its
+    /// `#[serde(tag)]` or its `#[serde(content)]` (properties). Such a
+    /// name is reported and the type is not documented.
+    fn reserved_container(&mut self, naming: &Naming, what: &str, line: usize) -> bool {
+        let keys = [
+            ("name", Some(&naming.name)),
+            ("tag", naming.serde.tag.as_ref()),
+            ("content key", naming.serde.content.as_ref()),
+        ];
+        let Some((role, name)) = keys.into_iter().find_map(|(role, name)| {
+            name.filter(|name| reserved::is_name(name))
+                .map(|n| (role, n))
+        }) else {
+            return false;
+        };
+        self.diagnostics.push(
+            Diagnostic::new(
+                Code::ReservedKey,
+                reserved::name_message(
+                    format_args!("the {role} `{name}` of {what}"),
+                    "the type is not documented",
+                ),
+            )
+            .at(self.location(line)),
+        );
+        true
+    }
+
+    /// Whether the serialized `name` of a field or variant (`what`, e.g.
+    /// ``field `id` ``, at `line`), a key of the schema, is reserved: then
+    /// it is reported and the member is left out.
+    fn reserved_member(&mut self, name: &str, what: &str, line: usize) -> bool {
+        if !reserved::is_name(name) {
+            return false;
+        }
+        let (member, _) = what.split_once(' ').unwrap_or((what, ""));
+        self.diagnostics.push(
+            Diagnostic::new(
+                Code::ReservedKey,
+                reserved::name_message(
+                    format_args!("the serialized name `{name}` of {what}"),
+                    &format!("the {member} is left out"),
+                ),
+            )
+            .at(self.location(line)),
+        );
+        true
+    }
+
     /// The serialized name of a field or variant: an explicit `rename` as
     /// written, otherwise the Rust name converted by `rule`.
     fn member_name(
@@ -476,6 +527,10 @@ impl<'a> Reflector<'a> {
             };
         }
 
+        // The name is a key of `properties`.
+        if self.reserved_member(&name, &format!("field `{ident}`"), line_of(field.span())) {
+            return Field::Skip;
+        }
         let constraints = self.constraints(&field.attrs, line_of(field.span()));
         let forced = constraints.requires_value();
         let output = container.serialize && !container.deserialize;
@@ -608,6 +663,13 @@ impl<'a> Reflector<'a> {
         if !naming.docs.exported || naming.docs.skip {
             return Vec::new();
         }
+        if self.reserved_container(
+            &naming,
+            &format!("struct `{rust_name}`"),
+            line_of(item.span()),
+        ) {
+            return Vec::new();
+        }
         let location = self.location(line_of(item.span()));
         let serde = &naming.serde;
 
@@ -722,6 +784,13 @@ impl<'a> Reflector<'a> {
                 location: self.location(line_of(item.span())),
             }));
         }
+        if self.reserved_container(
+            &naming,
+            &format!("type alias `{rust_name}`"),
+            line_of(item.span()),
+        ) {
+            return None;
+        }
         self.report_undocumentable(&ty, line_of(item.span()));
         self.finish(&mut schema, &naming, &format!("type alias `{rust_name}`"));
         // `type Paged<T> = Page<T>` is a template like a generic struct, and
@@ -750,6 +819,13 @@ impl<'a> Reflector<'a> {
         let rust_name = item.ident.unraw().to_string();
         let naming = self.naming(&item.attrs, &rust_name, ItemKind::Container);
         if !naming.docs.exported || naming.docs.skip {
+            return Vec::new();
+        }
+        if self.reserved_container(
+            &naming,
+            &format!("enum `{rust_name}`"),
+            line_of(item.span()),
+        ) {
             return Vec::new();
         }
         let location = self.location(line_of(item.span()));
@@ -797,6 +873,18 @@ impl<'a> Reflector<'a> {
                 )
             })
             .filter(|(_, n)| !n.serde.is_skipped() && !n.docs.skip)
+            .collect();
+        // The serialized name of a variant is a key (of an externally
+        // tagged value, of its `oneOf` entry) or a tag value.
+        let variants: Vec<(&syn::Variant, Naming)> = variants
+            .into_iter()
+            .filter(|(v, n)| {
+                !self.reserved_member(
+                    &Self::variant_name(n, naming.rename_all),
+                    &format!("variant `{}`", v.ident),
+                    line_of(v.span()),
+                )
+            })
             .collect();
 
         let mut items = Vec::new();

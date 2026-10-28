@@ -801,6 +801,198 @@ pub mod admin {
     );
 }
 
+/// The serialized name of a field or variant (`#[serde(rename)]`,
+/// `@openapi rename`, or a `rename_all` rule applied to the Rust name),
+/// the name of a type and its `#[serde(tag)]` and `#[serde(content)]`
+/// become keys of the schemas: one with the reserved prefix is rejected at
+/// its line, and the field, variant or type is left out. Before, a
+/// renamed field vanished from `properties` but stayed in `required`, a
+/// well-formed marker in its override replaced the `properties` of the
+/// struct, and one in the override of a renamed type replaced
+/// `components.schemas`.
+#[test]
+fn a_reserved_serialized_name_leaves_the_item_out() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+/// @openapi
+#[derive(serde::Serialize)]
+#[serde(rename_all = \"kebab-case\")]
+pub struct Renamed {
+    #[serde(rename = \"x-oas-forge-builtin\")]
+    pub a: u64,
+    /// @openapi rename \"x-oas-forge-unresolved\"
+    pub b: u64,
+    pub x_oas_forge_pattern: u64,
+    /// Looks harmless.
+    /// @openapi
+    /// name: User
+    /// schema: { type: string, description: swapped }
+    #[serde(rename = \"x-oas-forge-builtin\")]
+    pub victim: u64,
+    pub normal_one: u64,
+}
+
+/// @openapi
+#[derive(serde::Serialize)]
+#[serde(rename_all = \"kebab-case\")]
+pub enum Ev {
+    #[serde(rename = \"x-oas-forge-builtin\")]
+    A { x: u64 },
+    XOasForgeUnresolved(u64),
+    C,
+}
+
+/// @openapi
+/// name: User
+/// schema:
+///   User: { type: string, description: swapped }
+#[derive(serde::Serialize)]
+#[serde(rename = \"x-oas-forge-builtin\")]
+pub struct Evil { pub a: u64 }
+
+/// @openapi
+#[derive(serde::Serialize)]
+#[serde(tag = \"x-oas-forge-type-default\")]
+pub enum Tagged { A { x: u64 } }
+
+/// @openapi
+#[derive(serde::Serialize)]
+#[serde(tag = \"t\", content = \"x-oas-forge-extend-1\")]
+pub enum Adjacent { A(u64) }
+
+/// @openapi rename \"x-oas-forge-nothing\"
+pub type Aliased = u64;
+
+/// @openapi
+pub struct User { pub id: u64 }
+",
+    )]);
+    let schemas = &document["components"]["schemas"];
+    let u64 = json!({ "type": "integer", "format": "int64", "minimum": 0 });
+    assert_eq!(
+        schemas["Renamed"]["properties"],
+        json!({ "normal-one": u64 }),
+        "{schemas:#}"
+    );
+    assert_eq!(schemas["Renamed"]["required"], json!(["normal-one"]));
+    assert_eq!(schemas["Ev"]["enum"], json!(["c"]), "{schemas:#}");
+    assert_eq!(
+        schemas["User"],
+        json!({ "type": "object", "properties": { "id": u64 }, "required": ["id"] })
+    );
+    for gone in ["Evil", "Tagged", "Adjacent", "Aliased"] {
+        assert!(schemas.get(gone).is_none(), "{gone}: {schemas:#}");
+    }
+    assert_clean(&document);
+    let left_out = |what: &str, name: &str, effect: &str| {
+        format!(
+            "the serialized name `{name}` of {what} is a reserved name: the `x-oas-forge-` prefix is the generator's own; the {effect} is left out"
+        )
+    };
+    let undocumented = |role: &str, name: &str, what: &str| {
+        format!(
+            "the {role} `{name}` of {what} is a reserved name: the `x-oas-forge-` prefix is the generator's own; the type is not documented"
+        )
+    };
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            format!(
+                "5: error OF0009 {}",
+                left_out("field `a`", "x-oas-forge-builtin", "field")
+            ),
+            format!(
+                "7: error OF0009 {}",
+                left_out("field `b`", "x-oas-forge-unresolved", "field")
+            ),
+            format!(
+                "9: error OF0009 {}",
+                left_out(
+                    "field `x_oas_forge_pattern`",
+                    "x-oas-forge-pattern",
+                    "field"
+                )
+            ),
+            format!(
+                "10: error OF0009 {}",
+                left_out("field `victim`", "x-oas-forge-builtin", "field")
+            ),
+            format!(
+                "23: error OF0009 {}",
+                left_out("variant `A`", "x-oas-forge-builtin", "variant")
+            ),
+            format!(
+                "25: error OF0009 {}",
+                left_out(
+                    "variant `XOasForgeUnresolved`",
+                    "x-oas-forge-unresolved",
+                    "variant"
+                )
+            ),
+            format!(
+                "29: error OF0009 {}",
+                undocumented("name", "x-oas-forge-builtin", "struct `Evil`")
+            ),
+            format!(
+                "37: error OF0009 {}",
+                undocumented("tag", "x-oas-forge-type-default", "enum `Tagged`")
+            ),
+            format!(
+                "42: error OF0009 {}",
+                undocumented("content key", "x-oas-forge-extend-1", "enum `Adjacent`")
+            ),
+            format!(
+                "47: error OF0009 {}",
+                undocumented("name", "x-oas-forge-nothing", "type alias `Aliased`")
+            ),
+        ]
+    );
+}
+
+/// `@openapi-type Name` names a schema of `components.schemas`, in file
+/// docs and on items alike: a reserved name is rejected at the header
+/// line, and the block is ignored.
+#[test]
+fn a_reserved_openapi_type_name_is_rejected() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+//! @openapi-type x-oas-forge-builtin
+//! name: User
+//! schema: { type: string }
+//!
+//! @openapi-type Money
+//! type: string
+
+/// @openapi-type x-oas-forge-unresolved
+/// type: string
+fn _schemas() {}
+
+/// @openapi
+pub struct User { pub id: u64 }
+",
+    )]);
+    let schemas = document["components"]["schemas"]
+        .as_object()
+        .expect("schemas");
+    assert_eq!(schemas.keys().collect::<Vec<_>>(), ["Money", "User"]);
+    assert_eq!(schemas["User"]["type"], "object");
+    assert_clean(&document);
+    let ignored = |name: &str| {
+        format!(
+            "the `@openapi-type` name `{name}` is a reserved name: the `x-oas-forge-` prefix is the generator's own; the block is ignored"
+        )
+    };
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            format!("1: error OF0009 {}", ignored("x-oas-forge-builtin")),
+            format!("8: error OF0009 {}", ignored("x-oas-forge-unresolved")),
+        ]
+    );
+}
+
 /// Each removed key was looked up among the keys removed before, so many
 /// distinct reserved keys took time in the square of their number.
 #[test]
