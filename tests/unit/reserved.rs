@@ -406,6 +406,30 @@ fn a_reserved_key_after_an_insert_is_reported_at_its_source_line() {
     );
 }
 
+/// A reserved key is reported at its line also with a space before the
+/// colon, quoted or in a flow mapping.
+#[test]
+fn a_reserved_key_is_reported_at_its_line_however_it_is_written() {
+    let (_, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+//! @openapi
+//! components:
+//!   schemas:
+//!     A:
+//!       x-oas-forge-unresolved : forged
+//!     B: { type: object, x-oas-forge-pattern: p }
+//!     C:
+//!       'x-oas-forge-type-default': 1
+",
+    )]);
+    let lines: Vec<usize> = reserved(&diagnostics)
+        .iter()
+        .filter_map(|d| d.location().map(|l| l.line()))
+        .collect();
+    assert_eq!(lines, [5, 6, 8], "{diagnostics:#?}");
+}
+
 /// The inline schema of a directive and the value of a parameter flag
 /// are rejected with the directive's own code: the directive is ignored.
 #[test]
@@ -417,10 +441,12 @@ fn an_inline_schema_or_flag_value_with_a_reserved_key_is_ignored() {
         "@query-param e: String enum=[`{x-oas-forge-builtin: 1}`]",
         "@query-param ok: String default={x-plain: 1}",
         "@return 201: { type: object, properties: { a: { x-oas-forge-builtin: 1 } } }",
+        "@return 202: { oneOf: [{ type: string }, { x-oas-forge-builtin: 1 }] }",
     ]);
     let operation = &document.expect("compiled")["paths"]["/x"]["get"];
     assert!(operation["responses"].get("200").is_none(), "{operation:#}");
     assert!(operation["responses"].get("201").is_none(), "{operation:#}");
+    assert!(operation["responses"].get("202").is_none(), "{operation:#}");
     let parameters = operation["parameters"].as_array().expect("parameters");
     assert_eq!(parameters.len(), 3);
     assert!(parameters[0]["schema"].get("default").is_none());
@@ -431,6 +457,7 @@ fn an_inline_schema_or_flag_value_with_a_reserved_key_is_ignored() {
     assert_eq!(
         codes(&diagnostics),
         [
+            Code::InvalidDirective,
             Code::InvalidDirective,
             Code::InvalidDirective,
             Code::InvalidDirective,

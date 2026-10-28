@@ -228,9 +228,7 @@ pub(crate) fn key_lines(text: &str) -> BTreeMap<&str, usize> {
         for (at, _) in line.match_indices(PREFIX) {
             let rest = line.get(at..).unwrap_or_default();
             let end = rest
-                .find(|c: char| {
-                    c == ':' || c == '"' || c == '\'' || c.is_whitespace() || ",{}[]".contains(c)
-                })
+                .find(|c: char| c == ':' || c == '"' || c == '\'' || c.is_whitespace())
                 .unwrap_or(rest.len());
             let (key, after) = rest.split_at(end);
             if after
