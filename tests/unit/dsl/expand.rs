@@ -242,3 +242,33 @@ fn alternatives_of_a_choice_are_not_expanded() {
     let root = "{ properties: { own: { type: string } }, allOf: [{ anyOf: [{ properties: { x: { type: string } } }, { properties: { y: { type: string } } }] }] }";
     assert_eq!(expanded_root(&named_schema("Root", root)), ["own:false"]);
 }
+
+/// Each expanded parameter and required field was checked against the ones
+/// before by scanning: a struct with 10 000 fields took a minute and a half.
+#[test]
+fn large_structs_expand_quickly() {
+    let fields: String = (0..10_000).map(|i| format!("pub f{i}: u64, ")).collect();
+    let text = format!(
+        "/// @openapi\npub struct Big {{ {fields} pub o: Option<u8> }}\n/// @route GET /x\n/// @query-params $Big\n/// @param query f3: String\nfn x() {{}}"
+    );
+    let started = std::time::Instant::now();
+    let (document, diagnostics) = pipeline(&[("api.rs", &text)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    let parameters = document["paths"]["/x"]["get"]["parameters"]
+        .as_array()
+        .unwrap();
+    assert_eq!(parameters.len(), 10_001);
+    // The explicit parameter wins; the optional field is not required.
+    let f3: Vec<&Value> = parameters.iter().filter(|p| p["name"] == "f3").collect();
+    assert_eq!(f3.len(), 1);
+    assert_eq!(f3[0]["schema"], json!({ "type": "string" }));
+    let o = parameters.iter().find(|p| p["name"] == "o").unwrap();
+    assert_eq!(o["required"], false);
+    let last = parameters.iter().find(|p| p["name"] == "f9999").unwrap();
+    assert_eq!(last["required"], true);
+}

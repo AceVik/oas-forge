@@ -75,7 +75,10 @@ All notable changes to `oas-forge` will be documented in this file.
   items of a list were serialized again for every annotation that added to
   it, and operation parameters were matched by scanning the list, so a few
   thousand annotations adding to one list took minutes. Top-level tags are
-  merged by name through an index; 40 000 tags took a minute.
+  merged by name through an index; 40 000 tags took a minute. Struct
+  expansion (`@query-params $Struct`, inferred `Query<T>`) checks
+  duplicates and required fields through sets; a struct with 10 000 fields
+  took a minute and a half.
 - The Swagger 2.0 export reports what it changed silently: `writeOnly`
   kept as `x-writeOnly` (`OF6001`), and security schemes without `type`,
   OAuth2 schemes without `flows` or a known flow, which it leaves out.

@@ -7,6 +7,7 @@ use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::document::for_each_operation;
 use crate::schema::strip_null;
 use serde_json::{Map, Value, json};
+use std::collections::BTreeSet;
 
 /// How deep flattened structs (`#[serde(flatten)]`) are followed.
 const MAX_FLATTEN_DEPTH: usize = 8;
@@ -26,8 +27,9 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
         if !parameters.iter().any(|p| p.get(EXPAND_KEY).is_some()) {
             return;
         }
-        // Explicit parameters win over expanded ones, wherever they are listed.
-        let explicit: Vec<(Value, Value)> = parameters
+        // Explicit parameters win over expanded ones, wherever they are
+        // listed; then the first expanded one of an identity.
+        let mut seen: BTreeSet<String> = parameters
             .iter()
             .filter(|p| p.get(EXPAND_KEY).is_none())
             .map(identity)
@@ -80,10 +82,7 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
                 }
             };
             for parameter in new {
-                let id = identity(&parameter);
-                let duplicate =
-                    explicit.contains(&id) || expanded.iter().any(|p| identity(p) == id);
-                if !duplicate {
+                if seen.insert(identity(&parameter)) {
                     expanded.push(parameter);
                 }
             }
@@ -93,12 +92,14 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
     remove_empty_parameters(document);
 }
 
-/// The name and location of a parameter.
-fn identity(parameter: &Value) -> (Value, Value) {
-    (
-        parameter.get("name").cloned().unwrap_or_default(),
-        parameter.get("in").cloned().unwrap_or_default(),
-    )
+/// The name and location of a parameter, as JSON texts.
+fn identity(parameter: &Value) -> String {
+    let part = |key: &str| {
+        parameter
+            .get(key)
+            .map_or_else(|| "null".to_string(), Value::to_string)
+    };
+    format!("{} {}", part("name"), part("in"))
 }
 
 /// The properties of an object schema with the names it requires, including
@@ -109,7 +110,7 @@ struct Fields {
     /// The properties by name; the first schema that has a name wins.
     properties: Map<String, Value>,
     /// The names of the required properties (none of optional schemas).
-    required: Vec<String>,
+    required: BTreeSet<String>,
 }
 
 impl Fields {
@@ -140,9 +141,7 @@ impl Fields {
         if !optional {
             let required = schema.get("required").and_then(Value::as_array);
             for name in required.into_iter().flatten().filter_map(Value::as_str) {
-                if !self.required.iter().any(|r| r == name) {
-                    self.required.push(name.to_string());
-                }
+                self.required.insert(name.to_string());
             }
         }
         for part in schema
