@@ -7,6 +7,7 @@ use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use regex::Regex;
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
@@ -33,6 +34,26 @@ pub(super) const MAX_EXPANSION_BYTES: usize = 16 * 1024 * 1024;
 
 /// Total lines visited, including directives that produce no output.
 pub(super) const MAX_EXPANSION_STEPS: usize = 65_536;
+
+/// Total bytes of lines all fragment expansions of one generator run visit
+/// together: each block stays below [`MAX_EXPANSION_BYTES`], but many
+/// blocks inserting one large fragment would fill the memory.
+pub(crate) const MAX_RUN_EXPANSION_BYTES: usize = 64 * 1024 * 1024;
+
+thread_local! {
+    /// What is left of [`MAX_RUN_EXPANSION_BYTES`] while a generator run
+    /// prepares its snippets on this thread; `None` outside a run.
+    static RUN_BUDGET: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+/// Runs `task` with the whole [`MAX_RUN_EXPANSION_BYTES`] for the fragment
+/// expansions on this thread, as one generator run.
+pub(crate) fn with_run_budget<T>(task: impl FnOnce() -> T) -> T {
+    let outer = RUN_BUDGET.replace(Some(MAX_RUN_EXPANSION_BYTES));
+    let result = task();
+    RUN_BUDGET.set(outer);
+    result
+}
 
 /// Values of `{{NAME}}` placeholders. `{{env:NAME}}` takes the value of
 /// `env:NAME`, which [`Generator::allow_env`](crate::Generator::allow_env)
@@ -299,13 +320,15 @@ fn paste(
     location: &Location,
     diagnostics: &mut Diagnostics,
 ) -> (Vec<String>, Vec<usize>) {
+    let run = RUN_BUDGET.get();
+    let bytes = run.map_or(MAX_EXPANSION_BYTES, |left| left.min(MAX_EXPANSION_BYTES));
     let mut expansion = Expansion {
         registry,
         lines: Vec::new(),
         counter: 0,
         stack: Vec::new(),
         cycles: BTreeSet::new(),
-        remaining_bytes: MAX_EXPANSION_BYTES,
+        remaining_bytes: bytes,
         remaining_steps: MAX_EXPANSION_STEPS,
         exhausted: false,
         diagnostics,
@@ -316,7 +339,14 @@ fn paste(
             break;
         }
     }
-    let Expansion { lines, .. } = expansion;
+    let Expansion {
+        lines,
+        remaining_bytes,
+        ..
+    } = expansion;
+    if let Some(left) = run {
+        RUN_BUDGET.set(Some(left - (bytes - remaining_bytes)));
+    }
     lines.into_iter().unzip()
 }
 
@@ -463,7 +493,7 @@ impl Expansion<'_> {
         self.diagnostics.push(
             Diagnostic::new(
                 Code::ExpansionLimit,
-                "fragment expansion exceeds 16 MiB of processed text or 65536 lines",
+                "fragment expansion exceeds 16 MiB of processed text or 65536 lines, or the fragment expansions of the run together exceed 64 MiB",
             )
             .at(location.clone()),
         );

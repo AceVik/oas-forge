@@ -25,7 +25,9 @@ All notable changes to `oas-forge` will be documented in this file.
   exhausting the stack. Malformed generic references report error `OF3015`.
 - Fragment inserts and extensions have total work and text budgets, preventing
   exponential expansion even without cycles. Oversized substituted fragment
-  bodies are rejected before allocation (error `OF3016`).
+  bodies are rejected before allocation (error `OF3016`). The expansions
+  of a run also share 64 MiB: each block stayed within its 16 MiB, but a
+  hundred blocks inserting one large fragment filled gigabytes.
 - Variable substitution is size limited and preserves newlines and control
   characters in whole YAML string values. Multiline prose and subsequent
   YAML lines keep their original source locations.

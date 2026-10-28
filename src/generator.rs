@@ -1716,6 +1716,15 @@ pub(crate) fn prepare(
     settings: Settings<'_>,
     diagnostics: &mut Diagnostics,
 ) -> Result<Prepared> {
+    lexical::with_run_budget(|| prepare_here(sources, settings, diagnostics))
+}
+
+/// [`prepare`] within the fragment expansion budget of the run.
+fn prepare_here(
+    sources: &SourceSet,
+    settings: Settings<'_>,
+    diagnostics: &mut Diagnostics,
+) -> Result<Prepared> {
     let Settings {
         types, variables, ..
     } = settings;

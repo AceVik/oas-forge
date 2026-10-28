@@ -183,8 +183,9 @@ pub async fn reports() {}
 Unknown fragments (`OF3001`), invalid fragment YAML (`OF3002`), missing
 arguments (`OF3003`) and extra arguments (`OF3011`, ignored) are reported.
 Expansion also has a total budget of 16 MiB of processed text and 65,536
-visited lines or extension resolutions per expansion. Exceeding it reports
-error `OF3016`, even when the fragments form no cycle.
+visited lines or extension resolutions per expansion, and the expansions of
+a run share 64 MiB of processed text. Exceeding either reports error
+`OF3016`, even when the fragments form no cycle.
 
 ## Named schemas
 

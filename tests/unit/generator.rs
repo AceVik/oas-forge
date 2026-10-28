@@ -3619,3 +3619,43 @@ fn many_tags_merge_quickly() {
     assert_eq!(tags[40_000], json!(5));
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
+
+/// Each block stayed within its 16 MiB of fragment expansion, but many
+/// blocks inserting one large fragment filled the memory. The expansions of
+/// a run share 64 MiB.
+#[test]
+fn fragment_expansions_of_a_run_share_a_budget() {
+    let mut text =
+        String::from("//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n");
+    // F0 pastes F4 8^4 = 4096 times: about 8.2 MB per block.
+    for i in 0..4 {
+        text.push_str(&format!("/// @openapi-fragment F{i}\n"));
+        for _ in 0..8 {
+            text.push_str(&format!("/// @insert F{}\n", i + 1));
+        }
+        text.push_str(&format!("fn f{i}() {{}}\n"));
+    }
+    text.push_str(&format!(
+        "/// @openapi-fragment F4\n/// {}\nfn f4() {{}}\n",
+        "x".repeat(2000)
+    ));
+    for block in 0..12 {
+        text.push_str(&format!(
+            "/// @openapi\n/// x-{block}: |\n///   @insert F0\nfn b{block}() {{}}\n"
+        ));
+    }
+    let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+    let expanded = (0..12)
+        .filter(|block| {
+            document[format!("x-{block}")]
+                .as_str()
+                .is_some_and(|s| s.len() > 8_000_000)
+        })
+        .count();
+    assert_eq!(expanded, 8, "64 MiB hold eight blocks");
+    let limits = diagnostics
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 4, "{diagnostics:?}");
+}
