@@ -69,6 +69,10 @@ exclude_re = [
     # `@route` sets the method together with a non-empty path and `@webhook`
     # with the name, so an empty method alone means "no valid header".
     "src/dsl/mod.rs:.*replace \\|\\| with && in Compiler<'_, '_>::finish",
+    # A bare name of `SHADOWABLE` always reaches a built-in arm of
+    # `map_named`; whether to resolve the name by its module only matters
+    # for names that are not built in.
+    "src/schema/types.rs:.*delete ! in TypeMapper::map",
     # The count check only saves building the `formData` parameters of a
     # form that the size check while building rejects anyway: each costs
     # at least `PARAMETER_COST`, and its text is never empty.
