@@ -2632,7 +2632,9 @@ mod route_defaults_findings {
 
     /// Every route compiles its module's defaults again, and each of their
     /// findings was compared with all findings of the run so far: 10 000
-    /// invalid lines under 100 routes took a minute.
+    /// invalid lines under 100 routes took a minute. (The copies of the
+    /// defaults for the routes after the first thirteen exceed the run's
+    /// budget for pasted text and are left out, each with `OF3016`.)
     #[test]
     fn many_findings_of_many_routes_are_reported_once_quickly() {
         let mut text = String::from("/// @route-defaults\n");
@@ -2654,10 +2656,13 @@ mod route_defaults_findings {
             started.elapsed()
         );
         assert_eq!(document["paths"].as_object().map(|p| p.len()), Some(100));
-        let found = found(&diagnostics);
+        let (found, limits): (Vec<String>, Vec<String>) = found(&diagnostics)
+            .into_iter()
+            .partition(|f| !f.starts_with(Code::ExpansionLimit.as_str()));
         assert_eq!(found.len(), 10_000, "{:?}", &found[9_995..]);
         assert_eq!(found[0], "OF2006 api.rs:2");
         assert_eq!(found[9_999], "OF2006 api.rs:10001");
+        assert_eq!(limits.len(), 100 - 13, "{limits:?}");
     }
 }
 
@@ -3783,12 +3788,13 @@ fn many_tags_merge_quickly() {
 
 /// Each block stayed within its 16 MiB of fragment expansion, but many
 /// blocks inserting one large fragment filled the memory. The expansions of
-/// a run share 32 MiB.
+/// a run share 32 MiB, each pasted line costing 256 besides its text.
 #[test]
 fn fragment_expansions_of_a_run_share_a_budget() {
     let mut text =
         String::from("//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n");
-    // F0 pastes F4 8^4 = 4096 times: about 8.2 MB per block.
+    // F0 pastes F4 8^4 = 4096 times: about 8.2 MB in 8776 lines per block
+    // (10.5 MB with the cost of the lines).
     for i in 0..4 {
         text.push_str(&format!("/// @openapi-fragment F{i}\n"));
         for _ in 0..8 {
@@ -3813,12 +3819,74 @@ fn fragment_expansions_of_a_run_share_a_budget() {
                 .is_some_and(|s| s.len() > 8_000_000)
         })
         .count();
-    assert_eq!(expanded, 4, "32 MiB hold four blocks");
+    assert_eq!(expanded, 3, "32 MiB hold three blocks");
+    let limits = diagnostics
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 9, "{diagnostics:?}");
+}
+
+/// Short pasted lines became kilobytes of document each: 32 MiB of
+/// `@param` lines took 11 GB. Each pasted line costs 256 besides its text,
+/// so of 20 blocks inserting 10 000 one-letter lines (30 KB each), twelve
+/// fit.
+#[test]
+fn each_pasted_line_costs_more_than_its_text() {
+    let mut text = String::from(
+        "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//!\n//! @openapi-fragment F\n",
+    );
+    for _ in 0..10_000 {
+        text.push_str("//! v\n");
+    }
+    for block in 0..20 {
+        text.push_str(&format!(
+            "\n/// @openapi\n/// x-{block}: |\n///   @insert F\nfn b{block}() {{}}\n"
+        ));
+    }
+    let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+    let expanded = (0..20)
+        .filter(|block| {
+            document[format!("x-{block}")]
+                .as_str()
+                .is_some_and(|s| s.lines().count() == 10_000)
+        })
+        .count();
+    assert_eq!(expanded, 12);
     let limits = diagnostics
         .iter()
         .filter(|d| d.code() == Code::ExpansionLimit)
         .count();
     assert_eq!(limits, 8, "{diagnostics:?}");
+}
+
+/// An `@extend` body is pasted like an inserted fragment: each of its
+/// lines costs 256 besides its text, so of 20 blocks extending a body of
+/// 10 001 short lines (20 KB, 2.6 MB with the lines), thirteen fit.
+#[test]
+fn each_line_of_an_extend_body_costs_more_than_its_text() {
+    let mut text = String::from(
+        "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//!\n//! @openapi-fragment F\n",
+    );
+    for _ in 0..10_000 {
+        text.push_str("//! #\n");
+    }
+    text.push_str("//! x-ok: true\n");
+    for block in 0..20 {
+        text.push_str(&format!(
+            "\n/// @openapi\n/// x-{block}:\n///   @extend F\nfn b{block}() {{}}\n"
+        ));
+    }
+    let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+    let extended = (0..20)
+        .filter(|block| document[format!("x-{block}")]["x-ok"] == true)
+        .count();
+    assert_eq!(extended, 13, "{document:#}");
+    let limits = diagnostics
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 7, "{diagnostics:?}");
 }
 
 /// The defaults of a module were expanded once and copied into each route
@@ -3911,7 +3979,8 @@ fn text_written_in_the_inputs_is_not_counted_for_the_run() {
 
 /// Pasted lines may use the run's 32 MiB exactly; one byte more is
 /// reported. The fragment comes from a shared document, so its body is
-/// exact: each block pastes it with an indentation of two.
+/// exact: each block pastes it with an indentation of two, as one line
+/// that costs 256 besides its text.
 #[test]
 fn pasted_text_may_fill_the_run_budget_exactly() {
     for (extra, limited) in [(0, false), (1, true)] {
@@ -3920,7 +3989,7 @@ fn pasted_text_may_fill_the_run_budget_exactly() {
             "F",
             oas_forge::template::Fragment {
                 params: Vec::new(),
-                body: "v".repeat((8 << 20) - 2 + extra),
+                body: "v".repeat((8 << 20) - 2 - 256 + extra),
             },
         );
         let shared = json!({ "components": shared.export() }).to_string();
@@ -3950,11 +4019,13 @@ fn pasted_text_may_fill_the_run_budget_exactly() {
 
 /// The copies of route defaults may use the run's 32 MiB exactly: the
 /// first route expands the block (its own text, not counted), each further
-/// one copies its lines (`@route-defaults` and ` x-d: …`).
+/// one copies its lines (`@route-defaults` and ` x-d: …`, each costing 256
+/// besides its text).
 #[test]
 fn copies_of_route_defaults_may_fill_the_run_budget_exactly() {
     for (extra, limited) in [(0, false), (1, true)] {
-        let value = "v".repeat((8 << 20) - "@route-defaults".len() - " x-d: ".len() + extra);
+        let value =
+            "v".repeat((8 << 20) - "@route-defaults".len() - " x-d: ".len() - 2 * 256 + extra);
         let mut text = format!(
             "//! @openapi\n//! openapi: 3.1.0\n//! info: {{ title: T, version: '1' }}\n\n/// @route-defaults\n/// x-d: {value}\nmod api {{\n"
         );
@@ -4026,13 +4097,15 @@ fn copies_of_a_block_for_its_route_lines_count_against_the_run_budget() {
 
 /// The copies may use the run's 32 MiB exactly: the first `@route` line
 /// compiles the block's own text (not counted), each further one a copy of
-/// its lines (` @route GET /rN` and ` @description …`).
+/// its six lines (` @route GET /rN` and ` @description …`, each costing 256
+/// besides its text).
 #[test]
 fn copies_of_a_block_for_its_route_lines_may_fill_the_run_budget_exactly() {
     for (extra, limited) in [(0, false), (1, true)] {
         let headers: String = (0..5).map(|i| format!("/// @route GET /r{i}\n")).collect();
-        let description =
-            "v".repeat((8 << 20) - 5 * " @route GET /rN".len() - " @description ".len() + extra);
+        let description = "v".repeat(
+            (8 << 20) - 5 * " @route GET /rN".len() - " @description ".len() - 6 * 256 + extra,
+        );
         let text = format!(
             "//! @openapi\n//! openapi: 3.1.0\n//! info: {{ title: T, version: '1' }}\n\n{headers}/// @description {description}\nfn many() {{}}\n"
         );

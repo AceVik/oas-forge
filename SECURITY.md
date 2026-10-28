@@ -39,8 +39,9 @@ make a run fail or produce a wrong document. To keep that bounded:
 - fragment expansion and variable substitution have total text and work
   budgets, including acyclic fanout and parameter substitution, per block
   and for the text the whole run pastes (fragments, `@extend` bodies,
-  copies of route defaults and `.proto` files); struct parameter expansion
-  has a budget per document; the
+  copies of route defaults, of a block for each of its `@route` lines and
+  of `.proto` files, each pasted line counted with 256 bytes besides its
+  text); struct parameter expansion has a budget per document; the
   concrete schemas of generic instantiation and the targets of replaced
   type aliases have a total size budget,
 - outputs use exclusively created, unique temporary files and are replaced
@@ -71,7 +72,9 @@ outputs as flags and a `--config` file that the change cannot edit.
 Memory use grows with the size of the annotations, by roughly two
 hundred bytes per byte: inputs with many megabytes of route or channel
 blocks need gigabytes. Budgets bound what a small input can expand into,
-not the size of the inputs. Each scope may have a root of its own (see
+not the size of the inputs: filling the budget for pasted text with short
+lines from about a hundred kilobytes of annotations takes about a gigabyte
+and a second or two. Each scope may have a root of its own (see
 [scopes](docs/route-dsl.md#scopes)); such a root replaces the shared one
 for its scope, including the global `security`, so review a new scoped
 root like a change of the root.

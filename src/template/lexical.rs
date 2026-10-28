@@ -40,8 +40,22 @@ pub(super) const MAX_EXPANSION_STEPS: usize = 65_536;
 /// the inputs is not counted): each block stays below
 /// [`MAX_EXPANSION_BYTES`], but many blocks inserting one large fragment
 /// would fill the memory (parsed, the text takes about twenty times its
-/// size).
+/// size). Each pasted line costs [`PASTED_LINE_COST`] besides its text.
 pub(crate) const MAX_RUN_EXPANSION_BYTES: usize = 32 * 1024 * 1024;
+
+/// What a pasted line costs of [`MAX_RUN_EXPANSION_BYTES`] besides its
+/// text: a short line such as `@param query q: u8` becomes kilobytes of
+/// document, so 32 MiB of short lines took 11 GB.
+pub(crate) const PASTED_LINE_COST: usize = 256;
+
+/// What pasting `lines` once more costs of [`MAX_RUN_EXPANSION_BYTES`]:
+/// their text and [`PASTED_LINE_COST`] for each.
+pub(crate) fn pasted_cost<'l>(lines: impl IntoIterator<Item = &'l str>) -> usize {
+    lines
+        .into_iter()
+        .map(|line| line.len().saturating_add(PASTED_LINE_COST))
+        .fold(0, usize::saturating_add)
+}
 
 thread_local! {
     /// What is left of [`MAX_RUN_EXPANSION_BYTES`] while a generator run
@@ -524,9 +538,10 @@ impl Expansion<'_> {
     fn line(&mut self, line: &str, location: &Location, offset: usize) {
         // Lines of fragments also count for the run.
         let run = self.run_bytes.filter(|_| !self.stack.is_empty());
+        let cost = pasted_cost([line]);
         if self.remaining_steps == 0
             || line.len() > self.remaining_bytes
-            || run.is_some_and(|left| line.len() > left)
+            || run.is_some_and(|left| cost > left)
         {
             self.exhaust(location);
             return;
@@ -534,7 +549,7 @@ impl Expansion<'_> {
         self.remaining_steps -= 1;
         self.remaining_bytes -= line.len();
         if let Some(left) = run {
-            self.run_bytes = Some(left - line.len());
+            self.run_bytes = Some(left - cost);
         }
         let line = TICKED_RE.replace(line, "$1$2");
         let line = line.as_ref();

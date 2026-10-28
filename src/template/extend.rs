@@ -203,9 +203,17 @@ impl Extension<'_> {
         if let Some(finding) = lexical::argument_count(name, fragment.params.len(), args.len()) {
             self.diagnostics.push(finding.at(self.location.clone()));
         }
-        // The body is a copy: it counts for the run too.
-        let Some(size) = lexical::substituted_size(&fragment.body, &fragment.params, &args)
-            .filter(|size| *size <= self.remaining_bytes && lexical::charge_run(*size))
+        // The body is a copy: it counts for the run too, with each line.
+        let lines = fragment.body.split('\n').count();
+        let Some(size) =
+            lexical::substituted_size(&fragment.body, &fragment.params, &args).filter(|size| {
+                *size <= self.remaining_bytes
+                    && lexical::charge_run(
+                        lines
+                            .saturating_mul(lexical::PASTED_LINE_COST)
+                            .saturating_add(*size),
+                    )
+            })
         else {
             self.exhaust();
             return None;

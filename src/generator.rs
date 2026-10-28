@@ -2549,7 +2549,7 @@ fn expand_defaults(
                     let block = cache.entry(key).or_insert_with(expand);
                     // Expanding was charged once; every further route
                     // copies the lines again.
-                    let size = block.iter().map(|(text, _)| text.len()).sum();
+                    let size = lexical::pasted_cost(block.iter().map(|(text, _)| text.as_str()));
                     if copy && !lexical::charge_run(size) {
                         diagnostics.push(
                             Diagnostic::new(

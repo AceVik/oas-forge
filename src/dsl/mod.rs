@@ -30,7 +30,7 @@ use crate::docs::{closes_fence, yaml_fence};
 use crate::merge::{Policy, merge};
 use crate::schema::{MappedType, TypeExpr, TypeMapper, shadow};
 use crate::scope::{self, Names};
-use crate::template::lexical::{DEFAULTS_MARKER, EXTEND_KEY, charge_run};
+use crate::template::lexical::{DEFAULTS_MARKER, EXTEND_KEY, charge_run, pasted_cost};
 use crate::yaml;
 use expand::identity;
 use operation::Security;
@@ -947,7 +947,7 @@ pub(crate) fn compile_with(
     // findings about the lines they share are reported once. Each
     // compilation after the first is a copy of the block, which counts for
     // the run like pasted text: 500 lines with 500 `@param` lines took 2 GB.
-    let bytes: usize = source.lines.iter().map(String::len).sum();
+    let bytes = pasted_cost(source.lines.iter().map(String::as_str));
     let mut compiled: Option<CompiledRoute> = None;
     let mut once: BTreeSet<String> = BTreeSet::new();
     for (copy, header) in headers.into_iter().enumerate() {

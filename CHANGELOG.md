@@ -35,7 +35,10 @@ All notable changes to `oas-forge` will be documented in this file.
   one 8 MiB file took 1.8 GB. So do the copies of a block for its `@route`
   lines after the first (a block is compiled once per line): 500 lines
   over 500 `@param` lines took 2 GB; the lines that do not fit are left
-  out with one finding. A route or channel block that the expansion cut
+  out with one finding. Each pasted or copied line costs 256 bytes besides
+  its text (not the `.proto` copies, which stay one string): a short line
+  such as `@param query q: u8` becomes kilobytes of document, and 32 MiB of
+  them, pasted by a 150 KB input, took 11 GB. A route or channel block that the expansion cut
   (at 65 536 lines, or because a fragment did not fit) is left out with
   its finding; before, the lines left were compiled as an operation of
   part of the block.
