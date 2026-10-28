@@ -15,6 +15,11 @@ use crate::extract::AliasItem;
 use crate::schema::types::undocumentable;
 use serde_json::{Map, Value};
 
+/// The longest chain of type aliases that is followed (`A` → `B` → …). A
+/// longer one is reported and not resolved; this also bounds the recursion
+/// of the stages that replace aliases.
+pub(crate) const MAX_ALIAS_DEPTH: usize = 64;
+
 /// The outcome of [`Lookup::find`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Found<'a> {
@@ -94,6 +99,19 @@ impl<'a> Lookup<'a> {
                     format!(
                         "type alias `{name}` refers to itself (`{}`); it is not resolved",
                         cycle.join("` → `")
+                    ),
+                )
+                .at(alias.location.clone()),
+            );
+            return Found::Reported;
+        }
+        if expanding.len() >= MAX_ALIAS_DEPTH {
+            push_once(
+                diagnostics,
+                Diagnostic::new(
+                    Code::AliasDepthLimit,
+                    format!(
+                        "type alias `{name}` is reached through more than {MAX_ALIAS_DEPTH} type aliases; it is not resolved"
                     ),
                 )
                 .at(alias.location.clone()),

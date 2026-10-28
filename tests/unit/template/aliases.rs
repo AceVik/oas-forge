@@ -78,3 +78,48 @@ fn an_ambiguous_name_is_reported_once_per_use_site() {
         "{diagnostics:?}"
     );
 }
+
+/// A chain of `n` type aliases, `A0` → `A1` → … → `String`, and a type
+/// that uses its start directly and as a type argument.
+fn alias_chain(n: usize) -> String {
+    let mut text = String::from(
+        "/// @openapi\npub struct Page<T> { pub items: Vec<T> }\n\
+         /// @openapi\npub struct Repo { pub direct: A0, pub page: Page<A0> }\n",
+    );
+    for i in 0..n - 1 {
+        text.push_str(&format!("pub type A{i} = A{};\n", i + 1));
+    }
+    text.push_str(&format!("pub type A{} = String;\n", n - 1));
+    text
+}
+
+#[test]
+fn alias_chains_up_to_the_limit_are_resolved() {
+    let (document, diagnostics) = pipeline(&[("a.rs", &alias_chain(64))]);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let schemas = &document["components"]["schemas"];
+    assert_eq!(
+        schemas["Repo"]["properties"]["direct"],
+        json!({ "type": "string" })
+    );
+    assert_eq!(
+        schemas["Repo"]["properties"]["page"],
+        json!({ "$ref": "#/components/schemas/Page_String" })
+    );
+}
+
+/// Every link was resolved by a recursive call: 20 000 links overflowed
+/// the stack.
+#[test]
+fn longer_alias_chains_are_reported_not_followed() {
+    for n in [65, 20_000] {
+        let (_, diagnostics) = pipeline(&[("a.rs", &alias_chain(n))]);
+        let found: Vec<String> = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::AliasDepthLimit)
+            .map(ToString::to_string)
+            .collect();
+        assert!(!found.is_empty(), "{n}: {diagnostics:?}");
+        assert!(found[0].contains("64"), "{found:?}");
+    }
+}

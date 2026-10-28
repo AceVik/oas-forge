@@ -343,6 +343,8 @@ codes! {
     ExpansionLimit = "OF3016", Error;
     /// A symbolic link in an input directory leads outside every input directory and was skipped.
     LinkOutsideInputs = "OF0008", Warning;
+    /// A chain of type aliases is longer than the limit; the reference is not resolved.
+    AliasDepthLimit = "OF3017", Warning;
 }
 
 impl fmt::Display for Code {

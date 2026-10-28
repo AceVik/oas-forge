@@ -30,7 +30,8 @@ make a run fail or produce a wrong document. To keep that bounded:
 - symbolic links in input directories are followed only into input
   directories (`OF0008`),
 - YAML documents are limited in size and nesting depth,
-- fragment inserts and generic instantiation have fixed depth limits;
+- fragment inserts, generic instantiation and chains of type aliases have
+  fixed depth limits;
   generic reference parsing is also limited to 128 nested generic lists,
 - fragment expansion and variable substitution have total text and work
   budgets, including acyclic fanout and parameter substitution,

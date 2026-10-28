@@ -45,6 +45,9 @@ All notable changes to `oas-forge` will be documented in this file.
 - Indexing a `.proto` file checks its messages for duplicates in
   logarithmic time; a file with a few hundred thousand messages took
   minutes before.
+- A chain of more than 64 type aliases is reported (new warning `OF3017`)
+  and not resolved. Each link was resolved by a recursive call, so a chain
+  of 20 000 aliases overflowed the stack and aborted the run.
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of
   silently naming the crate after its directory.

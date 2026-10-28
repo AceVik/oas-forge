@@ -81,6 +81,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF3014` | warning | A Rust type name in a field, type argument, signature or route means several documented types (none of them defined or imported in its module), or names an undocumented type of its module while other documented types have the name; the schema has no reference | Import the type with `use`, write its path, or document the local type |
 | `OF3015` | error | A generic `$ref` is malformed or contains more than 128 nested generic lists | Fix the reference or reduce its nesting |
 | `OF3016` | error | Fragment expansion or variable substitution exceeds 16 MiB of processed text or 65,536 visited lines or extension resolutions | Reduce repeated expansion or the size of arguments and variables |
+| `OF3017` | warning | A type alias is reached through a chain of more than 64 type aliases; the reference is not resolved | Shorten the chain |
 
 ## Merging (OF4xxx)
 
