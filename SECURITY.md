@@ -60,6 +60,14 @@ make a run fail or produce a wrong document. To keep that bounded:
   set is reported (`OF4001`),
 - both crates use `#![forbid(unsafe_code)]`.
 
+The configuration is trusted like `build.rs`: `openapi.toml`,
+`[package.metadata.oas-forge]` in `Cargo.toml` and `--config` choose the
+inputs, includes, outputs and allowed environment variables, so a change
+to them can read any file or variable and write anywhere. The CLI reads
+the first two from its working directory. To check an untrusted change in
+CI, run it from a directory outside the checkout, with the inputs and
+outputs as flags and a `--config` file that the change cannot edit.
+
 Outputs are written at the paths you configure. Like any program, the
 generator follows a symbolic link to a directory on such a path, so do not
 configure outputs below a directory that an untrusted change can replace
