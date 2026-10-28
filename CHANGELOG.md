@@ -259,6 +259,31 @@ All notable changes to `oas-forge` will be documented in this file.
   reference below it from the lints. The lints no longer skip such keys,
   and a marker left in a finished document (by an imported template) is
   removed with a finding.
+- A name that the route or channel DSL or reflection makes a key of the
+  document is rejected with the same error `OF0009` when it has the
+  reserved prefix, and what it names is left out: the scheme of
+  `@security` (the line is ignored, also in `@route-defaults`), the name
+  of `@return-header`, a media type of `@body` or `@return`, the
+  serialized name of a field or variant (`#[serde(rename)]`, `@openapi
+  rename`, or a `rename_all` rule applied to a Rust name such as
+  `x_oas_forge_builtin`), the name of a documented type, its
+  `#[serde(tag)]` and `#[serde(content)]`, the name of `@openapi-type`,
+  the id of `@channel` (written or derived from the address) and the
+  placeholders of its address, the names of `@send`, `@receive`,
+  `@ws-query` and `@ws-header`. Before, these names bypassed the check:
+  `@security x-oas-forge-builtin` gave `security: [{}]`, anonymous access,
+  without a finding; a field renamed `x-oas-forge-builtin` vanished from
+  `properties` but stayed in `required`, and with an override of two
+  fields it was a well-formed marker that replaced the `properties` of
+  its struct (a type of that name: `components.schemas`); a channel or
+  message of such a name was removed and left dangling references in the
+  AsyncAPI operations, or reached the AsyncAPI output. Each stage now
+  takes its marker only in the shape it writes it (a key of that name with
+  another value stays and is reported), the AsyncAPI document is swept
+  like the OpenAPI document, an `@extend` marker written by hand with a
+  value that is no fragment name is reported instead of dropped, and the
+  finding about a key left in a finished document names the two ways it
+  got there instead of a bug of the generator.
 - `{{env:NAME}}` placeholders read only the environment variables you allow
   with `Generator::allow_env`, `allow_env = [...]` in the configuration or
   `--allow-env NAME` (all new). Before, the sources chose the name, so a

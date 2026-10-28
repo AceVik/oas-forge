@@ -287,9 +287,19 @@ must not write them. One written in an `@openapi` block or override, an
 `@example`, a fragment, the YAML of a route or channel block, or in an
 included `.yaml`/`.json` file anywhere but the wire format in `components`
 is removed and reported as an error (`OF0009`); a directive whose inline
-schema or flag value writes one is ignored (`OF2004`). The bodies of
-imported templates are the generator's own and keep their markers. No key
-of the prefix reaches an output.
+schema or flag value writes one is ignored (`OF2004`). A name that would
+become such a key is rejected with the same error, and what it names is
+left out: the scheme of `@security`, the name of `@return-header`, a
+media type of `@body` or `@return`, the serialized name of a field or
+variant (after `rename` and `rename_all`), the name of a documented type,
+its `#[serde(tag)]` and `#[serde(content)]`, the name of `@openapi-type`,
+the id of `@channel` and the placeholders of its address, the names of
+`@send`, `@receive`, `@ws-query` and `@ws-header`. Each stage takes its
+marker only in the shape it writes it. The bodies of imported templates
+are the generator's own and keep their markers. A key of the prefix that
+is still in a finished document, the AsyncAPI document included, is
+removed from it with the same error. No key of the prefix reaches an
+output.
 
 The [`examples/`](../examples) workspace shows the setup: `shared-models`
 declares `links`, so Cargo runs its build script first, and `microservice`

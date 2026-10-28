@@ -81,7 +81,9 @@ Invalid YAML, and text that is not a YAML mapping (`/// @openapi The id`),
 is reported (`OF1001`) and ignored. Keys of the prefix `x-oas-forge-` are
 the generator's own ([reserved keys](templates.md#reserved-keys)); one
 written in an override or an `@example` is removed and reported
-(`OF0009`).
+(`OF0009`), and a field, variant or type whose serialized name has the
+prefix (after `rename` and `rename_all`), a `#[serde(tag)]` or
+`#[serde(content)]` of that prefix, is reported alike and left out.
 
 ## Descriptions
 

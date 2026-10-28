@@ -246,6 +246,9 @@ body is required unless it is `optional` or an `Option<T>`.
   the flag `required` follows the type (`@return-header 201 Location: String
   required "URL of the new item"`); `optional` may be written for clarity.
   The type defaults to `String`.
+- A `@security` scheme, a header name or a media type with the prefix
+  `x-oas-forge-` is rejected and its line ignored (`OF0009`,
+  [reserved keys](templates.md#reserved-keys)).
 - Status ranges (`2XX`) and `default` are allowed.
 - `stream<T>` uses `text/event-stream` unless a media type is given and
   documents the items with `itemSchema` (OpenAPI 3.2; older targets get an

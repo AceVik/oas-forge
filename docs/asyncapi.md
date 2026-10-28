@@ -92,6 +92,11 @@ the OpenAPI outputs are not affected.
   message (same type and description) share it; the same name with other
   content in one channel is reported (`OF4001`) and the later definition
   is used: give the messages distinct names.
+- A channel id, a placeholder of the address, a message name or a
+  `@ws-query`/`@ws-header` name with the prefix `x-oas-forge-` is rejected
+  (`OF0009`, [reserved keys](templates.md#reserved-keys)): the block is
+  ignored for its id or a placeholder, the line for a message or
+  handshake parameter.
 - Messages are shared components (`components.messages.Name`) as long as
   every channel that uses a name defines it alike. When channels define
   one name differently (`seat` and `watch` both send `HelloAck` with other
