@@ -203,7 +203,9 @@ and examples (`@example`) become the parameter's, not its schema's. Fields of `#
 flattened `Option<T>` makes its fields optional. A path such as
 `models::Pagination` names the struct by its last segment. It works for
 `path`, `header` and `cookie` too. Parameters written explicitly win over
-expanded ones with the same name.
+expanded ones with the same name. The parameters that expansion adds to a
+document share 16 MiB (each costs 256 besides its JSON text); an
+expansion beyond that is left out and reported (`OF3016`).
 
 A `querystring` parameter (OpenAPI 3.2) describes the whole query string
 with a schema; it is written as

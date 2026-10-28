@@ -99,7 +99,11 @@ All notable changes to `oas-forge` will be documented in this file.
   merged by name through an index; 40 000 tags took a minute. Struct
   expansion (`@query-params $Struct`, inferred `Query<T>`) checks
   duplicates and required fields through sets; a struct with 10 000 fields
-  took a minute and a half. Findings about type aliases (ambiguous names,
+  took a minute and a half. The parameters struct expansion adds to a
+  document share 16 MiB (each costs 256 besides its JSON text), since every
+  operation copies the struct's fields: 40 000 fields for 20 routes took
+  4.8 GB; and each referenced schema is followed once, since a schema whose
+  `allOf` refers to itself 60 times took two minutes. Findings about type aliases (ambiguous names,
   cycles, chains) are reported once through a set; each was compared with
   all findings so far, so 40 000 uses of an ambiguous alias took minutes.
 - The Swagger 2.0 export reports what it changed silently: `writeOnly`

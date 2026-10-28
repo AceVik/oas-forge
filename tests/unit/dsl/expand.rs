@@ -2,6 +2,7 @@
 //! `@header-params`, inferred `Query<T>`).
 
 use crate::common::pipeline;
+use oas_forge::diagnostics::Code;
 use serde_json::{Value, json};
 
 /// The parameters of `GET /x` with the struct `Filter` below expanded by
@@ -271,4 +272,63 @@ fn large_structs_expand_quickly() {
     assert_eq!(o["required"], false);
     let last = parameters.iter().find(|p| p["name"] == "f9999").unwrap();
     assert_eq!(last["required"], true);
+}
+
+/// A schema whose `allOf` refers to itself many times was walked
+/// exponentially (60 parts took two minutes); each reference is followed
+/// once.
+#[test]
+fn self_references_in_all_of_are_followed_once() {
+    let parts = vec!["{ $ref: '#/components/schemas/A' }"; 60].join(", ");
+    let started = std::time::Instant::now();
+    let (document, _) = pipeline(&[
+        (
+            "a.yaml",
+            &format!(
+                "components: {{ schemas: {{ A: {{ type: object, required: [p], properties: {{ p: {{ type: string }} }}, allOf: [{parts}] }} }} }}"
+            ),
+        ),
+        (
+            "api.rs",
+            "/// @route GET /x\n/// @query-params $A\nfn x() {}",
+        ),
+    ]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        document["paths"]["/x"]["get"]["parameters"],
+        json!([{ "name": "p", "in": "query", "required": true, "schema": { "type": "string" } }])
+    );
+}
+
+/// Every operation copies the fields of the struct it expands: the copies
+/// of a document share 16 MiB (each parameter costs 256 more than its
+/// text). 40 000 fields for 20 routes took 4.8 GB.
+#[test]
+fn struct_expansions_of_a_document_share_a_budget() {
+    for (fields, routes, limited) in [(1_000, 20, 0), (40_000, 3, 2)] {
+        let fields: String = (0..fields)
+            .map(|i| format!("p{i}: {{ type: string }}, "))
+            .collect();
+        let routes: String = (0..routes)
+            .map(|i| format!("/// @route GET /r{i}\n/// @query-params $Big\nfn r{i}() {{}}\n"))
+            .collect();
+        let (_, diagnostics) = pipeline(&[
+            (
+                "big.yaml",
+                &format!(
+                    "components: {{ schemas: {{ Big: {{ type: object, properties: {{ {fields} }} }} }} }}"
+                ),
+            ),
+            ("api.rs", &routes),
+        ]);
+        let found = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::ExpansionLimit)
+            .count();
+        assert_eq!(found, limited, "{:?}", diagnostics.iter().next());
+    }
 }

@@ -12,6 +12,15 @@ use std::collections::BTreeSet;
 /// How deep flattened structs (`#[serde(flatten)]`) are followed.
 const MAX_FLATTEN_DEPTH: usize = 8;
 
+/// The total size of the parameters that struct expansion adds to one
+/// document: each costs [`PARAMETER_COST`] and its JSON text. Every
+/// operation that expands a struct copies its fields.
+pub(crate) const MAX_EXPANDED_SIZE: usize = 16 * 1024 * 1024;
+
+/// What an expanded parameter costs of [`MAX_EXPANDED_SIZE`] besides its
+/// JSON text: as a value it takes far more memory than as text.
+const PARAMETER_COST: usize = 256;
+
 /// Replaces every expansion marker with one parameter per property of the
 /// referenced schema. Placeholders an expansion leaves undeclared are
 /// reported by the lints.
@@ -20,6 +29,7 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
         .pointer("/components/schemas")
         .cloned()
         .unwrap_or_else(|| json!({}));
+    let mut left = MAX_EXPANDED_SIZE;
     for_each_operation(document, |at, operation| {
         let Some(Value::Array(parameters)) = operation.get_mut("parameters") else {
             return;
@@ -52,32 +62,55 @@ pub(crate) fn expand_parameters(document: &mut Value, diagnostics: &mut Diagnost
             let schema = target
                 .strip_prefix("#/components/schemas/")
                 .and_then(|name| schemas.get(name));
+            // The line of the expansion, for findings.
+            let place = |diagnostic: Diagnostic| match (
+                marker.get("file").and_then(Value::as_str),
+                marker.get("line").and_then(Value::as_u64),
+            ) {
+                (Some(file), Some(line)) => diagnostic.at(Location::new(
+                    file,
+                    usize::try_from(line).unwrap_or_default(),
+                )),
+                _ => diagnostic,
+            };
+            let struct_name = target.trim_start_matches('$');
             let new = match schema {
                 Some(schema) => {
                     // `Option<Query<T>>`: every field may be left out.
                     let optional = marker.get("optional") == Some(&Value::Bool(true));
                     let fallback = marker.get("name");
-                    from_schema(schema, &schemas, optional, target, &location, fallback)
+                    let new = from_schema(schema, &schemas, optional, target, &location, fallback);
+                    let size = new
+                        .iter()
+                        .map(|parameter| PARAMETER_COST + parameter.to_string().len())
+                        .fold(0, usize::saturating_add);
+                    if let Some(rest) = left.checked_sub(size) {
+                        left = rest;
+                        new
+                    } else {
+                        left = 0;
+                        diagnostics.push(place(Diagnostic::new(
+                            Code::ExpansionLimit,
+                            format!(
+                                "the {location} parameters of `{struct_name}` for {} {} {} exceed what is left of the {MAX_EXPANDED_SIZE} bytes of struct expansion in a document; they are left out",
+                                at.method,
+                                at.section.trim_end_matches('s'),
+                                at.name
+                            ),
+                        )));
+                        Vec::new()
+                    }
                 }
                 None => {
-                    let mut diagnostic = Diagnostic::new(
+                    diagnostics.push(place(Diagnostic::new(
                         Code::UnresolvedExpansion,
                         format!(
-                            "`{}` of {} {} {} is not a documented struct; its {location} parameters are not documented",
-                            target.trim_start_matches('$'),
+                            "`{struct_name}` of {} {} {} is not a documented struct; its {location} parameters are not documented",
                             at.method,
                             at.section.trim_end_matches('s'),
                             at.name
                         ),
-                    );
-                    if let (Some(file), Some(line)) = (
-                        marker.get("file").and_then(Value::as_str),
-                        marker.get("line").and_then(Value::as_u64),
-                    ) {
-                        let line = usize::try_from(line).unwrap_or_default();
-                        diagnostic = diagnostic.at(Location::new(file, line));
-                    }
-                    diagnostics.push(diagnostic);
+                    )));
                     Vec::new()
                 }
             };
@@ -111,6 +144,10 @@ struct Fields {
     properties: Map<String, Value>,
     /// The names of the required properties (none of optional schemas).
     required: BTreeSet<String>,
+    /// The referenced schemas followed so far, and whether as optional:
+    /// following one again adds nothing, and a schema whose `allOf` refers
+    /// to itself many times made the walk exponential.
+    followed: BTreeSet<(String, bool)>,
 }
 
 impl Fields {
@@ -122,13 +159,15 @@ impl Fields {
         if depth > MAX_FLATTEN_DEPTH {
             return;
         }
-        if let Some(target) = schema
+        if let Some((name, target)) = schema
             .get("$ref")
             .and_then(Value::as_str)
             .and_then(|r| r.strip_prefix("#/components/schemas/"))
-            .and_then(|name| schemas.get(name))
+            .and_then(|name| Some((name, schemas.get(name)?)))
         {
-            self.collect(target, schemas, optional, depth + 1);
+            if self.followed.insert((name.to_string(), optional)) {
+                self.collect(target, schemas, optional, depth + 1);
+            }
             return;
         }
         if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
@@ -190,6 +229,7 @@ fn from_schema(
     let Fields {
         properties,
         required,
+        ..
     } = fields;
     properties
         .into_iter()
