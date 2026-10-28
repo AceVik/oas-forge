@@ -818,32 +818,48 @@ mod budget {
     /// and is reported.
     #[test]
     fn inline_container_schemas_count_while_instantiating() {
-        let inline = json!({ "type": "array", "items": { "type": "boolean" } });
-        let fixed = INSTANCE_COST
-            + "Pad_Vec_bool".len()
-            + size(&json!({ "description": "", "items": { "$ref": "$Vec<bool>" } }))
-            + size(&inline);
-        let room = MAX_INSTANTIATED_SIZE - fixed;
-        for (pad, expected) in [(room, true), (room + 1, false)] {
-            let reg = registry(&[(
-                "Pad",
-                &["T"],
-                json!({ "description": "x".repeat(pad), "items": { "$ref": "$T" } }),
-            )]);
-            let (value, concrete, diagnostics) = run(&reg, json!({ "$ref": "$Pad<Vec<bool>>" }));
-            assert_eq!(value, json!({ "$ref": "$Pad_Vec_bool" }), "{pad}");
-            if expected {
-                assert_eq!(concrete["Pad_Vec_bool"]["items"], inline, "{pad}");
-                assert!(diagnostics.is_empty(), "{diagnostics:#?}");
-            } else {
-                assert_eq!(
-                    concrete["Pad_Vec_bool"]["items"],
-                    json!({ "$ref": "$Vec<bool>" }),
-                    "{pad}"
-                );
-                assert_eq!(codes(&diagnostics), [Code::InstantiationLimit]);
-                let finding = diagnostics.iter().next().expect("the limit");
-                assert!(finding.message().starts_with("`$Vec<bool>`"), "{finding:?}");
+        // Strings, objects and (for `u16`) numbers count as values.
+        let integer =
+            json!({ "type": "integer", "format": "int32", "minimum": 0, "maximum": 65535 });
+        for (argument, inline) in [
+            (
+                "bool",
+                json!({ "type": "array", "items": { "type": "boolean" } }),
+            ),
+            ("u16", json!({ "type": "array", "items": integer })),
+        ] {
+            let name = format!("Pad_Vec_{argument}");
+            let reference = format!("$Vec<{argument}>");
+            let fixed = INSTANCE_COST
+                + name.len()
+                + size(&json!({ "description": "", "items": { "$ref": reference } }))
+                + size(&inline);
+            let room = MAX_INSTANTIATED_SIZE - fixed;
+            for (pad, expected) in [(room, true), (room + 1, false)] {
+                let reg = registry(&[(
+                    "Pad",
+                    &["T"],
+                    json!({ "description": "x".repeat(pad), "items": { "$ref": "$T" } }),
+                )]);
+                let (value, concrete, diagnostics) =
+                    run(&reg, json!({ "$ref": format!("$Pad<Vec<{argument}>>") }));
+                assert_eq!(value, json!({ "$ref": format!("${name}") }), "{pad}");
+                if expected {
+                    assert_eq!(concrete[&name]["items"], inline, "{argument}: {pad}");
+                    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+                } else {
+                    assert_eq!(
+                        concrete[&name]["items"],
+                        json!({ "$ref": reference }),
+                        "{argument}: {pad}"
+                    );
+                    assert_eq!(codes(&diagnostics), [Code::InstantiationLimit]);
+                    let finding = diagnostics.iter().next().expect("the limit");
+                    assert!(
+                        finding.message().starts_with(&format!("`{reference}`")),
+                        "{finding:?}"
+                    );
+                }
             }
         }
     }
@@ -872,11 +888,13 @@ mod budget {
                 json!("$A")
             };
             assert_eq!(concrete["Pad_A"]["items"], items, "{pad}");
-            assert_eq!(
-                codes(&diagnostics).contains(&Code::InstantiationLimit),
-                !expected,
-                "{pad}: {diagnostics:#?}"
-            );
+            if expected {
+                assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+            } else {
+                assert_eq!(codes(&diagnostics), [Code::InstantiationLimit]);
+                let finding = diagnostics.iter().next().expect("the limit");
+                assert!(finding.message().starts_with("`$A`"), "{finding:?}");
+            }
         }
     }
 
