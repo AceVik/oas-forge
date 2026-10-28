@@ -3982,6 +3982,79 @@ fn copies_of_route_defaults_may_fill_the_run_budget_exactly() {
     }
 }
 
+/// A block with several `@route` lines is compiled once per line, each
+/// compilation a copy of the block: 500 lines with 500 `@param` lines took
+/// 2 GB. The copies after the first count against the run's 32 MiB; the
+/// lines that do not fit are left out with one finding.
+#[test]
+fn copies_of_a_block_for_its_route_lines_count_against_the_run_budget() {
+    let mut text =
+        String::from("//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n\n");
+    for i in 0..40 {
+        text.push_str(&format!("/// @route GET /r{i}\n"));
+    }
+    text.push_str(&format!("/// @description {}\n", "v".repeat(1 << 20)));
+    text.push_str("/// @return 204:\nfn many() {}\n");
+    let started = std::time::Instant::now();
+    let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    let paths = document["paths"].as_object().unwrap();
+    assert!((25..40).contains(&paths.len()), "{}", paths.len());
+    // The lines that fit come first; the first one left out is reported.
+    for i in 0..paths.len() {
+        assert!(paths.contains_key(&format!("/r{i}")), "/r{i}");
+    }
+    let limits: Vec<&oas_forge::Diagnostic> = diagnostics
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .collect();
+    assert_eq!(limits.len(), 1, "{diagnostics:?}");
+    assert_eq!(
+        limits[0].location(),
+        Some(&oas_forge::Location::new("a.rs", 5 + paths.len()))
+    );
+    assert!(
+        limits[0].message().contains("`@route` lines"),
+        "{}",
+        limits[0]
+    );
+}
+
+/// The copies may use the run's 32 MiB exactly: the first `@route` line
+/// compiles the block's own text (not counted), each further one a copy of
+/// its lines (` @route GET /rN` and ` @description …`).
+#[test]
+fn copies_of_a_block_for_its_route_lines_may_fill_the_run_budget_exactly() {
+    for (extra, limited) in [(0, false), (1, true)] {
+        let headers: String = (0..5).map(|i| format!("/// @route GET /r{i}\n")).collect();
+        let description =
+            "v".repeat((8 << 20) - 5 * " @route GET /rN".len() - " @description ".len() + extra);
+        let text = format!(
+            "//! @openapi\n//! openapi: 3.1.0\n//! info: {{ title: T, version: '1' }}\n\n{headers}/// @description {description}\nfn many() {{}}\n"
+        );
+        let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+        let limits = codes(&diagnostics)
+            .into_iter()
+            .filter(|code| *code == Code::ExpansionLimit)
+            .count();
+        assert_eq!(
+            limits,
+            usize::from(limited),
+            "{extra}: {:?}",
+            codes(&diagnostics)
+        );
+        assert_eq!(
+            document["paths"].as_object().map(|p| p.len()),
+            Some(if limited { 4 } else { 5 }),
+            "{extra}"
+        );
+    }
+}
+
 /// Each `proto(...)` message holds a copy of its `.proto` file: the copies
 /// count against the run's 32 MiB (seven of 4 MiB fit).
 #[test]

@@ -30,7 +30,7 @@ use crate::docs::{closes_fence, yaml_fence};
 use crate::merge::{Policy, merge};
 use crate::schema::{MappedType, TypeExpr, TypeMapper, shadow};
 use crate::scope::{self, Names};
-use crate::template::lexical::{DEFAULTS_MARKER, EXTEND_KEY};
+use crate::template::lexical::{DEFAULTS_MARKER, EXTEND_KEY, charge_run};
 use crate::yaml;
 use expand::identity;
 use operation::Security;
@@ -944,10 +944,27 @@ pub(crate) fn compile_with(
         return compile_route(source, None, diagnostics, reported);
     }
     // Several `@route` lines: the block is compiled for each of them, and
-    // findings about the lines they share are reported once.
+    // findings about the lines they share are reported once. Each
+    // compilation after the first is a copy of the block, which counts for
+    // the run like pasted text: 500 lines with 500 `@param` lines took 2 GB.
+    let bytes: usize = source.lines.iter().map(String::len).sum();
     let mut compiled: Option<CompiledRoute> = None;
     let mut once: BTreeSet<String> = BTreeSet::new();
-    for header in headers {
+    for (copy, header) in headers.into_iter().enumerate() {
+        if copy > 0 && !charge_run(bytes) {
+            let location = source.line_numbers.get(header).map_or_else(
+                || source.location.clone(),
+                |line| Location::new(source.location.file(), *line),
+            );
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::ExpansionLimit,
+                    "the copies of this block for its `@route` lines exceed what is left of the 32 MiB for the pasted text of the run; this line and the ones after it are left out",
+                )
+                .at(location),
+            );
+            break;
+        }
         let mut findings = Diagnostics::new();
         let route = compile_route(source, Some(header), &mut findings, reported);
         for finding in findings.into_vec() {
