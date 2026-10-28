@@ -44,7 +44,8 @@ make a run fail or produce a wrong document. To keep that bounded:
   copies of route defaults, of a block and its defaults for each of its
   `@route` lines and of `.proto` files, each pasted line counted with 256
   bytes besides its text); struct parameter expansion has a size and a
-  work budget per document; the
+  work budget per document, and the `formData` parameters of a Swagger
+  2.0 export the same size budget; the
   concrete schemas of generic instantiation and the targets of replaced
   type aliases have a total size budget (each value counted with 32 bytes
   besides its text and each instance with 256, so that filling it takes

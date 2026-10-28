@@ -140,7 +140,11 @@ and `kind`, response `summary`, `components.pathItems` and `mediaTypes`, and
 - `components` become `definitions`, `parameters`, `responses` and
   `securityDefinitions`; references are rewritten.
 - Request bodies become a `body` parameter or `formData` parameters,
-  media types become `consumes` and `produces`.
+  media types become `consumes` and `produces`. The `formData` parameters
+  of a document share 16 MiB (each costs 256 bytes besides its JSON text,
+  as in struct expansion), since every operation with a form body copies
+  the properties of its schema: from the first form body that does not
+  fit on, form bodies are left out with error `OF3016`.
 - Parameters and headers get their primitive keywords directly; object or
   reference schemas are documented as strings.
 - Schema keywords Swagger lacks are kept as extensions: `nullable` as

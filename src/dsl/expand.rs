@@ -18,8 +18,9 @@ const MAX_FLATTEN_DEPTH: usize = 8;
 pub(crate) const MAX_EXPANDED_SIZE: usize = 16 * 1024 * 1024;
 
 /// What an expanded parameter costs of [`MAX_EXPANDED_SIZE`] besides its
-/// JSON text: as a value it takes far more memory than as text.
-const PARAMETER_COST: usize = 256;
+/// JSON text: as a value it takes far more memory than as text. The
+/// `formData` parameters of a Swagger 2.0 export cost the same.
+pub(crate) const PARAMETER_COST: usize = 256;
 
 /// How many schemas, properties and required names the struct expansions
 /// of one document may visit in all: a struct that many other structs

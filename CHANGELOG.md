@@ -206,6 +206,15 @@ All notable changes to `oas-forge` will be documented in this file.
 - `@openapi document` (and `path`/`operation`) blocks on types keep the
   indentation of their YAML: a block with two top-level keys was a YAML
   error, because only its first line lost the doc comment's margin.
+- The `formData` parameters that the form bodies of a Swagger 2.0 export
+  add to its document share 16 MiB (each costs 256 bytes besides its JSON
+  text, like a parameter of struct expansion): every operation with a
+  form body copied the properties of its schema, so 1000 routes sending
+  one struct of 2000 fields as `application/x-www-form-urlencoded` (160 KB
+  of input) took 4.5 GB and wrote 295 MB. From the first form body that
+  does not fit on, form bodies are left out with error `OF3016`, which
+  fails the run like a struct expansion that does not fit; a form is
+  counted before it is built.
 
 ### Security
 - `{{env:NAME}}` placeholders read only the environment variables you allow

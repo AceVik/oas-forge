@@ -8,6 +8,7 @@
 
 use super::refs::rewrite_refs;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics};
+use crate::dsl::expand::{MAX_EXPANDED_SIZE, PARAMETER_COST};
 use crate::schema::dialect::{self, Dialect};
 use serde_json::{Map, Value, json};
 use std::cell::{Cell, RefCell};
@@ -50,6 +51,8 @@ pub(super) fn export(canonical: &Value, diagnostics: &mut Diagnostics) -> Value 
         lost: RefCell::new(BTreeSet::new()),
         dropped_schemes: BTreeSet::new(),
         dropped_requirements: Cell::new(false),
+        form_left: Cell::new(MAX_EXPANDED_SIZE),
+        cut_forms: RefCell::new(Vec::new()),
     };
     let mut out = Map::new();
     out.insert("swagger".into(), json!("2.0"));
@@ -64,7 +67,7 @@ pub(super) fn export(canonical: &Value, diagnostics: &mut Diagnostics) -> Value 
     let mut paths = Map::new();
     if let Some(Value::Object(items)) = source.get("paths") {
         for (path, item) in items {
-            paths.insert(path.clone(), converter.path_item(item));
+            paths.insert(path.clone(), converter.path_item(item, path));
         }
     }
     out.insert("paths".into(), Value::Object(paths));
@@ -94,6 +97,24 @@ pub(super) fn export(canonical: &Value, diagnostics: &mut Diagnostics) -> Value 
             "Swagger 2.0 cannot express some security schemes; requirements that name them were left out of the export (kept as `x-security` where no alternative remains)",
         ));
     }
+    // The document lacks the bodies: an error, like a struct expansion that
+    // does not fit.
+    let cut = converter.cut_forms.into_inner();
+    if let Some(first) = cut.first() {
+        let (bodies, left_out) = match cut.len() {
+            1 => (format!("the form body of {first}"), "that body is"),
+            count => (
+                format!("the form bodies of {count} operations, from {first} on,"),
+                "those bodies are",
+            ),
+        };
+        diagnostics.push(Diagnostic::new(
+            Code::ExpansionLimit,
+            format!(
+                "the `formData` parameters of {bodies} exceed what is left of the {MAX_EXPANDED_SIZE} bytes of form parameters in a Swagger 2.0 document (each costs {PARAMETER_COST} bytes besides its text); {left_out} left out"
+            ),
+        ));
+    }
     for what in converter.lost.into_inner() {
         diagnostics.push(Diagnostic::new(
             Code::LossyLowering,
@@ -115,6 +136,13 @@ struct Converter {
     dropped_schemes: BTreeSet<String>,
     /// Whether security requirements that name such schemes were left out.
     dropped_requirements: Cell<bool>,
+    /// What is left of [`MAX_EXPANDED_SIZE`] for the `formData` parameters
+    /// of the document: every operation with a form body copies the
+    /// properties of its schema, like struct expansion copies its fields.
+    form_left: Cell<usize>,
+    /// The operations (`POST /users`) whose form body did not fit, in
+    /// document order; reported once as [`Code::ExpansionLimit`].
+    cut_forms: RefCell<Vec<String>>,
 }
 
 impl Converter {
@@ -122,6 +150,20 @@ impl Converter {
     /// each distinct `what` once as [`Code::LossyLowering`].
     fn lose(&self, what: &str) {
         self.lost.borrow_mut().insert(what.to_string());
+    }
+
+    /// Whether `count` `formData` parameters may still fit the budget: each
+    /// costs at least [`PARAMETER_COST`]. A form that cannot is not built;
+    /// the size of one that may is checked while it is built.
+    fn form_may_fit(&self, count: usize) -> bool {
+        count.saturating_mul(PARAMETER_COST) <= self.form_left.get()
+    }
+
+    /// Records that the form body of the operation `at` did not fit the
+    /// budget; the budget is used up, so no later form body is built.
+    fn cut_form(&self, at: &str) {
+        self.form_left.set(0);
+        self.cut_forms.borrow_mut().push(at.to_string());
     }
 
     /// `info` without `summary` and `license.identifier`; an identifier that
@@ -204,10 +246,10 @@ impl Converter {
         }
     }
 
-    /// A path item with its operations and parameters converted; keeps
-    /// `$ref` and `x-` extensions and loses `trace`, `summary`,
-    /// `description` and `servers`.
-    fn path_item(&self, item: &Value) -> Value {
+    /// The path item of `path` with its operations and parameters
+    /// converted; keeps `$ref` and `x-` extensions and loses `trace`,
+    /// `summary`, `description` and `servers`.
+    fn path_item(&self, item: &Value, path: &str) -> Value {
         let Value::Object(item) = item else {
             return item.clone();
         };
@@ -222,7 +264,8 @@ impl Converter {
                     out.insert(key.clone(), Value::Array(parameters));
                 }
                 method if METHODS.contains(&method) => {
-                    out.insert(key.clone(), self.operation(value));
+                    let at = format!("{} {path}", method.to_ascii_uppercase());
+                    out.insert(key.clone(), self.operation(value, &at));
                 }
                 "trace" => self.lose("`TRACE` operations"),
                 k if k.starts_with("x-") => {
@@ -234,10 +277,10 @@ impl Converter {
         Value::Object(out)
     }
 
-    /// An operation with its request body as `body`/`formData` parameters,
-    /// media types as `consumes`/`produces` and converted responses; loses
-    /// `callbacks` and `servers`.
-    fn operation(&self, operation: &Value) -> Value {
+    /// The operation `at` (`POST /users`) with its request body as
+    /// `body`/`formData` parameters, media types as `consumes`/`produces`
+    /// and converted responses; loses `callbacks` and `servers`.
+    fn operation(&self, operation: &Value, at: &str) -> Value {
         let Value::Object(operation) = operation else {
             return operation.clone();
         };
@@ -249,7 +292,7 @@ impl Converter {
         let mut consumes = Vec::new();
         if let Some(body) = operation.get("requestBody") {
             let body = self.resolve(body, "requestBodies");
-            consumes = self.body(body, &mut parameters);
+            consumes = self.body(body, &mut parameters, at);
         }
         let mut produces = Vec::new();
         let mut responses = Map::new();
@@ -459,8 +502,12 @@ impl Converter {
         }
     }
 
-    /// A request body as `body` or `formData` parameters; returns `consumes`.
-    fn body(&self, body: &Value, parameters: &mut Vec<Value>) -> Vec<String> {
+    /// The request body of the operation `at` as a `body` parameter or
+    /// `formData` parameters; returns `consumes`. The `formData` parameters
+    /// of a document share [`MAX_EXPANDED_SIZE`] (each costs
+    /// [`PARAMETER_COST`] besides its JSON text); a form body that does not
+    /// fit is left out, and so is every later one.
+    fn body(&self, body: &Value, parameters: &mut Vec<Value>, at: &str) -> Vec<String> {
         let Some(Value::Object(content)) = body.get("content") else {
             return Vec::new();
         };
@@ -492,20 +539,32 @@ impl Converter {
                     .cloned()
                     .unwrap_or(json!({}));
                 let schema = self.resolve(&schema, "schemas");
-                let names: Vec<&Value> = schema
-                    .get("required")
-                    .and_then(Value::as_array)
-                    .map(|r| r.iter().collect())
-                    .unwrap_or_default();
                 let Some(Value::Object(properties)) = schema.get("properties") else {
                     self.lose("form bodies that are not objects");
                     return consumes;
                 };
+                // Counted before they are built: once the budget is used
+                // up, a form of 2000 fields in each of 1000 operations is
+                // not copied again (that took 4.5 GB).
+                if !self.form_may_fit(properties.len()) {
+                    self.cut_form(at);
+                    return consumes;
+                }
+                let left = self.form_left.get();
+                let required: BTreeSet<&str> = schema
+                    .get("required")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect();
+                let mut form = Vec::with_capacity(properties.len());
+                let mut size = 0_usize;
                 for (name, property) in properties {
                     let mut parameter = Map::new();
                     parameter.insert("name".into(), json!(name));
                     parameter.insert("in".into(), json!("formData"));
-                    parameter.insert("required".into(), json!(names.contains(&&json!(name))));
+                    parameter.insert("required".into(), json!(required.contains(name.as_str())));
                     if let Some(description) = property.get("description") {
                         parameter.insert("description".into(), description.clone());
                     }
@@ -515,8 +574,18 @@ impl Converter {
                     } else {
                         self.inline(property, &mut parameter);
                     }
-                    parameters.push(Value::Object(parameter));
+                    let parameter = Value::Object(parameter);
+                    size = size
+                        .saturating_add(PARAMETER_COST)
+                        .saturating_add(parameter.to_string().len());
+                    if size > left {
+                        self.cut_form(at);
+                        return consumes;
+                    }
+                    form.push(parameter);
                 }
+                self.form_left.set(left.saturating_sub(size));
+                parameters.extend(form);
             }
         }
         consumes

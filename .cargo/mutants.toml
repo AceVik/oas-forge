@@ -69,4 +69,9 @@ exclude_re = [
     # `@route` sets the method together with a non-empty path and `@webhook`
     # with the name, so an empty method alone means "no valid header".
     "src/dsl/mod.rs:.*replace \\|\\| with && in Compiler<'_, '_>::finish",
+    # The count check only saves building the `formData` parameters of a
+    # form that the size check while building rejects anyway: each costs
+    # at least `PARAMETER_COST`, and its text is never empty.
+    "src/output/swagger2.rs:.*replace Converter::form_may_fit -> bool with true",
+    "src/output/swagger2.rs:.*replace <= with < in Converter::form_may_fit",
 ]
