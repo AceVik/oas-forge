@@ -3786,3 +3786,76 @@ fn text_written_in_the_inputs_is_not_counted_for_the_run() {
     assert!(diagnostics.is_empty(), "{:?}", codes(&diagnostics));
     assert_eq!(document["x-2"].as_str().map(str::len), Some(11 << 20));
 }
+
+/// Pasted lines may use the run's 32 MiB exactly; one byte more is
+/// reported. The fragment comes from a shared document, so its body is
+/// exact: each block pastes it with an indentation of two.
+#[test]
+fn pasted_text_may_fill_the_run_budget_exactly() {
+    for (extra, limited) in [(0, false), (1, true)] {
+        let mut shared = oas_forge::template::Registry::new();
+        shared.add_fragment(
+            "F",
+            oas_forge::template::Fragment {
+                params: Vec::new(),
+                body: "v".repeat((8 << 20) - 2 + extra),
+            },
+        );
+        let shared = json!({ "components": shared.export() }).to_string();
+        let blocks: Vec<(String, String)> = (0..4)
+            .map(|i| (format!("b{i}.yaml"), format!("x-{i}: |\n  @insert F\n")))
+            .collect();
+        let mut files = vec![("shared.json", shared.as_str())];
+        files.extend(blocks.iter().map(|(n, t)| (n.as_str(), t.as_str())));
+        let (document, diagnostics) = pipeline(&files);
+        let limits = codes(&diagnostics)
+            .into_iter()
+            .filter(|code| *code == Code::ExpansionLimit)
+            .count();
+        assert_eq!(
+            limits,
+            usize::from(limited),
+            "{extra}: {:?}",
+            codes(&diagnostics)
+        );
+        assert!(
+            document["x-0"]
+                .as_str()
+                .is_some_and(|s| s.len() > 8_000_000)
+        );
+    }
+}
+
+/// The copies of route defaults may use the run's 32 MiB exactly: the
+/// first route expands the block (its own text, not counted), each further
+/// one copies its lines (`@route-defaults` and ` x-d: …`).
+#[test]
+fn copies_of_route_defaults_may_fill_the_run_budget_exactly() {
+    for (extra, limited) in [(0, false), (1, true)] {
+        let value = "v".repeat((8 << 20) - "@route-defaults".len() - " x-d: ".len() + extra);
+        let mut text = format!(
+            "//! @openapi\n//! openapi: 3.1.0\n//! info: {{ title: T, version: '1' }}\n\n/// @route-defaults\n/// x-d: {value}\nmod api {{\n"
+        );
+        for i in 0..5 {
+            text.push_str(&format!(
+                "    /// @route GET /r{i}\n    /// @return 204:\n    fn r{i}() {{}}\n"
+            ));
+        }
+        text.push_str("}\n");
+        let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+        let limits = codes(&diagnostics)
+            .into_iter()
+            .filter(|code| *code == Code::ExpansionLimit)
+            .count();
+        assert_eq!(
+            limits,
+            usize::from(limited),
+            "{extra}: {:?}",
+            codes(&diagnostics)
+        );
+        assert_eq!(
+            document["paths"]["/r4"]["get"].get("x-d").is_some(),
+            !limited
+        );
+    }
+}

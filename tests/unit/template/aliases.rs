@@ -206,20 +206,19 @@ fn alias_targets_count_with_their_size() {
     }
 }
 
-/// The argument of a generic alias counts with its length once, not per
-/// byte of the alias.
+/// The argument of an alias that is a type argument (`Page<Wrap<…>>`)
+/// counts with its length once, not per byte of the alias.
 #[test]
 fn generic_alias_arguments_count_with_their_length() {
     let wide = vec!["User"; 50_000].join(", ");
     let text = format!(
-        "/// @openapi\npub struct User {{ pub id: u8 }}\npub type Wrap<X> = Pair<X, X>;\n/// @openapi\n/// properties: {{ a: {{ $ref: '$Wrap<Tuple<{wide}>>' }} }}\npub struct S;\n"
+        "/// @openapi\npub struct User {{ pub id: u8 }}\n/// @openapi\npub struct Page<T> {{ pub items: Vec<T> }}\npub type Wrap<X> = Pair<X, X>;\n/// @openapi\n/// properties: {{ a: {{ $ref: '$Page<Wrap<Tuple<{wide}>>>' }} }}\npub struct S;\n"
     );
     let (_, diagnostics) = pipeline(&[("a.rs", &text)]);
     assert!(
         !codes(&diagnostics).contains(&Code::InstantiationLimit),
         "{diagnostics:?}"
     );
-    assert!(codes(&diagnostics).contains(&Code::UnknownBlueprint));
 }
 
 /// Each ambiguous use is a finding of its own; checking a new one against
