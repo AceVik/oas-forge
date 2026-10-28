@@ -21,6 +21,26 @@ fn assert_all(types: &[&str], expected: Value) {
 mod parsing {
     use super::*;
 
+    /// `syn` recurses once per level on the caller's stack, so deeper types
+    /// are not parsed.
+    #[test]
+    fn types_nest_at_most_32_levels() {
+        let nested = |n: usize| format!("{}u8{}", "Vec<".repeat(n), ">".repeat(n));
+        assert!(TypeExpr::parse(&nested(32)).is_some());
+        assert_eq!(TypeExpr::parse(&nested(33)), None);
+        assert!(TypeExpr::parse(&format!("{}u8", "&".repeat(32))).is_some());
+        assert_eq!(TypeExpr::parse(&format!("{}u8", "&".repeat(33))), None);
+        // `(`, `[` and `<` close again; the `>` of `->` closes nothing.
+        let wide = format!("({})", vec!["[Option<u8>; 2]"; 40].join(", "));
+        assert!(TypeExpr::parse(&wide).is_some());
+        let returns = format!(
+            "{}fn() -> Vec<Vec<u8>>{}",
+            "Vec<".repeat(31),
+            ">".repeat(31)
+        );
+        assert_eq!(TypeExpr::parse(&returns), None);
+    }
+
     #[test]
     fn named_types_keep_path_and_type_arguments() {
         let ty = TypeExpr::parse("chrono::DateTime<'static, Utc>").unwrap();

@@ -53,6 +53,12 @@ All notable changes to `oas-forge` will be documented in this file.
   to two larger instances of itself grew exponentially within the depth
   limit and ran until the memory was exhausted; each body is measured
   before it is built.
+- Rust sources are parsed on a thread with a 256 MiB stack (32 MiB on
+  32-bit targets) in `Generator::build`, `generate_from_sources` and
+  `extract::extract`. `syn` recurses once per nesting level, so about 150
+  nested types overflowed the 8 MiB main thread of a build script (about
+  20 on Windows, whose main thread has 1 MiB) and aborted the process.
+  `TypeExpr::parse` returns `None` for types nested more than 32 levels.
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of
   silently naming the crate after its directory.

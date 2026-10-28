@@ -39,6 +39,12 @@ make a run fail or produce a wrong document. To keep that bounded:
 - outputs use exclusively created, unique temporary files and are replaced
   atomically at the configured paths; an existing output is compared only
   when it is a regular file, reading no more than a current one can hold,
+- Rust sources are parsed and walked on a thread with a 256 MiB stack
+  (32 MiB on 32-bit targets), so nesting in the thousands of levels is
+  parsed instead of aborting the process (`syn` recurses once per level);
+  input nested deeper than that still overflows it, which aborts the
+  process: the run fails, with no other effect. `TypeExpr::parse` accepts
+  at most 32 nested levels,
 - both crates use `#![forbid(unsafe_code)]`.
 
 Dependencies are checked with `cargo deny` (advisories, licenses, sources)

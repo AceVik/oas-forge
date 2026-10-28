@@ -881,8 +881,43 @@ pub fn extract_str(
     options: Options<'_>,
     diagnostics: &mut Diagnostics,
 ) -> Result<Vec<Item>> {
-    let file = parse(path, text)?;
-    Ok(extract_parsed(path, &file, options, diagnostics))
+    on_large_stack(|| {
+        let file = parse(path, text)?;
+        Ok(extract_parsed(path, &file, options, diagnostics))
+    })
+}
+
+/// The stack of the thread that parses and walks Rust sources. `syn`
+/// recurses once per nesting level, and the main thread of a build script
+/// has 8 MiB (1 MiB on Windows), which about 150 (20) nested types already
+/// overflow; overflowing the stack aborts the process.
+const STACK_SIZE: usize = if cfg!(target_pointer_width = "64") {
+    256 << 20
+} else {
+    32 << 20
+};
+
+/// Runs `task` on a thread with a [`STACK_SIZE`] stack and returns its
+/// result, or on the current thread when no thread can be started.
+pub(crate) fn on_large_stack<T: Send>(task: impl FnOnce() -> T + Send) -> T {
+    let slot = std::sync::Mutex::new(Some(task));
+    let take = || slot.lock().map_or(None, |mut task| task.take());
+    let result = std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("oas-forge".to_string())
+            .stack_size(STACK_SIZE)
+            .spawn_scoped(scope, || take().map(|task| task()))
+            .ok()
+            .and_then(|thread| {
+                thread
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+    });
+    match result {
+        Some(result) => result,
+        None => take().expect("a thread that did not start leaves the task")(),
+    }
 }
 
 /// Parses Rust `text` of the file at `path`.

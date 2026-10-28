@@ -906,6 +906,11 @@ impl Generator {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn build(&self) -> Result<Spec> {
+        extract::on_large_stack(|| self.build_here())
+    }
+
+    /// [`Self::build`] on the current thread.
+    fn build_here(&self) -> Result<Spec> {
         let mut diagnostics = Diagnostics::new();
         let options = DiscoverOptions::default()
             .with_exclude(self.outputs.iter().map(|(_, _, p)| p.clone()).collect())
@@ -2741,6 +2746,11 @@ pub fn generate_from_sources(
     files: Vec<SourceFile>,
     variables: &Variables,
 ) -> Result<(Value, Diagnostics)> {
+    extract::on_large_stack(|| generate_here(files, variables))
+}
+
+/// [`generate_from_sources`] on the current thread.
+fn generate_here(files: Vec<SourceFile>, variables: &Variables) -> Result<(Value, Diagnostics)> {
     let mut diagnostics = Diagnostics::new();
     let settings = Settings {
         variables,

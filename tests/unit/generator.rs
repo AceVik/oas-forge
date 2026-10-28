@@ -15,6 +15,75 @@ fn build(project: &Project) -> Spec {
         .expect("build succeeds")
 }
 
+/// Runs `task` on a thread with the 1 MiB stack of a Windows main thread.
+fn on_small_stack<T: Send + 'static>(task: impl FnOnce() -> T + Send + 'static) -> T {
+    std::thread::Builder::new()
+        .stack_size(1 << 20)
+        .spawn(task)
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
+/// `syn` recurses once per nesting level: 300 nested types overflowed even
+/// the 8 MiB main thread and aborted the process.
+mod deep_nesting {
+    use super::*;
+    use oas_forge::diagnostics::Diagnostics;
+    use oas_forge::extract::{self, Options};
+    use oas_forge::generator::generate_from_sources;
+    use oas_forge::source::{SourceFile, SourceKind};
+    use oas_forge::template::Variables;
+
+    fn deep_source() -> String {
+        format!(
+            "/// @openapi\npub struct Deep {{ pub a: {}u8{} }}\nfn f() {{ {}1{} }}\n",
+            "Vec<".repeat(300),
+            ">".repeat(300),
+            "(".repeat(300),
+            ")".repeat(300)
+        )
+    }
+
+    #[test]
+    fn building_runs_on_a_large_stack() {
+        let project = Project::new();
+        project.file("src/deep.rs", &deep_source());
+        let input = project.path("src");
+        let schemas = on_small_stack(move || {
+            let spec = Generator::new().input(input).build().unwrap();
+            spec.render(OutputKind::Schemas).unwrap()
+        });
+        assert_eq!(schemas["Deep"]["properties"]["a"]["type"], "array");
+    }
+
+    #[test]
+    fn generating_from_sources_runs_on_a_large_stack() {
+        let (document, _) = on_small_stack(|| {
+            let source = SourceFile::new("src/deep.rs", SourceKind::Rust, deep_source());
+            generate_from_sources(vec![source], &Variables::new()).unwrap()
+        });
+        assert!(document["components"]["schemas"]["Deep"].is_object());
+    }
+
+    #[test]
+    fn extracting_runs_on_a_large_stack() {
+        let items = on_small_stack(|| {
+            let text = deep_source();
+            let mut diagnostics = Diagnostics::new();
+            extract::extract_str(
+                std::path::Path::new("src/deep.rs"),
+                &text,
+                Options::new(),
+                &mut diagnostics,
+            )
+            .unwrap()
+            .len()
+        });
+        assert_eq!(items, 1);
+    }
+}
+
 mod builder {
     use super::*;
 

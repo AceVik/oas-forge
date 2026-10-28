@@ -60,10 +60,36 @@ pub enum TypeExpr {
 /// `smart`.
 const SMART_MARKER: &str = "__oas_forge_smart__";
 
+/// The deepest nesting [`TypeExpr::parse`] accepts.
+const MAX_TYPE_NESTING: usize = 32;
+
+/// How deeply `text` nests brackets (`<`, `(`, `[`; the `>` of `->` closes
+/// nothing), and the number of `&` and `*`, whichever is larger.
+fn nesting(text: &str) -> usize {
+    let (mut depth, mut deepest, mut indirections) = (0_usize, 0, 0);
+    let mut previous = ' ';
+    for c in text.chars() {
+        match c {
+            '<' | '(' | '[' => {
+                depth += 1;
+                deepest = deepest.max(depth);
+            }
+            '>' if previous == '-' => {}
+            '>' | ')' | ']' => depth = depth.saturating_sub(1),
+            '&' | '*' => indirections += 1,
+            _ => {}
+        }
+        previous = c;
+    }
+    deepest.max(indirections)
+}
+
 impl TypeExpr {
     /// Parses a type written in Rust syntax, optionally with `$` smart markers.
     ///
-    /// Returns `None` when the text is not a type.
+    /// Returns `None` when the text is not a type, or nests `<`, `(` and `[`
+    /// or references and pointers more than 32 levels deep: `syn` recurses
+    /// once per level, on the caller's stack.
     ///
     /// # Examples
     ///
@@ -76,6 +102,9 @@ impl TypeExpr {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn parse(text: &str) -> Option<Self> {
+        if nesting(text) > MAX_TYPE_NESTING {
+            return None;
+        }
         let marked = text.trim().replace('$', SMART_MARKER);
         let ty: syn::Type = syn::parse_str(&marked).ok()?;
         Some(Self::from_syn(&ty))
