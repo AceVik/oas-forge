@@ -276,6 +276,9 @@ Each `@security` line is one alternative; `+` joins schemes that must all be
 satisfied. `none` alone makes the operation public (`security: []`); next
 to other lines it allows anonymous access (`{}`). The schemes must be defined
 in `components.securitySchemes` (lint `OF5005`).
+Repeating a scheme within one line combines its scopes without duplicates.
+A `+` inside parentheses belongs to the scope; quote a scope containing a
+comma, for example `oauth("read,write")`.
 
 ## Embedded OpenAPI
 
