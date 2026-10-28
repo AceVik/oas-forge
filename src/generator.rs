@@ -2606,6 +2606,17 @@ fn merge_documents(
     );
     for snippet in others.into_iter().chain(generated) {
         origins.record(&snippet.value, &snippet.location);
+        let mut joined = Vec::new();
+        joined_lists(&document, &snippet.value, &mut String::new(), &mut joined);
+        for pointer in joined {
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::MergeConflict,
+                    format!("`{pointer}` is also set by another annotation; the lists are joined, so the entries of both apply"),
+                )
+                .at(snippet.location.clone()),
+            );
+        }
         for pointer in merge(&mut document, snippet.value, Policy::Document) {
             diagnostics.push(
                 Diagnostic::new(
@@ -2617,6 +2628,36 @@ fn merge_documents(
         }
     }
     Ok((document, origins))
+}
+
+/// The pointers of the `security` and `servers` lists that `snippet` adds
+/// entries to although `document` (at `pointer`) already sets them. Merging
+/// joins the lists, so without a finding a second annotation could make
+/// authentication optional (`security: [{}]`) or add a server.
+fn joined_lists(document: &Value, snippet: &Value, pointer: &mut String, found: &mut Vec<String>) {
+    let (Value::Object(target), Value::Object(source)) = (document, snippet) else {
+        return;
+    };
+    for (key, value) in source {
+        let Some(existing) = target.get(key) else {
+            continue;
+        };
+        let len = pointer.len();
+        pointer.push('/');
+        pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
+        match (existing, value) {
+            (Value::Array(existing), Value::Array(added))
+                if matches!(key.as_str(), "security" | "servers") =>
+            {
+                let known: BTreeSet<String> = existing.iter().map(Value::to_string).collect();
+                if added.iter().any(|item| !known.contains(&item.to_string())) {
+                    found.push(pointer.clone());
+                }
+            }
+            _ => joined_lists(existing, value, pointer, found),
+        }
+        pointer.truncate(len);
+    }
 }
 
 /// Final clean-ups of the merged document.

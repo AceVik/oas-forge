@@ -88,7 +88,7 @@ The codes are stable: a code keeps its meaning across releases
 
 | Code | Severity | Cause | Fix |
 | :--- | :--- | :--- | :--- |
-| `OF4001` | warning | Two documents set the same value differently; the later one wins | Remove one of them |
+| `OF4001` | warning | Two documents set the same value differently; the later one wins. Or a document adds entries to a `security` or `servers` list another document set; the lists are joined | Remove one of them, or set the list in one place |
 
 ## Lints (OF5xxx)
 

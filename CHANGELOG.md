@@ -65,6 +65,10 @@ All notable changes to `oas-forge` will be documented in this file.
   nested types overflowed the 8 MiB main thread of a build script (about
   20 on Windows, whose main thread has 1 MiB) and aborted the process.
   `TypeExpr::parse` returns `None` for types nested more than 32 levels.
+- An annotation that adds entries to a `security` or `servers` list that
+  another annotation set (at the root, on a path or an operation) is
+  reported (`OF4001`). The lists are joined, so a second `security: [{}]`
+  made authentication optional without a finding.
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of
   silently naming the crate after its directory.

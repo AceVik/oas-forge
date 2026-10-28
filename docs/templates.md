@@ -99,7 +99,7 @@ order):
 | Value | Merge |
 | :--- | :--- |
 | mappings | recursively, key by key |
-| lists | appended, duplicates removed; `parameters` are matched by name and location |
+| lists | appended, duplicates removed; `parameters` are matched by name and location; entries added to a `security` or `servers` list another snippet set are reported (`OF4001`), since a joined `security` list accepts either requirement |
 | positional lists (`allOf`, `oneOf`, `anyOf`, `prefixItems`) | a different list replaces the old one, with a warning |
 | scalars | the later value wins; a different value is reported (`OF4001`) with both locations |
 

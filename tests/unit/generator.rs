@@ -3486,3 +3486,55 @@ pub struct User { pub id: u64 }
         );
     }
 }
+
+/// Merging joins `security` and `servers` lists; a second annotation that
+/// adds to them is reported, since `security: [{}]` makes authentication
+/// optional.
+mod joined_lists {
+    use super::*;
+
+    #[test]
+    fn additions_to_security_and_servers_are_reported() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "a.rs",
+                "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! servers: [{ url: 'https://api.example.com' }]\n//! security: [{ bearer: [] }]\n//! components: { securitySchemes: { bearer: { type: http, scheme: bearer } } }\n\n/// @route GET /admin\n/// @security bearer\n/// @return 204:\nfn admin() {}",
+            ),
+            (
+                "b.rs",
+                "//! @openapi\n//! servers: [{ url: 'https://attacker.example' }]\n//! security: [{}]\n\n/// @route GET /admin\n/// @openapi\n/// security: [{}]\nfn again() {}",
+            ),
+        ]);
+        let joined: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::MergeConflict && d.message().contains("joined"))
+            .map(|d| d.message())
+            .collect();
+        assert_eq!(joined.len(), 3, "{diagnostics:#?}");
+        assert!(joined[0].starts_with("`/servers`"), "{joined:?}");
+        assert!(joined[1].starts_with("`/security`"), "{joined:?}");
+        assert!(
+            joined[2].starts_with("`/paths/~1admin/get/security`"),
+            "{joined:?}"
+        );
+        assert_eq!(document["security"], json!([{ "bearer": [] }, {}]));
+    }
+
+    #[test]
+    fn repeating_the_same_entries_is_no_finding() {
+        let (_, diagnostics) = pipeline(&[
+            (
+                "a.rs",
+                "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! security: [{ bearer: [] }]\n//! tags: [{ name: a }]",
+            ),
+            (
+                "b.rs",
+                "//! @openapi\n//! security: [{ bearer: [] }]\n//! tags: [{ name: b }]",
+            ),
+        ]);
+        assert!(
+            !codes(&diagnostics).contains(&Code::MergeConflict),
+            "{diagnostics:#?}"
+        );
+    }
+}
