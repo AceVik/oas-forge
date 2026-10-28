@@ -1750,18 +1750,20 @@ impl Compiler<'_, '_> {
 
     /// Adds the responses of the module defaults to the block's. A status
     /// code the block has too keeps one response: the defaults add their
-    /// media types and headers, and their descriptions come first; when both
-    /// give one media type a different schema, the block's response wins and
-    /// a note says so.
+    /// media types and the headers the block does not declare (a header of
+    /// the block replaces the module's of that name, like a parameter), and
+    /// their descriptions come first; when both give one media type a
+    /// different schema, the block's response wins and a note says so.
     fn default_responses(
         &mut self,
         b: &mut Builder,
         responses: Map<String, Value>,
         mut explained: BTreeMap<String, Vec<String>>,
     ) {
-        for (code, response) in responses {
+        for (code, mut response) in responses {
             let outer = explained.remove(&code).unwrap_or_default();
             if let Some(own) = b.responses.get_mut(&code) {
+                drop_known_headers(&mut response, own);
                 if contents_conflict(own.get("content"), response.get("content")) {
                     let location = self.location(b.stated.get(&code).copied().unwrap_or(At::Block));
                     self.diagnostics.push(
@@ -2002,6 +2004,24 @@ fn is_path_expansion(parameter: &Value) -> bool {
         .and_then(|m| m.get("in"))
         .and_then(Value::as_str)
         == Some("path")
+}
+
+/// Removes from `response`, a response of the module defaults, the headers
+/// that `target`, the block's response of the same status, declares: the
+/// block's header replaces the module's, like a parameter. Header names
+/// are compared without regard to ASCII case, as HTTP reads them.
+fn drop_known_headers(response: &mut Value, target: &Value) {
+    let Some(Value::Object(headers)) = response.get_mut("headers") else {
+        return;
+    };
+    let known: Vec<String> = target
+        .get("headers")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(Map::keys)
+        .map(|name| name.to_ascii_lowercase())
+        .collect();
+    headers.retain(|name, _| !known.contains(&name.to_ascii_lowercase()));
 }
 
 /// Removes the parameters of default YAML that the operation (or path

@@ -13,6 +13,11 @@ All notable changes to `oas-forge` will be documented in this file.
   policy checks.
 
 ### Fixed
+- A `@return-header` of a route replaces the header of the same status and
+  name from its `@route-defaults`, like a parameter. Before, the two
+  schemas were merged (`Duration` over `Uuid` gave a string with
+  `properties`), and which one won depended on the types the crate
+  documents.
 - Combined `@security` requirements retain all scopes when a scheme is
   repeated. Plus signs inside scopes and commas inside quoted scopes no
   longer split requirements or scope names.

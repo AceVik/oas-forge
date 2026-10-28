@@ -391,7 +391,9 @@ YAML of the defaults). A response for a status the route
 has too is combined with the route's (media types add up, descriptions of
 the defaults first, see [responses](#responses)); when both give one media
 type a different schema, the route's response wins and a note (`OF4001`)
-says so. Likewise, the `@tag`
+says so. A `@return-header` of the route replaces the one of the defaults
+with the same status and name (compared without regard to case), schema
+and all. Likewise, the `@tag`
 and `@security` lines of an inner module replace those of the outer modules
 (in the example, `invoice` is tagged `Billing` only); within one module,
 several lines add up. Webhooks get no path parameters from the defaults.
