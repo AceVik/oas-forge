@@ -77,7 +77,8 @@ hundred bytes per byte: inputs with many megabytes of route or channel
 blocks need gigabytes. Budgets bound what a small input can expand into,
 not the size of the inputs: filling the budget for pasted text with short
 lines from about a hundred kilobytes of annotations takes about a gigabyte
-and a second or two. Each scope may have a root of its own (see
+and a second or two, and filling it together with the budgets of struct
+expansion and generic instantiation about 1.5 GB and a few seconds. Each scope may have a root of its own (see
 [scopes](docs/route-dsl.md#scopes)); such a root replaces the shared one
 for its scope, including the global `security`, so review a new scoped
 root like a change of the root.
