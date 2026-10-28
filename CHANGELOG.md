@@ -221,6 +221,20 @@ All notable changes to `oas-forge` will be documented in this file.
   `nullable: true`, which OpenAPI 3.0 rejects, and is now `anyOf` of both
   types; `anyOf: [{type: "null"}]` was written as `anyOf: []` and is now
   `enum: [null]` with `nullable: true`, like `type: "null"`.
+- A type naming several built-in types bare (`(Duration, Uuid, Url, …)`)
+  carried a copy of its whole schema for every subset of up to six such
+  names, until the references stage knew which of them are documented: 63
+  copies of a large field type per field took 2 GB and 4.6 s of CPU time
+  for 1000 such fields (216 KB of input, about 9 000 bytes of memory per
+  input byte), 4 GB and 9.3 s for 2000. Each name now carries one
+  reference-sized alternative where it is mapped, whatever the type around
+  it: the same inputs take 170 MB and 0.3 s, and 325 MB and 0.5 s, like a
+  type without such names. The limit of six names is gone: a type with more
+  bare built-in names follows the documented types too (its built-ins were
+  kept silently), and so does a name written in the target of a type alias
+  of an `Option` (`type MaybeDuration = Option<Duration>;`). A second
+  `@return` of a code with such a type replaces the alternative of the
+  first along with its schema.
 
 ### Security
 - `{{env:NAME}}` placeholders read only the environment variables you allow

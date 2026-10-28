@@ -9,6 +9,7 @@
 use super::{metas, string_literal};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::extract::PatternItem;
+use crate::schema::shadow;
 use serde_json::{Map, Number, Value, json};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -743,7 +744,11 @@ fn apply_rule(rule: &Rule, schema: &mut Value) {
                 _ => None,
             };
             match target {
-                Some(inner) => rules.iter().for_each(|r| apply_rule(r, inner)),
+                // The items may be a built-in name written bare, with an
+                // alternative for a documented schema of that name.
+                Some(inner) => shadow::for_each(inner, |inner| {
+                    rules.iter().for_each(|r| apply_rule(r, inner));
+                }),
                 None => rules.iter().for_each(|r| apply_rule(r, schema)),
             }
         }

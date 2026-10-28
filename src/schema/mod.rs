@@ -18,6 +18,9 @@ use serde_json::{Value, json};
 /// - references and composed schemas become `{"anyOf": [schema, {"type": "null"}]}`,
 /// - schemas that already accept `null`, and the empty schema, are unchanged.
 ///
+/// The alternative that the schema of a built-in name written bare carries
+/// until the references stage is extended the same way.
+///
 /// # Examples
 ///
 /// ```
@@ -34,7 +37,15 @@ use serde_json::{Value, json};
 ///     json!({ "anyOf": [{ "$ref": "#/components/schemas/User" }, { "type": "null" }] })
 /// );
 /// ```
-pub fn nullable(schema: Value) -> Value {
+pub fn nullable(mut schema: Value) -> Value {
+    shadow::for_each(&mut schema, |schema| {
+        *schema = nullable_one(std::mem::take(schema));
+    });
+    schema
+}
+
+/// [`nullable`] of one schema, without an alternative.
+fn nullable_one(schema: Value) -> Value {
     let Value::Object(mut map) = schema else {
         return schema;
     };

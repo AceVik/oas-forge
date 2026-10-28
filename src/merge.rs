@@ -1,5 +1,6 @@
 //! Merging of JSON values under explicit policies (ADR 0003).
 
+use crate::schema::shadow;
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ops::Bound;
@@ -146,11 +147,35 @@ impl Merger {
     fn merge_at(
         &mut self,
         target: &mut Value,
-        source: Value,
+        mut source: Value,
         policy: Policy,
         pointer: &mut String,
         conflicts: &mut Vec<String>,
     ) {
+        // A built-in schema with an alternative for a documented schema of
+        // its name (`Duration`) gets the merge in both; the references stage
+        // chooses one later. The alternative reports no conflicts of its own.
+        // A source with an alternative brings it along: it replaces the
+        // target's, unless the target's values win.
+        let alternatives = (shadow::detach(target), shadow::detach(&mut source));
+        match alternatives {
+            (None, None) => {}
+            (Some(mut marker), None) => {
+                self.merge_at(target, source.clone(), policy, pointer, conflicts);
+                self.merge_at(&mut marker.schema, source, policy, pointer, &mut Vec::new());
+                shadow::attach(target, marker);
+                return;
+            }
+            (kept, Some(brought)) => {
+                self.merge_at(target, source, policy, pointer, conflicts);
+                let marker = match kept {
+                    Some(kept) if policy == Policy::Extend => kept,
+                    _ => brought,
+                };
+                shadow::attach(target, marker);
+                return;
+            }
+        }
         match (target, source) {
             (Value::Object(t), Value::Object(s)) => {
                 if self.watch_lists && !pointer.is_empty() && !s.is_empty() {

@@ -362,11 +362,7 @@ impl<'a> Reflector<'a> {
     /// built-in types bare (`Duration`), it carries the alternatives for
     /// documented schemas of these names (see [`shadow`]).
     fn typed(&self, ty: &TypeExpr, build: impl Fn(MappedType) -> Value) -> Value {
-        let eager = build(self.types.map(ty));
-        let names = self.types.shadowable_names(ty);
-        shadow::with_alternatives(eager, &names, |subset| {
-            build(self.types.shadowing(subset).map(ty))
-        })
+        shadow::typed(&self.types, ty, build)
     }
 
     /// Reports the parts of `ty`, the type of a documented field at `line`,

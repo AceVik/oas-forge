@@ -1,5 +1,6 @@
 //! Rust type expressions and their JSON Schema.
 
+use super::shadow;
 use crate::diagnostics::{Code, Diagnostic};
 use crate::extract::names::{NameTable, Resolved};
 use crate::template::generics::substitute;
@@ -496,8 +497,9 @@ impl MappedType {
 pub struct TypeMapper {
     /// The schemas of [`TypeMapper::with_type`], by type name or `::` path.
     custom: BTreeMap<String, Value>,
-    /// Built-in names written bare that stand for documented schemas.
-    shadowed: BTreeSet<String>,
+    /// Whether the built-in schema of a name written bare carries its
+    /// alternative for a documented schema of that name (see [`shadow`]).
+    marking: bool,
     /// The module paths of the scanned sources and the module the types are
     /// written in (`crate`, `module`, …): names written in Rust resolve to
     /// the component names of the documented types they mean.
@@ -510,7 +512,7 @@ pub struct TypeMapper {
 /// Names of the built-in table that a crate may also give its own types
 /// (`Duration`, `Value`, `Uuid`, …). Written bare (one segment, no generic
 /// arguments), they may refer to a documented schema of that name, which
-/// then wins; see [`TypeMapper::shadowable_names`].
+/// then wins; see [`TypeMapper::marking`].
 const SHADOWABLE: &[&str] = &[
     "Value",
     "Duration",
@@ -620,41 +622,14 @@ impl TypeMapper {
         self.custom.iter()
     }
 
-    /// The built-in names in `ty` that a documented schema of the same name
-    /// would replace: written bare (`Duration`, not `std::time::Duration`),
-    /// without generic arguments and without a custom mapping.
-    pub(crate) fn shadowable_names(&self, ty: &TypeExpr) -> BTreeSet<String> {
-        let mut names = BTreeSet::new();
-        self.collect_shadowable(ty, &mut names);
-        names
-    }
-
-    /// Adds the shadowable names of `ty`, its generic arguments, element
-    /// types and tuple members to `names`.
-    fn collect_shadowable(&self, ty: &TypeExpr, names: &mut BTreeSet<String>) {
-        match ty {
-            TypeExpr::Named { path, args, .. } => {
-                if let [name] = path.as_slice()
-                    && args.is_empty()
-                    && SHADOWABLE.contains(&name.as_str())
-                    && self.custom_schema(path).is_none()
-                {
-                    names.insert(name.clone());
-                }
-                for arg in args {
-                    self.collect_shadowable(arg, names);
-                }
-            }
-            TypeExpr::Array { elem, .. } | TypeExpr::Slice(elem) | TypeExpr::Reference(elem) => {
-                self.collect_shadowable(elem, names);
-            }
-            TypeExpr::Tuple(elems) => {
-                for elem in elems {
-                    self.collect_shadowable(elem, names);
-                }
-            }
-            TypeExpr::Other(_) => {}
-        }
+    /// This mapper with the built-in schema of a name written bare
+    /// (`Duration`, not `std::time::Duration`; without generic arguments and
+    /// without a custom mapping) carrying its alternative for a documented
+    /// schema of that name, `{"$ref": "$Duration"}` (see [`shadow`]).
+    pub(crate) fn marking(&self) -> Self {
+        let mut mapper = self.clone();
+        mapper.marking = true;
+        mapper
     }
 
     /// This mapper for types written in the module `scope` of the sources
@@ -771,14 +746,6 @@ impl TypeMapper {
         }
     }
 
-    /// This mapper with the bare built-in `names` standing for documented
-    /// schemas (`{"$ref": "$Duration"}`).
-    pub(crate) fn shadowing(&self, names: &BTreeSet<String>) -> Self {
-        let mut mapper = self.clone();
-        mapper.shadowed.extend(names.iter().cloned());
-        mapper
-    }
-
     /// The schema of `ty`.
     ///
     /// # Examples
@@ -808,11 +775,18 @@ impl TypeMapper {
                 if let Some(schema) = self.custom_schema(path) {
                     return MappedType::required(schema);
                 }
-                if let [name] = path.as_slice()
+                if self.marking
+                    && let [name] = path.as_slice()
                     && args.is_empty()
-                    && self.shadowed.contains(name)
+                    && SHADOWABLE.contains(&name.as_str())
                 {
-                    return MappedType::required(json!({ "$ref": format!("${name}") }));
+                    // A documented schema of the name may replace the
+                    // built-in schema; the references stage decides.
+                    let mapped = self.map_named(path, args, !*smart);
+                    return MappedType {
+                        schema: shadow::mark(mapped.schema, name),
+                        ..mapped
+                    };
                 }
                 let name = ty.name().unwrap_or_default();
                 if *smart && !args.is_empty() && !is_container(name) {

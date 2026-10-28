@@ -175,6 +175,51 @@ fn references_to_built_in_types_become_their_schema() {
     assert_eq!(codes(&diagnostics), [Code::UnresolvedReference]);
 }
 
+/// The built-in schema of a name written bare carries its alternative
+/// (`x-oas-forge-builtin`): the alternative when the name is documented,
+/// also through an alias, else the built-in schema without the marker.
+#[test]
+fn the_alternative_of_a_built_in_schema_is_chosen_when_documented() {
+    let uuid = json!({
+        "type": "string",
+        "format": "uuid",
+        "x-oas-forge-builtin": { "name": "Uuid", "schema": { "$ref": "$Uuid", "title": "Id" } },
+    });
+    let url = json!({
+        "type": "string",
+        "format": "uri",
+        "x-oas-forge-builtin": { "name": "Url", "schema": { "$ref": "$Url" } },
+    });
+    let mut registry = Registry::new();
+    registry.add_alias("Url", "Link");
+    let (value, diagnostics) = run(
+        json!({ "a": uuid, "b": { "items": url } }),
+        &known(&["Uuid", "Link"]),
+        &registry,
+    );
+    assert_eq!(
+        value,
+        json!({
+            "a": { "$ref": "#/components/schemas/Uuid", "title": "Id" },
+            "b": { "items": { "$ref": "#/components/schemas/Link" } },
+        })
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let (value, diagnostics) = run(
+        json!({ "a": uuid, "b": url }),
+        &known(&[]),
+        &Registry::new(),
+    );
+    assert_eq!(
+        value,
+        json!({
+            "a": { "type": "string", "format": "uuid" },
+            "b": { "type": "string", "format": "uri" },
+        })
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
 #[test]
 fn documented_schemas_shadow_built_in_types() {
     let mut registry = Registry::new();

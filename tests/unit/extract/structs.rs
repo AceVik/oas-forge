@@ -962,8 +962,8 @@ fn structural_overrides_replace_a_reflected_reference() {
     );
     // The alternative for a documented `Uuid` gets the same docs.
     assert_eq!(
-        id["x-oas-forge-builtin"]["variants"][0]["schema"],
-        json!({ "$ref": "$Uuid", "description": "An id" })
+        id["x-oas-forge-builtin"],
+        json!({ "name": "Uuid", "schema": { "$ref": "$Uuid", "description": "An id" } })
     );
 }
 
@@ -1471,8 +1471,8 @@ mod builtin_names {
         pub type Delay = Duration;
         "#;
 
-    /// The second of two bare names is the documented one (alternatives are
-    /// built for every subset; the right one must be picked).
+    /// The second of two bare names is the documented one (each name has an
+    /// alternative of its own; only that one must be picked).
     #[test]
     fn only_the_documented_one_of_several_names_is_a_reference() {
         let schemas = schemas(&[(
@@ -1487,7 +1487,7 @@ mod builtin_names {
         );
     }
 
-    /// Six names are the limit that still gets alternatives.
+    /// Many names in one type each follow the documented types.
     #[test]
     fn six_names_in_one_type_still_follow_documented_types() {
         let schemas = schemas(&[(
@@ -1575,16 +1575,18 @@ mod builtin_names {
         );
     }
 
+    /// There is no limit on the names in one type (there was one of six,
+    /// when every subset of them got an alternative of the whole type).
     #[test]
-    fn types_with_very_many_built_in_names_keep_the_built_ins() {
+    fn types_with_very_many_built_in_names_follow_documented_types_too() {
         let schemas = schemas(&[(
             "lib.rs",
             "/// @openapi\npub struct Uuid { pub raw: String }\n/// @openapi\npub struct Job { pub all: (Uuid, Ulid, Url, Uri, Decimal, Bytes, IpAddr) }",
         )]);
-        assert_eq!(
-            schemas["Job"]["properties"]["all"]["prefixItems"][0],
-            json!({ "type": "string", "format": "uuid" })
-        );
+        let items = &schemas["Job"]["properties"]["all"]["prefixItems"];
+        assert_eq!(items[0], json!({ "$ref": "#/components/schemas/Uuid" }));
+        assert_eq!(items[1], json!({ "type": "string", "format": "ulid" }));
+        assert_eq!(items[6]["type"], "string");
     }
 
     #[test]
