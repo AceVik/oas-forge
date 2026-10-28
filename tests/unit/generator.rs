@@ -3578,6 +3578,22 @@ mod joined_lists {
         assert_eq!(codes(&diagnostics).len(), 4000);
     }
 
+    /// The items of a list are remembered between annotations; a value
+    /// that replaces the list (and one that replaces it back) makes them
+    /// stale, so they are forgotten.
+    #[test]
+    fn replaced_lists_are_merged_from_their_new_items() {
+        let (document, _) = pipeline(&[
+            ("a.yaml", "x-list: [1]\nx-obj: { list: [1] }"),
+            ("b.yaml", "x-list: [1]\nx-obj: { list: [1] }"),
+            ("c.yaml", "x-list: scalar\nx-obj: scalar"),
+            ("d.yaml", "x-list: [2]\nx-obj: { list: [2] }"),
+            ("e.yaml", "x-list: [1]\nx-obj: { list: [1] }"),
+        ]);
+        assert_eq!(document["x-list"], json!([2, 1]));
+        assert_eq!(document["x-obj"], json!({ "list": [2, 1] }));
+    }
+
     #[test]
     fn repeating_the_same_entries_is_no_finding() {
         let (_, diagnostics) = pipeline(&[

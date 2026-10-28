@@ -164,7 +164,8 @@ fn doubling_aliases_resolve_within_the_budget() {
 }
 
 /// Each link doubled the work: 20 links ran for minutes and wrote 700 MB.
-/// The targets share the size budget of generic instantiation.
+/// The targets share the size budget of generic instantiation, across the
+/// generics and the references stage, so running out is reported once.
 #[test]
 fn doubling_aliases_stop_at_the_budget() {
     for form in ["plain", "tuple", "generic"] {
@@ -175,9 +176,47 @@ fn doubling_aliases_stop_at_the_budget() {
             "{form}: {:?}",
             started.elapsed()
         );
-        assert!(
-            codes(&diagnostics).contains(&Code::InstantiationLimit),
-            "{form}: {diagnostics:?}"
-        );
+        let limits = codes(&diagnostics)
+            .into_iter()
+            .filter(|code| *code == Code::InstantiationLimit)
+            .count();
+        assert_eq!(limits, 1, "{form}: {diagnostics:?}");
     }
+}
+
+/// A large target counts with its size each time it replaces an alias.
+#[test]
+fn alias_targets_count_with_their_size() {
+    let tuple = vec!["String"; 2000].join(", ");
+    for (uses, over) in [(100, false), (1000, true)] {
+        let fields: String = (0..uses).map(|i| format!("pub f{i}: Big, ")).collect();
+        let text =
+            format!("pub type Big = ({tuple});\n/// @openapi\npub struct S {{ {fields} }}\n");
+        let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+        assert_eq!(
+            codes(&diagnostics).contains(&Code::InstantiationLimit),
+            over,
+            "{uses}: {diagnostics:?}"
+        );
+        if !over {
+            let field = &document["components"]["schemas"]["S"]["properties"]["f99"];
+            assert_eq!(field["prefixItems"].as_array().map(Vec::len), Some(2000));
+        }
+    }
+}
+
+/// The argument of a generic alias counts with its length once, not per
+/// byte of the alias.
+#[test]
+fn generic_alias_arguments_count_with_their_length() {
+    let wide = vec!["User"; 50_000].join(", ");
+    let text = format!(
+        "/// @openapi\npub struct User {{ pub id: u8 }}\npub type Wrap<X> = Pair<X, X>;\n/// @openapi\n/// properties: {{ a: {{ $ref: '$Wrap<Tuple<{wide}>>' }} }}\npub struct S;\n"
+    );
+    let (_, diagnostics) = pipeline(&[("a.rs", &text)]);
+    assert!(
+        !codes(&diagnostics).contains(&Code::InstantiationLimit),
+        "{diagnostics:?}"
+    );
+    assert!(codes(&diagnostics).contains(&Code::UnknownBlueprint));
 }

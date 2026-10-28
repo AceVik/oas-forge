@@ -583,9 +583,7 @@ impl<'a> Instantiator<'a> {
             .collect();
         // A target that names the next alias twice doubles per link.
         let mut left = self.budget;
-        let Some(schema) = spend(&mut left, ALIAS_COST)
-            .and_then(|()| substitute_within(&alias.schema, &bindings, &mut left))
-        else {
+        let Some(schema) = alias_target(&alias.schema, &bindings, &mut left) else {
             self.report_budget(text, location, diagnostics);
             return None;
         };
@@ -656,6 +654,12 @@ impl<'a> Instantiator<'a> {
     /// ```
     pub fn into_concrete(self) -> BTreeMap<String, (Value, Location)> {
         self.concrete
+    }
+
+    /// What is left of [`MAX_INSTANTIATED_SIZE`], and whether running out
+    /// was reported; the references stage continues with it.
+    pub(crate) fn budget_left(&self) -> (usize, bool) {
+        (self.budget, self.budget_reported)
     }
 
     /// The replacement of the generic reference `text`: the inline schema of
@@ -973,18 +977,15 @@ fn substitute_within(
     }
 }
 
-/// The size of `value` as [`MAX_INSTANTIATED_SIZE`] counts it: the bytes
-/// of its strings and keys plus one per value.
-pub(crate) fn value_size(value: &Value) -> usize {
-    match value {
-        Value::String(s) => 1 + s.len(),
-        Value::Array(items) => items.iter().map(value_size).fold(1, usize::saturating_add),
-        Value::Object(map) => map
-            .iter()
-            .map(|(key, value)| key.len().saturating_add(value_size(value)))
-            .fold(1, usize::saturating_add),
-        _ => 1,
-    }
+/// The target `schema` of a replaced type alias with its parameters bound,
+/// if [`ALIAS_COST`] and the target fit in `budget`, which they use.
+pub(crate) fn alias_target(
+    schema: &Value,
+    bindings: &BTreeMap<&str, &str>,
+    budget: &mut usize,
+) -> Option<Value> {
+    spend(budget, ALIAS_COST)?;
+    substitute_within(schema, bindings, budget)
 }
 
 /// Takes `size` from `budget`; `None` if it holds less.

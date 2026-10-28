@@ -4,13 +4,13 @@
 //! instantiated with `$Page<String>`) becomes that type's schema.
 
 use super::aliases::{self, Found, Lookup};
-use super::generics::{ALIAS_COST, MAX_INSTANTIATED_SIZE, value_size};
+use super::generics::{MAX_INSTANTIATED_SIZE, alias_target};
 use super::lexical::ESCAPED_DOLLAR;
 use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::schema::{TypeExpr, TypeMapper, shadow};
 use serde_json::Value;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 /// Marks the reference of a field whose value is the `Default` of its type
 /// (`#[serde(default)]`): the references stage copies the `default` of the
@@ -250,24 +250,28 @@ pub(crate) struct AliasBudget {
 impl AliasBudget {
     /// The whole budget.
     pub(crate) fn new() -> Self {
-        Self {
-            left: MAX_INSTANTIATED_SIZE,
-            reported: false,
-        }
+        Self::after(MAX_INSTANTIATED_SIZE, false)
     }
 
-    /// Takes the size of `schema`, the target of the alias `name`; reports
-    /// once at `location` and returns `false` when too little is left.
-    fn spend(
+    /// The budget `left` after an earlier stage, which `reported` running
+    /// out already.
+    pub(crate) fn after(left: usize, reported: bool) -> Self {
+        Self { left, reported }
+    }
+
+    /// The target `schema` of the alias `name`, if it fits; otherwise
+    /// reports once at `location` and uses the budget up.
+    fn take(
         &mut self,
         name: &str,
         schema: &Value,
         location: &Location,
         diagnostics: &mut Diagnostics,
-    ) -> bool {
-        if let Some(left) = self.left.checked_sub(ALIAS_COST + value_size(schema)) {
+    ) -> Option<Value> {
+        let mut left = self.left;
+        if let Some(target) = alias_target(schema, &BTreeMap::new(), &mut left) {
             self.left = left;
-            return true;
+            return Some(target);
         }
         self.left = 0;
         if !self.reported {
@@ -282,7 +286,7 @@ impl AliasBudget {
                 .at(location.clone()),
             );
         }
-        false
+        None
     }
 }
 
@@ -390,24 +394,23 @@ fn resolve_at(value: &mut Value, targets: Targets<'_>, location: &Location, stat
                 .map(str::to_string)
             {
                 match lookup.find(&name, 0, location, &state.expanding, state.diagnostics) {
-                    Found::Alias(alias)
-                        if state.budget.spend(
-                            &name,
-                            &alias.schema,
-                            location,
-                            state.diagnostics,
-                        ) =>
-                    {
-                        aliases::replace(map, alias.schema.clone());
-                        state.expanding.push(name);
-                        resolve_at(value, targets, &alias.location, state);
-                        state.expanding.pop();
-                        return;
+                    Found::Alias(alias) => {
+                        if let Some(target) =
+                            state
+                                .budget
+                                .take(&name, &alias.schema, location, state.diagnostics)
+                        {
+                            aliases::replace(map, target);
+                            state.expanding.push(name);
+                            resolve_at(value, targets, &alias.location, state);
+                            state.expanding.pop();
+                            return;
+                        }
                     }
-                    Found::Alias(_) | Found::Nothing => {}
                     Found::Reported => {
                         state.reported.insert(name);
                     }
+                    Found::Nothing => {}
                 }
             }
             // `#[serde(default)]` of a documented type with a `default`.
