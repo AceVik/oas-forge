@@ -329,16 +329,22 @@ impl SourceSet {
         diagnostics: &mut Diagnostics,
     ) -> Result<Self> {
         let excluded: BTreeSet<PathBuf> = options.exclude.iter().map(|p| normalize(p)).collect();
+        // Links may lead into any input, not out of them.
+        let roots: Vec<PathBuf> = inputs
+            .iter()
+            .filter_map(|root| std::fs::canonicalize(root).ok())
+            .collect();
         let mut candidates = Vec::new();
         let mut any_file = false;
         let mut watched = Vec::new();
 
         for root in inputs {
             watched.push(root.clone());
-            let walk = walkdir::WalkDir::new(root)
+            let mut walk = walkdir::WalkDir::new(root)
                 .follow_links(true)
-                .sort_by_file_name();
-            for entry in walk {
+                .sort_by_file_name()
+                .into_iter();
+            while let Some(entry) = walk.next() {
                 let entry = match entry {
                     Ok(entry) => entry,
                     Err(error) => {
@@ -349,6 +355,16 @@ impl SourceSet {
                         return Err(walk_error(root, error));
                     }
                 };
+                if entry.depth() > 0
+                    && entry.path_is_symlink()
+                    && let Some(skipped) = link_outside(entry.path(), &roots)
+                {
+                    diagnostics.push(skipped);
+                    if entry.file_type().is_dir() {
+                        walk.skip_current_dir();
+                    }
+                    continue;
+                }
                 if entry.file_type().is_file() {
                     any_file = true;
                     candidates.push(entry.into_path());
@@ -475,6 +491,30 @@ fn unfollowable_link(error: &walkdir::Error) -> Option<Diagnostic> {
         Diagnostic::new(
             Code::UnreadableLink,
             format!("symbolic link is skipped: {reason}"),
+        )
+        .at(Location::new(path, 1)),
+    )
+}
+
+/// A finding for the symbolic link at `path` when its target lies outside
+/// every input directory in `roots` (canonical paths): such a link would
+/// pull files the user did not configure, such as credentials elsewhere on
+/// the machine, into the document.
+fn link_outside(path: &Path, roots: &[PathBuf]) -> Option<Diagnostic> {
+    let target = std::fs::canonicalize(path).ok();
+    if target
+        .as_ref()
+        .is_some_and(|target| roots.iter().any(|root| target.starts_with(root)))
+    {
+        return None;
+    }
+    let target = target.map_or_else(|| "?".to_string(), |t| t.display().to_string());
+    Some(
+        Diagnostic::new(
+            Code::LinkOutsideInputs,
+            format!(
+                "symbolic link is skipped: its target {target} is outside the input directories"
+            ),
         )
         .at(Location::new(path, 1)),
     )

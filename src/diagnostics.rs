@@ -341,6 +341,8 @@ codes! {
     InvalidGenericReference = "OF3015", Error;
     /// Expanding fragments exceeded the work or text size budget.
     ExpansionLimit = "OF3016", Error;
+    /// A symbolic link in an input directory leads outside every input directory and was skipped.
+    LinkOutsideInputs = "OF0008", Warning;
 }
 
 impl fmt::Display for Code {

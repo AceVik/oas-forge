@@ -29,6 +29,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF0005` | warning | A symbolic link in an input directory is broken or forms a loop; it was skipped | Fix or remove the link |
 | `OF0006` | warning | A `.proto` file cannot be indexed (an unclosed brace, comment or string, a second `package`, a malformed `message` line) and was skipped, or declares a message another file declares (the first is used) | Fix the file, or rename the message |
 | `OF0007` | warning | The `Cargo.toml` next to a scanned `src` directory cannot be read or has no `[package] name`; the crate's types are qualified with the directory's name instead (`crate.module.Name`) | Fix the manifest |
+| `OF0008` | warning | A symbolic link in an input directory leads outside every input directory; it was skipped | Add its target as an input or include, or remove the link |
 
 ## Extraction (OF1xxx)
 

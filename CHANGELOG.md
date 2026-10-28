@@ -32,6 +32,11 @@ All notable changes to `oas-forge` will be documented in this file.
 - A finding with line breaks, for example one quoting a YAML string, is
   printed as one `cargo:warning=` per line. Before, its second line reached
   Cargo as a directive of its own, such as `cargo:rustc-cfg=…`.
+- A symbolic link in an input directory that leads outside every input
+  directory is skipped with the new warning `OF0008`. Before, a link such
+  as `src/x.yaml -> ~/.config/gh/hosts.yml` merged that file into the
+  document. Links into any input are still followed; add a link's target
+  as an input or include to read it.
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of
   silently naming the crate after its directory.

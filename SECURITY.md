@@ -27,6 +27,8 @@ Untrusted input (for example sources from a pull request in CI) can at most
 make a run fail or produce a wrong document. To keep that bounded:
 
 - input files over 16 MiB are skipped (`Generator::max_file_size`),
+- symbolic links in input directories are followed only into input
+  directories (`OF0008`),
 - YAML documents are limited in size and nesting depth,
 - fragment inserts and generic instantiation have fixed depth limits;
   generic reference parsing is also limited to 128 nested generic lists,

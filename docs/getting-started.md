@@ -28,9 +28,11 @@ fn main() {
   and `.proto` files are indexed for [protobuf payloads](asyncapi.md#protocol-buffers)
   of AsyncAPI messages. `include` adds single files. Configured outputs are never read back as
   inputs, even inside an input directory. Symbolic links are followed
-  (broken links and loops are reported as `OF0005`), and a file that is
-  reached twice (overlapping inputs, an include inside an input directory)
-  is read once.
+  when they lead into one of the input directories; a link that leads
+  elsewhere is skipped (`OF0008`), so add its target as an input or include
+  to read it. Broken links and loops are reported as `OF0005`, and a file
+  that is reached twice (overlapping inputs, an include inside an input
+  directory) is read once.
 - `emit_cargo_directives(true)` prints `cargo:rerun-if-changed` for every
   input, every configuration file read with `Config::load()` (see below)
   and the package's `Cargo.toml` (the generated root and the
