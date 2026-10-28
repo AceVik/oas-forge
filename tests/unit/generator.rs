@@ -3596,3 +3596,26 @@ mod joined_lists {
         );
     }
 }
+
+/// Tags were merged by scanning the merged list for each tag: 40 000 tags
+/// took a minute.
+#[test]
+fn many_tags_merge_quickly() {
+    let mut text = String::from("openapi: 3.1.0\ninfo: { title: T, version: '1' }\ntags:\n");
+    for i in 0..40_000 {
+        text.push_str(&format!("  - name: t{i}\n"));
+    }
+    text.push_str("  - name: t7\n    description: Seven\n  - 5\n  - 5\n");
+    let started = std::time::Instant::now();
+    let (document, diagnostics) = pipeline(&[("api.yaml", &text)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    let tags = document["tags"].as_array().unwrap();
+    assert_eq!(tags.len(), 40_001);
+    assert_eq!(tags[7], json!({ "name": "t7", "description": "Seven" }));
+    assert_eq!(tags[40_000], json!(5));
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}

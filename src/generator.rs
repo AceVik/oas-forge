@@ -2723,22 +2723,25 @@ fn status_rank(key: &str) -> (u8, u8, u8, u16) {
 /// order (later values win, conflicts are reported).
 fn merge_tags(tags: Vec<Value>, diagnostics: &mut Diagnostics) -> Vec<Value> {
     let mut merged: Vec<Value> = Vec::with_capacity(tags.len());
+    // The position of each name (`None`: tags without one) and the texts of
+    // entries that are no objects, instead of a scan per tag.
+    let mut by_name: BTreeMap<Option<String>, usize> = BTreeMap::new();
+    let mut others = BTreeSet::new();
     for tag in tags {
         let tag = match tag {
             Value::String(name) => json!({ "name": name }),
             other => other,
         };
         if !tag.is_object() {
-            if !merged.contains(&tag) {
+            if others.insert(tag.to_string()) {
                 merged.push(tag);
             }
             continue;
         }
         let name = tag.get("name").cloned();
-        let existing = merged
-            .iter_mut()
-            .find(|t| t.is_object() && t.get("name") == name.as_ref());
-        let Some(existing) = existing else {
+        let key = name.as_ref().map(Value::to_string);
+        let Some(existing) = by_name.get(&key).and_then(|index| merged.get_mut(*index)) else {
+            by_name.insert(key, merged.len());
             merged.push(tag);
             continue;
         };
