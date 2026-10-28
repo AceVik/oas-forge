@@ -19,6 +19,13 @@ use std::sync::LazyLock;
 /// Maximum nesting of instantiations (`$A<$B<$C<…>>>`).
 pub const MAX_DEPTH: usize = 16;
 
+/// The total size of the concrete schemas of one run, counted as the bytes
+/// of their names, strings and keys plus one per value. Instantiations
+/// beyond it are reported ([`Code::InstantiationLimit`]): a blueprint whose
+/// instances refer to two larger instances would grow exponentially within
+/// [`MAX_DEPTH`].
+pub const MAX_INSTANTIATED_SIZE: usize = 16 * 1024 * 1024;
+
 /// Parser recursion budget, independent of the instantiation depth limit.
 const MAX_PARSE_DEPTH: usize = 128;
 
@@ -337,6 +344,10 @@ pub struct Instantiator<'a> {
     /// Whether the value being applied is data (`example`, `enum`, …),
     /// where `$Name` is no schema.
     in_data: bool,
+    /// What is left of [`MAX_INSTANTIATED_SIZE`].
+    budget: usize,
+    /// Whether running out of the budget was reported.
+    budget_reported: bool,
 }
 
 impl<'a> Instantiator<'a> {
@@ -368,6 +379,8 @@ impl<'a> Instantiator<'a> {
             known: KnownSchemas::none(),
             aliasing: Vec::new(),
             in_data: false,
+            budget: MAX_INSTANTIATED_SIZE,
+            budget_reported: false,
         }
     }
 
@@ -722,13 +735,42 @@ impl<'a> Instantiator<'a> {
             .map(String::as_str)
             .zip(arg_names.iter().map(String::as_str))
             .collect();
-        let mut body = substitute(&blueprint.schema, &bindings);
+        let Some(mut body) = self.within_budget(&name, &blueprint.schema, &bindings) else {
+            if !self.budget_reported {
+                self.budget_reported = true;
+                diagnostics.push(
+                    Diagnostic::new(
+                        Code::InstantiationLimit,
+                        format!(
+                            "instantiating `{}` exceeds the total size of {MAX_INSTANTIATED_SIZE} bytes for concrete schemas; it and later instances are not created",
+                            generic.text()
+                        ),
+                    )
+                    .at(location.clone()),
+                );
+            }
+            return None;
+        };
 
         self.in_progress.push(name.clone());
         self.apply(&mut body, location, diagnostics);
         self.in_progress.pop();
         self.concrete.insert(name.clone(), (body, location.clone()));
         Some(name)
+    }
+
+    /// The body of the instance `name` of `schema`, if the name and the
+    /// body fit in what is left of [`MAX_INSTANTIATED_SIZE`]; they use it.
+    fn within_budget(
+        &mut self,
+        name: &str,
+        schema: &Value,
+        bindings: &BTreeMap<&str, &str>,
+    ) -> Option<Value> {
+        let mut left = self.budget.checked_sub(name.len())?;
+        let body = substitute_within(schema, bindings, &mut left)?;
+        self.budget = left;
+        Some(body)
     }
 
     /// `generic` with every argument that names a transparent type alias
@@ -832,31 +874,96 @@ static PLACEHOLDER_RE: LazyLock<Regex> =
 /// whole generic reference (`$Envelope<T>`), bare parameter names are bound
 /// as well.
 pub(crate) fn substitute(schema: &Value, bindings: &BTreeMap<&str, &str>) -> Value {
-    let replace = |text: &str| -> String {
-        PLACEHOLDER_RE
-            .replace_all(text, |caps: &Captures| match bindings.get(&caps[1]) {
-                Some(arg) => format!("${arg}"),
-                None => caps[0].to_string(),
-            })
-            .into_owned()
-    };
+    let mut unlimited = usize::MAX;
+    substitute_within(schema, bindings, &mut unlimited).unwrap_or_default()
+}
+
+/// [`substitute`] within `budget`, which the result uses as counted for
+/// [`MAX_INSTANTIATED_SIZE`]; `None` if it does not fit. Every string is
+/// measured before it is built.
+fn substitute_within(
+    schema: &Value,
+    bindings: &BTreeMap<&str, &str>,
+    budget: &mut usize,
+) -> Option<Value> {
     match schema {
         // A whole generic reference: parameters are bound with or without
         // `$` (reflection writes `$Envelope<T>` for a field `Envelope<T>`).
-        Value::String(s) => Value::String(match GenericRef::parse(s) {
-            Some(generic) => format!("${}", rebind(&generic, bindings)),
-            None => replace(s),
-        }),
+        Value::String(s) => Some(Value::String(match GenericRef::parse(s) {
+            Some(generic) => {
+                spend(budget, 2 + rebound_len(&generic, bindings))?;
+                format!("${}", rebind(&generic, bindings))
+            }
+            None => {
+                spend(budget, 1 + replaced_len(s, bindings))?;
+                replace_placeholders(s, bindings)
+            }
+        })),
         Value::Array(items) => {
-            Value::Array(items.iter().map(|i| substitute(i, bindings)).collect())
+            spend(budget, 1)?;
+            items
+                .iter()
+                .map(|item| substitute_within(item, bindings, budget))
+                .collect::<Option<Vec<_>>>()
+                .map(Value::Array)
         }
-        Value::Object(map) => Value::Object(
-            map.iter()
-                .map(|(k, v)| (replace(k), substitute(v, bindings)))
-                .collect::<Map<_, _>>(),
-        ),
-        other => other.clone(),
+        Value::Object(map) => {
+            spend(budget, 1)?;
+            let mut out = Map::new();
+            for (key, value) in map {
+                spend(budget, replaced_len(key, bindings))?;
+                let key = replace_placeholders(key, bindings);
+                out.insert(key, substitute_within(value, bindings, budget)?);
+            }
+            Some(Value::Object(out))
+        }
+        other => {
+            spend(budget, 1)?;
+            Some(other.clone())
+        }
     }
+}
+
+/// Takes `size` from `budget`; `None` if it holds less.
+fn spend(budget: &mut usize, size: usize) -> Option<()> {
+    *budget = budget.checked_sub(size)?;
+    Some(())
+}
+
+/// `text` with every bound `$Param` replaced by `$` and its binding.
+fn replace_placeholders(text: &str, bindings: &BTreeMap<&str, &str>) -> String {
+    PLACEHOLDER_RE
+        .replace_all(text, |caps: &Captures| match bindings.get(&caps[1]) {
+            Some(arg) => format!("${arg}"),
+            None => caps[0].to_string(),
+        })
+        .into_owned()
+}
+
+/// The length of [`replace_placeholders`] of `text`, without building it.
+fn replaced_len(text: &str, bindings: &BTreeMap<&str, &str>) -> usize {
+    PLACEHOLDER_RE
+        .captures_iter(text)
+        .fold(text.len(), |len, caps| match bindings.get(&caps[1]) {
+            Some(arg) => len + arg.len() - caps[1].len(),
+            None => len,
+        })
+}
+
+/// The length of [`rebind`] of `generic`, without building it.
+fn rebound_len(generic: &GenericRef, bindings: &BTreeMap<&str, &str>) -> usize {
+    let args: usize = generic
+        .args
+        .iter()
+        .map(|arg| match arg {
+            GenericArg::Name(name) => bindings
+                .get(name.as_str())
+                .map_or(name.len(), |bound| bound.len()),
+            GenericArg::Generic(inner) => rebound_len(inner, bindings),
+        })
+        .sum();
+    // `Name<…>` and `, ` between the arguments.
+    generic.name.len() + 2 + args + 2 * generic.args.len().saturating_sub(1)
 }
 
 /// `generic` as type text without the leading `$`, with every argument that

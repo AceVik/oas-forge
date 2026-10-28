@@ -48,6 +48,11 @@ All notable changes to `oas-forge` will be documented in this file.
 - A chain of more than 64 type aliases is reported (new warning `OF3017`)
   and not resolved. Each link was resolved by a recursive call, so a chain
   of 20 000 aliases overflowed the stack and aborted the run.
+- Generic instantiation has a total size budget of 16 MiB for the concrete
+  schemas of a run (new error `OF3018`). A blueprint whose instances refer
+  to two larger instances of itself grew exponentially within the depth
+  limit and ran until the memory was exhausted; each body is measured
+  before it is built.
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of
   silently naming the crate after its directory.

@@ -34,7 +34,8 @@ make a run fail or produce a wrong document. To keep that bounded:
   fixed depth limits;
   generic reference parsing is also limited to 128 nested generic lists,
 - fragment expansion and variable substitution have total text and work
-  budgets, including acyclic fanout and parameter substitution,
+  budgets, including acyclic fanout and parameter substitution; the
+  concrete schemas of generic instantiation have a total size budget,
 - outputs use exclusively created, unique temporary files and are replaced
   atomically at the configured paths; an existing output is compared only
   when it is a regular file, reading no more than a current one can hold,

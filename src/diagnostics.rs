@@ -345,6 +345,8 @@ codes! {
     LinkOutsideInputs = "OF0008", Warning;
     /// A chain of type aliases is longer than the limit; the reference is not resolved.
     AliasDepthLimit = "OF3017", Warning;
+    /// Generic instantiation exceeded the total size budget for concrete schemas.
+    InstantiationLimit = "OF3018", Error;
 }
 
 impl fmt::Display for Code {

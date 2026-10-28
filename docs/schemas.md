@@ -282,7 +282,8 @@ produces a schema named after the arguments:
 Uses count everywhere: field types, `@return 200: $Page<User>`, `@body`,
 inferred handler signatures and YAML values `$ref: $Page<User>`. Arguments
 may be paths (`Page<models::User>`). A generic type that is never used is not
-exported. Instantiation stops at a nesting depth of 16 (`OF3006`).
+exported. Instantiation stops at a nesting depth of 16 (`OF3006`) and when
+the concrete schemas of a run exceed 16 MiB in all (`OF3018`).
 
 A generic type alias with `@openapi` (`type Paged<T> = Page<T>;`) is a
 template too; without `@openapi`, it is [transparent](#type-aliases). The

@@ -578,3 +578,102 @@ mod schema_positions {
         );
     }
 }
+
+mod budget {
+    use super::*;
+    use oas_forge::template::generics::MAX_INSTANTIATED_SIZE;
+    use std::time::{Duration, Instant};
+
+    /// Every instance refers to two larger ones: the instances grew
+    /// exponentially although none was nested deeper than the limit.
+    #[test]
+    fn exponential_instantiation_is_stopped_and_reported_once() {
+        let reg = registry(&[(
+            "B",
+            &["T"],
+            json!({ "type": "object", "properties": {
+                "a": { "$ref": "$B<Pair<T, T>>" },
+                "b": { "$ref": "$B<Trip<T, T>>" }
+            } }),
+        )]);
+        let started = Instant::now();
+        let (_, concrete, diagnostics) = run(&reg, json!({ "$ref": "$B<User>" }));
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "{:?}",
+            started.elapsed()
+        );
+        let limits: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::InstantiationLimit)
+            .collect();
+        assert_eq!(limits.len(), 1, "{diagnostics:#?}");
+        assert!(diagnostics.has_errors());
+        let size: usize = concrete
+            .iter()
+            .map(|(name, schema)| name.len() + schema.to_string().len())
+            .sum();
+        assert!(size <= 2 * MAX_INSTANTIATED_SIZE, "{size}");
+    }
+
+    /// The instance `Pad_A` of `{ "description": text }` costs its name
+    /// (5), the object (1), the key (11) and the string (1 + its length).
+    fn fits(text: &str) -> bool {
+        let reg = registry(&[("Pad", &["T"], json!({ "description": text }))]);
+        let (value, concrete, diagnostics) = run(&reg, json!({ "$ref": "$Pad<A>" }));
+        let limit = codes(&diagnostics).contains(&Code::InstantiationLimit);
+        assert_eq!(concrete.contains_key("Pad_A"), !limit, "{diagnostics:#?}");
+        if limit {
+            assert_eq!(value, json!({ "$ref": "$Pad<A>" }));
+        }
+        !limit
+    }
+
+    #[test]
+    fn strings_count_with_their_length_after_substitution() {
+        let fixed = 5 + 1 + 11 + 1;
+        // `$T` becomes `$A`: the same length.
+        let room = MAX_INSTANTIATED_SIZE - fixed - 2;
+        assert!(fits(&format!("{}$T", "x".repeat(room))));
+        assert!(!fits(&format!("{}$T", "x".repeat(room + 1))));
+        // A longer binding counts with its length.
+        let reg = registry(&[(
+            "Pad",
+            &["T"],
+            json!({ "description": format!("{}$T", "x".repeat(room - 3)) }),
+        )]);
+        let (_, concrete, diagnostics) = run(&reg, json!({ "$ref": "$Pad<ABCD>" }));
+        assert!(
+            codes(&diagnostics).contains(&Code::InstantiationLimit),
+            "{concrete:?}"
+        );
+    }
+
+    #[test]
+    fn generic_references_count_with_their_rebound_length() {
+        // `$Box<A, xxx…>`: `$`, `Box<`, `A`, `, `, the `x`s and `>`.
+        let fixed = 5 + 1 + 11 + 1 + 1 + 4 + 1 + 2 + 1;
+        let room = MAX_INSTANTIATED_SIZE - fixed;
+        for (pad, expected) in [(room, true), (room + 1, false)] {
+            let text = format!("$Box<T, {}>", "x".repeat(pad));
+            assert_eq!(fits(&text), expected, "{pad}");
+        }
+    }
+
+    #[test]
+    fn keys_and_other_values_count() {
+        // `Pad_A`, the outer object, the key `description`, the inner
+        // object, its key (the `x`s), the array and its three values.
+        let fixed = 5 + 1 + 11 + 1 + 1 + 3;
+        let room = MAX_INSTANTIATED_SIZE - fixed;
+        for (pad, expected) in [(room, true), (room + 1, false)] {
+            let reg = registry(&[(
+                "Pad",
+                &["T"],
+                json!({ "description": { "x".repeat(pad): [1, true, null] } }),
+            )]);
+            let (_, concrete, _) = run(&reg, json!({ "$ref": "$Pad<A>" }));
+            assert_eq!(concrete.contains_key("Pad_A"), expected, "{pad}");
+        }
+    }
+}
