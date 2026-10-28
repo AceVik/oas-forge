@@ -1,7 +1,7 @@
 //! Merging of JSON values under explicit policies (ADR 0003).
 
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ops::Bound;
 
 /// How two values are combined.
@@ -26,7 +26,9 @@ pub enum Policy {
     /// de-duplicated, scalars won by the source (conflicts are reported).
     Document,
     /// `@extend`: the target is local content, the source a fragment. Local
-    /// scalars win; the fragment only fills gaps; arrays are appended.
+    /// scalars win; the fragment only fills gaps; arrays are appended,
+    /// except `security`: a local list wins, since another alternative would
+    /// accept more than the local one does.
     Extend,
     /// DSL operation (target) plus embedded YAML (source): `parameters` are
     /// matched by `name` and `in` and merged, scalars are won by the YAML
@@ -35,6 +37,15 @@ pub enum Policy {
     /// `@openapi` overrides of reflected schemas: maps recursively,
     /// everything else replaced by the source.
     Override,
+}
+
+/// Whether the `security` requirements `items` admit anonymous requests:
+/// none at all, or an empty alternative.
+fn admits_anonymous(items: &[Value]) -> bool {
+    items.is_empty()
+        || items
+            .iter()
+            .any(|item| item.as_object().is_some_and(Map::is_empty))
 }
 
 /// Keys whose array items are positional and therefore never de-duplicated.
@@ -83,6 +94,11 @@ pub(crate) enum ListChange {
     /// The list was added to an existing object below the root, an
     /// operation or a path, where the document's list applied before.
     Introduced,
+    /// A source added to an object below the root whose `servers`, or
+    /// `security` that admits anonymous requests (`[]`, `{}`), another
+    /// source set: the list and the rest of the operation or path come from
+    /// different annotations, in either order.
+    Elsewhere,
 }
 
 /// Merges sources one after another into one target, as [`merge`] does
@@ -94,6 +110,8 @@ pub(crate) struct Merger {
     lists: BTreeMap<String, HashSet<String>>,
     /// The `security` and `servers` lists that sources changed, by pointer.
     changes: Vec<(String, ListChange)>,
+    /// The pointers of lists reported as [`ListChange::Elsewhere`].
+    elsewhere: BTreeSet<String>,
     /// Whether `changes` are recorded.
     watch_lists: bool,
 }
@@ -142,6 +160,19 @@ impl Merger {
     ) {
         match (target, source) {
             (Value::Object(t), Value::Object(s)) => {
+                if self.watch_lists && !pointer.is_empty() && !s.is_empty() {
+                    for key in ["security", "servers"] {
+                        let list = format!("{pointer}/{key}");
+                        if t.get(key)
+                            .and_then(Value::as_array)
+                            .is_some_and(|items| key == "servers" || admits_anonymous(items))
+                            && !s.contains_key(key)
+                            && self.elsewhere.insert(list.clone())
+                        {
+                            self.changes.push((list, ListChange::Elsewhere));
+                        }
+                    }
+                }
                 self.merge_maps(t, s, policy, pointer, conflicts);
             }
             (Value::Array(t), Value::Array(s)) => {
@@ -161,6 +192,7 @@ impl Merger {
                     Policy::Operation if key == "parameters" => {
                         self.merge_parameters(t, s, pointer, conflicts);
                     }
+                    Policy::Extend if key == "security" => {}
                     _ => {
                         let watched = self.watch_lists
                             && matches!(key, "security" | "servers")

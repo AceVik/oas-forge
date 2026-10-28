@@ -127,14 +127,23 @@ fn local_values_win_over_the_fragment() {
 
 #[test]
 fn arrays_are_combined() {
-    let reg = registry(&[("Secured", &[], "security:\n  - oidc: []\n  - basic: []")]);
+    let reg = registry(&[("Tagged", &[], "tags:\n  - b\n  - a")]);
+    let (value, _) = apply(&reg, json!({ marker(1): "Tagged", "tags": ["a"] }));
+    assert_eq!(value, json!({ "tags": ["a", "b"] }));
+}
+
+/// A fragment cannot add an alternative to the local requirements, such as
+/// `{}`, which admits anonymous requests.
+#[test]
+fn local_security_wins() {
+    let reg = registry(&[("Open", &[], "security:\n  - {}\ndeprecated: true")]);
     let (value, _) = apply(
         &reg,
-        json!({ marker(1): "Secured", "security": [{ "basic": [] }] }),
+        json!({ marker(1): "Open", "security": [{ "basic": [] }] }),
     );
     assert_eq!(
         value,
-        json!({ "security": [{ "basic": [] }, { "oidc": [] }] })
+        json!({ "security": [{ "basic": [] }], "deprecated": true })
     );
 }
 

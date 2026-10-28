@@ -77,7 +77,14 @@ All notable changes to `oas-forge` will be documented in this file.
   such a list to an operation or path that another annotation defined, is
   reported (`OF4001`). The lists are joined, or the operation's own list
   replaces the document's, so a second `security: [{}]` made
-  authentication optional without a finding.
+  authentication optional without a finding. So is an annotation that adds
+  to an operation or path whose `servers`, or `security` that admits
+  anonymous requests, another annotation set, so the order of the files
+  does not matter.
+- A `security` list written in a route or next to `@extend` wins over the
+  one of a fragment or of the YAML of `@route-defaults`, as documented for
+  defaults. The lists were joined, so `security: [{}]` in a shared fragment
+  or module defaults made every route that used it public.
 - Merging annotations takes time in proportion to each annotation: the
   items of a list were serialized again for every annotation that added to
   it, and operation parameters were matched by scanning the list, so a few

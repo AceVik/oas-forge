@@ -107,13 +107,25 @@ mod extend {
     #[test]
     fn arrays_are_combined_and_positional_arrays_kept() {
         let (value, _) = merged(
-            json!({ "security": [{ "a": [] }], "allOf": [1] }),
-            json!({ "security": [{ "b": [] }], "allOf": [2] }),
+            json!({ "tags": ["a"], "allOf": [1] }),
+            json!({ "tags": ["b"], "allOf": [2] }),
+            Policy::Extend,
+        );
+        assert_eq!(value, json!({ "tags": ["a", "b"], "allOf": [1] }));
+    }
+
+    /// Another alternative would accept more than the local requirements:
+    /// the local `security` wins; a fragment's fills a gap.
+    #[test]
+    fn local_security_wins() {
+        let (value, _) = merged(
+            json!({ "security": [{ "a": [] }], "nested": {} }),
+            json!({ "security": [{}], "nested": { "security": [{}] } }),
             Policy::Extend,
         );
         assert_eq!(
             value,
-            json!({ "security": [{ "a": [] }, { "b": [] }], "allOf": [1] })
+            json!({ "security": [{ "a": [] }], "nested": { "security": [{}] } })
         );
     }
 }

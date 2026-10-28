@@ -168,8 +168,10 @@ pub async fn reports() {}
   arguments and without such a fragment means a reusable parameter:
   `- $ref: '#/components/parameters/Name'`.
 - `@extend Name(args)` parses the fragment and merges it into the mapping
-  that contains the line. Values written next to it win, like inheritance.
-  It also works in routes. The fragment's text is expanded like any other
+  that contains the line. Values written next to it win, like inheritance;
+  lists are combined, except `security`: a list written next to it wins,
+  so a fragment cannot add an alternative such as `{}` that admits
+  anonymous requests. It also works in routes. The fragment's text is expanded like any other
   YAML first: `{{variables}}`, `@insert` and `@extend` inside it work, up
   to a depth of 8.
 - A fragment that inserts or extends itself, directly or through others,

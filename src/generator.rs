@@ -2635,6 +2635,9 @@ fn merge_documents(
                 ListChange::Introduced => format!(
                     "`{pointer}` is added by another annotation to an existing operation or path; it replaces the list that applied there"
                 ),
+                ListChange::Elsewhere => format!(
+                    "`{pointer}` is set by another annotation than this one, which adds to the same operation or path; that list replaces the one that applied there"
+                ),
             };
             diagnostics
                 .push(Diagnostic::new(Code::MergeConflict, message).at(snippet.location.clone()));

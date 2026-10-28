@@ -3578,6 +3578,60 @@ mod joined_lists {
         assert_eq!(codes(&diagnostics).len(), 4000);
     }
 
+    /// The route's own `security` wins over the YAML of its module's
+    /// defaults: an empty alternative there made the route public.
+    #[test]
+    fn route_defaults_cannot_add_an_anonymous_alternative() {
+        let (document, diagnostics) = pipeline(&[(
+            "a.rs",
+            "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n\n/// @route-defaults\n/// security: [{}]\nmod api {\n    /// @route GET /secret\n    /// @security api\n    /// @return 204:\n    fn secret() {}\n    /// @route GET /open\n    /// @return 204:\n    fn open() {}\n}",
+        )]);
+        let paths = &document["paths"];
+        assert_eq!(paths["/secret"]["get"]["security"], json!([{ "api": [] }]));
+        assert_eq!(
+            paths["/open"]["get"]["security"],
+            json!([{}]),
+            "a gap is filled"
+        );
+        assert!(
+            !codes(&diagnostics).contains(&Code::MergeConflict),
+            "{diagnostics:?}"
+        );
+    }
+
+    /// A list that admits anonymous requests and comes from another
+    /// annotation is reported whichever defines the operation first.
+    #[test]
+    fn anonymous_security_from_another_annotation_is_reported_in_any_order() {
+        for (first, second) in [("a.rs", "b.rs"), ("b.rs", "a.rs")] {
+            let (document, diagnostics) = pipeline(&[
+                (
+                    "root.rs",
+                    "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! security: [{ bearer: [] }]",
+                ),
+                (
+                    first,
+                    "//! @openapi\n//! paths: { /users: { get: { security: [] } } }",
+                ),
+                (
+                    second,
+                    "/// @route GET /users\n/// @return 204:\nfn users() {}",
+                ),
+            ]);
+            assert_eq!(document["paths"]["/users"]["get"]["security"], json!([]));
+            let found: Vec<&str> = diagnostics
+                .iter()
+                .filter(|d| d.code() == Code::MergeConflict)
+                .map(|d| d.message())
+                .collect();
+            assert_eq!(found.len(), 1, "{first}: {diagnostics:?}");
+            assert!(
+                found[0].starts_with("`/paths/~1users/get/security`"),
+                "{found:?}"
+            );
+        }
+    }
+
     /// The items of a list are remembered between annotations; a value
     /// that replaces the list (and one that replaces it back) makes them
     /// stale, so they are forgotten.

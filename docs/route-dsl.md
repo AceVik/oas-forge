@@ -382,7 +382,8 @@ exactly one `/`, and may declare parameters inline
 prefix is the prefix itself (`/tenants/{tenant}`, without trailing slash);
 other paths keep a trailing slash they are written with. Parameters, responses
 and other directives are added to each route unless the route sets the same
-itself: the route's tags and security win. A response for a status the route
+itself: the route's tags and security win (also over `security:` in the
+YAML of the defaults). A response for a status the route
 has too is combined with the route's (media types add up, descriptions of
 the defaults first, see [responses](#responses)); when both give one media
 type a different schema, the route's response wins and a note (`OF4001`)
