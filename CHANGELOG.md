@@ -38,6 +38,7 @@ All notable changes to `oas-forge` will be documented in this file.
   a YAML error. Before, text from the inputs could move the cursor, recolor
   or overwrite a terminal line, or start a line that looked like another
   finding. `Diagnostic::message` and the JSON output keep the text as it is.
+  Configuration errors keep their line breaks.
 - A symbolic link in an input directory that leads outside every input
   directory is skipped with the new warning `OF0008`. Before, a link such
   as `src/x.yaml -> ~/.config/gh/hosts.yml` merged that file into the

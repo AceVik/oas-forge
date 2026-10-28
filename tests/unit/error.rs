@@ -57,6 +57,15 @@ fn control_characters_in_errors_are_escaped() {
         parse.to_string(),
         "Rust syntax error in src/lib.rs:1: unexpected `\\r`"
     );
+    // The TOML parser quotes the line of the configuration.
+    let config = Error::Config {
+        file: PathBuf::from("openapi.toml"),
+        message: "invalid key\n1 | `\u{1b}[31m\rHACKED`".into(),
+    };
+    assert_eq!(
+        config.to_string(),
+        "Invalid configuration in openapi.toml: invalid key\n1 | `\\u{1b}[31m\\rHACKED`"
+    );
     // The context of a YAML error quotes the input lines.
     let result = crate::common::try_pipeline(&[(
         "api.yaml",

@@ -95,9 +95,13 @@ impl fmt::Display for Error {
                 "IO error at {}: {source}",
                 printable(&path.display().to_string())
             ),
-            Self::Config { file, message } => {
-                write!(f, "Invalid configuration in {}: {message}", file.display())
-            }
+            // A TOML error shows the offending line between lines of its own.
+            Self::Config { file, message } => write!(
+                f,
+                "Invalid configuration in {}: {}",
+                printable(&file.display().to_string()),
+                message.split('\n').map(printable).collect::<Vec<_>>().join("\n")
+            ),
             Self::Parse { location, message } => {
                 write!(f, "Rust syntax error in {location}: {}", printable(message))
             }
