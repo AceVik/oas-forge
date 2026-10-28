@@ -19,7 +19,7 @@ use super::schema::dialect::{self, Dialect};
 use super::scope;
 use super::source::{DEFAULT_MAX_FILE_SIZE, DiscoverOptions, SourceFile, SourceKind, SourceSet};
 use super::template::generics::Instantiator;
-use super::template::lexical::{self, EXTEND_KEY, Variables};
+use super::template::lexical::{self, Variables};
 use super::template::refs::{self, KnownSchemas, Targets};
 use super::template::{Blueprint, Fragment, Registry, extend};
 use super::yaml;
@@ -1959,13 +1959,17 @@ pub(crate) fn assemble(
     output::strip_transport(&mut document);
     normalize(&mut document, diagnostics);
     dsl::expand::expand_parameters(&mut document, diagnostics);
-    // No stage uses the generator's keys from here on: none may stay. The
-    // AsyncAPI document needs no sweep: its snippets come through the
-    // checked entry points, and it shares the schemas of this document
-    // below, after the sweep.
+    // No stage uses the generator's keys from here on: none may stay, in
+    // either document. The AsyncAPI document shares the schemas of this
+    // one below, after the sweep.
     reserved::sweep(
         &mut document,
         |pointer| origins.nearest(pointer).cloned(),
+        diagnostics,
+    );
+    reserved::sweep(
+        &mut asyncapi,
+        |pointer| asyncapi_origins.nearest(pointer).cloned(),
         diagnostics,
     );
     // The AsyncAPI document shares the schemas its messages use, before
@@ -2762,12 +2766,13 @@ fn merge_documents(
     Ok((document, origins))
 }
 
-/// Final clean-ups of the merged document.
+/// Final clean-ups of the merged document. A reserved key that is still in
+/// it (an `@extend` marker no stage resolved, for one) is not removed
+/// here: the sweep after it reports what it removes.
 fn normalize(document: &mut Value, diagnostics: &mut Diagnostics) {
     if let Some(Value::Array(tags)) = document.get_mut("tags") {
         *tags = merge_tags(std::mem::take(tags), diagnostics);
     }
-    remove_extend_markers(document);
     sort_all_responses(document);
 }
 
@@ -2887,19 +2892,6 @@ fn merge_tags(tags: Vec<Value>, diagnostics: &mut Diagnostics) -> Vec<Value> {
         }
     }
     merged
-}
-
-/// Removes `@extend` marker keys (prefix [`EXTEND_KEY`]) that no stage
-/// resolved, at any depth, so they never reach an output.
-fn remove_extend_markers(value: &mut Value) {
-    match value {
-        Value::Object(map) => {
-            map.retain(|k, _| !k.starts_with(EXTEND_KEY));
-            map.values_mut().for_each(remove_extend_markers);
-        }
-        Value::Array(items) => items.iter_mut().for_each(remove_extend_markers),
-        _ => {}
-    }
 }
 
 /// Runs the pipeline on in-memory sources (for tests and tools), with the

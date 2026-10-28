@@ -2,9 +2,10 @@
 //! own markers, written in a source are removed and reported (`OF0009`)
 //! wherever YAML enters the pipeline, and none reaches an output.
 
-use crate::common::{codes, here, lines, pipeline, try_route};
+use crate::common::{codes, here, lines, pipeline, spec_of, try_route};
 use oas_forge::diagnostics::{Code, Diagnostic, Diagnostics, Severity};
 use oas_forge::dsl::{ChannelSource, compile_channel};
+use oas_forge::output::OutputKind;
 use serde_json::{Value, json};
 
 /// `line: message` of every finding.
@@ -582,9 +583,68 @@ components:
     assert_eq!(found.len(), 1, "{diagnostics:#?}");
     assert_eq!(
         found[0].message(),
-        "the generator's key `x-oas-forge-builtin` was left at `/components/schemas/Wrap_S/x-oas-forge-builtin` (a marker of an imported template that no stage resolved, or a bug of the generator); it is removed from the document"
+        "`x-oas-forge-builtin` at `/components/schemas/Wrap_S/x-oas-forge-builtin` is a reserved key left in the finished document (written where no check reads it, or a marker of an imported template that no stage resolved): the `x-oas-forge-` prefix is the generator's own; it is removed"
     );
     assert!(found[0].location().is_some(), "{found:?}");
+}
+
+/// An `@extend` marker written by hand with a value that is no fragment
+/// name is not an `@extend`: no stage consumes it, and it is swept from
+/// the finished document with a finding, from the AsyncAPI document too.
+/// Before, the extensions stage dropped it without a trace, and a key of
+/// the prefix that reached the AsyncAPI document stayed in it.
+#[test]
+fn a_hand_written_extend_marker_with_another_value_is_swept() {
+    let (spec, _project) = spec_of(&[(
+        "lib.rs",
+        "\
+//! @openapi
+//! openapi: 3.1.0
+//! info: { title: T, version: 1.0.0 }
+//! x-oas-forge-extend-9: { a: 1 }
+//!
+//! @asyncapi
+//! asyncapi: 3.0.0
+//! info: { title: A, version: 1.0.0 }
+//! x-oas-forge-extend-8: [Base]
+
+/// @channel live
+/// @send Tick: u8
+/// @openapi
+/// x-kept: 1
+/// x-oas-forge-extend-7: 7
+pub fn live() {}
+",
+    )]);
+    assert_clean(spec.document());
+    let asyncapi = spec.render(OutputKind::AsyncApi).expect("rendered");
+    assert_clean(&asyncapi);
+    assert_eq!(asyncapi["channels"]["live"]["x-kept"], 1);
+    let left = |key: &str, pointer: &str| {
+        format!(
+            "`{key}` at `{pointer}` is a reserved key left in the finished document (written where no check reads it, or a marker of an imported template that no stage resolved): the `x-oas-forge-` prefix is the generator's own; it is removed"
+        )
+    };
+    assert_eq!(
+        findings(spec.diagnostics()),
+        [
+            format!(
+                "2: error OF0009 {}",
+                left("x-oas-forge-extend-9", "/x-oas-forge-extend-9")
+            ),
+            format!(
+                "7: error OF0009 {}",
+                left("x-oas-forge-extend-8", "/x-oas-forge-extend-8")
+            ),
+            format!(
+                "11: error OF0009 {}",
+                left(
+                    "x-oas-forge-extend-7",
+                    "/channels/live/x-oas-forge-extend-7"
+                )
+            ),
+        ]
+    );
 }
 
 /// Each removed key was looked up among the keys removed before, so many

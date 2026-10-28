@@ -12,9 +12,11 @@
 //! be told from written ones, and a written one does nothing an `@extend`
 //! line would not. The templates of an imported fragments output are
 //! another: their bodies are the generator's, recorded before the
-//! references stage, and keep their markers (ADR 0005). What is left when
-//! a document is complete is removed from it ([`sweep`]), so that no
-//! marker reaches an output.
+//! references stage, and keep their markers (ADR 0005). Each stage takes
+//! its marker only in the shape it writes it, so a key of the prefix with
+//! another value stays. What is left when a document is complete, the
+//! AsyncAPI document included, is removed from it ([`sweep`]) with a
+//! finding, so that no marker reaches an output.
 
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::template::lexical::EXTEND_KEY;
@@ -194,9 +196,11 @@ pub(crate) fn check_map(
 }
 
 /// Removes every key of the prefix from `document`, which is complete:
-/// no stage uses them any more. One that is still there came with an
-/// imported template whose body a stage did not resolve, or is a bug;
-/// it is reported at the location `origin` gives for its pointer.
+/// no stage uses them any more. One that is still there was written where
+/// no check reads it (an `@extend` marker with a value that is no fragment
+/// name, for one), or came with an imported template whose body a stage
+/// did not resolve; it is reported at the location `origin` gives for its
+/// pointer.
 pub(crate) fn sweep(
     document: &mut Value,
     origin: impl Fn(&str) -> Option<Location>,
@@ -206,7 +210,7 @@ pub(crate) fn sweep(
         let mut finding = Diagnostic::new(
             Code::ReservedKey,
             format!(
-                "the generator's key `{}` was left at `{}` (a marker of an imported template that no stage resolved, or a bug of the generator); it is removed from the document",
+                "`{}` at `{}` is a reserved key left in the finished document (written where no check reads it, or a marker of an imported template that no stage resolved): the `{PREFIX}` prefix is the generator's own; it is removed",
                 removed.key,
                 removed.pointer()
             ),
