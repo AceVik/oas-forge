@@ -168,7 +168,9 @@ All notable changes to `oas-forge` will be documented in this file.
   stay well below. Its scalars are limited the same way, to 16 bytes per
   byte of text (and 1024): a 16 KB scalar aliased 4000 times (64 MiB per
   document were allowed) in a 41 KB block that 16 `@route` lines copied
-  took 6 GB. A document over either limit is reported with the limits.
+  took 6 GB. A document over either limit is reported with the limits;
+  a large part repeated more than about fifteen times is better a `$ref`
+  than a YAML anchor.
 - The schema of a `Range` holds its element twice, so nested ranges doubled
   with each level: `Range<Range<…>>` 18 levels deep (586 bytes) took
   16 s and 3 GB. Nested ranges are mapped four levels deep; around more,

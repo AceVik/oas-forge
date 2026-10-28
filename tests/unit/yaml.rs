@@ -151,7 +151,9 @@ fn alias_bombs_and_deep_nesting_are_rejected() {
         bomb.push_str(&format!("a{i}: &a{i} [{refs}]\n"));
     }
     error(&bomb);
-    error(&format!("x: {}{}", "[".repeat(10_000), "]".repeat(10_000)));
+    // Nesting is limited on its own; the limits per byte are not named.
+    let (_, message) = error(&format!("x: {}{}", "[".repeat(10_000), "]".repeat(10_000)));
+    assert!(!message.contains("per byte"), "{message}");
 }
 
 /// The library's 250 000 nodes were a limit for each document, so a
@@ -169,7 +171,7 @@ fn aliases_expand_to_at_most_four_nodes_per_byte() {
     assert!(bomb.len() < 1000);
     let (line, message) = error(&bomb);
     assert!((1..=5).contains(&line), "{line}: {message}");
-    assert!(message.contains("budget"), "{message}");
+    assert!(message.contains("at most 4 nodes"), "{message}");
     // Nine nodes per alias of four bytes: 555 nodes from 270 bytes.
     let reuse = format!(
         "p: &p {{ a: 1, b: 2, c: 3, d: 4 }}\nq: [{}]\n",

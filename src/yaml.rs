@@ -84,7 +84,11 @@ pub(crate) fn parse(text: &str) -> Result<Value, YamlError> {
             .chars()
             .map(|c| if c.is_control() { ' ' } else { c })
             .collect();
-        if message.contains("budget breached") {
+        // The limits on nodes and scalars are the ones that depend on the
+        // text; nesting and the others are the library's.
+        if message.contains("budget breached: Nodes")
+            || message.contains("budget breached: ScalarBytes")
+        {
             message.push_str(&format!(
                 "; a document may expand to at most {NODES_PER_BYTE} nodes and {SCALAR_BYTES_PER_BYTE} bytes of scalars per byte of its text, counting the values of YAML anchors each time an alias or merge key repeats them"
             ));
