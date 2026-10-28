@@ -3957,3 +3957,39 @@ fn many_channels_defining_one_message_merge_quickly() {
     );
     assert!(!diagnostics.has_errors(), "{:?}", codes(&diagnostics));
 }
+
+/// A `@scope` on the root keeps it out of the other scopes' documents,
+/// which then lack its global `security`: reported, since the line that
+/// causes it does not touch `security`.
+#[test]
+fn a_root_out_of_scope_is_reported() {
+    let project = Project::new();
+    project.file(
+        "src/lib.rs",
+        "//! @openapi\n//! @scope internal\n//! openapi: 3.1.0\n//! info: { title: Shop, version: 1.0.0 }\n//! security: [{ oauth: [admin] }]\n\n/// @route GET /users\n/// @scope public, internal\n/// @return 204:\npub fn users() {}\n",
+    );
+    let build = |scope: &str| {
+        Generator::new()
+            .input(project.path("src"))
+            .package(oas_forge::Package::new("shop", "1.0.0"))
+            .scope(scope)
+            .build()
+            .unwrap()
+    };
+    let public = build("public");
+    assert!(public.document().get("security").is_none());
+    let found: Vec<_> = public
+        .diagnostics()
+        .iter()
+        .filter(|d| d.code() == Code::RootOutOfScope)
+        .collect();
+    assert_eq!(found.len(), 1, "{:?}", public.diagnostics());
+    assert_eq!(found[0].location().map(|l| l.line()), Some(2));
+    assert!(found[0].message().contains("`public`"));
+    let internal = build("internal");
+    assert!(
+        !codes(internal.diagnostics()).contains(&Code::RootOutOfScope),
+        "{:?}",
+        internal.diagnostics()
+    );
+}

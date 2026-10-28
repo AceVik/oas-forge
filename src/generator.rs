@@ -1886,7 +1886,12 @@ pub(crate) fn assemble(
         package,
         strict_lints,
     } = finish;
-    // Pass 5: merge.
+    // Pass 5: merge. A root that `@scope` keeps out leaves this document
+    // without its root fields: global `security` and `servers` included.
+    let root_out_of_scope = prepared
+        .snippets
+        .iter()
+        .find(|s| !s.asyncapi && output::is_root(&s.value) && !scope::includes(&s.scopes, scope));
     let (mut asyncapi, snippets): (Vec<Snippet>, Vec<Snippet>) = prepared
         .snippets
         .iter()
@@ -1911,6 +1916,20 @@ pub(crate) fn assemble(
         diagnostics,
     )?;
     let mut generated_keys = Vec::new();
+    if !output::is_root(&document)
+        && let Some(root) = root_out_of_scope
+    {
+        diagnostics.push(
+            Diagnostic::new(
+                Code::RootOutOfScope,
+                format!(
+                    "the root of the sources is not in scope `{}`; the document of that scope lacks its `security`, `servers` and other root fields",
+                    scope.unwrap_or_default()
+                ),
+            )
+            .at(root.location.clone()),
+        );
+    }
     if !output::is_root(&document)
         && let Some(package) = package
     {

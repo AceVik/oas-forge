@@ -383,6 +383,8 @@ codes! {
     AliasDepthLimit = "OF3017", Warning;
     /// Generic instantiation exceeded the total size budget for concrete schemas.
     InstantiationLimit = "OF3018", Error;
+    /// The root of the sources is not in the scope of a document, which therefore lacks its `security`, `servers` and other root fields.
+    RootOutOfScope = "OF4002", Warning;
 }
 
 impl fmt::Display for Code {

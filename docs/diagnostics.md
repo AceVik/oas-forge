@@ -89,6 +89,7 @@ The codes are stable: a code keeps its meaning across releases
 | Code | Severity | Cause | Fix |
 | :--- | :--- | :--- | :--- |
 | `OF4001` | warning | Two documents set the same value differently; the later one wins. Or a document adds entries to a `security` or `servers` list another document set (the lists are joined), or adds such a list to an operation or path another document defined (it replaces the list that applied there), or adds to an operation or path whose `security` or `servers` another document set, or adds a key to a security scheme another document defined | Remove one of them, or set the list in one place |
+| `OF4002` | warning | The root of the sources has a `@scope` that does not include the scope of a document, which gets no root fields from it (no global `security`, `servers`, …) | Give that scope a root of its own, or add the scope to the root |
 
 ## Lints (OF5xxx)
 

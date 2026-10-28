@@ -112,6 +112,10 @@ All notable changes to `oas-forge` will be documented in this file.
   OAuth2 schemes without `flows` or a known flow, which it leaves out.
   Security requirements it removes because they name such schemes are a
   warning (`OF6002`) instead of a note.
+- A scope whose document has no root because the root of the sources is
+  scoped elsewhere is reported (new warning `OF4002`): the document lost
+  the root's global `security` and `servers`, and only a dropped note said
+  so, although the line that caused it does not touch `security`.
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of
   silently naming the crate after its directory.

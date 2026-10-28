@@ -476,6 +476,9 @@ pub mod admin {
   lines may stand between the header and the opening fence or right after
   the closing fence (`@openapi document` blocks on types included).
 - A block without `@scope` is shared: it is part of every scope's document.
+  A scope whose document gets no root because the only root is scoped
+  elsewhere loses the root's global `security` and `servers`; that is
+  reported (`OF4002`).
   Reflected types, `@openapi-type` schemas, templates, fragments and YAML
   files are always shared.
 - The documents of the scopes are merged separately, so the same path may
