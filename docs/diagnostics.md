@@ -70,7 +70,7 @@ The codes are stable: a code keeps its meaning across releases
 | `OF3003` | warning | A fragment got fewer arguments than it has parameters | Pass every argument |
 | `OF3004` | warning | A generic reference names an unknown template | Document the generic type, or include the crate's fragments |
 | `OF3005` | warning | A template got the wrong number of arguments | Match the type's parameters |
-| `OF3006` | error | Generic instantiation nested more than 16 levels | Look for a recursive generic type |
+| `OF3006` | error | Generic instantiation nested more than 16 levels; reported once per generic type, at the first instance that reaches the limit | Look for a recursive generic type |
 | `OF3007` | warning | `$Name` does not name a known schema | Document the type, define it with `@openapi-type`, map it with `map_type`, or escape a literal `\$` |
 | `OF3008` | warning | Included templates use an unknown format version | Regenerate the fragments with this version |
 | `OF3009` | warning | `{{env:NAME}}` names an environment variable that is not allowed or not set; the placeholder is kept | Allow it (`Generator::allow_env`, `allow_env`, `--allow-env`) and set it for the build |

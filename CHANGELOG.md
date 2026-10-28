@@ -97,7 +97,9 @@ All notable changes to `oas-forge` will be documented in this file.
   of 4000 properties used with 400 own types (172 KB) 2.3 GB, now 470 MB.
   A template whose body names two more instances of itself
   (`$Two<Vec<T>>`, `$Two<Option<T>>`; 483 bytes) created 30 000 small
-  instances within the depth limit and took 1.6 GB, now 290 MB. About 220 000
+  instances within the depth limit, took 1.6 GB and reported `OF3006` for
+  each of the 30 000 leaves; now 290 MB, and `OF3006` is reported once per
+  template, at the first instance that reaches the limit. About 220 000
   properties `{ $ref: … }` across all instances fit; a template of 2000 of
   them used with 200 types (88 KB, 22 MB of output) now exceeds the budget
   after 109 instances.

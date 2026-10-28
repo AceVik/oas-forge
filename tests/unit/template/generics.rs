@@ -581,7 +581,7 @@ mod schema_positions {
 
 mod budget {
     use super::*;
-    use oas_forge::diagnostics::Diagnostic;
+    use oas_forge::diagnostics::{Diagnostic, Location};
     use oas_forge::template::generics::{INSTANCE_COST, MAX_INSTANTIATED_SIZE, VALUE_COST};
     use std::time::{Duration, Instant};
 
@@ -650,10 +650,12 @@ mod budget {
 
     /// Every instance refers to two instances one level deeper, each a
     /// little larger (`Vec<T>`, `Option<T>`): 2^16 small instances fit the
-    /// depth limit, and 16 MiB of their text took 1.6 GB. Each instance
-    /// costs `INSTANCE_COST` besides its text.
+    /// depth limit, and 16 MiB of their text took 1.6 GB, with a depth
+    /// finding for each of the 30 000 leaves reached. Each instance costs
+    /// `INSTANCE_COST` besides its text, and the depth limit is reported
+    /// once per blueprint.
     #[test]
-    fn fan_out_is_bounded_by_the_instance_cost() {
+    fn fan_out_is_bounded_by_the_instance_cost_and_reported_once() {
         let reg = registry(&[(
             "Two",
             &["T"],
@@ -670,8 +672,13 @@ mod budget {
             "{:?}",
             started.elapsed()
         );
-        assert!(!findings(&diagnostics, Code::InstantiationDepth).is_empty());
+        let depth = findings(&diagnostics, Code::InstantiationDepth);
+        assert_eq!(depth.len(), 1, "{}", depth.len());
+        let first = depth.first().expect("one depth finding");
+        assert!(first.message().contains("`Two`"), "{}", first.message());
+        assert_eq!(first.location(), Some(&here()));
         assert_eq!(findings(&diagnostics, Code::InstantiationLimit).len(), 1);
+        assert_eq!(codes(&diagnostics).len(), 2, "{diagnostics:#?}");
         let charged = charged(&concrete);
         assert!(charged <= MAX_INSTANTIATED_SIZE, "{charged}");
         assert!(
@@ -679,6 +686,46 @@ mod budget {
             "{}",
             concrete.len()
         );
+    }
+
+    /// A blueprint that nests ever deeper reaches the limit through every
+    /// use; it is reported at the first. Another blueprint is reported too.
+    #[test]
+    fn depth_limit_is_reported_once_per_blueprint() {
+        let reg = registry(&[
+            ("Nest", &["T"], json!({ "inner": "$Nest<$Wrap<$T>>" })),
+            ("Wrap", &["T"], json!({ "x": "$T" })),
+            ("Grow", &["T"], json!({ "inner": "$Grow<Vec<T>>" })),
+        ]);
+        let first = Location::new("a.rs", 1);
+        let second = Location::new("b.rs", 2);
+        let mut diagnostics = Diagnostics::new();
+        let mut instantiator = Instantiator::new(&reg);
+        for (reference, location) in [
+            ("$Nest<User>", &first),
+            ("$Nest<Order>", &second),
+            ("$Grow<User>", &second),
+            ("$Grow<Order>", &first),
+        ] {
+            instantiator.apply(&mut json!(reference), location, &mut diagnostics);
+        }
+        let depth = findings(&diagnostics, Code::InstantiationDepth);
+        let reported: Vec<(bool, bool, Option<&Location>)> = depth
+            .iter()
+            .map(|d| {
+                (
+                    d.message().contains("`Wrap`"),
+                    d.message().contains("`Grow`"),
+                    d.location(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            reported,
+            [(true, false, Some(&first)), (false, true, Some(&second))],
+            "{depth:#?}"
+        );
+        assert_eq!(codes(&diagnostics).len(), 2, "{diagnostics:#?}");
     }
 
     /// Whether the instance `Pad_A` of `{ "description": text }` fits: it

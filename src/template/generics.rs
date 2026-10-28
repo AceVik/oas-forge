@@ -390,6 +390,10 @@ pub struct Instantiator<'a> {
     budget_reported: bool,
     /// The alias findings reported so far, each once.
     alias_findings: BTreeSet<String>,
+    /// The blueprints reported for exceeding [`MAX_DEPTH`], each once: a
+    /// blueprint that nests ever deeper reaches the limit through every
+    /// instance that leads there.
+    depth_findings: BTreeSet<String>,
 }
 
 impl<'a> Instantiator<'a> {
@@ -424,6 +428,7 @@ impl<'a> Instantiator<'a> {
             budget: MAX_INSTANTIATED_SIZE,
             budget_reported: false,
             alias_findings: BTreeSet::new(),
+            depth_findings: BTreeSet::new(),
         }
     }
 
@@ -811,13 +816,20 @@ impl<'a> Instantiator<'a> {
             return Some(name);
         }
         if self.in_progress.len() >= MAX_DEPTH {
-            diagnostics.push(
-                Diagnostic::new(
-                    Code::InstantiationDepth,
-                    format!("instantiating `{name}` exceeds the nesting limit of {MAX_DEPTH}"),
-                )
-                .at(location.clone()),
-            );
+            // Once per blueprint: a blueprint whose instances refer to two
+            // deeper instances reaches the limit tens of thousands of times.
+            let blueprint = last_segment(&generic.name);
+            if self.depth_findings.insert(blueprint.to_string()) {
+                diagnostics.push(
+                    Diagnostic::new(
+                        Code::InstantiationDepth,
+                        format!(
+                            "instantiating `{name}` exceeds the nesting limit of {MAX_DEPTH}; later instances of `{blueprint}` beyond it are not reported"
+                        ),
+                    )
+                    .at(location.clone()),
+                );
+            }
             return None;
         }
         if arg_names.len() != blueprint.params.len() {
