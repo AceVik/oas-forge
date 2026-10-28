@@ -337,6 +337,10 @@ codes! {
 
     /// The `Cargo.toml` of a scanned crate cannot be read; the crate is named after its directory.
     UnreadableManifest = "OF0007", Warning;
+    /// A generic reference is malformed or exceeds the parser nesting limit.
+    InvalidGenericReference = "OF3015", Error;
+    /// Expanding fragments exceeded the work or text size budget.
+    ExpansionLimit = "OF3016", Error;
 }
 
 impl fmt::Display for Code {

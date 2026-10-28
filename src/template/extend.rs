@@ -74,6 +74,9 @@ pub fn apply(
         diagnostics,
         stack: Vec::new(),
         reported: BTreeSet::new(),
+        remaining_bytes: lexical::MAX_EXPANSION_BYTES,
+        remaining_steps: lexical::MAX_EXPANSION_STEPS,
+        exhausted: false,
     };
     extension.apply_at(value);
 }
@@ -94,6 +97,12 @@ struct Extension<'a> {
     stack: Vec<String>,
     /// Fragments whose cycle or depth problem has been reported.
     reported: BTreeSet<String>,
+    /// Remaining total text budget for fragment bodies.
+    remaining_bytes: usize,
+    /// Remaining number of fragment resolutions, including empty bodies.
+    remaining_steps: usize,
+    /// Whether a budget violation has already been reported.
+    exhausted: bool,
 }
 
 impl Extension<'_> {
@@ -147,6 +156,14 @@ impl Extension<'_> {
 
     /// `Name` or `Name(args)` → the fragment's name and body as a value.
     fn resolve(&mut self, spec: &str) -> Option<(String, Value)> {
+        if self.exhausted {
+            return None;
+        }
+        if self.remaining_steps == 0 {
+            self.exhaust();
+            return None;
+        }
+        self.remaining_steps -= 1;
         let (name, args) = match spec.split_once('(') {
             Some((name, args)) => (
                 name.trim(),
@@ -186,6 +203,13 @@ impl Extension<'_> {
         if let Some(finding) = lexical::argument_count(name, fragment.params.len(), args.len()) {
             self.diagnostics.push(finding.at(self.location.clone()));
         }
+        let Some(size) = lexical::substituted_size(&fragment.body, &fragment.params, &args)
+            .filter(|size| *size <= self.remaining_bytes)
+        else {
+            self.exhaust();
+            return None;
+        };
+        self.remaining_bytes -= size;
         let body = substitute_params(&fragment.body, &fragment.params, &args);
         let body = lexical::expand(
             &body,
@@ -194,6 +218,11 @@ impl Extension<'_> {
             self.location,
             self.diagnostics,
         );
+        if body.len() > self.remaining_bytes {
+            self.exhaust();
+            return None;
+        }
+        self.remaining_bytes -= body.len();
         match yaml::parse(&body) {
             Ok(value) => Some((name.to_string(), value)),
             Err(e) => {
@@ -207,6 +236,15 @@ impl Extension<'_> {
                 None
             }
         }
+    }
+
+    /// Stops resolving fragments after the first resource budget violation.
+    fn exhaust(&mut self) {
+        self.exhausted = true;
+        self.report(
+            Code::ExpansionLimit,
+            "fragment extensions exceed 16 MiB of processed text or 65536 resolutions".into(),
+        );
     }
 }
 

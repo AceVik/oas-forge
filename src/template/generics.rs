@@ -19,6 +19,9 @@ use std::sync::LazyLock;
 /// Maximum nesting of instantiations (`$A<$B<$C<…>>>`).
 pub const MAX_DEPTH: usize = 16;
 
+/// Parser recursion budget, independent of the instantiation depth limit.
+const MAX_PARSE_DEPTH: usize = 128;
+
 /// Keywords whose value is a schema (also of media types and parameters).
 const SCHEMA_KEYS: &[&str] = &[
     "items",
@@ -131,7 +134,7 @@ pub enum GenericArg {
 impl GenericRef {
     /// Parses `$Name<Arg, $Other<X>>` (the `$` of arguments is optional).
     /// `None` unless the whole text, apart from surrounding whitespace, is
-    /// one generic reference.
+    /// one generic reference with at most 128 nested generic lists.
     ///
     /// # Examples
     ///
@@ -150,7 +153,7 @@ impl GenericRef {
     /// ```
     pub fn parse(text: &str) -> Option<Self> {
         let text = text.trim().strip_prefix('$')?;
-        let (generic, rest) = parse_ref(text)?;
+        let (generic, rest) = parse_ref(text, 0)?;
         rest.trim().is_empty().then_some(generic)
     }
 
@@ -226,7 +229,10 @@ fn split_name(text: &str) -> (&str, &str) {
 }
 
 /// Parses `Name<args>` at the start of `text`; returns the rest.
-fn parse_ref(text: &str) -> Option<(GenericRef, &str)> {
+fn parse_ref(text: &str, depth: usize) -> Option<(GenericRef, &str)> {
+    if depth >= MAX_PARSE_DEPTH {
+        return None;
+    }
     let (name, rest) = split_name(text);
     if name.is_empty() {
         return None;
@@ -245,7 +251,7 @@ fn parse_ref(text: &str) -> Option<(GenericRef, &str)> {
                 after,
             ));
         }
-        let (arg, after) = parse_arg(rest)?;
+        let (arg, after) = parse_arg(rest, depth + 1)?;
         args.push(arg);
         rest = after.trim_start();
         if let Some(after) = rest.strip_prefix(',') {
@@ -258,14 +264,14 @@ fn parse_ref(text: &str) -> Option<(GenericRef, &str)> {
 
 /// Parses one argument at the start of `text`, a name or a nested generic
 /// reference with an optional `$`; returns the rest.
-fn parse_arg(text: &str) -> Option<(GenericArg, &str)> {
+fn parse_arg(text: &str, depth: usize) -> Option<(GenericArg, &str)> {
     let text = text.strip_prefix('$').unwrap_or(text);
     let (name, rest) = split_name(text);
     if name.is_empty() {
         return None;
     }
     if rest.trim_start().starts_with('<') {
-        let (generic, rest) = parse_ref(text)?;
+        let (generic, rest) = parse_ref(text, depth)?;
         Some((GenericArg::Generic(generic), rest))
     } else {
         Some((GenericArg::Name(name.to_string()), rest))
@@ -455,6 +461,20 @@ impl<'a> Instantiator<'a> {
                 }
             }
             Value::Object(map) => {
+                if let Some(reference) = map.get("$ref").and_then(Value::as_str)
+                    && !self.in_data
+                    && reference.starts_with('$')
+                    && reference.contains('<')
+                    && GenericRef::parse(reference).is_none()
+                {
+                    diagnostics.push(
+                        Diagnostic::new(
+                            Code::InvalidGenericReference,
+                            "generic reference is malformed or exceeds 128 nested generic lists",
+                        )
+                        .at(location.clone()),
+                    );
+                }
                 if !self.in_data {
                     wrap_references(map);
                 }
@@ -799,7 +819,7 @@ fn bound_target(alias: &AliasItem, args: &[GenericArg]) -> Option<GenericArg> {
     let Value::String(target) = substitute(&Value::String(alias.target.clone()), &bindings) else {
         return None;
     };
-    let (arg, rest) = parse_arg(&target)?;
+    let (arg, rest) = parse_arg(&target, 0)?;
     rest.trim().is_empty().then_some(arg)
 }
 

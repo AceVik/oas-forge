@@ -6,6 +6,7 @@
 use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use regex::Regex;
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
@@ -26,6 +27,12 @@ pub const DEFAULTS_MARKER: &str = "defaults-";
 
 /// How deeply `@insert`s may nest; a deeper one is skipped and reported.
 const MAX_INSERT_DEPTH: usize = 8;
+
+/// Total bytes of lines visited by one fragment expansion.
+pub(super) const MAX_EXPANSION_BYTES: usize = 16 * 1024 * 1024;
+
+/// Total lines visited, including directives that produce no output.
+pub(super) const MAX_EXPANSION_STEPS: usize = 65_536;
 
 /// Values of `{{NAME}}` placeholders.
 pub type Variables = BTreeMap<String, String>;
@@ -220,28 +227,28 @@ pub fn expand_block(
             .zip(offsets.iter().copied())
     };
     let mut missing = Vec::new();
-    let quoted = substitute_lines(numbered(), variables, &mut missing, true);
-    let plain = substitute_lines(numbered(), variables, &mut Vec::new(), false);
+    let (quoted, quoted_limit) = substitute_lines(numbered(), variables, &mut missing, true);
+    let (plain, plain_limit) = substitute_lines(numbered(), variables, &mut Vec::new(), false);
     report_missing(missing, location, diagnostics);
-    // Quoting adds no line breaks: both have the same lines.
-    let quoted = split_lines(&quoted, &offsets);
-    let plain: Vec<String> = split_lines(&plain, &offsets)
+    report_substitution_limit(quoted_limit.or(plain_limit), location, diagnostics);
+    let plain_lines: Vec<String> = split_lines(&plain, &offsets)
         .into_iter()
         .map(|(line, _)| line)
         .collect();
-    let is_yaml = yaml(&plain);
-    quoted
+    let is_yaml = yaml(&plain_lines);
+    let mut plain_index = 0;
+    // Choose per source line before splitting: quoting a multiline scalar
+    // escapes its line breaks, while prose keeps physical lines.
+    let selected: Vec<String> = quoted
         .into_iter()
         .zip(plain)
-        .enumerate()
-        .map(|(i, ((quoted, offset), plain))| {
-            if is_yaml.get(i).copied().unwrap_or(true) {
-                (quoted, offset)
-            } else {
-                (plain, offset)
-            }
+        .map(|(quoted, plain)| {
+            let quote = is_yaml.get(plain_index).copied().unwrap_or(true);
+            plain_index += plain.split('\n').count();
+            if quote { quoted } else { plain }
         })
-        .collect()
+        .collect();
+    split_lines(&selected, &offsets)
 }
 
 /// Splits substituted `lines` at the line breaks of their values and
@@ -268,7 +275,7 @@ fn expand_text(
 ) -> (Vec<String>, Vec<usize>) {
     let (lines, offsets) = paste(text, registry, location, diagnostics);
     let mut missing = Vec::new();
-    let substituted = substitute_lines(
+    let (substituted, limit) = substitute_lines(
         lines
             .iter()
             .map(String::as_str)
@@ -278,6 +285,7 @@ fn expand_text(
         true,
     );
     report_missing(missing, location, diagnostics);
+    report_substitution_limit(limit, location, diagnostics);
     (substituted, offsets)
 }
 
@@ -295,10 +303,16 @@ fn paste(
         counter: 0,
         stack: Vec::new(),
         cycles: BTreeSet::new(),
+        remaining_bytes: MAX_EXPANSION_BYTES,
+        remaining_steps: MAX_EXPANSION_STEPS,
+        exhausted: false,
         diagnostics,
     };
     for (offset, line) in text.lines().enumerate() {
         expansion.line(line, &location.offset(offset), offset);
+        if expansion.exhausted {
+            break;
+        }
     }
     let Expansion { lines, .. } = expansion;
     lines.into_iter().unzip()
@@ -372,19 +386,20 @@ pub fn substitute(
         return text.to_string();
     }
     let mut missing = Vec::new();
-    let mut substituted = substitute_lines(
+    let (substituted, limit) = substitute_lines(
         text.lines()
             .enumerate()
             .map(|(offset, line)| (line, offset)),
         variables,
         &mut missing,
         true,
-    )
-    .join("\n");
+    );
+    let mut substituted = substituted.join("\n");
     if text.ends_with('\n') {
         substituted.push('\n');
     }
     report_missing(missing, location, diagnostics);
+    report_substitution_limit(limit, location, diagnostics);
     substituted
 }
 
@@ -421,15 +436,39 @@ struct Expansion<'a> {
     stack: Vec<String>,
     /// Fragments whose cycle has been reported.
     cycles: BTreeSet<String>,
+    /// Unspent work budget, charged before copying an input line.
+    remaining_bytes: usize,
+    /// Unspent line budget, also bounding empty fragments and diagnostics.
+    remaining_steps: usize,
+    /// Whether a budget violation has already stopped this expansion.
+    exhausted: bool,
     /// Receives cycles, argument count mismatches and unknown or too deeply
     /// nested fragments.
     diagnostics: &'a mut Diagnostics,
 }
 
 impl Expansion<'_> {
+    /// Stops the expansion and reports the first budget violation.
+    fn exhaust(&mut self, location: &Location) {
+        self.exhausted = true;
+        self.diagnostics.push(
+            Diagnostic::new(
+                Code::ExpansionLimit,
+                "fragment expansion exceeds 16 MiB of processed text or 65536 lines",
+            )
+            .at(location.clone()),
+        );
+    }
+
     /// Expands one line; `offset` is its source line within the text. The
     /// argument of `@insert` and `@extend` may be written in backticks.
     fn line(&mut self, line: &str, location: &Location, offset: usize) {
+        if self.remaining_steps == 0 || line.len() > self.remaining_bytes {
+            self.exhaust(location);
+            return;
+        }
+        self.remaining_steps -= 1;
+        self.remaining_bytes -= line.len();
         let line = TICKED_RE.replace(line, "$1$2");
         let line = line.as_ref();
         if let Some(caps) = INSERT_RE.captures(line) {
@@ -458,10 +497,23 @@ impl Expansion<'_> {
                     {
                         self.diagnostics.push(finding.at(location.clone()));
                     }
+                    if substituted_size(&fragment.body, &fragment.params, &provided)
+                        .is_none_or(|size| size > self.remaining_bytes)
+                    {
+                        self.exhaust(location);
+                        return;
+                    }
                     let body = substitute_params(&fragment.body, &fragment.params, &provided);
                     self.stack.push(name.to_string());
                     for inserted in body.lines() {
+                        if indent.len().saturating_add(inserted.len()) > self.remaining_bytes {
+                            self.exhaust(location);
+                            break;
+                        }
                         self.line(&format!("{indent}{inserted}"), location, offset);
+                        if self.exhausted {
+                            break;
+                        }
                     }
                     self.stack.pop();
                 }
@@ -497,6 +549,20 @@ impl Expansion<'_> {
         }
         self.lines.push((line.to_string(), offset));
     }
+}
+
+/// Size after parameter substitution, checked before allocating the body.
+pub(super) fn substituted_size(body: &str, params: &[String], args: &[String]) -> Option<usize> {
+    VARIABLE_RE
+        .captures_iter(body)
+        .try_fold(body.len(), |size, caps| {
+            let replacement = params
+                .iter()
+                .position(|param| param == &caps[1])
+                .and_then(|i| args.get(i))
+                .map_or(caps[0].len(), String::len);
+            size.checked_sub(caps[0].len())?.checked_add(replacement)
+        })
 }
 
 /// A finding when a fragment with `expected` parameters gets `got` arguments:
@@ -586,22 +652,57 @@ fn substitute_lines<'l>(
     variables: &Variables,
     missing: &mut Vec<(usize, String)>,
     quote: bool,
-) -> Vec<String> {
+) -> (Vec<String>, Option<usize>) {
     // The indentation of the line that opened the current block scalar.
     let mut block: Option<usize> = None;
-    lines
-        .map(|(line, offset)| {
-            if !quote {
-                return substitute_line(line, variables, offset, missing, false);
-            }
-            let indent = line.len() - line.trim_start().len();
-            if block.is_some_and(|parent| line.trim().is_empty() || indent > parent) {
-                return substitute_line(line, variables, offset, missing, false);
-            }
+    let mut remaining = MAX_EXPANSION_BYTES;
+    let mut out = Vec::new();
+    for (line, offset) in lines {
+        if out.len() == MAX_EXPANSION_STEPS {
+            return (out, Some(offset));
+        }
+        if !out.is_empty() {
+            let Some(next) = remaining.checked_sub(1) else {
+                return (out, Some(offset));
+            };
+            remaining = next;
+        }
+        let indent = line.len() - line.trim_start().len();
+        let in_block = block.is_some_and(|parent| line.trim().is_empty() || indent > parent);
+        if !in_block {
             block = opens_block_scalar(line).then_some(indent);
-            substitute_line(line, variables, offset, missing, true)
-        })
-        .collect()
+        }
+        let Some(line) = substitute_line(
+            line,
+            variables,
+            offset,
+            missing,
+            quote && !in_block,
+            remaining,
+        ) else {
+            return (out, Some(offset));
+        };
+        remaining -= line.len();
+        out.push(line);
+    }
+    (out, None)
+}
+
+/// Reports the source line where variable substitution exceeded its budget.
+fn report_substitution_limit(
+    offset: Option<usize>,
+    location: &Location,
+    diagnostics: &mut Diagnostics,
+) {
+    if let Some(offset) = offset {
+        diagnostics.push(
+            Diagnostic::new(
+                Code::ExpansionLimit,
+                "variable substitution exceeds 16 MiB of expanded text or 65536 lines",
+            )
+            .at(location.offset(offset)),
+        );
+    }
 }
 
 /// Whether the value of a line is a block scalar indicator (`|`, `>-`, `|2`).
@@ -625,39 +726,74 @@ fn substitute_line(
     offset: usize,
     missing: &mut Vec<(usize, String)>,
     quote: bool,
-) -> String {
+    max_bytes: usize,
+) -> Option<String> {
+    if line.len() > max_bytes {
+        return None;
+    }
     if !line.contains("{{") {
-        return line.to_string();
+        return Some(line.to_string());
     }
     let value_start = value_position(line).filter(|_| quote);
-    VARIABLE_RE
-        .replace_all(line, |caps: &regex::Captures| {
-            let name = &caps[1];
-            let value = match name.strip_prefix("env:") {
-                Some(variable) => {
-                    let value = std::env::var(variable).ok();
-                    if value.is_none() {
-                        missing.push((offset, variable.to_string()));
-                    }
-                    value
+    let mut out = String::new();
+    let mut cursor = 0;
+    for caps in VARIABLE_RE.captures_iter(line) {
+        let whole = caps.get_match();
+        append_bounded(&mut out, line.get(cursor..whole.start())?, max_bytes)?;
+        let name = &caps[1];
+        let value = match name.strip_prefix("env:") {
+            Some(variable) => {
+                let value = std::env::var(variable).ok();
+                if value.is_none() {
+                    missing.push((offset, variable.to_string()));
                 }
-                None => variables.get(name).cloned(),
-            };
-            let Some(value) = value else {
-                return caps[0].to_string();
-            };
-            let whole = caps.get_match();
-            let is_whole_value = value_start == Some(whole.start())
-                && line
-                    .get(whole.end()..)
-                    .is_some_and(|after| after.trim().is_empty());
-            if is_whole_value {
-                format!("'{}'", value.replace('\'', "''"))
-            } else {
-                value
+                value.map(Cow::Owned)
             }
-        })
-        .into_owned()
+            None => variables
+                .get(name)
+                .map(|value| Cow::Borrowed(value.as_str())),
+        };
+        let found = value.is_some();
+        let value = value.unwrap_or_else(|| Cow::Borrowed(whole.as_str()));
+        if value.len() > max_bytes - out.len() {
+            return None;
+        }
+        let is_whole_value = value_start == Some(whole.start())
+            && found
+            && line
+                .get(whole.end()..)
+                .is_some_and(|after| after.trim().is_empty());
+        let replacement = if is_whole_value
+            && value
+                .chars()
+                .any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}'))
+        {
+            Cow::Owned(
+                serde_json::Value::String(value.into_owned())
+                    .to_string()
+                    .replace('\u{0085}', "\\u0085")
+                    .replace('\u{2028}', "\\u2028")
+                    .replace('\u{2029}', "\\u2029"),
+            )
+        } else if is_whole_value {
+            Cow::Owned(format!("'{}'", value.replace('\'', "''")))
+        } else {
+            value
+        };
+        append_bounded(&mut out, &replacement, max_bytes)?;
+        cursor = whole.end();
+    }
+    append_bounded(&mut out, line.get(cursor..)?, max_bytes)?;
+    Some(out)
+}
+
+/// Appends a piece only when the result fits in the byte budget.
+fn append_bounded(out: &mut String, piece: &str, max_bytes: usize) -> Option<()> {
+    if piece.len() > max_bytes - out.len() {
+        return None;
+    }
+    out.push_str(piece);
+    Some(())
 }
 
 /// Byte offset where the unquoted value of `key: value`, `- value` or

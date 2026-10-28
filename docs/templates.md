@@ -182,6 +182,9 @@ pub async fn reports() {}
 
 Unknown fragments (`OF3001`), invalid fragment YAML (`OF3002`), missing
 arguments (`OF3003`) and extra arguments (`OF3011`, ignored) are reported.
+Expansion also has a total budget of 16 MiB of processed text and 65,536
+visited lines or extension resolutions per expansion. Exceeding it reports
+error `OF3016`, even when the fragments form no cycle.
 
 ## Named schemas
 
@@ -216,6 +219,10 @@ as it is. The summary, description and directive lines of route, webhook and
 channel blocks are not YAML, so there the value is always inserted as it is:
 `Since: {{CARGO_PKG_VERSION}}` reads `Since: 1.10`, and `@return 200: {{TYPE}}`
 names the type. Unknown placeholders are left as they are.
+
+Whole YAML string values preserve newlines and control characters through
+escaped quoting. Variable substitution is limited to 16 MiB of expanded
+text and 65,536 source lines per call; exceeding either reports `OF3016`.
 
 With `emit_cargo_directives(true)`, every `{{env:NAME}}` in the inputs is
 also printed as `cargo:rerun-if-env-changed=NAME`, so Cargo reruns the
