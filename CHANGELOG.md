@@ -6,8 +6,8 @@ All notable changes to `oas-forge` will be documented in this file.
 
 ### Changed
 - Refresh locked dependencies in the main and example workspaces, including
-  `annotate-snippets` 0.12.17, `encoding_rs` 0.8.42 and `indexmap` 2.14.2.
-  Rust 1.89 remains supported.
+  `annotate-snippets` 0.12.17, `encoding_rs` 0.8.42, `indexmap` 2.14.2 and the
+  ICU crates 2.4. Rust 1.89 remains supported.
 - Example crates declare their minimum Rust version, MIT license and
   dependency version bounds so they also pass the repository's dependency
   policy checks.

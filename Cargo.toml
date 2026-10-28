@@ -57,7 +57,7 @@ tempfile = "3.27.0"
 
 [dev-dependencies]
 insta = { version = "1.49.0", features = ["json", "glob"] }
-jsonschema = { version = "0.59.0", default-features = false }
+jsonschema = { version = "0.60.2", default-features = false }
 proptest = "1.12.0"
 # The README examples compile against the real crate (doctests).
 validator = { version = "0.21.0", features = ["derive"] }
