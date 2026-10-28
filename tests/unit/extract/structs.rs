@@ -687,6 +687,29 @@ mod serde_fields {
     }
 
     #[test]
+    fn only_object_maps_are_flattened_into_additional_properties() {
+        use oas_forge::schema::TypeMapper;
+        let extra = json!({ "type": "object", "properties": { "a": { "type": "string" } }, "additionalProperties": true });
+        let loose = json!({ "additionalProperties": { "type": "integer" } });
+        let types = TypeMapper::new()
+            .with_type("Extra", extra.clone())
+            .with_type("Loose", loose.clone());
+        let mut diagnostics = oas_forge::diagnostics::Diagnostics::new();
+        let items = oas_forge::extract::extract_str(
+            std::path::Path::new("test.rs"),
+            "/// @openapi\nstruct S {\n  #[serde(flatten)]\n  extra: Extra,\n  #[serde(flatten)]\n  loose: Loose,\n}",
+            oas_forge::extract::Options::new().types(&types),
+            &mut diagnostics,
+        )
+        .unwrap();
+        let s = schema(&items, "S");
+        // An object with properties of its own and a schema without `type`
+        // are flattened structs, not maps.
+        assert_eq!(s["allOf"], json!([extra, loose]));
+        assert!(s.get("unevaluatedProperties").is_none(), "{s}");
+    }
+
+    #[test]
     fn flattened_maps_next_to_flattened_structs_are_unevaluated_properties() {
         // `additionalProperties` would also apply to the fields of `Inner`.
         let items = extract(
@@ -952,6 +975,37 @@ fn structural_overrides_replace_a_nullable_reference() {
     assert_eq!(
         schema(&items, "S")["properties"]["id"],
         json!({ "type": ["string", "null"], "format": "uuid", "description": "The id." })
+    );
+}
+
+#[test]
+fn only_a_reference_or_null_is_a_nullable_reference() {
+    use oas_forge::schema::TypeMapper;
+    let types = TypeMapper::new()
+        .with_type(
+            "RefFirst",
+            json!({ "anyOf": [{ "$ref": "$A" }, { "type": "integer" }] }),
+        )
+        .with_type(
+            "RefSecond",
+            json!({ "anyOf": [{ "type": "integer" }, { "$ref": "$A" }] }),
+        );
+    let mut diagnostics = oas_forge::diagnostics::Diagnostics::new();
+    let items = oas_forge::extract::extract_str(
+        std::path::Path::new("test.rs"),
+        "/// @openapi\nstruct S {\n/// @openapi type: string\na: RefFirst,\n/// @openapi type: string\nb: RefSecond,\n}",
+        oas_forge::extract::Options::new().types(&types),
+        &mut diagnostics,
+    )
+    .unwrap();
+    // Not `Option<T>` of a reference: the override is merged, the
+    // alternatives stay.
+    assert_eq!(
+        schema(&items, "S")["properties"],
+        json!({
+            "a": { "anyOf": [{ "$ref": "$A" }, { "type": "integer" }], "type": "string" },
+            "b": { "anyOf": [{ "type": "integer" }, { "$ref": "$A" }], "type": "string" },
+        })
     );
 }
 
@@ -1904,6 +1958,43 @@ mod fenced_overrides {
             crate::extract::document_items(&items)[0].text,
             "tags: [{ name: Users }]"
         );
+        assert!(schema(&items, "User")["properties"]["id"].is_object());
+    }
+
+    /// `@scope` lines before the fence and after it belong to the document.
+    #[test]
+    fn scope_lines_around_a_fenced_document_of_a_type() {
+        for source in [
+            "/// @openapi document\n/// @scope public\n/// ```yaml\n/// tags: [{ name: Users }]\n/// ```\n/// @openapi\npub struct User { pub id: u64 }",
+            "/// @openapi document\n/// ```yaml\n/// tags: [{ name: Users }]\n/// ```\n/// @scope public\n/// @openapi\npub struct User { pub id: u64 }",
+        ] {
+            let items = extract(source);
+            let text = &crate::extract::document_items(&items)[0].text;
+            assert!(text.contains("@scope public"), "{source}: {text}");
+            assert!(text.contains("tags: [{ name: Users }]"), "{source}: {text}");
+            assert!(!text.contains("```"), "{source}: {text}");
+            assert!(schema(&items, "User")["properties"]["id"].is_object());
+        }
+        // The fence after the `@scope` line holds all of the YAML, also a
+        // key with a space after a blank line (which would end unfenced YAML).
+        let items = extract(
+            "/// @openapi document\n/// @scope public\n/// ```yaml\n/// x-a: 1\n///\n/// x spaced: 2\n/// ```\n/// @openapi\npub struct User { pub id: u64 }",
+        );
+        let text = &crate::extract::document_items(&items)[0].text;
+        assert!(text.ends_with("x spaced: 2"), "{text}");
+        assert!(schema(&items, "User").get("description").is_none());
+    }
+
+    #[test]
+    fn prose_after_a_fenced_document_describes_the_type() {
+        let items = extract(
+            "/// @openapi document\n/// ```yaml\n/// tags: [{ name: Users }]\n/// ```\n/// A user.\n/// @openapi\npub struct User { pub id: u64 }",
+        );
+        assert_eq!(
+            crate::extract::document_items(&items)[0].text,
+            "tags: [{ name: Users }]"
+        );
+        assert_eq!(schema(&items, "User")["description"], "A user.");
     }
 }
 

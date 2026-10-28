@@ -641,19 +641,16 @@ fn escape(text: &str) -> String {
     out
 }
 
-/// The kind of value a schema describes, by its `type`.
+/// The kind of value a schema describes, by its `type`: rules pick other
+/// keywords for arrays and objects than for everything else.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
-    /// `string`
-    String,
     /// `array`
     Array,
     /// `object`
     Object,
-    /// `integer` or `number`
-    Number,
-    /// Any other or no `type`, such as a `$ref`.
-    Unknown,
+    /// Any other or no `type`: a string, a number, a `$ref`, ...
+    Other,
 }
 
 /// The kind of `schema`; of a list of types (`["string", "null"]`), the
@@ -669,11 +666,9 @@ fn kind(schema: &Value) -> Kind {
         _ => "",
     };
     match type_name {
-        "string" => Kind::String,
         "array" => Kind::Array,
         "object" => Kind::Object,
-        "integer" | "number" => Kind::Number,
-        _ => Kind::Unknown,
+        _ => Kind::Other,
     }
 }
 

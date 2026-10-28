@@ -221,6 +221,34 @@ fn an_undocumented_type_of_the_module_is_not_another_documented_one() {
 }
 
 #[test]
+fn an_undocumented_type_whose_name_no_documented_type_has_is_just_unknown() {
+    let (_, diagnostics) = pipeline(&[(
+        "b.rs",
+        "pub struct Local;\n/// @openapi\npub struct Page { pub local: Local }",
+    )]);
+    let findings: Vec<&str> = diagnostics.iter().map(|d| d.message()).collect();
+    assert_eq!(findings[0], "`$Local` does not name a known schema");
+}
+
+#[test]
+fn a_documented_alias_collides_like_a_struct() {
+    let (document, _) = pipeline(&[
+        (
+            "a.rs",
+            "/// @openapi\npub type Status = u8;\n/// @openapi\npub struct S { pub status: Status }",
+        ),
+        ("b.rs", "/// @openapi\npub struct Status { pub code: u16 }"),
+    ]);
+    let schemas = &document["components"]["schemas"];
+    assert_eq!(schemas["crate.a.Status"]["maximum"], 255);
+    assert!(schemas["crate.b.Status"]["properties"]["code"].is_object());
+    assert_eq!(
+        schemas["S"]["properties"]["status"],
+        reference("crate.a.Status")
+    );
+}
+
+#[test]
 fn uses_with_groups_renames_globs_and_re_exports() {
     let (document, diagnostics) = pipeline(&[
         ("lib.rs", "pub mod models;\npub mod api;"),
@@ -300,7 +328,7 @@ fn a_module_path_attribute_moves_the_module() {
     let (document, diagnostics) = pipeline(&[
         (
             "src/lib.rs",
-            "#[path = \"generated/types.rs\"]\nmod api;\n/// @openapi\npub struct Holder { pub a: api::User, pub b: crate::other::User }\nmod other;",
+            "/// Generated types.\n#[path = \"generated/types.rs\"]\nmod api;\n/// @openapi\npub struct Holder { pub a: api::User, pub b: crate::other::User }\nmod other;",
         ),
         (
             "src/generated/types.rs",
@@ -480,6 +508,52 @@ fn inputs_given_with_dots_find_their_modules() {
 /// Edges of the resolution.
 mod edges {
     use super::*;
+
+    /// Module aliases (`use crate::m as a1;`) are followed eight deep, like
+    /// re-exports.
+    #[test]
+    fn module_aliases_are_followed_to_a_limit() {
+        let resolved = |aliases: usize| {
+            let path = vec!["a1"; aliases].join("::");
+            let (document, _) = pipeline(&[
+                ("lib.rs", "mod m;\nmod other;\npub use crate::m as a1;"),
+                (
+                    "m.rs",
+                    "pub use crate::m as a1;\n/// @openapi\npub struct User { pub id: u64 }",
+                ),
+                (
+                    "other.rs",
+                    "/// @openapi\npub struct User { pub name: String }",
+                ),
+                (
+                    "s.rs",
+                    &format!("/// @openapi\npub struct S {{ pub u: crate::{path}::User }}"),
+                ),
+            ]);
+            document["components"]["schemas"]["S"]["properties"]["u"].clone()
+        };
+        assert_eq!(resolved(8), reference("crate.m.User"));
+        assert_eq!(resolved(9), json!({}));
+    }
+
+    #[test]
+    fn module_alias_cycles_end() {
+        let (document, _) = pipeline(&[
+            (
+                "lib.rs",
+                "mod c;\npub use crate::b as a;\npub use crate::a as b;",
+            ),
+            (
+                "c.rs",
+                "/// @openapi\npub struct User { pub id: u64 }\n/// @openapi\npub struct S { pub u: crate::a::User }",
+            ),
+        ]);
+        assert_eq!(
+            document["components"]["schemas"]["S"]["properties"]["u"],
+            reference("User"),
+            "the one documented `User`"
+        );
+    }
 
     #[test]
     fn re_export_cycles_end() {
@@ -868,4 +942,25 @@ mod edges {
             "{document}"
         );
     }
+}
+
+#[test]
+fn a_directory_named_like_a_module_file_is_a_module() {
+    // Only the file itself may be `main.rs`, `lib.rs` or `mod.rs`.
+    let (document, _) = pipeline(&[
+        (
+            "src/main/user.rs",
+            "/// @openapi\npub struct User { pub id: u64 }",
+        ),
+        (
+            "src/other.rs",
+            "/// @openapi\npub struct User { pub name: String }",
+        ),
+    ]);
+    let names: Vec<&String> = document["components"]["schemas"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .collect();
+    assert_eq!(names, ["crate.main.user.User", "crate.other.User"]);
 }

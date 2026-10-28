@@ -1,0 +1,6 @@
+# cargo-nextest settings (used by mutation testing, `cargo mutants
+# --test-tool nextest`). The tests run in seconds; a test that hangs, as a
+# mutant with an endless loop does, fails after two minutes instead of
+# running until the mutant times out (a timeout fails the CI job).
+[profile.default]
+slow-timeout = { period = "30s", terminate-after = 4 }
