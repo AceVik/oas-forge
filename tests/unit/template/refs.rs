@@ -235,6 +235,55 @@ fn documented_schemas_shadow_built_in_types() {
     );
 }
 
+/// The stage consumes its markers only in the shape it writes them: an
+/// alternative under `x-oas-forge-builtin` with `name` and `schema` and
+/// nothing else, a finding text under `x-oas-forge-unresolved`, `true`
+/// under `x-oas-forge-type-default`. A key of such a name with another
+/// value is not the generator's: it stays, so that the sweep of the
+/// finished document reports it instead of a stage removing it silently.
+#[test]
+fn a_marker_of_another_shape_is_not_consumed() {
+    let forged = json!({
+        "security": [{ "x-oas-forge-builtin": [] }],
+        "a": {
+            "$ref": "$User",
+            "x-oas-forge-builtin": { "name": "User", "schema": { "$ref": "$Other" }, "more": 1 },
+        },
+        "b": { "$ref": "$User", "x-oas-forge-unresolved": { "finding": "text" } },
+        "c": { "$ref": "$User", "x-oas-forge-type-default": 1 },
+        "d": { "$ref": "$User", "x-oas-forge-type-default": "true" },
+    });
+    let (value, diagnostics) = run(forged.clone(), &known(&["User", "Other"]), &Registry::new());
+    let mut expected = forged;
+    for key in ["a", "b", "c", "d"] {
+        expected[key]["$ref"] = json!("#/components/schemas/User");
+    }
+    // The value of the key that stays is data like any other.
+    expected["a"]["x-oas-forge-builtin"]["schema"]["$ref"] = json!("#/components/schemas/Other");
+    assert_eq!(value, expected);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+    // The shapes the stages write are consumed as before.
+    let (value, diagnostics) = run(
+        json!({
+            "a": { "$ref": "$Uuid", "x-oas-forge-builtin": { "name": "Uuid", "schema": { "$ref": "$Uuid" } } },
+            "b": { "$ref": "$User", "x-oas-forge-unresolved": "`User` is ambiguous" },
+            "c": { "$ref": "$User", "x-oas-forge-type-default": true },
+        }),
+        &known(&["Uuid", "User"]),
+        &Registry::new(),
+    );
+    assert_eq!(
+        value,
+        json!({
+            "a": { "$ref": "#/components/schemas/Uuid" },
+            "b": {},
+            "c": { "$ref": "#/components/schemas/User" },
+        })
+    );
+    assert_eq!(codes(&diagnostics), [Code::AmbiguousTypeName]);
+}
+
 /// Whole `$Name` strings in schema positions end up as references, through
 /// the whole pipeline (the generics stage wraps them).
 mod schema_positions {

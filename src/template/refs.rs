@@ -384,8 +384,15 @@ fn resolve_at(value: &mut Value, targets: Targets<'_>, location: &Location, stat
                     || lookup.is_local(name, location)
             });
             // A Rust type name that does not say which documented type it
-            // means: reported, and not resolved.
-            if let Some(Value::String(finding)) = map.shift_remove(UNRESOLVED_KEY) {
+            // means: reported, and not resolved. The marker is the finding
+            // text; a key of its name with another value is not the
+            // generator's and stays for the sweep.
+            if let Some(finding) = map
+                .get(UNRESOLVED_KEY)
+                .and_then(Value::as_str)
+                .map(str::to_string)
+            {
+                map.shift_remove(UNRESOLVED_KEY);
                 map.shift_remove("$ref");
                 if state.reported.insert(finding.clone()) {
                     state.diagnostics.push(
@@ -426,17 +433,21 @@ fn resolve_at(value: &mut Value, targets: Targets<'_>, location: &Location, stat
                     Found::Nothing => {}
                 }
             }
-            // `#[serde(default)]` of a documented type with a `default`.
-            if map.shift_remove(TYPE_DEFAULT_KEY).is_some()
-                && let Some(default) = map
+            // `#[serde(default)]` of a documented type with a `default`. The
+            // marker is `true`; a key of its name with another value is not
+            // the generator's and stays for the sweep.
+            if map.get(TYPE_DEFAULT_KEY) == Some(&Value::Bool(true)) {
+                map.shift_remove(TYPE_DEFAULT_KEY);
+                if let Some(default) = map
                     .get("$ref")
                     .and_then(Value::as_str)
                     .and_then(reference_name)
                     .map(|name| registry.alias(name).unwrap_or(name))
                     .and_then(|name| registry.default_of(name))
                     .cloned()
-            {
-                map.entry("default").or_insert(default);
+                {
+                    map.entry("default").or_insert(default);
+                }
             }
             let schema = map
                 .get("$ref")

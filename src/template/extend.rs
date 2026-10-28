@@ -121,10 +121,12 @@ impl Extension<'_> {
                 markers.sort_by_key(|key| marker_order(key));
                 let mut fragments = Vec::new();
                 for key in markers {
-                    if let Some(spec) = map
-                        .remove(&key)
-                        .and_then(|v| v.as_str().map(str::to_string))
-                    {
+                    // The lexical stage writes the fragment as a string; a
+                    // marker with another value is not its own (a source
+                    // wrote it) and stays, for the sweep of the finished
+                    // document.
+                    if let Some(spec) = map.get(&key).and_then(Value::as_str).map(str::to_string) {
+                        map.remove(&key);
                         fragments.push(spec);
                     }
                 }

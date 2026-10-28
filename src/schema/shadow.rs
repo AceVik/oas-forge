@@ -17,14 +17,26 @@ use serde_json::{Map, Value, json};
 /// The marker key of a schema with an alternative (a [`Marker`]).
 pub(crate) const KEY: &str = "x-oas-forge-builtin";
 
-/// The alternative of the built-in schema of a name written bare.
+/// The alternative of the built-in schema of a name written bare. Only a
+/// value of exactly this shape under [`KEY`] is taken for the generator's
+/// marker ([`take`]).
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Marker {
     /// The bare built-in name.
     name: String,
     /// The schema for when the name stands for a documented schema
     /// (`{"$ref": "$Duration"}`, with what the stages added).
     pub(crate) schema: Value,
+}
+
+/// Takes the marker off `map`, if its [`KEY`] holds one. A key of that
+/// name with another value is not the generator's (a source wrote it where
+/// no check read it): it stays, for the sweep of the finished document.
+fn take(map: &mut Map<String, Value>) -> Option<Marker> {
+    let marker = Marker::deserialize(map.get(KEY)?).ok()?;
+    map.shift_remove(KEY);
+    Some(marker)
 }
 
 /// `schema`, the built-in schema of the bare `name`, with its alternative
@@ -39,12 +51,9 @@ pub(crate) fn mark(mut schema: Value, name: &str) -> Value {
     schema
 }
 
-/// Takes the marker off `schema`.
+/// Takes the marker off `schema` (see [`take`]).
 pub(crate) fn detach(schema: &mut Value) -> Option<Marker> {
-    schema
-        .as_object_mut()
-        .and_then(|map| map.shift_remove(KEY))
-        .and_then(|marker| serde_json::from_value::<Marker>(marker).ok())
+    schema.as_object_mut().and_then(take)
 }
 
 /// Puts `marker` on `schema`, an object (any other value has no place for
@@ -101,10 +110,10 @@ pub(crate) fn for_each(schema: &mut Value, mut f: impl FnMut(&mut Value)) {
 }
 
 /// Replaces `map`, a schema with an alternative, by the alternative when
-/// its name `is_documented`, and removes the marker.
+/// its name `is_documented`, and removes the marker (see [`take`]).
 pub(crate) fn choose(map: &mut Map<String, Value>, is_documented: impl Fn(&str) -> bool) {
     // Keys merged into the schema after the marker keep their order.
-    let Some(Ok(marker)) = map.shift_remove(KEY).map(serde_json::from_value::<Marker>) else {
+    let Some(marker) = take(map) else {
         return;
     };
     if let (true, Value::Object(schema)) = (is_documented(&marker.name), marker.schema) {
