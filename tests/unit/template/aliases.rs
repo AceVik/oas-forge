@@ -166,11 +166,12 @@ fn doubling_aliases_resolve_within_the_budget() {
 /// Each link doubled the work: 20 links ran for minutes and wrote 700 MB.
 /// The targets share the size budget of generic instantiation, across the
 /// generics and the references stage, so running out is reported once.
+/// (Not deeper: mutation testing runs this without the budget.)
 #[test]
 fn doubling_aliases_stop_at_the_budget() {
     for form in ["plain", "tuple", "generic"] {
         let started = std::time::Instant::now();
-        let (_, diagnostics) = pipeline(&[("a.rs", &doubling_aliases(form, 30))]);
+        let (_, diagnostics) = pipeline(&[("a.rs", &doubling_aliases(form, 20))]);
         assert!(
             started.elapsed() < std::time::Duration::from_secs(60),
             "{form}: {:?}",
