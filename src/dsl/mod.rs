@@ -1259,6 +1259,9 @@ impl Compiler<'_, '_> {
             },
             "return" => match responses::response(rest, types) {
                 Ok(response) => {
+                    if self.reserved_code(&response.code, at, "@return") {
+                        return;
+                    }
                     let content = response.value.get("content").and_then(Value::as_object);
                     if let Some(media) = reserved_media(content.into_iter().flat_map(Map::keys)) {
                         self.report(
@@ -1277,6 +1280,9 @@ impl Compiler<'_, '_> {
             },
             "return-header" => match responses::header(rest, types) {
                 Some((code, name, header)) => {
+                    if self.reserved_code(&code, at, "@return-header") {
+                        return;
+                    }
                     // The name is a key of the response's headers.
                     if reserved::is_name(&name) {
                         self.report(
@@ -1306,6 +1312,9 @@ impl Compiler<'_, '_> {
             },
             "problem" => match responses::problem(rest) {
                 Some(response) => {
+                    if self.reserved_code(&response.code, at, "@problem") {
+                        return;
+                    }
                     add_response(b, response, at);
                     let mut schemas = Map::new();
                     schemas.insert(
@@ -1437,8 +1446,37 @@ impl Compiler<'_, '_> {
             );
             return;
         }
+        // The name is a key of `webhooks`.
+        if reserved::is_name(name) {
+            self.report(
+                Code::ReservedKey,
+                at,
+                reserved::name_message(
+                    format_args!("webhook `{name}`"),
+                    "the `@webhook` line is ignored",
+                ),
+            );
+            return;
+        }
         b.method = method_key(method);
         b.webhook = Some(name.to_string());
+    }
+
+    /// Reports the status `code` of a `directive` at `at` when it is a
+    /// reserved name (a key of `responses`); `true` when it is.
+    fn reserved_code(&mut self, code: &str, at: At, directive: &str) -> bool {
+        let reserved = reserved::is_name(code);
+        if reserved {
+            self.report(
+                Code::ReservedKey,
+                at,
+                reserved::name_message(
+                    format_args!("status code `{code}`"),
+                    &format!("the `{directive}` line is ignored"),
+                ),
+            );
+        }
+        reserved
     }
 
     /// Completes the route with the module `defaults`, the signature and

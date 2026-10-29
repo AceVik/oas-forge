@@ -290,7 +290,8 @@ is removed and reported as an error (`OF0009`); a directive whose inline
 schema or flag value writes one is ignored (`OF2004`). A name that would
 become such a key is rejected with the same error, and what it names is
 left out: the scheme of `@security`, the name of `@return-header`, a
-media type of `@body` or `@return`, the serialized name of a field or
+status code of `@return`, `@return-header` or `@problem`, the name of
+`@webhook`, a media type of `@body` or `@return`, the serialized name of a field or
 variant (after `rename` and `rename_all`), the name of a documented type,
 its `#[serde(tag)]` and `#[serde(content)]`, the name of `@openapi-type`,
 the id of `@channel` and the placeholders of its address, the names of

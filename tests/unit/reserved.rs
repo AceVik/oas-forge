@@ -1184,3 +1184,41 @@ fn many_distinct_reserved_keys_are_reported_quickly() {
     );
     assert_eq!(reserved(&diagnostics).len(), 40_000);
 }
+
+/// Status codes and webhook names are keys of `responses` and `webhooks`:
+/// one with the reserved prefix is reported at its line and its line is
+/// ignored, instead of reaching the sweep at the end.
+#[test]
+fn reserved_status_codes_and_webhook_names_are_rejected_at_their_line() {
+    let (document, diagnostics) = try_route(&[
+        "@route GET /x",
+        "@return 200: String",
+        "@return x-oas-forge-builtin: String",
+        "@problem x-oas-forge-unresolved",
+        "@return-header x-oas-forge-pattern X-Rate: u32",
+    ]);
+    let operation = &document.expect("compiled")["paths"]["/x"]["get"];
+    assert_eq!(
+        operation["responses"]
+            .as_object()
+            .map(|r| r.keys().collect::<Vec<_>>()),
+        Some(vec![&"200".to_string()])
+    );
+    let messages: Vec<String> = reserved(&diagnostics)
+        .iter()
+        .map(|d| d.message().to_string())
+        .collect();
+    assert_eq!(messages.len(), 3, "{diagnostics:#?}");
+    assert!(messages[0].contains("status code `x-oas-forge-builtin`"));
+    assert!(messages[0].contains("the `@return` line is ignored"));
+    assert!(messages[1].contains("the `@problem` line is ignored"));
+    assert!(messages[2].contains("the `@return-header` line is ignored"));
+    let (document, diagnostics) = try_route(&["@webhook x-oas-forge-builtin"]);
+    assert!(document.is_none());
+    let messages: Vec<&str> = reserved(&diagnostics).iter().map(|d| d.message()).collect();
+    assert_eq!(messages.len(), 1, "{diagnostics:#?}");
+    assert!(
+        messages[0].contains("webhook `x-oas-forge-builtin`"),
+        "{messages:?}"
+    );
+}

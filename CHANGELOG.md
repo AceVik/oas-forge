@@ -263,7 +263,9 @@ All notable changes to `oas-forge` will be documented in this file.
   document is rejected with the same error `OF0009` when it has the
   reserved prefix, and what it names is left out: the scheme of
   `@security` (the line is ignored, also in `@route-defaults`), the name
-  of `@return-header`, a media type of `@body` or `@return`, the
+  of `@return-header`, a status code of `@return`, `@return-header` or
+  `@problem`, the name of `@webhook`, a media type of `@body` or
+  `@return`, the
   serialized name of a field or variant (`#[serde(rename)]`, `@openapi
   rename`, or a `rename_all` rule applied to a Rust name such as
   `x_oas_forge_builtin`), the name of a documented type, its

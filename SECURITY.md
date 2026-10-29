@@ -70,7 +70,8 @@ make a run fail or produce a wrong document. To keep that bounded:
   source cannot pose as a stage of the generator: a forged marker could
   replace the object around it, a security requirement for example,
   without a trace. A name that the route or channel DSL or reflection
-  would make such a key (a `@security` scheme, a header or media type, a
+  would make such a key (a `@security` scheme, a header, status code,
+  webhook or media type, a
   `serde(rename)`, a channel or message name, …) is rejected with the
   same error, each stage takes its marker only in the shape it writes
   it, and a key of the prefix left in a finished document, the AsyncAPI
