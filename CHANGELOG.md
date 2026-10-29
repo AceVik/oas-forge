@@ -2,7 +2,15 @@
 
 All notable changes to `oas-forge` will be documented in this file.
 
-## [Unreleased]
+## [0.2.1] — 2026-10-29
+
+A second security audit, and `required` and `optional` flags for `@body`.
+Some security fixes change behaviour on purpose, even in this patch
+release: `{{env:NAME}}` reads only names allowed with `allow_env`; sources
+can no longer write `x-oas-forge-` keys or names (error `OF0009`); and new
+budgets reject input that used to take gigabytes of memory, such as YAML
+anchors reused many times, deeply nested `Range`s and very large generic
+instantiations. The entries below say what changed and how to adapt.
 
 ### Added
 - `@body` takes the flags `required` and `optional` after the type and its
