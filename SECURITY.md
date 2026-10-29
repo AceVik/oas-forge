@@ -82,9 +82,14 @@ The configuration is trusted like `build.rs`: `openapi.toml`,
 `[package.metadata.oas-forge]` in `Cargo.toml` and `--config` choose the
 inputs, includes, outputs and allowed environment variables, so a change
 to them can read any file or variable and write anywhere. The CLI reads
-the first two from its working directory. To check an untrusted change in
-CI, run it from a directory outside the checkout, with the inputs and
-outputs as flags and a `--config` file that the change cannot edit.
+the first two from its working directory, and the lists of all layers add
+up (`allow_env` of an `openapi.toml` stays allowed whatever `--config`
+says). To check an untrusted change in CI, run it from a directory outside
+the checkout, with the inputs and outputs as flags and a `--config` file
+that the change cannot edit, and with `--deny-warnings`: a source that
+adds to or redefines security requirements and schemes (`OF4001`), or
+whose security a Swagger 2.0 export cannot express (`OF6002`), is
+reported as a warning, which then fails the run.
 
 Memory use grows with the size of the annotations, by roughly two
 hundred bytes per byte: inputs with many megabytes of route or channel

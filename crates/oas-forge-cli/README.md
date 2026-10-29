@@ -357,7 +357,9 @@ key by key:
 The keys are the long option names with underscores; `[types]` maps Rust
 types to schemas, `[variables]` sets placeholders and `allow_env` lists
 the environment variables `{{env:NAME}}` may read. Unknown keys are an
-error.
+error. The lists and tables (`allow_env`, `variables`, `types`, `files`)
+add up over the layers instead: a later layer adds entries and replaces
+those of the same name, but cannot take away what an earlier one allows.
 
 ```toml
 # openapi.toml

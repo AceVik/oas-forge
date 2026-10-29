@@ -125,8 +125,10 @@ impl Cli {
     /// Resolves the effective configuration for working directory `dir`.
     ///
     /// Precedence from low to high: `Cargo.toml` metadata, `openapi.toml`,
-    /// the file given with `--config`, command-line flags. When no output of
-    /// any kind is configured, the full specification goes to `openapi.yaml`.
+    /// the file given with `--config`, command-line flags. The lists and
+    /// tables (`allow_env`, `variables`, `types`, `files`) add up instead.
+    /// When no output of any kind is configured, the full specification
+    /// goes to `openapi.yaml`.
     ///
     /// # Errors
     /// [`Error::Config`] when a configuration file exists but cannot be read
