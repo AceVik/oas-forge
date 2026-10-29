@@ -549,6 +549,8 @@ struct Builder {
     scopes: Option<Names>,
     /// Like `outer_tags`, for the scopes.
     outer_scopes: bool,
+    /// Whether the body of the `@body` lines so far must be sent.
+    body: responses::Requirement,
 }
 
 /// The parameters (and struct expansion markers) of a block in declaration
@@ -1241,6 +1243,15 @@ impl Compiler<'_, '_> {
                         );
                         return;
                     }
+                    for problem in &body.problems {
+                        self.invalid(at, problem.clone());
+                    }
+                    // A `required` line wins over `optional` ones, as on one line.
+                    let (requirement, conflict) = b.body.merge(body.requirement);
+                    if conflict && body.problems.is_empty() {
+                        self.invalid(at, responses::BODY_CONFLICT);
+                    }
+                    b.body = requirement;
                     let request = b
                         .operation
                         .entry("requestBody")
@@ -1248,9 +1259,7 @@ impl Compiler<'_, '_> {
                     if let Some(Value::Object(content)) = request.get_mut("content") {
                         content.extend(body.content);
                     }
-                    if !body.required {
-                        request["required"] = json!(false);
-                    }
+                    request["required"] = json!(requirement.is_required());
                     if let Some(description) = body.description {
                         request["description"] = json!(description);
                     }

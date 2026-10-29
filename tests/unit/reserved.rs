@@ -749,6 +749,38 @@ pub struct Root;
     );
 }
 
+/// A `@body` line with a reserved media type is ignored with its flag: the
+/// body keeps the requirement of the other lines, and the line does not
+/// conflict with them (`OF2004`).
+#[test]
+fn an_ignored_body_line_keeps_the_requirement() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+/// @route POST /x
+/// @body $User required
+/// @body $User x-oas-forge-builtin/json optional
+pub fn x() {}
+
+/// @openapi
+pub struct User { pub id: u64 }
+",
+    )]);
+    let body = &document["paths"]["/x"]["post"]["requestBody"];
+    assert_eq!(body["required"], true);
+    assert_eq!(
+        findings(&diagnostics),
+        [format!(
+            "3: error OF0009 {}",
+            reserved_name(
+                "media type",
+                "x-oas-forge-builtin/json",
+                "the `@body` line is ignored"
+            )
+        )]
+    );
+}
+
 /// A `@security` line of module defaults applies to every route of the
 /// module: a reserved scheme is reported once, at its line, and the
 /// routes keep the security of the root instead of anonymous access.

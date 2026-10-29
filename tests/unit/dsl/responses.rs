@@ -98,6 +98,214 @@ mod request_body {
     }
 }
 
+/// The flags `required` and `optional` after the type and media types of
+/// `@body`, on one line and on several lines of a route.
+mod body_flags {
+    use super::*;
+    use crate::common::{here, lines};
+    use oas_forge::diagnostics::Diagnostics;
+    use oas_forge::dsl::{self, RouteSource};
+
+    /// The finding for a body marked both ways.
+    const CONFLICT: &str = "a body cannot be `required` and `optional`; `required` wins";
+
+    /// The request body of `POST /x` and the findings as `line message`,
+    /// with the block on lines 1, 2, ….
+    fn compiled(src: &[&str]) -> (Value, Vec<String>) {
+        let mut block = vec!["@route POST /x"];
+        block.extend_from_slice(src);
+        let block = lines(&block);
+        let numbers: Vec<usize> = (1..=block.len()).collect();
+        let location = here();
+        let mut diagnostics = Diagnostics::new();
+        let route = dsl::compile(
+            RouteSource::new(&block, &location).line_numbers(&numbers),
+            &mut diagnostics,
+        )
+        .unwrap_or_else(|| panic!("rejected: {diagnostics:#?}"));
+        let notes = diagnostics
+            .iter()
+            .map(|d| format!("{} {}", d.location().map_or(0, |l| l.line()), d.message()))
+            .collect();
+        let body = route.document["paths"]["/x"]["post"]["requestBody"].clone();
+        (body, notes)
+    }
+
+    /// Whether the body of `src` is required; `src` has no findings.
+    fn required(src: &[&str]) -> Value {
+        let (body, notes) = compiled(src);
+        assert_eq!(notes, Vec::<String>::new(), "{src:?}");
+        body["required"].clone()
+    }
+
+    /// The cases of AceVik/oas-forge#1, which proposed the flag `required`.
+    #[test]
+    fn required_makes_a_body_required_even_with_option() {
+        assert_eq!(required(&["@body Option<User>"]), false);
+        assert_eq!(required(&["@body Option<User> required"]), true);
+        let (body, notes) = compiled(&["@body Image image/png required"]);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(
+            body,
+            json!({
+                "content": { "image/png": { "schema": { "$ref": "$Image" } } },
+                "required": true,
+            })
+        );
+    }
+
+    #[test]
+    fn optional_after_the_type_makes_a_body_optional() {
+        assert_eq!(required(&["@body User optional"]), false);
+        let (body, _) = compiled(&["@body User text/plain application/xml optional"]);
+        assert_eq!(
+            body,
+            json!({
+                "content": {
+                    "text/plain": { "schema": { "$ref": "$User" } },
+                    "application/xml": { "schema": { "$ref": "$User" } },
+                },
+                "required": false,
+            })
+        );
+        // Written twice, or before and after the type, it is still optional.
+        assert_eq!(required(&["@body optional User optional"]), false);
+        assert_eq!(required(&["@body Option<User> optional optional"]), false);
+    }
+
+    #[test]
+    fn required_wins_over_optional_on_one_line_with_a_finding() {
+        for line in [
+            "@body optional User required",
+            "@body User required optional",
+            "@body User optional required",
+            "@body optional Option<User> application/xml optional required",
+        ] {
+            let (body, notes) = compiled(&[line]);
+            assert_eq!(body["required"], true, "{line}");
+            assert_eq!(notes, [format!("2 {CONFLICT}")], "{line}");
+        }
+    }
+
+    #[test]
+    fn a_description_may_follow_the_flag() {
+        let (body, notes) = compiled(&["@body Option<User> required \"The user\""]);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(body["required"], true);
+        assert_eq!(body["description"], "The user");
+        assert_eq!(
+            body["content"]["application/json"]["schema"]["anyOf"][0]["$ref"],
+            "$User"
+        );
+        let (body, _) = compiled(&["@body $Upload multipart/form-data optional \"A file\""]);
+        assert_eq!(body["required"], false);
+        assert_eq!(body["description"], "A file");
+        assert!(
+            body["content"].get("multipart/form-data").is_some(),
+            "{body}"
+        );
+    }
+
+    #[test]
+    fn flags_are_no_type() {
+        for line in [
+            "@body required",
+            "@body optional",
+            "@body optional required",
+        ] {
+            let (body, notes) = compiled(&[line]);
+            assert!(body.is_null(), "{line}: {body}");
+            assert_eq!(notes, ["2 `@body` needs a type"], "{line}");
+        }
+        // Words that only start like a flag are types.
+        assert_eq!(
+            compiled(&["@body requiredSettings"]).0,
+            json!({ "content": { "application/json": { "schema": { "$ref": "$requiredSettings" } } }, "required": true })
+        );
+    }
+
+    #[test]
+    fn several_lines_are_optional_if_one_is_unless_one_is_required() {
+        // Without `required`, one `optional` or `Option<T>` line is enough.
+        assert_eq!(
+            required(&["@body User", "@body Option<User> text/plain"]),
+            false
+        );
+        assert_eq!(
+            required(&["@body User", "@body User text/plain optional"]),
+            false
+        );
+        assert_eq!(
+            required(&["@body optional User", "@body User text/plain"]),
+            false
+        );
+        assert_eq!(required(&["@body User", "@body User text/plain"]), true);
+        // `required` on one line wins over `Option<T>` on another, in any order.
+        assert_eq!(
+            required(&["@body Option<User>", "@body User text/plain required"]),
+            true
+        );
+        assert_eq!(
+            required(&["@body User required", "@body Option<User> text/plain"]),
+            true
+        );
+        assert_eq!(
+            required(&[
+                "@body User required",
+                "@body Option<User> text/plain",
+                "@body User text/csv"
+            ]),
+            true
+        );
+    }
+
+    #[test]
+    fn required_wins_over_optional_on_another_line_with_a_finding() {
+        let cases: [(&[&str], &[usize]); 5] = [
+            (
+                &["@body optional User", "@body User text/plain required"],
+                &[3],
+            ),
+            (
+                &["@body User required", "@body User text/plain optional"],
+                &[3],
+            ),
+            // An `Option<T>` line between them does not hide the `optional`.
+            (
+                &[
+                    "@body optional User",
+                    "@body Option<User> text/plain",
+                    "@body User text/csv required",
+                ],
+                &[4],
+            ),
+            // A line that contradicts itself is reported once.
+            (
+                &[
+                    "@body optional User",
+                    "@body User text/plain required optional",
+                ],
+                &[3],
+            ),
+            // Each line that contradicts the body is reported.
+            (
+                &[
+                    "@body User required",
+                    "@body User text/plain optional",
+                    "@body optional User text/csv",
+                ],
+                &[3, 4],
+            ),
+        ];
+        for (src, lines) in cases {
+            let (body, notes) = compiled(src);
+            assert_eq!(body["required"], true, "{src:?}");
+            let expected: Vec<String> = lines.iter().map(|l| format!("{l} {CONFLICT}")).collect();
+            assert_eq!(notes, expected, "{src:?}");
+        }
+    }
+}
+
 mod return_directive {
     use super::*;
 
