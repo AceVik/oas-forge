@@ -580,6 +580,31 @@ mod module_defaults {
         document["paths"][path]["get"].clone()
     }
 
+    /// A parameter of the defaults that the route declares again is not
+    /// added: the route's declaration stays in its place.
+    #[test]
+    fn parameters_the_route_declares_again_stay_in_their_place() {
+        let defaults = [
+            "@route-defaults",
+            "@param query a: String",
+            "@param query x: String",
+        ];
+        let route = [
+            "@route GET /x",
+            "@param query b: String",
+            "@param query x: u64",
+        ];
+        let op = op(&route, &defaults, "/x");
+        let names: Vec<&str> = op["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["a", "b", "x"]);
+        assert_eq!(op["parameters"][2]["schema"]["type"], "integer");
+    }
+
     #[test]
     fn inner_module_security_replaces_the_outer_one() {
         let defaults = [
@@ -1646,5 +1671,203 @@ mod defaults_findings_of_several_routes {
         for blocks in [vec![several], vec![one, several], vec![several, one]] {
             assert_eq!(found(&blocks), ["OF2004 mod.rs:4"], "{blocks:?}");
         }
+    }
+}
+
+/// Large blocks: every list a directive adds to was scanned for each entry,
+/// so tens of thousands of entries took minutes.
+mod large_blocks {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// Runs `work`, which must take less than `seconds`.
+    fn within<T>(seconds: u64, work: impl FnOnce() -> T) -> T {
+        let started = Instant::now();
+        let result = work();
+        assert!(
+            started.elapsed() < Duration::from_secs(seconds),
+            "{:?}",
+            started.elapsed()
+        );
+        result
+    }
+
+    /// Compiles `block` (operation id `op`).
+    fn compiled(block: &[String]) -> (Option<Value>, Diagnostics) {
+        let mut diagnostics = Diagnostics::new();
+        let location = here();
+        let route = dsl::compile(
+            RouteSource::new(block, &location).operation_id(Some("op")),
+            &mut diagnostics,
+        );
+        (route.map(|r| r.document), diagnostics)
+    }
+
+    /// The names of the parameters of an operation.
+    fn names(operation: &Value) -> Vec<String> {
+        params(operation)
+            .iter()
+            .map(|p| p["name"].as_str().unwrap_or_default().to_string())
+            .collect()
+    }
+
+    /// A `@scope` line with 100 000 names took over a minute.
+    #[test]
+    fn many_scope_names() {
+        let scopes: Vec<String> = (0..100_000).map(|i| format!("n{i}")).collect();
+        let block = vec![
+            "@route GET /x".to_string(),
+            format!("@scope {},n0,n5", scopes.join(",")),
+        ];
+        let mut diagnostics = Diagnostics::new();
+        let location = here();
+        let route = within(30, || {
+            dsl::compile(RouteSource::new(&block, &location), &mut diagnostics)
+        })
+        .expect("valid route");
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(route.scopes, scopes);
+    }
+
+    /// A `@tag` line with 100 000 names took half a minute.
+    #[test]
+    fn many_tags() {
+        let tags: Vec<String> = (0..100_000).map(|i| format!("t{i}")).collect();
+        let block = vec![
+            "@route GET /x".to_string(),
+            format!("@tag {},t0, t7 ,", tags.join(",")),
+        ];
+        let (document, diagnostics) = within(30, || compiled(&block));
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(document.unwrap()["paths"]["/x"]["get"]["tags"], json!(tags));
+    }
+
+    /// A `@security` requirement with 100 000 scopes took a minute.
+    #[test]
+    fn many_security_scopes() {
+        let scopes: Vec<String> = (0..100_000).map(|i| format!("a{i}")).collect();
+        let block = vec![
+            "@route GET /x".to_string(),
+            format!("@security s({}, a0, \"a1\")", scopes.join(", ")),
+        ];
+        let (document, diagnostics) = within(30, || compiled(&block));
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(
+            document.unwrap()["paths"]["/x"]["get"]["security"],
+            json!([{ "s": scopes }])
+        );
+    }
+
+    /// 40 000 `@security` lines took a minute: each requirement was compared
+    /// with all before.
+    #[test]
+    fn many_security_lines() {
+        let mut block = vec!["@route GET /x".to_string()];
+        block.extend((0..40_000).map(|i| format!("@security s{i}")));
+        block.push("@security s0".to_string());
+        block.push("@security s1 + s2".to_string());
+        block.push("@security s2 + s1".to_string());
+        let (document, diagnostics) = within(30, || compiled(&block));
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let security = document.unwrap()["paths"]["/x"]["get"]["security"]
+            .as_array()
+            .unwrap()
+            .clone();
+        // Repeated requirements, also with the schemes in another order, are one.
+        assert_eq!(security.len(), 40_001);
+        assert_eq!(security[0], json!({ "s0": [] }));
+        assert_eq!(security[40_000], json!({ "s1": [], "s2": [] }));
+    }
+
+    /// 20 000 `@param` lines took two minutes: each parameter was matched
+    /// against all before.
+    #[test]
+    fn many_query_parameters() {
+        let mut block = vec!["@route GET /x".to_string()];
+        block.extend((0..20_000).map(|i| format!("@param query q{i}: String")));
+        block.push("@param query q5: u32 \"Again\"".to_string());
+        let (document, diagnostics) = within(30, || compiled(&block));
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let operation = &document.unwrap()["paths"]["/x"]["get"];
+        let expected: Vec<String> = (0..20_000).map(|i| format!("q{i}")).collect();
+        assert_eq!(names(operation), expected);
+        // The later declaration replaces the earlier one in its place.
+        assert_eq!(param(operation, "q5")["description"], "Again");
+        assert_eq!(param(operation, "q5")["schema"]["type"], "integer");
+    }
+
+    /// A path with 20 000 placeholders, each declared with `@param path`,
+    /// took two minutes.
+    #[test]
+    fn many_path_parameters() {
+        let path: String = (0..20_000).map(|i| format!("/{{p{i}}}")).collect();
+        let mut block = vec![format!("@route GET {path}")];
+        block.extend((0..20_000).map(|i| format!("@param path p{i}: String")));
+        let (document, diagnostics) = within(30, || compiled(&block));
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let operation = &document.unwrap()["paths"][&path]["get"];
+        let expected: Vec<String> = (0..20_000).map(|i| format!("p{i}")).collect();
+        assert_eq!(names(operation), expected);
+    }
+
+    /// A path parameter that the placeholder pattern does not match is still
+    /// found in the path as text.
+    #[test]
+    fn a_declared_parameter_may_be_an_unusual_placeholder() {
+        let (document, diagnostics) =
+            compiled(&lines(&["@route GET /a/{a-b}", "@param path a-b: String"]));
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(
+            names(&document.unwrap()["paths"]["/a/{a-b}"]["get"]),
+            ["a-b"]
+        );
+    }
+
+    /// A block with several `@route` lines is compiled for each of them, and
+    /// each finding of a compilation was compared with all findings of the
+    /// block so far: 10 000 findings for 100 lines took over a minute.
+    #[test]
+    fn many_findings_in_a_block_with_several_route_lines() {
+        let mut block: Vec<String> = (0..100).map(|i| format!("@route GET /p{i}")).collect();
+        block.extend((0..10_000).map(|i| format!("@bogus{i}")));
+        let (document, diagnostics) = within(30, || compiled(&block));
+        let paths = document.unwrap()["paths"].as_object().unwrap().len();
+        assert_eq!(paths, 100);
+        let codes = codes(&diagnostics);
+        assert_eq!(codes.len(), 10_000, "each finding of the shared lines once");
+        assert!(codes.iter().all(|c| *c == Code::UnknownDirective));
+    }
+
+    /// Module defaults with 10 000 YAML parameters, each declared again in
+    /// the route, took a minute: each was matched by scanning the route's.
+    #[test]
+    fn many_default_parameters() {
+        let mut defaults = lines(&["@route-defaults", "parameters:"]);
+        for i in 0..10_000 {
+            defaults.push(format!("  - name: q{i}"));
+            defaults.push("    in: query".to_string());
+            defaults.push("    schema: { type: string }".to_string());
+        }
+        defaults.push("  - name: extra".to_string());
+        defaults.push("    in: header".to_string());
+        defaults.push("    schema: { type: string }".to_string());
+        let mut block = vec!["@route GET /x".to_string()];
+        block.extend((0..10_000).map(|i| format!("@param query q{i}: u32")));
+        let mut diagnostics = Diagnostics::new();
+        let location = here();
+        let route = within(30, || {
+            dsl::compile(
+                RouteSource::new(&block, &location).defaults(&defaults),
+                &mut diagnostics,
+            )
+        })
+        .expect("valid route");
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let operation = &route.document["paths"]["/x"]["get"];
+        let mut expected: Vec<String> = (0..10_000).map(|i| format!("q{i}")).collect();
+        expected.push("extra".to_string());
+        assert_eq!(names(operation), expected);
+        // The route's declaration wins over the defaults'.
+        assert_eq!(param(operation, "q9999")["schema"]["type"], "integer");
     }
 }

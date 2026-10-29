@@ -15,6 +15,7 @@ use super::error::{Error, Result};
 use super::template::registry::{FORMAT_KEY, FRAGMENTS_KEY, Registry, TEMPLATES_KEY};
 use super::yaml;
 use serde_json::{Map, Value};
+use std::io::{Read, Write};
 use std::path::Path;
 
 /// What part of the merged document an output receives.
@@ -345,10 +346,23 @@ fn sort_entries(section: &mut Value) {
 
 /// Whether the file at `path` already has the content `text`. Line endings
 /// do not count, so a file that Git checked out with `\r\n` is current.
+/// Anything but a regular file is outdated without being opened (a FIFO
+/// would block), and no more is read than a current file can hold.
 pub(crate) fn is_current(path: &Path, text: &str) -> bool {
-    std::fs::read_to_string(path).is_ok_and(|existing| {
-        existing == text || (existing.contains('\r') && existing.replace("\r\n", "\n") == text)
-    })
+    if !std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file()) {
+        return false;
+    }
+    // `\r\n` endings add a byte per line; one byte more shows a longer file.
+    let longest = text.len() + text.matches('\n').count() + 1;
+    let mut existing = String::new();
+    std::fs::File::open(path)
+        .and_then(|file| {
+            file.take(u64::try_from(longest).unwrap_or(u64::MAX))
+                .read_to_string(&mut existing)
+        })
+        .is_ok_and(|_| {
+            existing == text || (existing.contains('\r') && existing.replace("\r\n", "\n") == text)
+        })
 }
 
 /// Writes `text` to `path` atomically, unless the file already has this
@@ -360,17 +374,55 @@ pub(crate) fn write_if_changed(path: &Path, text: &str) -> Result<bool> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
     }
-    let file_name = path
-        .file_name()
+    path.file_name()
         .ok_or_else(|| Error::io(path, std::io::Error::other("output path has no file name")))?;
-    let mut temp_name = std::ffi::OsString::from(".");
-    temp_name.push(file_name);
-    temp_name.push(format!(".{}.tmp", std::process::id()));
-    let temp = path.with_file_name(temp_name);
-    std::fs::write(&temp, text).map_err(|e| Error::io(&temp, e))?;
-    std::fs::rename(&temp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&temp);
-        Error::io(path, e)
-    })?;
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    // Exclusive creation prevents following a pre-planted link; a unique
+    // name keeps simultaneous writers independent. Drop cleans up on errors.
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".oas-forge-").suffix(".tmp");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::symlink_metadata(path)
+            .ok()
+            .filter(|metadata| metadata.is_file())
+            .map_or_else(
+                || std::fs::Permissions::from_mode(0o666),
+                |metadata| metadata.permissions(),
+            );
+        builder.permissions(permissions);
+    }
+    let mut temp = builder
+        .tempfile_in(parent)
+        .map_err(|e| Error::io(path, e))?;
+    temp.write_all(text.as_bytes())
+        .map_err(|e| Error::io(path, e))?;
+    #[cfg(not(windows))]
+    temp.persist(path).map_err(|e| Error::io(path, e.error))?;
+    #[cfg(windows)]
+    persist_retrying(temp, path)?;
     Ok(true)
+}
+
+/// Moves `temp` to `path`, replacing the file there. Windows refuses to
+/// replace a file while another writer replaces it (`PermissionDenied`);
+/// that is retried with a growing pause, about a second in all.
+#[cfg(windows)]
+fn persist_retrying(mut temp: tempfile::NamedTempFile, path: &Path) -> Result<()> {
+    for attempt in 1..=20 {
+        match temp.persist(path) {
+            Ok(_) => return Ok(()),
+            Err(e) if e.error.kind() == std::io::ErrorKind::PermissionDenied => {
+                temp = e.file;
+                std::thread::sleep(std::time::Duration::from_millis(5 * attempt));
+            }
+            Err(e) => return Err(Error::io(path, e.error)),
+        }
+    }
+    temp.persist(path).map_err(|e| Error::io(path, e.error))?;
+    Ok(())
 }

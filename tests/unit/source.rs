@@ -280,7 +280,7 @@ mod symbolic_links {
     }
 
     #[test]
-    fn linked_files_and_directories_are_read() {
+    fn links_into_any_input_are_read() {
         let project = Project::new();
         project
             .file("src/a.rs", "")
@@ -291,13 +291,83 @@ mod symbolic_links {
             project.path("src/linked.rs"),
         )
         .unwrap();
-        symlink(project.path("shared/dir"), project.path("src/dir")).unwrap();
+        symlink(project.path("shared/dir"), project.path("src/more")).unwrap();
         // A second link to a file that is already read adds nothing.
         symlink(project.path("src/a.rs"), project.path("src/z.rs")).unwrap();
+        let (set, diagnostics) = discover(
+            &[project.path("src"), project.path("shared")],
+            &[],
+            &DiscoverOptions::default(),
+        );
+        assert_eq!(
+            names(&set.unwrap(), project.root()),
+            ["src/a.rs", "src/linked.rs", "src/more/inner.rs"]
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    /// A link must not pull files the user did not configure, such as
+    /// credentials elsewhere on the machine, into the document.
+    #[test]
+    fn links_out_of_the_inputs_are_reported_and_skipped() {
+        let project = Project::new();
+        project
+            .file("src/a.rs", "")
+            .file("secret/token.yaml", "token: secret")
+            .file("secret/dir/inner.rs", "");
+        symlink(
+            project.path("secret/token.yaml"),
+            project.path("src/leak.yaml"),
+        )
+        .unwrap();
+        symlink(project.path("secret/dir"), project.path("src/dir")).unwrap();
+        let (set, diagnostics) = discover(&[project.path("src")], &[], &DiscoverOptions::default());
+        assert_eq!(names(&set.unwrap(), project.root()), ["src/a.rs"]);
+        assert_eq!(
+            codes(&diagnostics),
+            [Code::LinkOutsideInputs, Code::LinkOutsideInputs]
+        );
+        let messages: Vec<String> = diagnostics.iter().map(ToString::to_string).collect();
+        assert!(messages[0].contains("src/dir"), "{messages:?}");
+        assert!(messages[1].contains("src/leak.yaml"), "{messages:?}");
+        assert!(messages[1].contains("token.yaml"), "{messages:?}");
+    }
+
+    #[test]
+    fn an_input_that_is_a_link_is_read_with_links_into_its_target() {
+        let project = Project::new();
+        project.file("real/a.rs", "").file("real/b.rs", "");
+        symlink(project.path("real"), project.path("src")).unwrap();
+        symlink(project.path("real/a.rs"), project.path("real/c.rs")).unwrap();
         let (set, diagnostics) = discover(&[project.path("src")], &[], &DiscoverOptions::default());
         assert_eq!(
             names(&set.unwrap(), project.root()),
-            ["src/a.rs", "src/dir/inner.rs", "src/linked.rs"]
+            ["src/a.rs", "src/b.rs"]
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    /// An include names its file explicitly, so a link there may lead
+    /// anywhere.
+    #[test]
+    fn included_links_are_read() {
+        let project = Project::new();
+        project
+            .file("src/a.rs", "")
+            .file("elsewhere/extra.yaml", "a: 1");
+        symlink(
+            project.path("elsewhere/extra.yaml"),
+            project.path("extra.yaml"),
+        )
+        .unwrap();
+        let (set, diagnostics) = discover(
+            &[project.path("src")],
+            &[project.path("extra.yaml")],
+            &DiscoverOptions::default(),
+        );
+        assert_eq!(
+            names(&set.unwrap(), project.root()),
+            ["src/a.rs", "extra.yaml"]
         );
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }

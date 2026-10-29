@@ -78,7 +78,12 @@ override that defines the structure itself (`type`, `properties`, `oneOf`,
 override sets `type` or `nullable` itself.
 
 Invalid YAML, and text that is not a YAML mapping (`/// @openapi The id`),
-is reported (`OF1001`) and ignored.
+is reported (`OF1001`) and ignored. Keys of the prefix `x-oas-forge-` are
+the generator's own ([reserved keys](templates.md#reserved-keys)); one
+written in an override or an `@example` is removed and reported
+(`OF0009`), and a field, variant or type whose serialized name has the
+prefix (after `rename` and `rename_all`), a `#[serde(tag)]` or
+`#[serde(content)]` of that prefix, is reported alike and left out.
 
 ## Descriptions
 
@@ -282,7 +287,12 @@ produces a schema named after the arguments:
 Uses count everywhere: field types, `@return 200: $Page<User>`, `@body`,
 inferred handler signatures and YAML values `$ref: $Page<User>`. Arguments
 may be paths (`Page<models::User>`). A generic type that is never used is not
-exported. Instantiation stops at a nesting depth of 16 (`OF3006`).
+exported. Instantiation stops at a nesting depth of 16 (`OF3006`, reported
+once per generic type) and when the concrete schemas of a run exceed 16 MiB
+in all (`OF3018`): their names, strings and keys, plus 32 bytes per value
+and 256 per instance, since a value takes far more memory than its text.
+That holds about 220 000 properties `{ $ref: … }` across all instances; a
+template of 2000 such properties used with 200 types exceeds it.
 
 A generic type alias with `@openapi` (`type Paged<T> = Page<T>;`) is a
 template too; without `@openapi`, it is [transparent](#type-aliases). The
@@ -343,7 +353,11 @@ pub struct Repo {
   name in several modules never collide.
 - Chains of aliases are followed; the target of each alias is read in the
   file that defines it. An alias that refers to itself through other aliases
-  is reported (`OF3013`); `type User = models::User;` is no cycle.
+  is reported (`OF3013`); `type User = models::User;` is no cycle. A chain
+  of more than 64 aliases is reported (`OF3017`) and not resolved, and the
+  targets of all replaced aliases share the 16 MiB budget of generic
+  instantiation (`OF3018`): an alias whose target names the next one twice
+  doubles with every link.
 - A built-in name written bare (`Duration`) means an alias of that name only
   in the file that defines it.
 - A target that cannot be documented (a function pointer, `dyn Trait`,

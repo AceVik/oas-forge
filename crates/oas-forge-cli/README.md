@@ -270,10 +270,12 @@ writes several from a build script. See
 
 `{{NAME}}` placeholders in the sources and YAML files are filled from
 `--var`, from `[variables]` in the configuration, from `Cargo.toml`
-(`{{CARGO_PKG_VERSION}}`, …) and from the environment (`{{env:API_URL}}`):
+(`{{CARGO_PKG_VERSION}}`, …) and from the environment variables you allow
+(`{{env:API_URL}}` with `--allow-env API_URL` or `allow_env = ["API_URL"]`);
+other `{{env:…}}` placeholders are kept and reported:
 
 ```bash
-oas-forge -i src -o openapi.yaml --var STAGE=staging
+oas-forge -i src -o openapi.yaml --var STAGE=staging --allow-env API_URL
 ```
 
 ### Event-driven APIs
@@ -329,6 +331,7 @@ tools that read findings, add `--message-format json`.
 | `--scope NAME` | Write the document of this scope to every output |
 | `--config FILE` | An additional configuration file |
 | `--var NAME=VALUE` | The value of a `{{NAME}}` placeholder |
+| `--allow-env NAME` | An environment variable `{{env:NAME}}` may read |
 | `--check` | Write nothing; fail when an output is missing or out of date |
 | `--deny-warnings` | Treat warnings as errors |
 | `--strict` | Also report unused components and missing descriptions |
@@ -336,7 +339,8 @@ tools that read findings, add `--message-format json`.
 | `-h`, `--help` | Print the help |
 | `-V`, `--version` | Print the version |
 
-`--input`, `--include`, `--var` and every output option can be repeated.
+`--input`, `--include`, `--var`, `--allow-env` and every output option can
+be repeated.
 Without any output option, the full document goes to `openapi.yaml`.
 Relative paths are relative to the working directory.
 
@@ -351,8 +355,11 @@ key by key:
 4. the command-line flags
 
 The keys are the long option names with underscores; `[types]` maps Rust
-types to schemas and `[variables]` sets placeholders. Unknown keys are an
-error.
+types to schemas, `[variables]` sets placeholders and `allow_env` lists
+the environment variables `{{env:NAME}}` may read. Unknown keys are an
+error. The lists and tables (`allow_env`, `variables`, `types`, `files`)
+add up over the layers instead: a later layer adds entries and replaces
+those of the same name, but cannot take away what an earlier one allows.
 
 ```toml
 # openapi.toml

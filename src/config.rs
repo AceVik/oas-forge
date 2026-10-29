@@ -78,6 +78,10 @@ pub struct Config {
     /// API_URL = "https://api.example.com"
     /// ```
     pub variables: Option<BTreeMap<String, String>>,
+    /// The environment variables `{{env:NAME}}` placeholders may read, as
+    /// with [`Generator::allow_env`](crate::Generator::allow_env):
+    /// `allow_env = ["API_HOST"]`.
+    pub allow_env: Option<Vec<String>>,
     /// The configuration files the settings were read from.
     #[serde(skip)]
     files: Vec<PathBuf>,
@@ -282,7 +286,8 @@ impl Config {
 
     /// Overlays `other` on `self`: every field that is set in `other`
     /// replaces the value in `self`; `types` and `variables` are merged by
-    /// name. The [files](Config::files) of both are kept.
+    /// name, `allow_env` lists are joined. The [files](Config::files) of both
+    /// are kept.
     ///
     /// # Examples
     ///
@@ -326,8 +331,17 @@ impl Config {
             scope,
             types,
             variables,
+            allow_env,
             files,
         } = other;
+        if let Some(allow_env) = allow_env {
+            let names = self.allow_env.get_or_insert_with(Vec::new);
+            for name in allow_env {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
         for file in files {
             if !self.files.contains(&file) {
                 self.files.push(file);

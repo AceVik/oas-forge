@@ -4,12 +4,13 @@
 //! instantiated with `$Page<String>`) becomes that type's schema.
 
 use super::aliases::{self, Found, Lookup};
+use super::generics::{MAX_INSTANTIATED_SIZE, alias_target};
 use super::lexical::ESCAPED_DOLLAR;
 use super::registry::Registry;
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::schema::{TypeExpr, TypeMapper, shadow};
 use serde_json::Value;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 /// Marks the reference of a field whose value is the `Default` of its type
 /// (`#[serde(default)]`): the references stage copies the `default` of the
@@ -208,15 +209,103 @@ pub fn resolve(
     location: &Location,
     diagnostics: &mut Diagnostics,
 ) {
-    let mut reported = HashSet::new();
-    resolve_at(
+    resolve_within(
         value,
         targets,
         location,
         diagnostics,
-        &mut reported,
-        &mut Vec::new(),
+        &mut AliasBudget::new(),
     );
+}
+
+/// [`resolve`] with a budget for the targets of type aliases that the
+/// generator shares between its calls.
+pub(crate) fn resolve_within(
+    value: &mut Value,
+    targets: Targets<'_>,
+    location: &Location,
+    diagnostics: &mut Diagnostics,
+    budget: &mut AliasBudget,
+) {
+    let mut reported = HashSet::new();
+    let mut state = State {
+        diagnostics,
+        reported: &mut reported,
+        expanding: Vec::new(),
+        budget,
+    };
+    resolve_at(value, targets, location, &mut state);
+}
+
+/// What is left of [`MAX_INSTANTIATED_SIZE`] for the targets of replaced
+/// type aliases: a target that names the next alias twice doubles per link.
+#[derive(Debug)]
+pub(crate) struct AliasBudget {
+    /// The size left.
+    left: usize,
+    /// Whether running out was reported.
+    reported: bool,
+    /// The alias findings reported so far, each once.
+    findings: BTreeSet<String>,
+}
+
+impl AliasBudget {
+    /// The whole budget.
+    pub(crate) fn new() -> Self {
+        Self::after((MAX_INSTANTIATED_SIZE, false, BTreeSet::new()))
+    }
+
+    /// The budget `left` after an earlier stage, which `reported` running
+    /// out already and reported the alias `findings`.
+    pub(crate) fn after((left, reported, findings): (usize, bool, BTreeSet<String>)) -> Self {
+        Self {
+            left,
+            reported,
+            findings,
+        }
+    }
+
+    /// The target `schema` of the alias `name`, if it fits; otherwise
+    /// reports once at `location` and uses the budget up.
+    fn take(
+        &mut self,
+        name: &str,
+        schema: &Value,
+        location: &Location,
+        diagnostics: &mut Diagnostics,
+    ) -> Option<Value> {
+        let mut left = self.left;
+        if let Some(target) = alias_target(schema, &BTreeMap::new(), &mut left) {
+            self.left = left;
+            return Some(target);
+        }
+        self.left = 0;
+        if !self.reported {
+            self.reported = true;
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::InstantiationLimit,
+                    format!(
+                        "type alias `{name}` exceeds the total size of {MAX_INSTANTIATED_SIZE} bytes for concrete schemas and type alias targets; it and later aliases are not replaced"
+                    ),
+                )
+                .at(location.clone()),
+            );
+        }
+        None
+    }
+}
+
+/// The mutable state of [`resolve_at`].
+struct State<'d> {
+    /// Where findings go.
+    diagnostics: &'d mut Diagnostics,
+    /// The unknown names reported so far.
+    reported: &'d mut HashSet<String>,
+    /// The type aliases being replaced around the value.
+    expanding: Vec<String>,
+    /// The budget for alias targets.
+    budget: &'d mut AliasBudget,
 }
 
 /// The schema of a built-in or custom-mapped type named by
@@ -240,20 +329,13 @@ fn builtin(name: &str, targets: Targets<'_>) -> Option<serde_json::Map<String, V
     }
 }
 
-/// [`resolve`] at `value` and below. `reported` holds the unknown names
-/// reported so far, `expanding` the type aliases being replaced around
-/// `value`. In a mapping, the built-in alternatives are chosen first
-/// ([`shadow::choose`]), then a `$ref` of a type alias is replaced by its
-/// target (resolved in the alias's file), or one of a built-in type by its
-/// schema, then the children are resolved.
-fn resolve_at(
-    value: &mut Value,
-    targets: Targets<'_>,
-    location: &Location,
-    diagnostics: &mut Diagnostics,
-    reported: &mut HashSet<String>,
-    expanding: &mut Vec<String>,
-) {
+/// [`resolve`] at `value` and below, with the findings, reported names,
+/// aliases being replaced and the alias budget in `state`. In a mapping,
+/// the built-in alternatives are chosen first ([`shadow::choose`]), then a
+/// `$ref` of a type alias is replaced by its target (resolved in the alias's
+/// file) while the budget lasts, or one of a built-in type by its schema,
+/// then the children are resolved.
+fn resolve_at(value: &mut Value, targets: Targets<'_>, location: &Location, state: &mut State<'_>) {
     let Targets {
         known, registry, ..
     } = targets;
@@ -273,8 +355,8 @@ fn resolve_at(
             match target {
                 Some(target) => *s = format!("#/components/schemas/{target}"),
                 None => {
-                    if reported.insert(name.to_string()) {
-                        diagnostics.push(
+                    if state.reported.insert(name.to_string()) {
+                        state.diagnostics.push(
                             Diagnostic::new(
                                 Code::UnresolvedReference,
                                 format!("`${name}` does not name a known schema"),
@@ -287,7 +369,7 @@ fn resolve_at(
         }
         Value::Array(items) => {
             for item in items {
-                resolve_at(item, targets, location, diagnostics, reported, expanding);
+                resolve_at(item, targets, location, state);
             }
         }
         Value::Object(map) => {
@@ -302,11 +384,18 @@ fn resolve_at(
                     || lookup.is_local(name, location)
             });
             // A Rust type name that does not say which documented type it
-            // means: reported, and not resolved.
-            if let Some(Value::String(finding)) = map.shift_remove(UNRESOLVED_KEY) {
+            // means: reported, and not resolved. The marker is the finding
+            // text; a key of its name with another value is not the
+            // generator's and stays for the sweep.
+            if let Some(finding) = map
+                .get(UNRESOLVED_KEY)
+                .and_then(Value::as_str)
+                .map(str::to_string)
+            {
+                map.shift_remove(UNRESOLVED_KEY);
                 map.shift_remove("$ref");
-                if reported.insert(finding.clone()) {
-                    diagnostics.push(
+                if state.reported.insert(finding.clone()) {
+                    state.diagnostics.push(
                         Diagnostic::new(Code::AmbiguousTypeName, finding).at(location.clone()),
                     );
                 }
@@ -317,38 +406,48 @@ fn resolve_at(
                 .and_then(reference_name)
                 .map(str::to_string)
             {
-                match lookup.find(&name, 0, location, expanding, diagnostics) {
+                match lookup.find(
+                    &name,
+                    0,
+                    location,
+                    &state.expanding,
+                    state.diagnostics,
+                    &mut state.budget.findings,
+                ) {
                     Found::Alias(alias) => {
-                        aliases::replace(map, alias.schema.clone());
-                        expanding.push(name);
-                        resolve_at(
-                            value,
-                            targets,
-                            &alias.location,
-                            diagnostics,
-                            reported,
-                            expanding,
-                        );
-                        expanding.pop();
-                        return;
+                        if let Some(target) =
+                            state
+                                .budget
+                                .take(&name, &alias.schema, location, state.diagnostics)
+                        {
+                            aliases::replace(map, target);
+                            state.expanding.push(name);
+                            resolve_at(value, targets, &alias.location, state);
+                            state.expanding.pop();
+                            return;
+                        }
                     }
                     Found::Reported => {
-                        reported.insert(name);
+                        state.reported.insert(name);
                     }
                     Found::Nothing => {}
                 }
             }
-            // `#[serde(default)]` of a documented type with a `default`.
-            if map.shift_remove(TYPE_DEFAULT_KEY).is_some()
-                && let Some(default) = map
+            // `#[serde(default)]` of a documented type with a `default`. The
+            // marker is `true`; a key of its name with another value is not
+            // the generator's and stays for the sweep.
+            if map.get(TYPE_DEFAULT_KEY) == Some(&Value::Bool(true)) {
+                map.shift_remove(TYPE_DEFAULT_KEY);
+                if let Some(default) = map
                     .get("$ref")
                     .and_then(Value::as_str)
                     .and_then(reference_name)
                     .map(|name| registry.alias(name).unwrap_or(name))
                     .and_then(|name| registry.default_of(name))
                     .cloned()
-            {
-                map.entry("default").or_insert(default);
+                {
+                    map.entry("default").or_insert(default);
+                }
             }
             let schema = map
                 .get("$ref")
@@ -362,7 +461,7 @@ fn resolve_at(
                 }
             }
             for child in map.values_mut() {
-                resolve_at(child, targets, location, diagnostics, reported, expanding);
+                resolve_at(child, targets, location, state);
             }
             // An unknown name (reported above) still becomes a pointer, so
             // the reference stays well-formed and the lints see it.
@@ -376,9 +475,9 @@ fn resolve_at(
             if let Some(Value::String(target)) = map.get("$ref")
                 && target.starts_with('$')
                 && !target.contains('<')
-                && reported.insert(target.clone())
+                && state.reported.insert(target.clone())
             {
-                diagnostics.push(
+                state.diagnostics.push(
                     Diagnostic::new(
                         Code::UnresolvedReference,
                         format!("`{target}` is not a schema name"),

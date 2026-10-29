@@ -176,6 +176,164 @@ mod strategies {
 mod writing {
     use super::*;
 
+    #[cfg(unix)]
+    #[test]
+    fn preexisting_temporary_symlinks_cannot_overwrite_other_files() {
+        let project = Project::new();
+        project
+            .file("src/root.rs", ROOT_DOC)
+            .file("victim.txt", "keep me");
+        let temp = project.path(&format!(".api.json.{}.tmp", std::process::id()));
+        std::os::unix::fs::symlink(project.path("victim.txt"), &temp).unwrap();
+
+        Generator::new()
+            .input(project.path("src"))
+            .output(project.path("api.json"))
+            .generate()
+            .unwrap();
+
+        assert_eq!(project.read("victim.txt"), "keep me");
+        assert!(std::fs::symlink_metadata(temp).unwrap().is_symlink());
+        assert!(
+            !std::fs::symlink_metadata(project.path("api.json"))
+                .unwrap()
+                .is_symlink()
+        );
+        let document: serde_json::Value = serde_json::from_str(&project.read("api.json")).unwrap();
+        assert_eq!(document["info"]["title"], "Test API");
+    }
+
+    #[test]
+    fn failed_replacement_leaves_no_temporary_file() {
+        let project = Project::new();
+        project
+            .file("src/root.rs", ROOT_DOC)
+            .file("out/api.json/keep.txt", "keep me");
+        let result = Generator::new()
+            .input(project.path("src"))
+            .output(project.path("out/api.json"))
+            .generate();
+        assert!(matches!(result, Err(Error::Io { .. })), "{result:?}");
+        assert_eq!(project.read("out/api.json/keep.txt"), "keep me");
+        assert_eq!(std::fs::read_dir(project.path("out")).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rewriting_an_output_does_not_widen_its_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let project = Project::new();
+        project
+            .file("src/root.rs", ROOT_DOC)
+            .file("api.json", "old");
+        std::fs::set_permissions(
+            project.path("api.json"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        Generator::new()
+            .input(project.path("src"))
+            .output(project.path("api.json"))
+            .generate()
+            .unwrap();
+        assert_eq!(
+            std::fs::metadata(project.path("api.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacing_a_destination_symlink_keeps_its_target_and_normal_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let project = Project::new();
+        project
+            .file("src/root.rs", ROOT_DOC)
+            .file("target.txt", "keep me")
+            .file("ordinary.txt", "normal");
+        std::os::unix::fs::symlink(project.path("target.txt"), project.path("api.json")).unwrap();
+        Generator::new()
+            .input(project.path("src"))
+            .output(project.path("api.json"))
+            .generate()
+            .unwrap();
+        assert_eq!(project.read("target.txt"), "keep me");
+        let actual = std::fs::symlink_metadata(project.path("api.json")).unwrap();
+        assert!(actual.is_file());
+        let expected = std::fs::metadata(project.path("ordinary.txt")).unwrap();
+        assert_eq!(
+            actual.permissions().mode() & 0o777,
+            expected.permissions().mode() & 0o777
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn temporary_files_use_the_output_directory_not_the_working_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        if let Some(root) = std::env::var_os("OAS_FORGE_OUTPUT_DIRECTORY_TEST") {
+            let root = std::path::PathBuf::from(root);
+            Generator::new()
+                .input(root.join("src"))
+                .output(root.join("out/api.json"))
+                .generate()
+                .unwrap();
+            return;
+        }
+        let project = Project::new();
+        project
+            .file("src/root.rs", ROOT_DOC)
+            .file("locked/keep.txt", "keep me");
+        let locked = project.path("locked");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "output::writing::temporary_files_use_the_output_directory_not_the_working_directory"])
+            .current_dir(&locked)
+            .env("OAS_FORGE_OUTPUT_DIRECTORY_TEST", project.path("."))
+            .output();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let result = result.unwrap();
+        assert!(
+            result.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(project.path("out/api.json").is_file());
+        assert_eq!(std::fs::read_dir(&locked).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn concurrent_writers_publish_complete_documents() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC);
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .output(project.path("out/api.json"))
+            .build()
+            .unwrap();
+        let barrier = std::sync::Barrier::new(16);
+        std::thread::scope(|scope| {
+            for _ in 0..16 {
+                scope.spawn(|| {
+                    barrier.wait();
+                    spec.write().unwrap();
+                });
+            }
+        });
+        let actual: serde_json::Value =
+            serde_json::from_str(&project.read("out/api.json")).unwrap();
+        assert_eq!(actual, spec.render(OutputKind::Full).unwrap());
+        assert_eq!(std::fs::read_dir(project.path("out")).unwrap().count(), 1);
+    }
+
     #[test]
     fn writes_every_output_in_its_format_and_creates_directories() {
         let project = Project::new();
@@ -235,6 +393,55 @@ mod writing {
             .unwrap()
             .write();
         assert!(matches!(result, Err(Error::Io { .. })), "{result:?}");
+    }
+
+    /// An output path that leads to anything but a regular file is outdated
+    /// without being read: a FIFO would block, `/dev/zero` never ends.
+    #[cfg(unix)]
+    #[test]
+    fn outputs_that_are_not_regular_files_are_replaced_unread() {
+        use std::os::unix::fs::{FileTypeExt, symlink};
+
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC);
+        let fifo = project.path("fifo");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        // The FIFO comes first: before the fix, it blocks instead of
+        // letting `/dev/zero` fill the memory.
+        let outputs = [project.path("api.json"), project.path("api.yaml")];
+        symlink(&fifo, &outputs[0]).unwrap();
+        symlink("/dev/zero", &outputs[1]).unwrap();
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let (input, paths) = (project.path("src"), outputs.clone());
+        std::thread::spawn(move || {
+            let spec = Generator::new()
+                .input(input)
+                .output(&paths[0])
+                .output(&paths[1])
+                .build()
+                .unwrap();
+            let outdated = spec.check().unwrap();
+            spec.write().unwrap();
+            sender.send(outdated).unwrap();
+        });
+        let outdated = receiver
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("checking and writing finish");
+        assert_eq!(outdated, outputs);
+        for output in &outputs {
+            assert!(std::fs::symlink_metadata(output).unwrap().is_file());
+        }
+        assert!(
+            std::fs::symlink_metadata(&fifo)
+                .unwrap()
+                .file_type()
+                .is_fifo()
+        );
     }
 
     #[cfg(unix)]
@@ -326,5 +533,23 @@ mod review_fixes {
             &project.read("api.yaml").replace("Test API", "Old"),
         );
         assert_eq!(spec.check().unwrap(), [project.path("api.yaml")]);
+    }
+
+    /// Only as much of an output is read as a current one can have; text
+    /// after an equivalent document still makes it outdated.
+    #[test]
+    fn text_after_an_equivalent_document_makes_it_outdated() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC);
+        let generator = Generator::new()
+            .input(project.path("src"))
+            .output(project.path("api.yaml"));
+        generator.generate().unwrap();
+        let crlf = project.read("api.yaml").replace('\n', "\r\n");
+        project.file("api.yaml", &format!("{crlf}x"));
+        assert_eq!(
+            generator.build().unwrap().check().unwrap(),
+            [project.path("api.yaml")]
+        );
     }
 }

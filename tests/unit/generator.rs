@@ -15,6 +15,75 @@ fn build(project: &Project) -> Spec {
         .expect("build succeeds")
 }
 
+/// Runs `task` on a thread with the 1 MiB stack of a Windows main thread.
+fn on_small_stack<T: Send + 'static>(task: impl FnOnce() -> T + Send + 'static) -> T {
+    std::thread::Builder::new()
+        .stack_size(1 << 20)
+        .spawn(task)
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
+/// `syn` recurses once per nesting level: 300 nested types overflowed even
+/// the 8 MiB main thread and aborted the process.
+mod deep_nesting {
+    use super::*;
+    use oas_forge::diagnostics::Diagnostics;
+    use oas_forge::extract::{self, Options};
+    use oas_forge::generator::generate_from_sources;
+    use oas_forge::source::{SourceFile, SourceKind};
+    use oas_forge::template::Variables;
+
+    fn deep_source() -> String {
+        format!(
+            "/// @openapi\npub struct Deep {{ pub a: {}u8{} }}\nfn f() {{ {}1{} }}\n",
+            "Vec<".repeat(300),
+            ">".repeat(300),
+            "(".repeat(300),
+            ")".repeat(300)
+        )
+    }
+
+    #[test]
+    fn building_runs_on_a_large_stack() {
+        let project = Project::new();
+        project.file("src/deep.rs", &deep_source());
+        let input = project.path("src");
+        let schemas = on_small_stack(move || {
+            let spec = Generator::new().input(input).build().unwrap();
+            spec.render(OutputKind::Schemas).unwrap()
+        });
+        assert_eq!(schemas["Deep"]["properties"]["a"]["type"], "array");
+    }
+
+    #[test]
+    fn generating_from_sources_runs_on_a_large_stack() {
+        let (document, _) = on_small_stack(|| {
+            let source = SourceFile::new("src/deep.rs", SourceKind::Rust, deep_source());
+            generate_from_sources(vec![source], &Variables::new()).unwrap()
+        });
+        assert!(document["components"]["schemas"]["Deep"].is_object());
+    }
+
+    #[test]
+    fn extracting_runs_on_a_large_stack() {
+        let items = on_small_stack(|| {
+            let text = deep_source();
+            let mut diagnostics = Diagnostics::new();
+            extract::extract_str(
+                std::path::Path::new("src/deep.rs"),
+                &text,
+                Options::new(),
+                &mut diagnostics,
+            )
+            .unwrap()
+            .len()
+        });
+        assert_eq!(items, 1);
+    }
+}
+
 mod builder {
     use super::*;
 
@@ -177,10 +246,13 @@ mod builder {
         let project = Project::new();
         project
             .file("src/root.rs", ROOT_DOC)
-            .file("src/a.rs", "/// @route GET /x\n/// @frobnicate\n/// @description {{env:PATH}} {{env:OAS_FORGE_UNSET_X}} {{env:PATH}}\nfn x() {}");
+            .file("src/a.rs", "/// @route GET /x\n/// @frobnicate\n/// @description {{env:PATH}} {{env:OAS_FORGE_UNSET_X}} {{env:PATH}} {{env:HOME}}\nfn x() {}");
+        // `HOME` is used but not allowed: it is neither read nor watched.
         let generator = Generator::new()
             .input(project.path("src"))
             .output(project.path("api.yaml"))
+            .allow_env("PATH")
+            .allow_env("OAS_FORGE_UNSET_X")
             .emit_cargo_directives(true);
         generator.generate().unwrap();
 
@@ -199,14 +271,24 @@ mod builder {
         assert_eq!(lines[2], "cargo:rerun-if-env-changed=PATH");
         // Variables are substituted before the DSL is compiled.
         assert!(
-            lines[3].starts_with("cargo:warning=warning[OF3009]"),
+            lines[3].starts_with("cargo:warning=warning[OF3009]: environment variable `HOME`"),
             "{text}"
         );
         assert!(
-            lines[4].starts_with("cargo:warning=warning[OF2006]"),
+            lines[4].starts_with("cargo:warning=warning[OF3009]"),
             "{text}"
         );
-        assert_eq!(lines.len(), 5, "{text}");
+        assert!(
+            lines[5].starts_with("cargo:warning=warning[OF2006]"),
+            "{text}"
+        );
+        assert_eq!(lines.len(), 6, "{text}");
+        let description = spec.document()["paths"]["/x"]["get"]["description"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(description.ends_with(" {{env:HOME}}"), "{description}");
+        assert!(!description.starts_with("{{env:PATH}}"), "{description}");
     }
 
     /// `generate` prints the directives to the standard output of the build
@@ -247,6 +329,36 @@ mod builder {
         let printed = run("emit");
         assert!(printed.lines().any(|line| line == directive), "{printed}");
         assert!(!run("silent").contains("cargo:"));
+    }
+
+    #[test]
+    fn a_finding_with_line_breaks_cannot_start_a_directive() {
+        let project = Project::new();
+        project.file("src/root.rs", ROOT_DOC).file(
+            "src/t.rs",
+            "/// @openapi\n/// properties:\n///   x:\n///     $ref: \"#/components/schemas/Gone\\ncargo:rustc-cfg=injected\"\npub struct T { pub x: u8 }",
+        );
+        let spec = Generator::new().input(project.path("src")).build().unwrap();
+        let message = spec
+            .diagnostics()
+            .iter()
+            .find(|d| d.message().contains("\ncargo:rustc-cfg=injected"));
+        assert!(message.is_some(), "{:#?}", spec.diagnostics());
+        let mut out = Vec::new();
+        spec.write_cargo_directives(&mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(
+            text.lines()
+                .all(|line| line.starts_with("cargo:rerun-if-")
+                    || line.starts_with("cargo:warning=")),
+            "{text}"
+        );
+        // Displayed escaped, the line break stays in the warning.
+        assert!(
+            text.lines().any(|line| line.starts_with("cargo:warning=")
+                && line.contains("Gone\\ncargo:rustc-cfg=injected")),
+            "{text}"
+        );
     }
 }
 
@@ -791,10 +903,11 @@ mod pipeline_stages {
     }
 
     /// Overrides of types are not expanded: an `@extend` marker written
-    /// there by hand (the generator's own key) is dropped at any depth.
+    /// there by hand (the generator's own key) is dropped at any depth and
+    /// reported as a reserved key.
     #[test]
     fn unresolved_extend_markers_never_reach_the_output() {
-        let (document, _) = pipeline(&[(
+        let (document, diagnostics) = pipeline(&[(
             "lib.rs",
             "//! @openapi-fragment Base\n//! x-base: 1\n\n/// @openapi\n/// x-oas-forge-extend-7: Base\n/// x-list: [{ x-oas-forge-extend-8: Base, x-kept: 1 }]\nstruct S { a: u8 }",
         )]);
@@ -803,6 +916,11 @@ mod pipeline_stages {
         assert!(
             !document.to_string().contains("x-oas-forge-extend"),
             "{document:#}"
+        );
+        assert_eq!(
+            codes(&diagnostics),
+            [Code::ReservedKey, Code::ReservedKey],
+            "{diagnostics:#?}"
         );
     }
 
@@ -874,10 +992,12 @@ mod pipeline_stages {
             "##,
         )]);
         // `$Missing` is reported where it is written and, as a pointer that
-        // leads nowhere, by the lints.
+        // leads nowhere, by the lints. The reserved key is removed with its
+        // reference, which the lints therefore do not see.
         assert_eq!(
             codes(&diagnostics),
             [
+                Code::ReservedKey,
                 Code::UnresolvedReference,
                 Code::DanglingReference,
                 Code::DanglingReference,
@@ -889,9 +1009,14 @@ mod pipeline_stages {
             .map(|d| d.message().to_string())
             .collect();
         assert!(
-            messages[0].contains("$Missing")
-                && messages[1].contains("#/components/schemas/Missing")
-                && messages[2].contains("Ignored"),
+            messages[0].contains("`x-oas-forge-note` at `/x-oas-forge-note`")
+                && messages[1].contains("$Missing")
+                && messages[2].contains("#/components/schemas/Missing")
+                && messages[3].contains("Ignored"),
+            "{messages:?}"
+        );
+        assert!(
+            !messages.iter().any(|m| m.contains("Internal")),
             "{messages:?}"
         );
     }
@@ -2517,6 +2642,41 @@ mod route_defaults_findings {
             .collect();
         assert_eq!(expansions, ["OF2008 api.rs:2", "OF2008 api.rs:2"]);
     }
+
+    /// Every route compiles its module's defaults again, and each of their
+    /// findings was compared with all findings of the run so far: 10 000
+    /// invalid lines under 100 routes took a minute. (The copies of the
+    /// defaults for the routes after the first thirteen exceed the run's
+    /// budget for pasted text and are left out, each with `OF3016`.)
+    #[test]
+    fn many_findings_of_many_routes_are_reported_once_quickly() {
+        let mut text = String::from("/// @route-defaults\n");
+        for i in 0..10_000 {
+            text.push_str(&format!("/// @bogus{i}\n"));
+        }
+        text.push_str("mod api {\n");
+        for i in 0..100 {
+            text.push_str(&format!(
+                "    /// @route GET /p{i}\n    /// @return 204:\n    fn r{i}() {{}}\n"
+            ));
+        }
+        text.push_str("}\n");
+        let started = std::time::Instant::now();
+        let (document, diagnostics) = pipeline(&[("api.rs", &text)]);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(30),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(document["paths"].as_object().map(|p| p.len()), Some(100));
+        let (found, limits): (Vec<String>, Vec<String>) = found(&diagnostics)
+            .into_iter()
+            .partition(|f| !f.starts_with(Code::ExpansionLimit.as_str()));
+        assert_eq!(found.len(), 10_000, "{:?}", &found[9_995..]);
+        assert_eq!(found[0], "OF2006 api.rs:2");
+        assert_eq!(found[9_999], "OF2006 api.rs:10001");
+        assert_eq!(limits.len(), 100 - 13, "{limits:?}");
+    }
 }
 
 mod scopes {
@@ -2981,6 +3141,37 @@ pub async fn locate() {}
         assert_eq!(openapi_30.count(), 1, "{messages:#?}");
     }
 
+    /// The parents of used tags are kept, up the hierarchy: each level
+    /// went through the whole list again, so a chain of 10 000 tags took
+    /// 15 s in a release build.
+    #[test]
+    fn long_tag_chains_are_pruned_quickly() {
+        let mut text = String::from(
+            "/// @openapi\n/// openapi: 3.2.0\n/// info: { title: Api, version: 1.0.0 }\n/// tags:\n///   - { name: t0 }\n",
+        );
+        for i in 1..10_000 {
+            text.push_str(&format!("///   - {{ name: t{i}, parent: t{} }}\n", i - 1));
+        }
+        text.push_str("///   - { name: unused, parent: t0 }\nfn root() {}\n\n/// @route GET /x\n/// @tag t9999\n/// @scope s\npub async fn x() {}\n");
+        let project = Project::new();
+        project.file("src/lib.rs", &text);
+        let spec = Generator::new()
+            .input(project.path("src"))
+            .without_package()
+            .build()
+            .unwrap();
+        let started = std::time::Instant::now();
+        let scoped = spec.render_scoped(OutputKind::Full, "s").unwrap();
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "{:?}",
+            started.elapsed()
+        );
+        let tags = scoped["tags"].as_array().unwrap();
+        assert_eq!(tags.len(), 10_000);
+        assert!(tags.iter().all(|tag| tag["name"] != "unused"));
+    }
+
     #[test]
     fn pruning_keeps_what_the_scope_reaches() {
         let project = Project::new();
@@ -3373,4 +3564,725 @@ pub struct User { pub id: u64 }
                 .is_some()
         );
     }
+}
+
+/// Merging joins `security` and `servers` lists; a second annotation that
+/// adds to them is reported, since `security: [{}]` makes authentication
+/// optional.
+mod joined_lists {
+    use super::*;
+
+    #[test]
+    fn additions_to_security_and_servers_are_reported() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "a.rs",
+                "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! servers: [{ url: 'https://api.example.com' }]\n//! security: [{ bearer: [] }]\n//! components: { securitySchemes: { bearer: { type: http, scheme: bearer } } }\n\n/// @route GET /admin\n/// @security bearer\n/// @return 204:\nfn admin() {}",
+            ),
+            (
+                "b.rs",
+                "//! @openapi\n//! servers: [{ url: 'https://attacker.example' }]\n//! security: [{}]\n\n/// @route GET /admin\n/// @openapi\n/// security: [{}]\nfn again() {}",
+            ),
+        ]);
+        let joined: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::MergeConflict && d.message().contains("joined"))
+            .map(|d| d.message())
+            .collect();
+        assert_eq!(joined.len(), 3, "{diagnostics:#?}");
+        assert!(joined[0].starts_with("`/servers`"), "{joined:?}");
+        assert!(joined[1].starts_with("`/security`"), "{joined:?}");
+        assert!(
+            joined[2].starts_with("`/paths/~1admin/get/security`"),
+            "{joined:?}"
+        );
+        assert_eq!(document["security"], json!([{ "bearer": [] }, {}]));
+    }
+
+    /// An operation without its own `security` gets the document's; a
+    /// second annotation that adds one replaces it.
+    #[test]
+    fn lists_added_to_an_existing_operation_are_reported() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "a.rs",
+                "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! security: [{ bearer: [] }]\n\n/// @route GET /secrets\n/// @return 204:\nfn secrets() {}",
+            ),
+            (
+                "b.rs",
+                "//! @openapi\n//! paths: { /secrets: { get: { security: [{}] }, servers: [{ url: 'https://attacker.example' }] } }",
+            ),
+        ]);
+        let added: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::MergeConflict)
+            .map(|d| d.message())
+            .collect();
+        assert_eq!(added.len(), 2, "{diagnostics:#?}");
+        assert!(
+            added[0].starts_with("`/paths/~1secrets/get/security` is added by another annotation"),
+            "{added:?}"
+        );
+        assert!(
+            added[1].starts_with("`/paths/~1secrets/servers`"),
+            "{added:?}"
+        );
+        assert_eq!(
+            document["paths"]["/secrets"]["get"]["security"],
+            json!([{}])
+        );
+    }
+
+    /// The items of a list were serialized again for every annotation that
+    /// added to it: 4000 annotations took minutes.
+    #[test]
+    fn many_annotations_extending_one_list_merge_quickly() {
+        let mut text = String::from(
+            "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! servers: [{ url: 'https://a.example' }]\n",
+        );
+        for i in 0..4000 {
+            text.push_str(&format!(
+                "/// @openapi\n/// servers: [{{ url: 'https://h{i}.example' }}]\n/// x-list: [{i}]\nfn f{i}() {{}}\n"
+            ));
+        }
+        let started = std::time::Instant::now();
+        let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(30),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(document["servers"].as_array().map(Vec::len), Some(4001));
+        assert_eq!(document["x-list"].as_array().map(Vec::len), Some(4000));
+        assert_eq!(codes(&diagnostics).len(), 4000);
+    }
+
+    /// The route's own `security` wins over the YAML of its module's
+    /// defaults: an empty alternative there made the route public.
+    #[test]
+    fn route_defaults_cannot_add_an_anonymous_alternative() {
+        let (document, diagnostics) = pipeline(&[(
+            "a.rs",
+            "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n\n/// @route-defaults\n/// security: [{}]\nmod api {\n    /// @route GET /secret\n    /// @security api\n    /// @return 204:\n    fn secret() {}\n    /// @route GET /open\n    /// @return 204:\n    fn open() {}\n}",
+        )]);
+        let paths = &document["paths"];
+        assert_eq!(paths["/secret"]["get"]["security"], json!([{ "api": [] }]));
+        assert_eq!(
+            paths["/open"]["get"]["security"],
+            json!([{}]),
+            "a gap is filled"
+        );
+        assert!(
+            !codes(&diagnostics).contains(&Code::MergeConflict),
+            "{diagnostics:?}"
+        );
+    }
+
+    /// A list that admits anonymous requests and comes from another
+    /// annotation is reported whichever defines the operation first.
+    #[test]
+    fn anonymous_security_from_another_annotation_is_reported_in_any_order() {
+        for (first, second) in [("a.rs", "b.rs"), ("b.rs", "a.rs")] {
+            let (document, diagnostics) = pipeline(&[
+                (
+                    "root.rs",
+                    "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! security: [{ bearer: [] }]",
+                ),
+                (
+                    first,
+                    "//! @openapi\n//! paths: { /users: { get: { security: [] } } }",
+                ),
+                (
+                    second,
+                    "/// @route GET /users\n/// @return 204:\nfn users() {}",
+                ),
+            ]);
+            assert_eq!(document["paths"]["/users"]["get"]["security"], json!([]));
+            let found: Vec<&str> = diagnostics
+                .iter()
+                .filter(|d| d.code() == Code::MergeConflict)
+                .map(|d| d.message())
+                .collect();
+            assert_eq!(found.len(), 1, "{first}: {diagnostics:?}");
+            assert!(
+                found[0].starts_with("`/paths/~1users/get/security`"),
+                "{found:?}"
+            );
+        }
+    }
+
+    /// Any list from another annotation replaces the document's for the
+    /// operation, also one with fewer scopes, whichever comes first.
+    #[test]
+    fn security_from_another_annotation_is_reported_in_any_order() {
+        for (first, second) in [("a.rs", "b.rs"), ("b.rs", "a.rs")] {
+            let (document, diagnostics) = pipeline(&[
+                (
+                    "root.rs",
+                    "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! security: [{ oauth: [admin] }]",
+                ),
+                (
+                    first,
+                    "//! @openapi\n//! paths: { /admin: { get: { security: [{ oauth: [] }] } } }",
+                ),
+                (
+                    second,
+                    "/// @route GET /admin\n/// @return 204:\nfn admin() {}",
+                ),
+            ]);
+            assert_eq!(
+                document["paths"]["/admin"]["get"]["security"],
+                json!([{ "oauth": [] }])
+            );
+            let found = codes(&diagnostics)
+                .into_iter()
+                .filter(|code| *code == Code::MergeConflict)
+                .count();
+            assert_eq!(found, 1, "{first}: {diagnostics:?}");
+        }
+    }
+
+    /// A flow added to a scheme another annotation defined could send users
+    /// to another authorization server.
+    #[test]
+    fn additions_to_a_security_scheme_are_reported() {
+        let (document, diagnostics) = pipeline(&[
+            (
+                "a.rs",
+                "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! components: { securitySchemes: { oauth: { type: oauth2, flows: { authorizationCode: { authorizationUrl: 'https://a.example', tokenUrl: 'https://a.example/t', scopes: {} } } } } }",
+            ),
+            (
+                "b.rs",
+                "//! @openapi\n//! components: { securitySchemes: { oauth: { flows: { implicit: { authorizationUrl: 'https://evil.example', scopes: {} } } }, other: { type: http, scheme: basic } } }",
+            ),
+        ]);
+        assert!(
+            document["components"]["securitySchemes"]["oauth"]["flows"]["implicit"].is_object()
+        );
+        let found: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::MergeConflict)
+            .map(|d| d.message())
+            .collect();
+        assert_eq!(
+            found,
+            [
+                "`/components/securitySchemes/oauth/flows/implicit` is added by another annotation to a security scheme it does not define"
+            ]
+        );
+    }
+
+    /// The items of a list are remembered between annotations; a value
+    /// that replaces the list (and one that replaces it back) makes them
+    /// stale, so they are forgotten.
+    #[test]
+    fn replaced_lists_are_merged_from_their_new_items() {
+        let (document, _) = pipeline(&[
+            ("a.yaml", "x-list: [1]\nx-obj: { list: [1] }"),
+            ("b.yaml", "x-list: [1]\nx-obj: { list: [1] }"),
+            ("c.yaml", "x-list: scalar\nx-obj: scalar"),
+            ("d.yaml", "x-list: [2]\nx-obj: { list: [2] }"),
+            ("e.yaml", "x-list: [1]\nx-obj: { list: [1] }"),
+        ]);
+        assert_eq!(document["x-list"], json!([2, 1]));
+        assert_eq!(document["x-obj"], json!({ "list": [2, 1] }));
+    }
+
+    #[test]
+    fn repeating_the_same_entries_is_no_finding() {
+        let (_, diagnostics) = pipeline(&[
+            (
+                "a.rs",
+                "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! security: [{ bearer: [] }]\n//! tags: [{ name: a }]",
+            ),
+            (
+                "b.rs",
+                "//! @openapi\n//! security: [{ bearer: [] }]\n//! tags: [{ name: b }]",
+            ),
+        ]);
+        assert!(
+            !codes(&diagnostics).contains(&Code::MergeConflict),
+            "{diagnostics:#?}"
+        );
+    }
+}
+
+/// Tags were merged by scanning the merged list for each tag: 40 000 tags
+/// took a minute.
+#[test]
+fn many_tags_merge_quickly() {
+    let mut text = String::from("openapi: 3.1.0\ninfo: { title: T, version: '1' }\ntags:\n");
+    for i in 0..40_000 {
+        text.push_str(&format!("  - name: t{i}\n"));
+    }
+    text.push_str("  - name: t7\n    description: Seven\n  - 5\n  - 5\n");
+    let started = std::time::Instant::now();
+    let (document, diagnostics) = pipeline(&[("api.yaml", &text)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    let tags = document["tags"].as_array().unwrap();
+    assert_eq!(tags.len(), 40_001);
+    assert_eq!(tags[7], json!({ "name": "t7", "description": "Seven" }));
+    assert_eq!(tags[40_000], json!(5));
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+/// Each block stayed within its 16 MiB of fragment expansion, but many
+/// blocks inserting one large fragment filled the memory. The expansions of
+/// a run share 32 MiB, each pasted line costing 256 besides its text.
+#[test]
+fn fragment_expansions_of_a_run_share_a_budget() {
+    let mut text =
+        String::from("//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n");
+    // F0 pastes F4 8^4 = 4096 times: about 8.2 MB in 8776 lines per block
+    // (10.5 MB with the cost of the lines).
+    for i in 0..4 {
+        text.push_str(&format!("/// @openapi-fragment F{i}\n"));
+        for _ in 0..8 {
+            text.push_str(&format!("/// @insert F{}\n", i + 1));
+        }
+        text.push_str(&format!("fn f{i}() {{}}\n"));
+    }
+    text.push_str(&format!(
+        "/// @openapi-fragment F4\n/// {}\nfn f4() {{}}\n",
+        "x".repeat(2000)
+    ));
+    for block in 0..12 {
+        text.push_str(&format!(
+            "/// @openapi\n/// x-{block}: |\n///   @insert F0\nfn b{block}() {{}}\n"
+        ));
+    }
+    let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+    let expanded = (0..12)
+        .filter(|block| {
+            document[format!("x-{block}")]
+                .as_str()
+                .is_some_and(|s| s.len() > 8_000_000)
+        })
+        .count();
+    assert_eq!(expanded, 3, "32 MiB hold three blocks");
+    let limits = diagnostics
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 9, "{diagnostics:?}");
+}
+
+/// Short pasted lines became kilobytes of document each: 32 MiB of
+/// `@param` lines took 11 GB. Each pasted line costs 256 besides its text,
+/// so of 20 blocks inserting 10 000 one-letter lines (30 KB each), twelve
+/// fit.
+#[test]
+fn each_pasted_line_costs_more_than_its_text() {
+    let mut text = String::from(
+        "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//!\n//! @openapi-fragment F\n",
+    );
+    for _ in 0..10_000 {
+        text.push_str("//! v\n");
+    }
+    for block in 0..20 {
+        text.push_str(&format!(
+            "\n/// @openapi\n/// x-{block}: |\n///   @insert F\nfn b{block}() {{}}\n"
+        ));
+    }
+    let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+    let expanded = (0..20)
+        .filter(|block| {
+            document[format!("x-{block}")]
+                .as_str()
+                .is_some_and(|s| s.lines().count() == 10_000)
+        })
+        .count();
+    assert_eq!(expanded, 12);
+    let limits = diagnostics
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 8, "{diagnostics:?}");
+}
+
+/// An `@extend` body is pasted like an inserted fragment: each of its
+/// lines costs 256 besides its text, so of 20 blocks extending a body of
+/// 10 001 short lines (20 KB, 2.6 MB with the lines), thirteen fit.
+#[test]
+fn each_line_of_an_extend_body_costs_more_than_its_text() {
+    let mut text = String::from(
+        "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//!\n//! @openapi-fragment F\n",
+    );
+    for _ in 0..10_000 {
+        text.push_str("//! #\n");
+    }
+    text.push_str("//! x-ok: true\n");
+    for block in 0..20 {
+        text.push_str(&format!(
+            "\n/// @openapi\n/// x-{block}:\n///   @extend F\nfn b{block}() {{}}\n"
+        ));
+    }
+    let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+    let extended = (0..20)
+        .filter(|block| document[format!("x-{block}")]["x-ok"] == true)
+        .count();
+    assert_eq!(extended, 13, "{document:#}");
+    let limits = diagnostics
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 7, "{diagnostics:?}");
+}
+
+/// The defaults of a module were expanded once and copied into each route
+/// without being counted: 1500 routes under 1500 lines of defaults took a
+/// minute and 2 GB. The copies count against the run's 32 MiB.
+#[test]
+fn copies_of_route_defaults_count_against_the_run_budget() {
+    let mut text = String::from(
+        "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n\n/// @route-defaults\n",
+    );
+    for i in 0..200 {
+        text.push_str(&format!("/// x-default-{i}: {}\n", "v".repeat(1000)));
+    }
+    text.push_str("mod api {\n");
+    for i in 0..200 {
+        text.push_str(&format!(
+            "    /// @route GET /r{i}\n    /// @return 204:\n    fn r{i}() {{}}\n"
+        ));
+    }
+    text.push_str("}\n");
+    let started = std::time::Instant::now();
+    let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(60),
+        "{:?}",
+        started.elapsed()
+    );
+    let with_defaults = (0..200)
+        .filter(|i| {
+            document["paths"][format!("/r{i}")]["get"]
+                .get("x-default-0")
+                .is_some()
+        })
+        .count();
+    assert!((100..200).contains(&with_defaults), "{with_defaults}");
+    let limits = codes(&diagnostics)
+        .into_iter()
+        .filter(|code| *code == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 200 - with_defaults, "{diagnostics:?}");
+}
+
+/// A block that fragment expansion cuts at 65 536 lines (an error) was
+/// still compiled from the lines left; it is left out, so that the work for
+/// a block stays bounded.
+#[test]
+fn a_block_cut_by_the_expansion_limit_is_not_compiled() {
+    let mut text = String::from(
+        "//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n//! @asyncapi\n//! asyncapi: 3.0.0\n//! info: { title: A, version: '1' }\n\n/// @route GET /x\n",
+    );
+    for i in 0..70_000 {
+        text.push_str(&format!("/// @param query q{i}: String\n"));
+    }
+    text.push_str("fn x() {}\n\n/// @channel chat\n");
+    for i in 0..70_000 {
+        text.push_str(&format!("/// @send M{i}: String\n"));
+    }
+    text.push_str("fn chat() {}\n\n/// @route GET /y\n/// @return 204:\nfn y() {}\n");
+    let (spec, _project) = crate::common::spec_of(&[("a.rs", &text)]);
+    let limits: Vec<usize> = spec
+        .diagnostics()
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .filter_map(|d| d.location().map(oas_forge::Location::line))
+        .collect();
+    assert_eq!(limits, [65_544, 135_547], "{:?}", codes(spec.diagnostics()));
+    let document = spec.document();
+    assert!(document["paths"].get("/x").is_none(), "the cut route block");
+    assert!(document["paths"]["/y"].is_object(), "the other route");
+    let asyncapi = spec.render(OutputKind::AsyncApi).unwrap();
+    assert!(asyncapi.get("channels").is_none(), "the cut channel block");
+}
+
+/// Only pasted fragment lines count for the run: inputs that hold more
+/// than 32 MiB of their own text are generated as before.
+#[test]
+fn text_written_in_the_inputs_is_not_counted_for_the_run() {
+    let big = "v".repeat(11 << 20);
+    let files: Vec<(String, String)> = (0..3)
+        .map(|i| (format!("f{i}.yaml"), format!("x-{i}: {big}\n")))
+        .collect();
+    let files: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+    let (document, diagnostics) = pipeline(&files);
+    assert!(diagnostics.is_empty(), "{:?}", codes(&diagnostics));
+    assert_eq!(document["x-2"].as_str().map(str::len), Some(11 << 20));
+}
+
+/// Pasted lines may use the run's 32 MiB exactly; one byte more is
+/// reported. The fragment comes from a shared document, so its body is
+/// exact: each block pastes it with an indentation of two, as one line
+/// that costs 256 besides its text.
+#[test]
+fn pasted_text_may_fill_the_run_budget_exactly() {
+    for (extra, limited) in [(0, false), (1, true)] {
+        let mut shared = oas_forge::template::Registry::new();
+        shared.add_fragment(
+            "F",
+            oas_forge::template::Fragment {
+                params: Vec::new(),
+                body: "v".repeat((8 << 20) - 2 - 256 + extra),
+            },
+        );
+        let shared = json!({ "components": shared.export() }).to_string();
+        let blocks: Vec<(String, String)> = (0..4)
+            .map(|i| (format!("b{i}.yaml"), format!("x-{i}: |\n  @insert F\n")))
+            .collect();
+        let mut files = vec![("shared.json", shared.as_str())];
+        files.extend(blocks.iter().map(|(n, t)| (n.as_str(), t.as_str())));
+        let (document, diagnostics) = pipeline(&files);
+        let limits = codes(&diagnostics)
+            .into_iter()
+            .filter(|code| *code == Code::ExpansionLimit)
+            .count();
+        assert_eq!(
+            limits,
+            usize::from(limited),
+            "{extra}: {:?}",
+            codes(&diagnostics)
+        );
+        assert!(
+            document["x-0"]
+                .as_str()
+                .is_some_and(|s| s.len() > 8_000_000)
+        );
+    }
+}
+
+/// The copies of route defaults may use the run's 32 MiB exactly: the
+/// first route expands the block (its own text, not counted), each further
+/// one copies its lines (`@route-defaults` and ` x-d: …`, each costing 256
+/// besides its text).
+#[test]
+fn copies_of_route_defaults_may_fill_the_run_budget_exactly() {
+    for (extra, limited) in [(0, false), (1, true)] {
+        let value =
+            "v".repeat((8 << 20) - "@route-defaults".len() - " x-d: ".len() - 2 * 256 + extra);
+        let mut text = format!(
+            "//! @openapi\n//! openapi: 3.1.0\n//! info: {{ title: T, version: '1' }}\n\n/// @route-defaults\n/// x-d: {value}\nmod api {{\n"
+        );
+        for i in 0..5 {
+            text.push_str(&format!(
+                "    /// @route GET /r{i}\n    /// @return 204:\n    fn r{i}() {{}}\n"
+            ));
+        }
+        text.push_str("}\n");
+        let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+        let limits = codes(&diagnostics)
+            .into_iter()
+            .filter(|code| *code == Code::ExpansionLimit)
+            .count();
+        assert_eq!(
+            limits,
+            usize::from(limited),
+            "{extra}: {:?}",
+            codes(&diagnostics)
+        );
+        assert_eq!(
+            document["paths"]["/r4"]["get"].get("x-d").is_some(),
+            !limited
+        );
+    }
+}
+
+/// A block with several `@route` lines is compiled once per line, each
+/// compilation a copy of the block: 500 lines with 500 `@param` lines took
+/// 2 GB. The copies after the first count against the run's 32 MiB; the
+/// lines that do not fit are left out with one finding.
+#[test]
+fn copies_of_a_block_for_its_route_lines_count_against_the_run_budget() {
+    let mut text =
+        String::from("//! @openapi\n//! openapi: 3.1.0\n//! info: { title: T, version: '1' }\n\n");
+    for i in 0..40 {
+        text.push_str(&format!("/// @route GET /r{i}\n"));
+    }
+    text.push_str(&format!("/// @description {}\n", "v".repeat(1 << 20)));
+    text.push_str("/// @return 204:\nfn many() {}\n");
+    let started = std::time::Instant::now();
+    let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    let paths = document["paths"].as_object().unwrap();
+    assert!((25..40).contains(&paths.len()), "{}", paths.len());
+    // The lines that fit come first; the first one left out is reported.
+    for i in 0..paths.len() {
+        assert!(paths.contains_key(&format!("/r{i}")), "/r{i}");
+    }
+    let limits: Vec<&oas_forge::Diagnostic> = diagnostics
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .collect();
+    assert_eq!(limits.len(), 1, "{diagnostics:?}");
+    assert_eq!(
+        limits[0].location(),
+        Some(&oas_forge::Location::new("a.rs", 5 + paths.len()))
+    );
+    assert!(
+        limits[0].message().contains("`@route` lines"),
+        "{}",
+        limits[0]
+    );
+}
+
+/// The copies may use the run's 32 MiB exactly: the first `@route` line
+/// compiles the block's own text (not counted), each further one a copy of
+/// its six lines (` @route GET /rN` and ` @description …`, each costing 256
+/// besides its text).
+#[test]
+fn copies_of_a_block_for_its_route_lines_may_fill_the_run_budget_exactly() {
+    for (extra, limited) in [(0, false), (1, true)] {
+        let headers: String = (0..5).map(|i| format!("/// @route GET /r{i}\n")).collect();
+        let description = "v".repeat(
+            (8 << 20) - 5 * " @route GET /rN".len() - " @description ".len() - 6 * 256 + extra,
+        );
+        let text = format!(
+            "//! @openapi\n//! openapi: 3.1.0\n//! info: {{ title: T, version: '1' }}\n\n{headers}/// @description {description}\nfn many() {{}}\n"
+        );
+        let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+        let limits = codes(&diagnostics)
+            .into_iter()
+            .filter(|code| *code == Code::ExpansionLimit)
+            .count();
+        assert_eq!(
+            limits,
+            usize::from(limited),
+            "{extra}: {:?}",
+            codes(&diagnostics)
+        );
+        assert_eq!(
+            document["paths"].as_object().map(|p| p.len()),
+            Some(if limited { 4 } else { 5 }),
+            "{extra}"
+        );
+    }
+}
+
+/// Each copy of a block for its `@route` lines compiles the module's
+/// defaults again: 400 lines under 4000 lines of defaults took 9.5 GB. The
+/// defaults count with each copy, which may use the run's 32 MiB exactly:
+/// five ` @route GET /rN` lines and the defaults (`@route-defaults` and
+/// ` x-d: …`), each line costing 256 besides its text.
+#[test]
+fn copies_of_a_block_for_its_route_lines_count_its_defaults() {
+    for (extra, limited) in [(0, false), (1, true)] {
+        let headers: String = (0..5)
+            .map(|i| format!("    /// @route GET /r{i}\n"))
+            .collect();
+        let value = "v".repeat(
+            (8 << 20)
+                - 5 * " @route GET /rN".len()
+                - "@route-defaults".len()
+                - " x-d: ".len()
+                - 7 * 256
+                + extra,
+        );
+        let text = format!(
+            "//! @openapi\n//! openapi: 3.1.0\n//! info: {{ title: T, version: '1' }}\n\n/// @route-defaults\n/// x-d: {value}\nmod api {{\n{headers}    fn many() {{}}\n}}\n"
+        );
+        let (document, diagnostics) = pipeline(&[("a.rs", &text)]);
+        let limits = codes(&diagnostics)
+            .into_iter()
+            .filter(|code| *code == Code::ExpansionLimit)
+            .count();
+        assert_eq!(
+            limits,
+            usize::from(limited),
+            "{extra}: {:?}",
+            codes(&diagnostics)
+        );
+        assert_eq!(
+            document["paths"].as_object().map(|p| p.len()),
+            Some(if limited { 4 } else { 5 }),
+            "{extra}"
+        );
+        assert!(document["paths"]["/r0"]["get"]["x-d"].is_string());
+    }
+}
+
+/// Each `proto(...)` message holds a copy of its `.proto` file: the copies
+/// count against the run's 32 MiB (seven of 4 MiB fit).
+#[test]
+fn proto_payloads_count_against_the_run_budget() {
+    let proto = format!(
+        "syntax = \"proto3\";\npackage p;\nmessage M {{}}\n// {}\n",
+        "c".repeat(4 << 20)
+    );
+    let sends: String = (0..10)
+        .map(|i| format!("/// @send M{i}: proto(p.M)\n"))
+        .collect();
+    let text = format!("/// @channel live /ws\n{sends}fn live() {{}}\n");
+    let (_, diagnostics) = pipeline(&[("p.proto", &proto), ("a.rs", &text)]);
+    let limits = codes(&diagnostics)
+        .into_iter()
+        .filter(|code| *code == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 3, "{:?}", codes(&diagnostics));
+}
+
+/// The differing definitions of a message name were compared with all
+/// before: 10 000 channel blocks took a minute.
+#[test]
+fn many_channels_defining_one_message_merge_quickly() {
+    let text: String = (0..10_000)
+        .map(|i| format!("/// @channel c{i} /c{i}\n/// @send M: {{ type: object }} \"d{i}\"\nfn c{i}() {{}}\n"))
+        .collect();
+    let started = std::time::Instant::now();
+    let (_, diagnostics) = pipeline(&[("a.rs", &text)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(!diagnostics.has_errors(), "{:?}", codes(&diagnostics));
+}
+
+/// A `@scope` on the root keeps it out of the other scopes' documents,
+/// which then lack its global `security`: reported, since the line that
+/// causes it does not touch `security`.
+#[test]
+fn a_root_out_of_scope_is_reported() {
+    let project = Project::new();
+    project.file(
+        "src/lib.rs",
+        "//! @openapi\n//! @scope internal\n//! openapi: 3.1.0\n//! info: { title: Shop, version: 1.0.0 }\n//! security: [{ oauth: [admin] }]\n\n/// @route GET /users\n/// @scope public, internal\n/// @return 204:\npub fn users() {}\n",
+    );
+    let build = |scope: &str| {
+        Generator::new()
+            .input(project.path("src"))
+            .package(oas_forge::Package::new("shop", "1.0.0"))
+            .scope(scope)
+            .build()
+            .unwrap()
+    };
+    let public = build("public");
+    assert!(public.document().get("security").is_none());
+    let found: Vec<_> = public
+        .diagnostics()
+        .iter()
+        .filter(|d| d.code() == Code::RootOutOfScope)
+        .collect();
+    assert_eq!(found.len(), 1, "{:?}", public.diagnostics());
+    assert_eq!(found[0].location().map(|l| l.line()), Some(2));
+    assert!(found[0].message().contains("`public`"));
+    let internal = build("internal");
+    assert!(
+        !codes(internal.diagnostics()).contains(&Code::RootOutOfScope),
+        "{:?}",
+        internal.diagnostics()
+    );
 }

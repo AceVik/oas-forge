@@ -9,6 +9,7 @@
 use super::{metas, string_literal};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::extract::PatternItem;
+use crate::schema::shadow;
 use serde_json::{Map, Number, Value, json};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -743,7 +744,11 @@ fn apply_rule(rule: &Rule, schema: &mut Value) {
                 _ => None,
             };
             match target {
-                Some(inner) => rules.iter().for_each(|r| apply_rule(r, inner)),
+                // The items may be a built-in name written bare, with an
+                // alternative for a documented schema of that name.
+                Some(inner) => shadow::for_each(inner, |inner| {
+                    rules.iter().for_each(|r| apply_rule(r, inner));
+                }),
                 None => rules.iter().for_each(|r| apply_rule(r, schema)),
             }
         }
@@ -874,7 +879,8 @@ fn file_modules(file: &Path) -> Vec<String> {
 
 /// Replaces the [`PATTERN_KEY`] markers in `value` with the `pattern` of the
 /// constant they name ([`Patterns`]); unknown and ambiguous constants are
-/// reported and dropped.
+/// reported and dropped. The marker is the constant's path; a key of its
+/// name with another value is not the generator's and stays for the sweep.
 pub(crate) fn resolve_patterns(
     value: &mut Value,
     patterns: &Patterns,
@@ -883,7 +889,12 @@ pub(crate) fn resolve_patterns(
 ) {
     match value {
         Value::Object(map) => {
-            if let Some(Value::String(path)) = map.remove(PATTERN_KEY) {
+            if let Some(path) = map
+                .get(PATTERN_KEY)
+                .and_then(Value::as_str)
+                .map(str::to_string)
+            {
+                map.remove(PATTERN_KEY);
                 match patterns.resolve(&path, location.file()) {
                     Resolution::Pattern(pattern) => {
                         let mut schema = Value::Object(std::mem::take(map));

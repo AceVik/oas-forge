@@ -790,7 +790,7 @@ mod response_header_flags {
 /// combined when they agree on the content.
 mod merged_responses {
     use super::*;
-    use crate::common::{here, lines};
+    use crate::common::{here, lines, pipeline};
     use oas_forge::diagnostics::{Diagnostics, Location, Severity};
     use oas_forge::dsl::{self, RouteSource};
 
@@ -889,6 +889,80 @@ mod merged_responses {
             json!({ "type": "string" })
         );
         assert!(responses["200"]["headers"]["X-Total"].is_object());
+    }
+
+    /// A header the block declares replaces the one of the defaults with
+    /// that name (schema, description and flags), like a parameter; the
+    /// other headers of the defaults stay. Header names are not case
+    /// sensitive.
+    #[test]
+    fn a_header_of_the_block_replaces_the_header_of_the_defaults() {
+        let (responses, diagnostics) = compiled(
+            &[
+                "@route GET /x",
+                "@return 200: String",
+                "@return-header 200 X-Rate: Uuid",
+                "@return-header 200 x-total: u32 \"Own total\"",
+            ],
+            &[
+                "@route-defaults",
+                "@return-header 200 X-Rate: Duration required \"Rate of the module\"",
+                "@return-header 200 X-Total: u64 \"Total of the module\"",
+                "@return-header 200 X-Other: u32 \"Kept\"",
+                "@return-header 201 X-Rate: Duration \"Another status\"",
+            ],
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let headers = responses["200"]["headers"].as_object().expect("headers");
+        let names: Vec<&String> = headers.keys().collect();
+        assert_eq!(names, ["X-Rate", "x-total", "X-Other"]);
+        // The block's header, without the schema, description and flag of
+        // the module's (the built-in `Uuid` still carries its alternative
+        // for a documented `Uuid`, which the references stage chooses).
+        let rate = &headers["X-Rate"];
+        assert_eq!(rate["schema"]["type"], "string");
+        assert_eq!(rate["schema"]["format"], "uuid");
+        assert!(rate["schema"].get("properties").is_none(), "{rate:#}");
+        assert!(rate.get("description").is_none(), "{rate:#}");
+        assert!(rate.get("required").is_none(), "{rate:#}");
+        assert_eq!(headers["x-total"]["description"], "Own total");
+        assert_eq!(headers["x-total"]["schema"]["maximum"], 4_294_967_295_u64);
+        assert_eq!(headers["X-Other"]["description"], "Kept");
+        assert_eq!(
+            responses["201"]["headers"]["X-Rate"]["description"],
+            "Another status"
+        );
+    }
+
+    /// The replacement does not depend on which of the two type names the
+    /// crate documents: the block's header is the block's type.
+    #[test]
+    fn a_replaced_header_follows_the_type_of_the_block_whatever_is_documented() {
+        let uuid = json!({ "type": "string", "format": "uuid" });
+        let documented = json!({ "$ref": "#/components/schemas/Uuid" });
+        for (types, expected) in [
+            ("", &uuid),
+            (
+                "/// @openapi\npub struct Duration { pub millis: u64 }",
+                &uuid,
+            ),
+            ("/// @openapi\npub struct Uuid(pub String);", &documented),
+            (
+                "/// @openapi\npub struct Duration { pub millis: u64 }\n/// @openapi\npub struct Uuid(pub String);",
+                &documented,
+            ),
+        ] {
+            let source = format!(
+                "/// @route-defaults\n/// @return-header 200 X-Rate: Duration\npub mod api {{\n    /// @route GET /x\n    /// @return 200: String\n    /// @return-header 200 X-Rate: Uuid\n    pub fn x() {{}}\n}}\n{types}\n"
+            );
+            let (document, diagnostics) = pipeline(&[("lib.rs", &source)]);
+            assert!(diagnostics.is_empty(), "{types}: {diagnostics:#?}");
+            assert_eq!(
+                document["paths"]["/x"]["get"]["responses"]["200"]["headers"]["X-Rate"],
+                json!({ "schema": expected }),
+                "{types}"
+            );
+        }
     }
 
     #[test]

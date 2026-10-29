@@ -334,7 +334,7 @@ info:
   title: Orders
   version: "{{CARGO_PKG_VERSION}}"   # from Cargo.toml
 servers:
-  - url: "{{env:API_URL}}"            # from the build environment
+  - url: "{{env:API_URL}}"            # from the environment, if allowed
 ```
 
 A `$Page<Order>` anywhere in the API becomes a concrete `Page_Order` schema.

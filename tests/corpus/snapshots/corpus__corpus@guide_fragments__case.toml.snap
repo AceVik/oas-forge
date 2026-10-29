@@ -410,8 +410,8 @@ input_file: tests/corpus/cases/guide_fragments/case.toml
   },
   "swagger_2": {
     "diagnostics": [
-      "note[OF6001]: Swagger 2.0 has no OpenID Connect and mutual TLS security schemes; the export leaves them out or approximates them",
-      "note[OF6001]: Swagger 2.0 has no security requirements that name schemes it cannot express (kept as `x-security` when no alternative remains); the export leaves them out or approximates them"
+      "warning[OF6002]: Swagger 2.0 cannot express some security schemes; requirements that name them were left out of the export (kept as `x-security` where no alternative remains)",
+      "note[OF6001]: Swagger 2.0 has no OpenID Connect and mutual TLS security schemes; the export leaves them out or approximates them"
     ],
     "document": {
       "info": {

@@ -14,6 +14,12 @@ use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location};
 use crate::extract::AliasItem;
 use crate::schema::types::undocumentable;
 use serde_json::{Map, Value};
+use std::collections::BTreeSet;
+
+/// The longest chain of type aliases that is followed (`A` → `B` → …). A
+/// longer one is reported and not resolved; this also bounds the recursion
+/// of the stages that replace aliases.
+pub(crate) const MAX_ALIAS_DEPTH: usize = 64;
 
 /// The outcome of [`Lookup::find`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -40,9 +46,10 @@ impl<'a> Lookup<'a> {
     /// arguments at `location`. `expanding` holds the aliases being replaced
     /// around the reference, innermost last: the name of the innermost one
     /// means another type (`type User = models::User;`), an outer one is a
-    /// cycle. An ambiguous name and a cycle are reported (once) and replace
-    /// nothing; so does an alias with another number of type parameters.
-    /// Documented schemas and blueprints are documented names.
+    /// cycle. An ambiguous name and a cycle are reported (once: `once` holds
+    /// the findings reported so far) and replace nothing; so does an alias
+    /// with another number of type parameters. Documented schemas and
+    /// blueprints are documented names.
     pub(crate) fn find(
         self,
         name: &str,
@@ -50,6 +57,7 @@ impl<'a> Lookup<'a> {
         location: &Location,
         expanding: &[String],
         diagnostics: &mut Diagnostics,
+        once: &mut BTreeSet<String>,
     ) -> Found<'a> {
         if expanding.last().is_some_and(|last| last == name) {
             return Found::Nothing;
@@ -67,6 +75,7 @@ impl<'a> Lookup<'a> {
                 let places: Vec<String> = aliases.iter().map(|a| a.location.to_string()).collect();
                 push_once(
                     diagnostics,
+                    once,
                     Diagnostic::new(
                         Code::AmbiguousAlias,
                         format!(
@@ -89,6 +98,7 @@ impl<'a> Lookup<'a> {
                 .collect();
             push_once(
                 diagnostics,
+                once,
                 Diagnostic::new(
                     Code::AliasCycle,
                     format!(
@@ -100,11 +110,29 @@ impl<'a> Lookup<'a> {
             );
             return Found::Reported;
         }
+        if expanding.len() >= MAX_ALIAS_DEPTH {
+            push_once(
+                diagnostics,
+                once,
+                Diagnostic::new(
+                    Code::AliasDepthLimit,
+                    format!(
+                        "type alias `{name}` is reached through more than {MAX_ALIAS_DEPTH} type aliases; it is not resolved"
+                    ),
+                )
+                .at(alias.location.clone()),
+            );
+            return Found::Reported;
+        }
         if alias.params.len() != args {
             return Found::Nothing;
         }
         for part in &alias.undocumentable {
-            push_once(diagnostics, undocumentable(part).at(alias.location.clone()));
+            push_once(
+                diagnostics,
+                once,
+                undocumentable(part).at(alias.location.clone()),
+            );
         }
         Found::Alias(alias)
     }
@@ -133,9 +161,11 @@ pub(crate) fn replace(map: &mut Map<String, Value>, schema: Value) {
     }
 }
 
-/// Adds `diagnostic` unless the same finding was reported before.
-fn push_once(diagnostics: &mut Diagnostics, diagnostic: Diagnostic) {
-    if !diagnostics.iter().any(|d| *d == diagnostic) {
+/// Adds `diagnostic` unless the same finding is in `once`, the findings
+/// reported so far (a set: scanning the findings made each lookup cost as
+/// much as all findings before).
+fn push_once(diagnostics: &mut Diagnostics, once: &mut BTreeSet<String>, diagnostic: Diagnostic) {
+    if once.insert(diagnostic.to_string()) {
         diagnostics.push(diagnostic);
     }
 }

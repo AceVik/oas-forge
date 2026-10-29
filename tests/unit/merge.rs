@@ -107,13 +107,25 @@ mod extend {
     #[test]
     fn arrays_are_combined_and_positional_arrays_kept() {
         let (value, _) = merged(
-            json!({ "security": [{ "a": [] }], "allOf": [1] }),
-            json!({ "security": [{ "b": [] }], "allOf": [2] }),
+            json!({ "tags": ["a"], "allOf": [1] }),
+            json!({ "tags": ["b"], "allOf": [2] }),
+            Policy::Extend,
+        );
+        assert_eq!(value, json!({ "tags": ["a", "b"], "allOf": [1] }));
+    }
+
+    /// Another alternative would accept more than the local requirements:
+    /// the local `security` wins; a fragment's fills a gap.
+    #[test]
+    fn local_security_wins() {
+        let (value, _) = merged(
+            json!({ "security": [{ "a": [] }], "nested": {} }),
+            json!({ "security": [{}], "nested": { "security": [{}] } }),
             Policy::Extend,
         );
         assert_eq!(
             value,
-            json!({ "security": [{ "a": [] }, { "b": [] }], "allOf": [1] })
+            json!({ "security": [{ "a": [] }], "nested": { "security": [{}] } })
         );
     }
 }
@@ -233,5 +245,86 @@ fn equal_values_never_conflict() {
         );
         assert_eq!(value, json!({ "a": 1, "b": [1] }), "{policy:?}");
         assert!(conflicts.is_empty(), "{policy:?}");
+    }
+}
+
+/// The built-in schema of a name written bare carries an alternative for a
+/// documented schema of that name (`x-oas-forge-builtin`) until the
+/// references stage; a merge reaches it.
+mod builtin_alternatives {
+    use super::*;
+
+    const KEY: &str = "x-oas-forge-builtin";
+
+    fn marked(schema: Value, name: &str) -> Value {
+        let mut schema = schema;
+        schema[KEY] = json!({ "name": name, "schema": { "$ref": format!("${name}") } });
+        schema
+    }
+
+    #[test]
+    fn a_source_merges_into_the_schema_and_its_alternative() {
+        let (value, conflicts) = merged(
+            marked(json!({ "type": "string", "format": "uuid" }), "Uuid"),
+            json!({ "description": "An id", "format": "guid" }),
+            Policy::Override,
+        );
+        assert_eq!(
+            value,
+            json!({
+                "type": "string",
+                "format": "guid",
+                "description": "An id",
+                KEY: { "name": "Uuid", "schema": { "$ref": "$Uuid", "description": "An id", "format": "guid" } },
+            })
+        );
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn a_source_with_an_alternative_brings_it_to_a_schema_without_one() {
+        let (value, conflicts) = merged(
+            json!({ "type": "string" }),
+            marked(
+                json!({ "type": "object", "required": ["secs"] }),
+                "Duration",
+            ),
+            Policy::Override,
+        );
+        assert_eq!(
+            value,
+            marked(
+                json!({ "type": "object", "required": ["secs"] }),
+                "Duration"
+            )
+        );
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn the_alternative_of_the_winning_values_is_kept() {
+        let uuid = marked(json!({ "type": "string", "format": "uuid" }), "Uuid");
+        let duration = marked(
+            json!({ "type": "object", "required": ["secs"] }),
+            "Duration",
+        );
+        // Later values win: the source's alternative replaces the target's.
+        let (value, _) = merged(uuid.clone(), duration.clone(), Policy::Override);
+        assert_eq!(
+            value,
+            marked(
+                json!({ "type": "object", "format": "uuid", "required": ["secs"] }),
+                "Duration"
+            )
+        );
+        // The target's values win: so does its alternative.
+        let (value, _) = merged(uuid, duration, Policy::Extend);
+        assert_eq!(
+            value,
+            marked(
+                json!({ "type": "string", "format": "uuid", "required": ["secs"] }),
+                "Uuid"
+            )
+        );
     }
 }

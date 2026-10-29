@@ -146,7 +146,7 @@ reported (`OF1006`). Several rules on one field must all hold: a second
 | `()` , `PhantomData` | `null` |
 | `serde_json::Value` | any value (`{}`) |
 | `serde_json::Map`, `Map<String, Value>` | `object` |
-| `Range`, `RangeInclusive` | `object` with `start` and `end` |
+| `Range`, `RangeInclusive` | `object` with `start` and `end` (both the element's schema; ranges nested more than four levels deep have `{}` as element) |
 | `std::time::Duration` | `object` with `secs` and `nanos` |
 | `SystemTime` | `object` with `secs_since_epoch` and `nanos_since_epoch` |
 | `Uuid` | `string`, `uuid` |

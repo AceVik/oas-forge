@@ -28,14 +28,16 @@ fn main() {
   and `.proto` files are indexed for [protobuf payloads](asyncapi.md#protocol-buffers)
   of AsyncAPI messages. `include` adds single files. Configured outputs are never read back as
   inputs, even inside an input directory. Symbolic links are followed
-  (broken links and loops are reported as `OF0005`), and a file that is
-  reached twice (overlapping inputs, an include inside an input directory)
-  is read once.
+  when they lead into one of the input directories; a link that leads
+  elsewhere is skipped (`OF0008`), so add its target as an input or include
+  to read it. Broken links and loops are reported as `OF0005`, and a file
+  that is reached twice (overlapping inputs, an include inside an input
+  directory) is read once.
 - `emit_cargo_directives(true)` prints `cargo:rerun-if-changed` for every
   input, every configuration file read with `Config::load()` (see below)
   and the package's `Cargo.toml` (the generated root and the
   `{{CARGO_PKG_*}}` variables come from it), `cargo:rerun-if-env-changed`
-  for every `{{env:NAME}}` placeholder, so the script reruns only when
+  for every allowed `{{env:NAME}}` placeholder, so the script reruns only when
   something it reads changes, and every finding as `cargo:warning`.
 - A missing `include` (`OF0001`) is watched through the nearest existing
   directory above it, so creating the file reruns the script. When that
@@ -125,6 +127,7 @@ oas-forge -i src -o openapi.yaml --var STAGE=prod
 | `--output-asyncapi FILE` | AsyncAPI 3 document |
 | `--config FILE` | Configuration file (in addition to `Cargo.toml` and `openapi.toml`) |
 | `--var NAME=VALUE` | Value of a `{{NAME}}` placeholder (repeatable) |
+| `--allow-env NAME` | Environment variable `{{env:NAME}}` may read (repeatable) |
 | `--scope NAME` | Write the document of a [scope](route-dsl.md#scopes) to every output |
 | `--check` | Write nothing; fail when an output is missing or out of date |
 | `--deny-warnings` | Treat warnings as errors |
@@ -185,9 +188,10 @@ STAGE = "dev"
 | `scope` | string | `scope` ([scopes](route-dsl.md#scopes)) |
 | `[types]` | table of schemas | `map_type` |
 | `[variables]` | table of strings | `var` |
+| `allow_env` | list of names | `allow_env` |
 
 Later layers override earlier ones key by key; `[types]` and `[variables]`
-are merged by name. The order is: `Cargo.toml`, `openapi.toml`, the
+are merged by name, `allow_env` lists are joined. The order is: `Cargo.toml`, `openapi.toml`, the
 `--config` file, command-line flags. Unknown keys are an error.
 
 A build script loads the same layers with `Config::load()`:
@@ -209,6 +213,7 @@ fn main() {
 | Method | Effect |
 | :--- | :--- |
 | `var(name, value)` | Sets a `{{name}}` placeholder; see [variables](templates.md#variables) |
+| `allow_env(name)` | Lets `{{env:name}}` read the environment variable `name` |
 | `map_type(name, schema)` | Documents a Rust type with a fixed schema |
 | `infer_signatures(false)` | Turns off [signature inference](route-dsl.md#signature-inference) |
 | `package(Package)` / `without_package()` | Sets or removes the package used for the generated root and the `CARGO_PKG_*` variables |

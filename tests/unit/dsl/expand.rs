@@ -2,6 +2,7 @@
 //! `@header-params`, inferred `Query<T>`).
 
 use crate::common::pipeline;
+use oas_forge::diagnostics::Code;
 use serde_json::{Value, json};
 
 /// The parameters of `GET /x` with the struct `Filter` below expanded by
@@ -241,4 +242,177 @@ fn optional_alternatives_count_towards_the_depth() {
 fn alternatives_of_a_choice_are_not_expanded() {
     let root = "{ properties: { own: { type: string } }, allOf: [{ anyOf: [{ properties: { x: { type: string } } }, { properties: { y: { type: string } } }] }] }";
     assert_eq!(expanded_root(&named_schema("Root", root)), ["own:false"]);
+}
+
+/// Each expanded parameter and required field was checked against the ones
+/// before by scanning: a struct with 10 000 fields took a minute and a half.
+#[test]
+fn large_structs_expand_quickly() {
+    let fields: String = (0..10_000).map(|i| format!("pub f{i}: u64, ")).collect();
+    let text = format!(
+        "/// @openapi\npub struct Big {{ {fields} pub o: Option<u8> }}\n/// @route GET /x\n/// @query-params $Big\n/// @param query f3: String\nfn x() {{}}"
+    );
+    let started = std::time::Instant::now();
+    let (document, diagnostics) = pipeline(&[("api.rs", &text)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    let parameters = document["paths"]["/x"]["get"]["parameters"]
+        .as_array()
+        .unwrap();
+    assert_eq!(parameters.len(), 10_001);
+    // The explicit parameter wins; the optional field is not required.
+    let f3: Vec<&Value> = parameters.iter().filter(|p| p["name"] == "f3").collect();
+    assert_eq!(f3.len(), 1);
+    assert_eq!(f3[0]["schema"], json!({ "type": "string" }));
+    let o = parameters.iter().find(|p| p["name"] == "o").unwrap();
+    assert_eq!(o["required"], false);
+    let last = parameters.iter().find(|p| p["name"] == "f9999").unwrap();
+    assert_eq!(last["required"], true);
+}
+
+/// A schema whose `allOf` refers to itself many times was walked
+/// exponentially (60 parts took two minutes); each reference is followed
+/// once.
+#[test]
+fn self_references_in_all_of_are_followed_once() {
+    let parts = vec!["{ $ref: '#/components/schemas/A' }"; 60].join(", ");
+    let started = std::time::Instant::now();
+    let (document, _) = pipeline(&[
+        (
+            "a.yaml",
+            &format!(
+                "components: {{ schemas: {{ A: {{ type: object, required: [p], properties: {{ p: {{ type: string }} }}, allOf: [{parts}] }} }} }}"
+            ),
+        ),
+        (
+            "api.rs",
+            "/// @route GET /x\n/// @query-params $A\nfn x() {}",
+        ),
+    ]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        document["paths"]["/x"]["get"]["parameters"],
+        json!([{ "name": "p", "in": "query", "required": true, "schema": { "type": "string" } }])
+    );
+}
+
+/// Once the budget is used up, the fields of the struct were still copied
+/// and serialized for every later operation: 200 routes expanding a struct
+/// with 20 000 fields took a minute, and once they were counted first,
+/// 2000 routes still walked them all. An expansion that cannot fit is
+/// reported without copying a field, and the fields of a struct are
+/// counted once: walking them for each route would use up the budget for
+/// walks, and `Empty`, expanded last, would be reported.
+#[test]
+fn expansions_over_the_budget_are_reported_without_copying_fields() {
+    let fields: String = (0..20_000).map(|i| format!("pub f{i}: u64, ")).collect();
+    let routes: String = (0..2000)
+        .map(|i| format!("/// @route GET /r{i}\n/// @query-params $Big\nfn r{i}() {{}}\n"))
+        .collect();
+    let text = format!(
+        "/// @openapi\npub struct Big {{ {fields} }}\n/// @openapi\npub struct Empty {{}}\n{routes}/// @route GET /z\n/// @query-params $Empty\nfn z() {{}}\n"
+    );
+    let started = std::time::Instant::now();
+    let (document, diagnostics) = pipeline(&[("api.rs", &text)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    let expanded = (0..2000)
+        .filter(|i| {
+            document["paths"][format!("/r{i}")]["get"]["parameters"]
+                .as_array()
+                .is_some_and(|p| p.len() == 20_000)
+        })
+        .count();
+    assert_eq!(expanded, 2, "two copies of 20 000 fields fit in 16 MiB");
+    let limits = diagnostics
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 1998, "{:?}", diagnostics.iter().next());
+    // The routes that fit come first; the others have no parameters.
+    assert!(document["paths"]["/r1"]["get"]["parameters"].is_array());
+    assert!(document["paths"]["/r2"]["get"].get("parameters").is_none());
+}
+
+/// Every operation copies the fields of the struct it expands: the copies
+/// of a document share 16 MiB (each parameter costs 256 more than its
+/// text). 40 000 fields for 20 routes took 4.8 GB. A struct without fields
+/// (`Empty`, expanded last) adds no parameter and still fits when nothing
+/// is left.
+#[test]
+fn struct_expansions_of_a_document_share_a_budget() {
+    for (fields, routes, limited) in [(1_000, 20, 0), (40_000, 3, 2)] {
+        let fields: String = (0..fields)
+            .map(|i| format!("p{i}: {{ type: string }}, "))
+            .collect();
+        let mut routes: String = (0..routes)
+            .map(|i| format!("/// @route GET /r{i}\n/// @query-params $Big\nfn r{i}() {{}}\n"))
+            .collect();
+        routes.push_str("/// @route GET /z\n/// @query-params $Empty\nfn z() {}\n");
+        let (_, diagnostics) = pipeline(&[
+            (
+                "big.yaml",
+                &format!(
+                    "components: {{ schemas: {{ Big: {{ type: object, properties: {{ {fields} }} }}, Empty: {{ type: object }} }} }}"
+                ),
+            ),
+            ("api.rs", &routes),
+        ]);
+        let found = diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::ExpansionLimit)
+            .count();
+        assert_eq!(found, limited, "{:?}", diagnostics.iter().next());
+    }
+}
+
+/// A struct that many other structs flatten was walked again for each of
+/// them. The walks of a document visit at most 4 194 304 schemas,
+/// properties and required names: each of the structs `S0`…`S99` below
+/// visits 100 004 (itself, the reference, `Hub`, its property and its
+/// 100 000 parts), so 41 fit.
+#[test]
+fn walks_of_a_document_share_a_budget() {
+    let parts = vec!["{}"; 100_000].join(", ");
+    let structs: String = (0..100)
+        .map(|i| format!("S{i}: {{ allOf: [{{ $ref: '#/components/schemas/Hub' }}] }}, "))
+        .collect();
+    let routes: String = (0..100)
+        .map(|i| format!("/// @route GET /r{i}\n/// @query-params $S{i}\nfn r{i}() {{}}\n"))
+        .collect();
+    let started = std::time::Instant::now();
+    let (document, diagnostics) = pipeline(&[
+        (
+            "schemas.yaml",
+            &format!(
+                "components: {{ schemas: {{ {structs}Hub: {{ type: object, properties: {{ p: {{ type: string }} }}, allOf: [{parts}] }} }} }}"
+            ),
+        ),
+        ("api.rs", &routes),
+    ]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    let expanded = (0..100)
+        .filter(|i| document["paths"][format!("/r{i}")]["get"]["parameters"][0]["name"] == "p")
+        .count();
+    assert_eq!(expanded, 41);
+    let limits = diagnostics
+        .iter()
+        .filter(|d| d.code() == Code::ExpansionLimit)
+        .count();
+    assert_eq!(limits, 59, "{:?}", diagnostics.iter().next());
 }

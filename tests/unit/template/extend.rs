@@ -33,6 +33,70 @@ fn apply_with(reg: &Registry, variables: &Variables, mut value: Value) -> (Value
 }
 
 #[test]
+fn acyclic_extension_fanout_is_bounded() {
+    let mut reg = Registry::new();
+    reg.add_fragment(
+        "F0",
+        Fragment {
+            params: vec![],
+            body: "{}".into(),
+        },
+    );
+    for depth in 1..6 {
+        reg.add_fragment(
+            format!("F{depth}"),
+            Fragment {
+                params: vec![],
+                body: format!("@extend F{}\n", depth - 1).repeat(10),
+            },
+        );
+    }
+    let (value, diagnostics) = apply(&reg, json!({ marker(1): "F5", "keep": true }));
+    assert_eq!(value, json!({ "keep": true }));
+    assert_eq!(codes(&diagnostics), [Code::ExpansionLimit]);
+    assert!(diagnostics.has_errors());
+    assert_eq!(diagnostics.iter().next().unwrap().location(), Some(&here()));
+}
+
+#[test]
+fn extension_body_substitution_is_bounded_before_allocation() {
+    let reg = registry(&[("Big", &["x"], &"{{x}}".repeat(4096))]);
+    let (value, diagnostics) = apply(
+        &reg,
+        json!({ marker(1): format!("Big({})", "x".repeat(8192)) }),
+    );
+    assert_eq!(value, json!({}));
+    assert_eq!(codes(&diagnostics), [Code::ExpansionLimit]);
+}
+
+#[test]
+fn extension_text_budgets_cover_repeated_and_expanded_bodies() {
+    let text = "#".repeat(4 * 1024 * 1024);
+    let input = json!({ marker(1): "Big", marker(2): "Big", marker(3): "Big", marker(4): "Big" });
+    for (body, variables) in [
+        (format!("{text}\n{{}}"), Variables::new()),
+        (
+            "{{BIG}}\n{}".into(),
+            Variables::from([("BIG".into(), text.clone())]),
+        ),
+    ] {
+        let reg = registry(&[("Big", &[], &body)]);
+        let (value, diagnostics) = apply_with(&reg, &variables, input.clone());
+        assert_eq!(value, json!({}));
+        assert_eq!(codes(&diagnostics), [Code::ExpansionLimit]);
+    }
+}
+
+#[test]
+fn an_extension_may_use_the_exact_text_budget() {
+    let body = "#".repeat(8 * 1024 * 1024 - 3) + "\n{}";
+    let reg = registry(&[("Exact", &[], &body)]);
+    let (value, diagnostics) = apply(&reg, json!({marker(1): "Exact"}));
+    assert_eq!(value, json!({}));
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+#[test]
 fn merges_fragment_into_the_containing_mapping() {
     let reg = registry(&[(
         "Base",
@@ -63,14 +127,23 @@ fn local_values_win_over_the_fragment() {
 
 #[test]
 fn arrays_are_combined() {
-    let reg = registry(&[("Secured", &[], "security:\n  - oidc: []\n  - basic: []")]);
+    let reg = registry(&[("Tagged", &[], "tags:\n  - b\n  - a")]);
+    let (value, _) = apply(&reg, json!({ marker(1): "Tagged", "tags": ["a"] }));
+    assert_eq!(value, json!({ "tags": ["a", "b"] }));
+}
+
+/// A fragment cannot add an alternative to the local requirements, such as
+/// `{}`, which admits anonymous requests.
+#[test]
+fn local_security_wins() {
+    let reg = registry(&[("Open", &[], "security:\n  - {}\ndeprecated: true")]);
     let (value, _) = apply(
         &reg,
-        json!({ marker(1): "Secured", "security": [{ "basic": [] }] }),
+        json!({ marker(1): "Open", "security": [{ "basic": [] }] }),
     );
     assert_eq!(
         value,
-        json!({ "security": [{ "basic": [] }, { "oidc": [] }] })
+        json!({ "security": [{ "basic": [] }], "deprecated": true })
     );
 }
 
@@ -119,7 +192,7 @@ fn problems_are_reported_and_the_marker_dropped() {
     ]);
     let (value, diagnostics) = apply(
         &reg,
-        json!({ marker(1): "Missing", marker(2): "Broken", marker(3): "Needs", "keep": 1, marker(4): 5 }),
+        json!({ marker(1): "Missing", marker(2): "Broken", marker(3): "Needs", "keep": 1 }),
     );
     assert_eq!(value, json!({ "keep": 1, "a": "Value {{x}}" }));
     assert_eq!(
@@ -235,4 +308,31 @@ fn nesting_is_bounded() {
     let (value, diagnostics) = apply(&registry(&list), json!({ marker(1): "F0" }));
     assert_eq!(value.as_object().unwrap().len(), 8);
     assert_eq!(codes(&diagnostics), [Code::UnknownFragment]);
+}
+
+/// The lexical stage writes the fragment of an `@extend` line as a string
+/// under the marker key. A marker with another value is not its own (a
+/// source wrote it): it stays, so that the sweep of the finished document
+/// reports it instead of this stage dropping it silently.
+#[test]
+fn a_marker_with_another_value_stays() {
+    let (value, diagnostics) = apply(
+        &registry(&[("Base", &[], "x-base: 1")]),
+        json!({
+            marker(1): "Base",
+            marker(2): { "a": 1 },
+            marker(3): 3,
+            "nested": { marker(4): ["Base"] },
+        }),
+    );
+    assert_eq!(
+        value,
+        json!({
+            marker(2): { "a": 1 },
+            marker(3): 3,
+            "nested": { marker(4): ["Base"] },
+            "x-base": 1,
+        })
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }

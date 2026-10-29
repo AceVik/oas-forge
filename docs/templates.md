@@ -99,7 +99,7 @@ order):
 | Value | Merge |
 | :--- | :--- |
 | mappings | recursively, key by key |
-| lists | appended, duplicates removed; `parameters` are matched by name and location |
+| lists | appended, duplicates removed; `parameters` are matched by name and location; entries added to a `security` or `servers` list another snippet set, and such a list added to an operation or path another snippet defined, are reported (`OF4001`): a joined `security` list accepts either requirement, and an operation's own list replaces the document's |
 | positional lists (`allOf`, `oneOf`, `anyOf`, `prefixItems`) | a different list replaces the old one, with a warning |
 | scalars | the later value wins; a different value is reported (`OF4001`) with both locations |
 
@@ -168,8 +168,10 @@ pub async fn reports() {}
   arguments and without such a fragment means a reusable parameter:
   `- $ref: '#/components/parameters/Name'`.
 - `@extend Name(args)` parses the fragment and merges it into the mapping
-  that contains the line. Values written next to it win, like inheritance.
-  It also works in routes. The fragment's text is expanded like any other
+  that contains the line. Values written next to it win, like inheritance;
+  lists are combined, except `security`: a list written next to it wins,
+  so a fragment cannot add an alternative such as `{}` that admits
+  anonymous requests. It also works in routes. The fragment's text is expanded like any other
   YAML first: `{{variables}}`, `@insert` and `@extend` inside it work, up
   to a depth of 8.
 - A fragment that inserts or extends itself, directly or through others,
@@ -182,6 +184,15 @@ pub async fn reports() {}
 
 Unknown fragments (`OF3001`), invalid fragment YAML (`OF3002`), missing
 arguments (`OF3003`) and extra arguments (`OF3011`, ignored) are reported.
+Expansion also has a total budget of 16 MiB of processed text and 65,536
+visited lines or extension resolutions per expansion, and a run pastes at
+most 32 MiB in all: inserted fragment lines, `@extend` bodies, the
+copies of `@route-defaults` in each route, of a block and its defaults
+for each `@route` line after its first, and of `.proto` files in `proto(...)` messages (text
+written in the inputs does not count). Each pasted line costs 256 bytes
+besides its text, since a short line becomes kilobytes of document.
+Exceeding either reports error `OF3016`, even when the fragments form no
+cycle; a route or channel block that the expansion cut is left out.
 
 ## Named schemas
 
@@ -206,7 +217,12 @@ override and `@example`:
 | :--- | :--- |
 | `{{CARGO_PKG_NAME}}`, `{{CARGO_PKG_VERSION}}`, `{{CARGO_PKG_VERSION_MAJOR}}`, …, `{{CARGO_PKG_DESCRIPTION}}`, `{{CARGO_PKG_LICENSE}}`, `{{CARGO_PKG_REPOSITORY}}`, `{{CARGO_PKG_HOMEPAGE}}` | the package; in a build script from Cargo, in the CLI from `Cargo.toml` |
 | `{{NAME}}` | `Generator::var("NAME", value)`, `[variables]` in the configuration or `--var NAME=VALUE` |
-| `{{env:NAME}}` | the environment variable `NAME` at build time; unset variables are reported (`OF3009`) |
+| `{{env:NAME}}` | the environment variable `NAME` at build time, if it is allowed with `Generator::allow_env("NAME")`, `allow_env = ["NAME"]` in the configuration or `--allow-env NAME`; other and unset variables are kept and reported (`OF3009`) |
+
+The sources choose the names of `{{env:…}}` placeholders, so only the
+variables you allow are read: a source from an untrusted change (a pull
+request built in CI) cannot copy a secret of the build environment into
+the document.
 
 A placeholder that is the whole value of a mapping entry or list item
 (also `- version: {{CARGO_PKG_VERSION}}`) is inserted as a quoted string, so
@@ -217,8 +233,12 @@ channel blocks are not YAML, so there the value is always inserted as it is:
 `Since: {{CARGO_PKG_VERSION}}` reads `Since: 1.10`, and `@return 200: {{TYPE}}`
 names the type. Unknown placeholders are left as they are.
 
-With `emit_cargo_directives(true)`, every `{{env:NAME}}` in the inputs is
-also printed as `cargo:rerun-if-env-changed=NAME`, so Cargo reruns the
+Whole YAML string values preserve newlines and control characters through
+escaped quoting. Variable substitution is limited to 16 MiB of expanded
+text and 65,536 source lines per call; exceeding either reports `OF3016`.
+
+With `emit_cargo_directives(true)`, every allowed `{{env:NAME}}` in the
+inputs is also printed as `cargo:rerun-if-env-changed=NAME`, so Cargo reruns the
 build script when the variable changes.
 
 ## Escapes
@@ -257,6 +277,30 @@ carries the templates in `components.x-oas-forge-templates` and
 A crate that `include`s the file can use the shared types, instantiate
 `$Paginated<User>` with its own `User`, and `@insert` or `@extend` the shared
 fragments. The `x-oas-forge-*` keys never appear in a full document.
+
+### Reserved keys
+
+The prefix `x-oas-forge-` is reserved: the generator carries information
+between its stages in such keys (the alternative of a bare built-in name,
+a struct expansion, an `@extend` line, the templates above), and a source
+must not write them. One written in an `@openapi` block or override, an
+`@example`, a fragment, the YAML of a route or channel block, or in an
+included `.yaml`/`.json` file anywhere but the wire format in `components`
+is removed and reported as an error (`OF0009`); a directive whose inline
+schema or flag value writes one is ignored (`OF2004`). A name that would
+become such a key is rejected with the same error, and what it names is
+left out: the scheme of `@security`, the name of `@return-header`, a
+status code of `@return`, `@return-header` or `@problem`, the name of
+`@webhook`, a media type of `@body` or `@return`, the serialized name of a field or
+variant (after `rename` and `rename_all`), the name of a documented type,
+its `#[serde(tag)]` and `#[serde(content)]`, the name of `@openapi-type`,
+the id of `@channel` and the placeholders of its address, the names of
+`@send`, `@receive`, `@ws-query` and `@ws-header`. Each stage takes its
+marker only in the shape it writes it. The bodies of imported templates
+are the generator's own and keep their markers. A key of the prefix that
+is still in a finished document, the AsyncAPI document included, is
+removed from it with the same error. No key of the prefix reaches an
+output.
 
 The [`examples/`](../examples) workspace shows the setup: `shared-models`
 declares `links`, so Cargo runs its build script first, and `microservice`

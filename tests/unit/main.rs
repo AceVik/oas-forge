@@ -19,6 +19,7 @@ mod merge;
 mod output;
 mod package;
 mod proto;
+mod reserved;
 mod schema;
 mod source;
 mod template;

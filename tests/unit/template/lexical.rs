@@ -53,6 +53,79 @@ mod insert {
     use super::*;
 
     #[test]
+    fn acyclic_fanout_is_bounded_even_when_fragments_are_empty() {
+        let mut reg = Registry::new();
+        reg.add_fragment(
+            "F0",
+            Fragment {
+                params: vec![],
+                body: String::new(),
+            },
+        );
+        for depth in 1..6 {
+            reg.add_fragment(
+                format!("F{depth}"),
+                Fragment {
+                    params: vec![],
+                    body: format!("@insert F{}\n", depth - 1).repeat(10),
+                },
+            );
+        }
+        let (out, diagnostics) = run("before: true\n@insert F5\nafter: true", &reg);
+        assert_eq!(out, "before: true");
+        assert_eq!(codes(&diagnostics), [Code::ExpansionLimit]);
+        let finding = diagnostics.iter().next().unwrap();
+        assert!(finding.is_error());
+        assert_eq!(finding.location(), Some(&here().offset(1)));
+    }
+
+    #[test]
+    fn large_substituted_bodies_are_rejected_before_allocation() {
+        let reg = registry(&[("Fan", &["x"], &"x: {{x}}\n".repeat(4096))]);
+        let (out, diagnostics) = run(&format!("@insert Fan({})", "x".repeat(8192)), &reg);
+        assert!(
+            out.is_empty(),
+            "reject before copying any part of the oversized body"
+        );
+        assert_eq!(codes(&diagnostics), [Code::ExpansionLimit]);
+    }
+
+    #[test]
+    fn text_budget_counts_bytes_and_indentation() {
+        let limit = 16 * 1024 * 1024;
+        let text = "é".repeat(limit / 2);
+        assert_eq!(run(&text, &Registry::new()).0, text);
+        assert_eq!(
+            codes(&run(&(text + "x"), &Registry::new()).1),
+            [Code::ExpansionLimit]
+        );
+
+        let body = format!("{}\nx", "a".repeat(limit - 32));
+        let reg = registry(&[("Big", &[], &body)]);
+        let (_, diagnostics) = run(&format!("{}@insert Big", " ".repeat(16)), &reg);
+        assert_eq!(codes(&diagnostics), [Code::ExpansionLimit]);
+    }
+
+    #[test]
+    fn fragment_text_may_exactly_fill_the_remaining_budget() {
+        let directive = "@insert Exact";
+        let body = "x".repeat(16 * 1024 * 1024 - directive.len());
+        let reg = registry(&[("Exact", &[], &body)]);
+        let (out, diagnostics) = run(directive, &reg);
+        assert_eq!(out, body);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn repeated_fragments_consume_text_budget_even_without_output() {
+        let body = " ".repeat(1024 * 1024) + "@insert Empty";
+        let reg = registry(&[("Wide", &[], &body), ("Empty", &[], "")]);
+        let (out, diagnostics) = run(&"@insert Wide\n".repeat(17), &reg);
+        assert_eq!(out, "\n");
+        assert_eq!(codes(&diagnostics), [Code::ExpansionLimit]);
+    }
+
+    #[test]
     fn splices_the_fragment_with_the_line_indentation() {
         let reg = registry(&[("Headers", &[], "header: x-val\nother: y-val")]);
         let (out, diagnostics) = run("root:\n  @insert Headers", &reg);
@@ -337,18 +410,88 @@ mod variables {
     }
 
     #[test]
+    fn whole_string_values_preserve_line_breaks_and_control_characters() {
+        for value in [
+            "first\nsecond",
+            "first\r\nsecond",
+            "\t\0\u{0085}\u{2028}\u{2029}",
+            "\u{0085}",
+            "\u{2028}",
+            "\u{2029}",
+            "it's\nnew",
+            "{{Q}}",
+        ] {
+            let vars = Variables::from([("Q".to_string(), value.to_string())]);
+            let (expanded, diagnostics) =
+                run_with("note: {{Q}}\nafter: true", &Registry::new(), &vars);
+            assert!(diagnostics.is_empty());
+            assert_eq!(
+                crate::common::yaml(&expanded),
+                serde_json::json!({"note": value, "after": true})
+            );
+        }
+    }
+
+    #[test]
+    fn variable_substitution_is_bounded_across_lines_and_repetitions() {
+        let vars = Variables::from([("BIG".into(), "x".repeat(8192))]);
+        for text in ["{{BIG}}".repeat(4096), "note: {{BIG}}\n".repeat(4096)] {
+            let (out, diagnostics) = run_with(&text, &Registry::new(), &vars);
+            assert!(out.len() <= 16 * 1024 * 1024);
+            assert_eq!(codes(&diagnostics), [Code::ExpansionLimit]);
+        }
+        let mut diagnostics = Diagnostics::new();
+        substitute(
+            &("\n".repeat(65_536) + "{{Q}}"),
+            &Variables::new(),
+            &here(),
+            &mut diagnostics,
+        );
+        assert_eq!(codes(&diagnostics), [Code::ExpansionLimit]);
+    }
+
+    #[test]
+    fn variable_text_may_fill_the_budget_but_not_overflow_with_a_suffix() {
+        let value = "x".repeat(16 * 1024 * 1024 - "prefix ".len());
+        let vars = Variables::from([("BIG".into(), value)]);
+        let (out, diagnostics) = run_with("prefix {{BIG}}", &Registry::new(), &vars);
+        assert_eq!(out.len(), 16 * 1024 * 1024);
+        assert!(out.starts_with("prefix "));
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let (out, diagnostics) = run_with("prefix {{BIG}}!", &Registry::new(), &vars);
+        assert!(out.is_empty());
+        assert_eq!(codes(&diagnostics), [Code::ExpansionLimit]);
+    }
+
+    #[test]
     fn environment_placeholders_are_listed() {
         let names: Vec<&str> =
             environment_variables("a: {{env:A}} {{ env:B.C }}\nb: {{NAME}} {{env:A}}").collect();
         assert_eq!(names, ["A", "B.C", "A"]);
     }
 
+    /// `{{env:NAME}}` takes the variable `env:NAME`, which
+    /// `Generator::allow_env` sets; the environment itself is not read.
     #[test]
-    fn environment_variables_are_read() {
-        // Cargo sets `CARGO_PKG_NAME` for test binaries.
-        let (out, diagnostics) = run("name: {{env:CARGO_PKG_NAME}}", &Registry::new());
-        assert_eq!(out, format!("name: '{}'", env!("CARGO_PKG_NAME")));
-        assert!(diagnostics.is_empty());
+    fn environment_placeholders_take_their_variable() {
+        let mut vars = Variables::new();
+        vars.insert("env:API_HOST".into(), "api.example.com".into());
+        let (out, diagnostics) = run_with(
+            "host: {{env:API_HOST}}\npath: {{env:PATH}}",
+            &Registry::new(),
+            &vars,
+        );
+        assert_eq!(out, "host: 'api.example.com'\npath: '{{env:PATH}}'");
+        assert_eq!(codes(&diagnostics), [Code::UnknownVariable]);
+        assert!(
+            diagnostics
+                .iter()
+                .next()
+                .unwrap()
+                .message()
+                .contains("allow_env"),
+            "{diagnostics:?}"
+        );
     }
 
     #[test]
@@ -357,9 +500,10 @@ mod variables {
             "a: {{env:OAS_FORGE_UNSET_B}}\nb: {{env:OAS_FORGE_UNSET_A}} {{env:OAS_FORGE_UNSET_B}}",
             &Registry::new(),
         );
+        // A whole value stays a string; inside text, the placeholder stays.
         assert_eq!(
             out,
-            "a: {{env:OAS_FORGE_UNSET_B}}\nb: {{env:OAS_FORGE_UNSET_A}} {{env:OAS_FORGE_UNSET_B}}"
+            "a: '{{env:OAS_FORGE_UNSET_B}}'\nb: {{env:OAS_FORGE_UNSET_A}} {{env:OAS_FORGE_UNSET_B}}"
         );
         assert_eq!(
             codes(&diagnostics),
@@ -538,11 +682,16 @@ mod blocks {
     }
 
     #[test]
-    fn multi_line_values_are_split_and_quoted_across_their_lines() {
-        let text = "Note: {{MULTI}}\nnote: {{MULTI}}";
+    fn multi_line_values_keep_prose_lines_and_escape_yaml_scalars() {
+        let text = "Note: {{MULTI}}\nnote: {{MULTI}}\nversion: {{VERSION}}";
         assert_eq!(
-            block(text, &[false, false, true, true]),
-            ["Note: it's", "new", "note: 'it''s", "new'"]
+            block(text, &[false, false, true, true, true]),
+            [
+                "Note: it's",
+                "new",
+                "note: \"it's\\nnew\"",
+                "version: '1.10'"
+            ]
         );
     }
 

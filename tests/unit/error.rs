@@ -43,6 +43,40 @@ fn messages_name_the_problem_and_its_location() {
 }
 
 #[test]
+fn control_characters_in_errors_are_escaped() {
+    let io = Error::Io {
+        path: PathBuf::from("out/\u{1b}[31m.yaml"),
+        source: std::io::Error::other("denied"),
+    };
+    assert_eq!(io.to_string(), "IO error at out/\\u{1b}[31m.yaml: denied");
+    let parse = Error::Parse {
+        location: Location::new("src/lib.rs", 1),
+        message: "unexpected `\r`".into(),
+    };
+    assert_eq!(
+        parse.to_string(),
+        "Rust syntax error in src/lib.rs:1: unexpected `\\r`"
+    );
+    // The TOML parser quotes the line of the configuration.
+    let config = Error::Config {
+        file: PathBuf::from("openapi.toml"),
+        message: "invalid key\n1 | `\u{1b}[31m\rHACKED`".into(),
+    };
+    assert_eq!(
+        config.to_string(),
+        "Invalid configuration in openapi.toml: invalid key\n1 | `\\u{1b}[31m\\rHACKED`"
+    );
+    // The context of a YAML error quotes the input lines.
+    let result = crate::common::try_pipeline(&[(
+        "api.yaml",
+        "openapi: 3.1.0\nx-a: \"\u{1b}[2K\"\nx-b: : c\n",
+    )]);
+    let text = result.unwrap_err().to_string();
+    assert!(text.contains("\\u{1b}[2K"), "{text}");
+    assert!(!text.contains('\u{1b}'), "{text:?}");
+}
+
+#[test]
 fn validation_errors() {
     assert!(
         Error::NoRootFound

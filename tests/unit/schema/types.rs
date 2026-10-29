@@ -21,6 +21,26 @@ fn assert_all(types: &[&str], expected: Value) {
 mod parsing {
     use super::*;
 
+    /// `syn` recurses once per level on the caller's stack, so deeper types
+    /// are not parsed.
+    #[test]
+    fn types_nest_at_most_32_levels() {
+        let nested = |n: usize| format!("{}u8{}", "Vec<".repeat(n), ">".repeat(n));
+        assert!(TypeExpr::parse(&nested(32)).is_some());
+        assert_eq!(TypeExpr::parse(&nested(33)), None);
+        assert!(TypeExpr::parse(&format!("{}u8", "&".repeat(32))).is_some());
+        assert_eq!(TypeExpr::parse(&format!("{}u8", "&".repeat(33))), None);
+        // `(`, `[` and `<` close again; the `>` of `->` closes nothing.
+        let wide = format!("({})", vec!["[Option<u8>; 2]"; 40].join(", "));
+        assert!(TypeExpr::parse(&wide).is_some());
+        let returns = format!(
+            "{}fn() -> Vec<Vec<u8>>{}",
+            "Vec<".repeat(31),
+            ">".repeat(31)
+        );
+        assert_eq!(TypeExpr::parse(&returns), None);
+    }
+
     #[test]
     fn named_types_keep_path_and_type_arguments() {
         let ty = TypeExpr::parse("chrono::DateTime<'static, Utc>").unwrap();
@@ -372,6 +392,29 @@ mod table {
             schema("RangeInclusive<i32>")["required"],
             json!(["start", "end"])
         );
+    }
+
+    /// The schema of a range holds its element twice, so nested ranges
+    /// doubled with each level: 18 levels (586 bytes) took 3 GB. Four
+    /// levels are mapped; the element of a range around more is `{}`.
+    #[test]
+    fn nested_ranges_are_mapped_four_levels_deep() {
+        let nested = |depth: usize| format!("{}u8{}", "Range<".repeat(depth), ">".repeat(depth));
+        let four = schema(&nested(4));
+        let mut inner = &four;
+        for _ in 0..4 {
+            assert_eq!(inner["properties"]["start"], inner["properties"]["end"]);
+            inner = &inner["properties"]["end"];
+        }
+        assert_eq!(inner["type"], "integer");
+        let five = schema(&nested(5));
+        assert_eq!(five["properties"]["start"], json!({}));
+        assert_eq!(five["properties"]["end"], json!({}));
+        // Ranges in a tuple count together.
+        let pair = schema(&format!("Range<({}, {})>", nested(3), nested(3)));
+        assert_eq!(pair["properties"]["start"], json!({}));
+        let deep = schema(&nested(30)).to_string();
+        assert!(deep.len() < 200, "{deep}");
     }
 
     #[test]

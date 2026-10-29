@@ -81,6 +81,18 @@ impl Origins {
         self.by_pointer.get(pointer)
     }
 
+    /// Where the part at `pointer`, or the nearest part above it, was
+    /// defined.
+    pub(crate) fn nearest(&self, pointer: &str) -> Option<&Location> {
+        let mut pointer = pointer;
+        loop {
+            if let Some(location) = self.get(pointer) {
+                return Some(location);
+            }
+            pointer = pointer.rsplit_once('/')?.0;
+        }
+    }
+
     /// Where an operation (a fixed field of its path item or one of its
     /// `additionalOperations`) was defined.
     fn operation(&self, at: &OperationRef<'_>) -> Option<&Location> {
@@ -543,7 +555,7 @@ fn collect_refs<'a>(value: &Value, position: &Position<'a>, out: &mut References
 /// The references of the entry `key: child` of an object whose keys are
 /// keywords (a schema, an operation, a document, …) at `parent`.
 fn collect_entry<'a>(key: &str, child: &Value, parent: &Position<'a>, out: &mut References<'a>) {
-    if key.starts_with("x-oas-forge-") || DATA_KEYS.contains(&key) {
+    if DATA_KEYS.contains(&key) {
         return;
     }
     let position = parent.child(key);
