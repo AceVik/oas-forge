@@ -13,11 +13,40 @@ use crate::schema::shadow;
 use crate::schema::types::{MappedType, TypeExpr, TypeMapper, is_container};
 use regex::{Captures, Regex};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 /// Maximum nesting of instantiations (`$A<$B<$C<…>>>`).
 pub const MAX_DEPTH: usize = 16;
+
+/// The total size of the concrete schemas of one run, counted as the bytes
+/// of their names, strings and keys plus [`VALUE_COST`] per value and
+/// [`INSTANCE_COST`] per instance; the inline schemas of std containers
+/// (`$Vec<T>`) and the references wrapped (`$T` → `{"$ref": …}`) while an
+/// instance or alias target is built count the same way. Instantiations
+/// beyond it are reported ([`Code::InstantiationLimit`]): a blueprint whose
+/// instances refer to two larger instances would grow exponentially within
+/// [`MAX_DEPTH`].
+pub const MAX_INSTANTIATED_SIZE: usize = 16 * 1024 * 1024;
+
+/// What a value (an object, array, string, number, boolean or null) of a
+/// concrete schema or alias target costs of [`MAX_INSTANTIATED_SIZE`]
+/// besides its text: as a value it takes far more memory than as text. A
+/// template of a thousand properties `{ $ref: '$T' }`, instantiated with
+/// arguments `Vec<Vec<…<u8>>>` of growing depth, wrote each level as five
+/// bytes of text and held it as an object; 16 MiB of text took 4.9 GB.
+pub const VALUE_COST: usize = 32;
+
+/// What a concrete schema costs of [`MAX_INSTANTIATED_SIZE`] besides its
+/// name and body: its name is held in several indexes and its body wrapped
+/// into a snippet of its own. A blueprint whose body names two more
+/// instances of itself (`$Two<Vec<T>>`, `$Two<Option<T>>`) created tens of
+/// thousands of small instances from 483 bytes and took 1.6 GB.
+pub const INSTANCE_COST: usize = 256;
+
+/// What replacing a type alias costs of [`MAX_INSTANTIATED_SIZE`] besides
+/// its target: finding and replacing it is work even for a small target.
+pub(crate) const ALIAS_COST: usize = 64;
 
 /// Parser recursion budget, independent of the instantiation depth limit.
 const MAX_PARSE_DEPTH: usize = 128;
@@ -54,32 +83,50 @@ const SCHEMA_MAP_KEYS: &[&str] = &[
 const DATA_KEYS: &[&str] = &["example", "examples", "default", "enum", "const", "value"];
 
 /// Turns each whole `$Name` (or `$Page<User>`) string of `map` that stands
-/// where a schema is expected into `{"$ref": "$Name"}`.
-fn wrap_references(map: &mut Map<String, Value>) {
-    let wrap = |value: &mut Value| {
+/// where a schema is expected into `{"$ref": "$Name"}`. Each one is an
+/// object with a key more and takes [`VALUE_COST`] and the key from
+/// `budget`; the first that does not fit stays a string and is returned.
+fn wrap_references(map: &mut Map<String, Value>, budget: &mut usize) -> Result<(), String> {
+    let mut wrap = |value: &mut Value| {
         if let Value::String(text) = value
             && text.starts_with('$')
             && (reference_name(text).is_some() || GenericRef::parse(text).is_some())
         {
+            if spend(budget, VALUE_COST + "$ref".len()).is_none() {
+                return Err(text.clone());
+            }
             let mut reference = Map::new();
             reference.insert("$ref".into(), Value::String(std::mem::take(text)));
             *value = Value::Object(reference);
         }
+        Ok(())
     };
     for (key, value) in map.iter_mut() {
         let key = key.as_str();
         if SCHEMA_KEYS.contains(&key) {
-            wrap(value);
+            wrap(value)?;
         } else if SCHEMA_LIST_KEYS.contains(&key)
             && let Value::Array(items) = value
         {
-            items.iter_mut().for_each(wrap);
+            items.iter_mut().try_for_each(&mut wrap)?;
         } else if SCHEMA_MAP_KEYS.contains(&key)
             && let Value::Object(schemas) = value
         {
-            schemas.values_mut().for_each(wrap);
+            schemas.values_mut().try_for_each(&mut wrap)?;
         }
     }
+    Ok(())
+}
+
+/// What the inline schema of a `$Vec<T>`-style shorthand is.
+enum Inline {
+    /// The schema, within the budget.
+    Schema(Value),
+    /// The reference names no std container (a blueprint, or a type the
+    /// table maps to a reference).
+    Other,
+    /// The schema does not fit in [`MAX_INSTANTIATED_SIZE`]; reported.
+    Exhausted,
 }
 
 /// A parsed generic reference.
@@ -337,6 +384,16 @@ pub struct Instantiator<'a> {
     /// Whether the value being applied is data (`example`, `enum`, …),
     /// where `$Name` is no schema.
     in_data: bool,
+    /// What is left of [`MAX_INSTANTIATED_SIZE`].
+    budget: usize,
+    /// Whether running out of the budget was reported.
+    budget_reported: bool,
+    /// The alias findings reported so far, each once.
+    alias_findings: BTreeSet<String>,
+    /// The blueprints reported for exceeding [`MAX_DEPTH`], each once: a
+    /// blueprint that nests ever deeper reaches the limit through every
+    /// instance that leads there.
+    depth_findings: BTreeSet<String>,
 }
 
 impl<'a> Instantiator<'a> {
@@ -368,6 +425,10 @@ impl<'a> Instantiator<'a> {
             known: KnownSchemas::none(),
             aliasing: Vec::new(),
             in_data: false,
+            budget: MAX_INSTANTIATED_SIZE,
+            budget_reported: false,
+            alias_findings: BTreeSet::new(),
+            depth_findings: BTreeSet::new(),
         }
     }
 
@@ -476,7 +537,17 @@ impl<'a> Instantiator<'a> {
                     );
                 }
                 if !self.in_data {
-                    wrap_references(map);
+                    // What the inputs write is bounded by their size; what
+                    // an instance or alias target wraps uses the budget.
+                    let mut unlimited = usize::MAX;
+                    let budget = if self.creating() {
+                        &mut self.budget
+                    } else {
+                        &mut unlimited
+                    };
+                    if let Err(reference) = wrap_references(map, budget) {
+                        self.report_budget(&reference, location, diagnostics);
+                    }
                 }
                 // A type alias stands for its target (`$Owner`, `$Paged<User>`),
                 // resolved in the alias's file.
@@ -489,18 +560,26 @@ impl<'a> Instantiator<'a> {
                 }
                 // `{$ref: $Vec<User>}`: the shorthand replaces the whole schema;
                 // sibling keywords such as `description` are kept.
-                let inline = map.get("$ref").and_then(Value::as_str).and_then(|r| {
-                    let generic = GenericRef::parse(r)?;
-                    self.std_container(r, &generic, location, diagnostics)
-                });
-                if let Some(Value::Object(mut schema)) = inline {
-                    map.remove("$ref");
-                    for (key, mut child) in std::mem::take(map) {
-                        self.apply_child(&key, &mut child, location, diagnostics);
-                        schema.insert(key, child);
+                let inline = match map.get("$ref").and_then(Value::as_str) {
+                    Some(r) => match GenericRef::parse(r) {
+                        Some(generic) => self.std_container(r, &generic, location, diagnostics),
+                        None => Inline::Other,
+                    },
+                    None => Inline::Other,
+                };
+                match inline {
+                    Inline::Schema(Value::Object(mut schema)) => {
+                        map.remove("$ref");
+                        for (key, mut child) in std::mem::take(map) {
+                            self.apply_child(&key, &mut child, location, diagnostics);
+                            schema.insert(key, child);
+                        }
+                        *map = schema;
+                        return;
                     }
-                    *map = schema;
-                    return;
+                    // The reference keeps its text (reported).
+                    Inline::Exhausted => return,
+                    Inline::Schema(_) | Inline::Other => {}
                 }
                 for (key, child) in map.iter_mut() {
                     self.apply_child(key, child, location, diagnostics);
@@ -529,7 +608,7 @@ impl<'a> Instantiator<'a> {
     /// The type alias that the `$ref` of `map` names (`$Owner`,
     /// `$Paged<User>`) and its schema with the type arguments bound.
     fn alias(
-        &self,
+        &mut self,
         map: &Map<String, Value>,
         location: &Location,
         diagnostics: &mut Diagnostics,
@@ -553,9 +632,14 @@ impl<'a> Instantiator<'a> {
             registry: self.registry,
             known: self.known,
         };
-        let Found::Alias(alias) =
-            lookup.find(&name, args.len(), location, &self.aliasing, diagnostics)
-        else {
+        let Found::Alias(alias) = lookup.find(
+            &name,
+            args.len(),
+            location,
+            &self.aliasing,
+            diagnostics,
+            &mut self.alias_findings,
+        ) else {
             return None;
         };
         let bindings: BTreeMap<&str, &str> = alias
@@ -564,36 +648,58 @@ impl<'a> Instantiator<'a> {
             .map(String::as_str)
             .zip(args.iter().map(String::as_str))
             .collect();
-        Some((alias, substitute(&alias.schema, &bindings)))
+        // A target that names the next alias twice doubles per link.
+        let mut left = self.budget;
+        let Some(schema) = alias_target(&alias.schema, &bindings, &mut left) else {
+            self.report_budget(text, location, diagnostics);
+            return None;
+        };
+        self.budget = left;
+        Some((alias, schema))
     }
 
     /// The inline schema of a `$Vec<T>`-style shorthand: std containers and
     /// other types of the type table that are not shadowed by a blueprint of
-    /// the same name.
+    /// the same name. While an instance or alias target is built, the schema
+    /// uses the budget: `$Vec<Vec<…<u8>>>` is a few bytes of text per level
+    /// and an object each.
     fn std_container(
         &mut self,
         text: &str,
         generic: &GenericRef,
         location: &Location,
         diagnostics: &mut Diagnostics,
-    ) -> Option<Value> {
+    ) -> Inline {
         if self
             .registry
             .blueprint(last_segment(&generic.name))
             .is_some()
         {
-            return None;
+            return Inline::Other;
         }
-        let ty = TypeExpr::parse(text)?;
+        let Some(ty) = TypeExpr::parse(text) else {
+            return Inline::Other;
+        };
         let mapped = self.types.map(&ty);
         if !is_container(last_segment(&generic.name)) && mapped.schema.get("$ref").is_some() {
-            return None;
+            return Inline::Other;
         }
         // A bare built-in name (`$Vec<Duration>`) may stand for a documented
         // schema.
         let mut schema = shadow::typed(self.types, &ty, MappedType::into_schema);
+        if self.creating() && spend(&mut self.budget, size(&schema)).is_none() {
+            self.report_budget(text, location, diagnostics);
+            return Inline::Exhausted;
+        }
         self.apply(&mut schema, location, diagnostics);
-        Some(schema)
+        Inline::Schema(schema)
+    }
+
+    /// Whether an instance or the target of a type alias is being built,
+    /// whose values use the budget: what the inputs write is bounded by
+    /// their size, what a template makes of it is not.
+    fn creating(&self) -> bool {
+        !self.in_progress.is_empty() || !self.aliasing.is_empty()
     }
 
     /// The concrete schemas created so far, by name, with the location of
@@ -632,6 +738,17 @@ impl<'a> Instantiator<'a> {
         self.concrete
     }
 
+    /// What is left of [`MAX_INSTANTIATED_SIZE`], whether running out was
+    /// reported, and the alias findings reported: the references stage
+    /// continues with them.
+    pub(crate) fn hand_over(&mut self) -> (usize, bool, BTreeSet<String>) {
+        (
+            self.budget,
+            self.budget_reported,
+            std::mem::take(&mut self.alias_findings),
+        )
+    }
+
     /// The replacement of the generic reference `text`: the inline schema of
     /// a std container, else a smart reference (`$Page_User`) to the
     /// concrete schema. `None` keeps `text` (instantiation failed).
@@ -643,11 +760,13 @@ impl<'a> Instantiator<'a> {
         diagnostics: &mut Diagnostics,
     ) -> Option<Value> {
         // `$Vec<T>` and other std containers are inline arrays, not templates.
-        if let Some(schema) = self.std_container(text, generic, location, diagnostics) {
-            return Some(schema);
+        match self.std_container(text, generic, location, diagnostics) {
+            Inline::Schema(schema) => Some(schema),
+            Inline::Exhausted => None,
+            Inline::Other => self
+                .instantiate(generic, location, diagnostics)
+                .map(|name| Value::String(format!("${name}"))),
         }
-        self.instantiate(generic, location, diagnostics)
-            .map(|name| Value::String(format!("${name}")))
     }
 
     /// Creates the concrete schema for `generic`; returns its name.
@@ -657,7 +776,11 @@ impl<'a> Instantiator<'a> {
         location: &Location,
         diagnostics: &mut Diagnostics,
     ) -> Option<String> {
-        let generic = &self.unaliased(generic, location);
+        let Some(generic) = self.unaliased(generic, location) else {
+            self.report_budget(&format!("${}", generic.text()), location, diagnostics);
+            return None;
+        };
+        let generic = &generic;
         let Some(blueprint) = self.registry.blueprint(last_segment(&generic.name)) else {
             diagnostics.push(
                 Diagnostic::new(
@@ -693,13 +816,20 @@ impl<'a> Instantiator<'a> {
             return Some(name);
         }
         if self.in_progress.len() >= MAX_DEPTH {
-            diagnostics.push(
-                Diagnostic::new(
-                    Code::InstantiationDepth,
-                    format!("instantiating `{name}` exceeds the nesting limit of {MAX_DEPTH}"),
-                )
-                .at(location.clone()),
-            );
+            // Once per blueprint: a blueprint whose instances refer to two
+            // deeper instances reaches the limit tens of thousands of times.
+            let blueprint = last_segment(&generic.name);
+            if self.depth_findings.insert(blueprint.to_string()) {
+                diagnostics.push(
+                    Diagnostic::new(
+                        Code::InstantiationDepth,
+                        format!(
+                            "instantiating `{name}` exceeds the nesting limit of {MAX_DEPTH}; later instances of `{blueprint}` beyond it are not reported"
+                        ),
+                    )
+                    .at(location.clone()),
+                );
+            }
             return None;
         }
         if arg_names.len() != blueprint.params.len() {
@@ -722,7 +852,10 @@ impl<'a> Instantiator<'a> {
             .map(String::as_str)
             .zip(arg_names.iter().map(String::as_str))
             .collect();
-        let mut body = substitute(&blueprint.schema, &bindings);
+        let Some(mut body) = self.within_budget(&name, &blueprint.schema, &bindings) else {
+            self.report_budget(&format!("${}", generic.text()), location, diagnostics);
+            return None;
+        };
 
         self.in_progress.push(name.clone());
         self.apply(&mut body, location, diagnostics);
@@ -731,33 +864,80 @@ impl<'a> Instantiator<'a> {
         Some(name)
     }
 
+    /// Reports once that the instance, type alias, inline schema or wrapped
+    /// reference `reference` exceeds [`MAX_INSTANTIATED_SIZE`], which is
+    /// used up from now on.
+    fn report_budget(
+        &mut self,
+        reference: &str,
+        location: &Location,
+        diagnostics: &mut Diagnostics,
+    ) {
+        self.budget = 0;
+        if !self.budget_reported {
+            self.budget_reported = true;
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::InstantiationLimit,
+                    format!(
+                        "`{reference}` exceeds the total size of {MAX_INSTANTIATED_SIZE} bytes for concrete schemas and type alias targets; it and later ones are not created"
+                    ),
+                )
+                .at(location.clone()),
+            );
+        }
+    }
+
+    /// The body of the instance `name` of `schema`, if [`INSTANCE_COST`],
+    /// the name and the body fit in what is left of
+    /// [`MAX_INSTANTIATED_SIZE`]; they use it.
+    fn within_budget(
+        &mut self,
+        name: &str,
+        schema: &Value,
+        bindings: &BTreeMap<&str, &str>,
+    ) -> Option<Value> {
+        let mut left = self.budget;
+        spend(&mut left, INSTANCE_COST.saturating_add(name.len()))?;
+        let body = substitute_within(schema, bindings, &mut left)?;
+        self.budget = left;
+        Some(body)
+    }
+
     /// `generic` with every argument that names a transparent type alias
     /// replaced by the alias's target, also inside nested arguments, so that
     /// `Page<Owner>` (`type Owner = User;`) is the instance `Page_User`. An
     /// argument whose alias cannot replace it (ambiguous, a cycle) stays; it
-    /// is reported where its schema is resolved.
-    fn unaliased(&self, generic: &GenericRef, location: &Location) -> GenericRef {
+    /// is reported where its schema is resolved. The alias targets use the
+    /// budget of [`MAX_INSTANTIATED_SIZE`]: an alias whose target names the
+    /// next one twice doubles the argument per link. `None` when it runs
+    /// out.
+    fn unaliased(&mut self, generic: &GenericRef, location: &Location) -> Option<GenericRef> {
         let mut expanding = self.aliasing.clone();
-        GenericRef {
+        let mut budget = self.budget;
+        let args = generic
+            .args
+            .iter()
+            .map(|arg| self.unalias(arg, location, &mut expanding, &mut budget))
+            .collect::<Option<Vec<_>>>();
+        self.budget = budget;
+        Some(GenericRef {
             name: generic.name.clone(),
-            args: generic
-                .args
-                .iter()
-                .map(|arg| self.unalias(arg, location, &mut expanding))
-                .collect(),
-        }
+            args: args?,
+        })
     }
 
     /// `arg` with transparent aliases replaced by their targets (see
     /// [`Self::unaliased`]); names in a target are looked up at the alias.
     /// `expanding` holds the aliases being replaced, so that a cycle stops
-    /// with the name as written.
+    /// with the name as written; the targets use `budget`.
     fn unalias(
         &self,
         arg: &GenericArg,
         location: &Location,
         expanding: &mut Vec<String>,
-    ) -> GenericArg {
+        budget: &mut usize,
+    ) -> Option<GenericArg> {
         let (name, args): (&str, Vec<GenericArg>) = match arg {
             GenericArg::Name(name) => (last_segment(name), Vec::new()),
             GenericArg::Generic(inner) => (
@@ -765,8 +945,8 @@ impl<'a> Instantiator<'a> {
                 inner
                     .args
                     .iter()
-                    .map(|arg| self.unalias(arg, location, expanding))
-                    .collect(),
+                    .map(|arg| self.unalias(arg, location, expanding, budget))
+                    .collect::<Option<_>>()?,
             ),
         };
         let lookup = Lookup {
@@ -780,29 +960,35 @@ impl<'a> Instantiator<'a> {
             location,
             expanding,
             &mut Diagnostics::new(),
+            &mut BTreeSet::new(),
         );
         if let Found::Alias(alias) = found
-            && let Some(target) = bound_target(alias, &args)
+            && let Some(target) = bound_target(alias, &args, budget)?
         {
             expanding.push(alias.rust_name.clone());
-            let target = self.unalias(&target, &alias.location, expanding);
+            let target = self.unalias(&target, &alias.location, expanding, budget);
             expanding.pop();
             return target;
         }
-        match arg {
+        Some(match arg {
             GenericArg::Name(_) => arg.clone(),
             GenericArg::Generic(inner) => GenericArg::Generic(GenericRef {
                 name: inner.name.clone(),
                 args,
             }),
-        }
+        })
     }
 }
 
 /// The target of `alias` with its type parameters bound to `args`, as a
-/// generic argument; `None` when the target is no named type (a tuple, an
-/// array).
-fn bound_target(alias: &AliasItem, args: &[GenericArg]) -> Option<GenericArg> {
+/// generic argument (`Some(None)` when the target is no named type: a tuple,
+/// an array). The texts of the arguments and of the target use `budget`;
+/// `None` when it runs out.
+fn bound_target(
+    alias: &AliasItem,
+    args: &[GenericArg],
+    budget: &mut usize,
+) -> Option<Option<GenericArg>> {
     let texts: Vec<String> = args
         .iter()
         .map(|arg| match arg {
@@ -810,17 +996,26 @@ fn bound_target(alias: &AliasItem, args: &[GenericArg]) -> Option<GenericArg> {
             GenericArg::Generic(inner) => inner.text(),
         })
         .collect();
+    spend(
+        budget,
+        ALIAS_COST + texts.iter().map(String::len).sum::<usize>(),
+    )?;
     let bindings: BTreeMap<&str, &str> = alias
         .params
         .iter()
         .map(String::as_str)
         .zip(texts.iter().map(String::as_str))
         .collect();
-    let Value::String(target) = substitute(&Value::String(alias.target.clone()), &bindings) else {
-        return None;
+    let Value::String(target) =
+        substitute_within(&Value::String(alias.target.clone()), &bindings, budget)?
+    else {
+        return Some(None);
     };
-    let (arg, rest) = parse_arg(&target, 0)?;
-    rest.trim().is_empty().then_some(arg)
+    Some(
+        parse_arg(&target, 0)
+            .filter(|(_, rest)| rest.trim().is_empty())
+            .map(|(arg, _)| arg),
+    )
 }
 
 /// A `$Param` identifier in a blueprint string; captures the name.
@@ -832,31 +1027,125 @@ static PLACEHOLDER_RE: LazyLock<Regex> =
 /// whole generic reference (`$Envelope<T>`), bare parameter names are bound
 /// as well.
 pub(crate) fn substitute(schema: &Value, bindings: &BTreeMap<&str, &str>) -> Value {
-    let replace = |text: &str| -> String {
-        PLACEHOLDER_RE
-            .replace_all(text, |caps: &Captures| match bindings.get(&caps[1]) {
-                Some(arg) => format!("${arg}"),
-                None => caps[0].to_string(),
-            })
-            .into_owned()
-    };
+    let mut unlimited = usize::MAX;
+    substitute_within(schema, bindings, &mut unlimited).unwrap_or_default()
+}
+
+/// [`substitute`] within `budget`, which the result uses as counted for
+/// [`MAX_INSTANTIATED_SIZE`] (see [`size`]); `None` if it does not fit.
+/// Every string is measured before it is built.
+fn substitute_within(
+    schema: &Value,
+    bindings: &BTreeMap<&str, &str>,
+    budget: &mut usize,
+) -> Option<Value> {
     match schema {
         // A whole generic reference: parameters are bound with or without
         // `$` (reflection writes `$Envelope<T>` for a field `Envelope<T>`).
-        Value::String(s) => Value::String(match GenericRef::parse(s) {
-            Some(generic) => format!("${}", rebind(&generic, bindings)),
-            None => replace(s),
-        }),
+        Value::String(s) => Some(Value::String(match GenericRef::parse(s) {
+            Some(generic) => {
+                spend(budget, VALUE_COST + 1 + rebound_len(&generic, bindings))?;
+                format!("${}", rebind(&generic, bindings))
+            }
+            None => {
+                spend(budget, VALUE_COST + replaced_len(s, bindings))?;
+                replace_placeholders(s, bindings)
+            }
+        })),
         Value::Array(items) => {
-            Value::Array(items.iter().map(|i| substitute(i, bindings)).collect())
+            spend(budget, VALUE_COST)?;
+            items
+                .iter()
+                .map(|item| substitute_within(item, bindings, budget))
+                .collect::<Option<Vec<_>>>()
+                .map(Value::Array)
         }
-        Value::Object(map) => Value::Object(
-            map.iter()
-                .map(|(k, v)| (replace(k), substitute(v, bindings)))
-                .collect::<Map<_, _>>(),
-        ),
-        other => other.clone(),
+        Value::Object(map) => {
+            spend(budget, VALUE_COST)?;
+            let mut out = Map::new();
+            for (key, value) in map {
+                spend(budget, replaced_len(key, bindings))?;
+                let key = replace_placeholders(key, bindings);
+                out.insert(key, substitute_within(value, bindings, budget)?);
+            }
+            Some(Value::Object(out))
+        }
+        other => {
+            spend(budget, VALUE_COST)?;
+            Some(other.clone())
+        }
     }
+}
+
+/// What the built `value` costs of [`MAX_INSTANTIATED_SIZE`]: the bytes of
+/// its strings and keys and [`VALUE_COST`] per value, as
+/// [`substitute_within`] counts before building.
+fn size(value: &Value) -> usize {
+    match value {
+        Value::String(s) => VALUE_COST.saturating_add(s.len()),
+        Value::Array(items) => items
+            .iter()
+            .map(size)
+            .fold(VALUE_COST, usize::saturating_add),
+        Value::Object(map) => map
+            .iter()
+            .map(|(key, value)| key.len().saturating_add(size(value)))
+            .fold(VALUE_COST, usize::saturating_add),
+        _ => VALUE_COST,
+    }
+}
+
+/// The target `schema` of a replaced type alias with its parameters bound,
+/// if [`ALIAS_COST`] and the target fit in `budget`, which they use.
+pub(crate) fn alias_target(
+    schema: &Value,
+    bindings: &BTreeMap<&str, &str>,
+    budget: &mut usize,
+) -> Option<Value> {
+    spend(budget, ALIAS_COST)?;
+    substitute_within(schema, bindings, budget)
+}
+
+/// Takes `size` from `budget`; `None` if it holds less.
+fn spend(budget: &mut usize, size: usize) -> Option<()> {
+    *budget = budget.checked_sub(size)?;
+    Some(())
+}
+
+/// `text` with every bound `$Param` replaced by `$` and its binding.
+fn replace_placeholders(text: &str, bindings: &BTreeMap<&str, &str>) -> String {
+    PLACEHOLDER_RE
+        .replace_all(text, |caps: &Captures| match bindings.get(&caps[1]) {
+            Some(arg) => format!("${arg}"),
+            None => caps[0].to_string(),
+        })
+        .into_owned()
+}
+
+/// The length of [`replace_placeholders`] of `text`, without building it.
+fn replaced_len(text: &str, bindings: &BTreeMap<&str, &str>) -> usize {
+    PLACEHOLDER_RE
+        .captures_iter(text)
+        .fold(text.len(), |len, caps| match bindings.get(&caps[1]) {
+            Some(arg) => len + arg.len() - caps[1].len(),
+            None => len,
+        })
+}
+
+/// The length of [`rebind`] of `generic`, without building it.
+fn rebound_len(generic: &GenericRef, bindings: &BTreeMap<&str, &str>) -> usize {
+    let args: usize = generic
+        .args
+        .iter()
+        .map(|arg| match arg {
+            GenericArg::Name(name) => bindings
+                .get(name.as_str())
+                .map_or(name.len(), |bound| bound.len()),
+            GenericArg::Generic(inner) => rebound_len(inner, bindings),
+        })
+        .sum();
+    // `Name<…>` and `, ` between the arguments.
+    generic.name.len() + 2 + args + 2 * generic.args.len().saturating_sub(1)
 }
 
 /// `generic` as type text without the leading `$`, with every argument that

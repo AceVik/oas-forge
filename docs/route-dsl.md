@@ -203,7 +203,11 @@ and examples (`@example`) become the parameter's, not its schema's. Fields of `#
 flattened `Option<T>` makes its fields optional. A path such as
 `models::Pagination` names the struct by its last segment. It works for
 `path`, `header` and `cookie` too. Parameters written explicitly win over
-expanded ones with the same name.
+expanded ones with the same name. The parameters that expansion adds to a
+document share 16 MiB (each costs 256 besides its JSON text), and
+collecting the fields of a document's expansions visits at most 4,194,304
+schemas, properties and required names; an expansion beyond either is
+left out and reported (`OF3016`).
 
 A `querystring` parameter (OpenAPI 3.2) describes the whole query string
 with a schema; it is written as
@@ -242,6 +246,10 @@ body is required unless it is `optional` or an `Option<T>`.
   the flag `required` follows the type (`@return-header 201 Location: String
   required "URL of the new item"`); `optional` may be written for clarity.
   The type defaults to `String`.
+- A `@security` scheme, a header name, a status code, a webhook name or a
+  media type with the prefix `x-oas-forge-` is rejected and its line
+  ignored (`OF0009`,
+  [reserved keys](templates.md#reserved-keys)).
 - Status ranges (`2XX`) and `default` are allowed.
 - `stream<T>` uses `text/event-stream` unless a media type is given and
   documents the items with `itemSchema` (OpenAPI 3.2; older targets get an
@@ -382,11 +390,14 @@ exactly one `/`, and may declare parameters inline
 prefix is the prefix itself (`/tenants/{tenant}`, without trailing slash);
 other paths keep a trailing slash they are written with. Parameters, responses
 and other directives are added to each route unless the route sets the same
-itself: the route's tags and security win. A response for a status the route
+itself: the route's tags and security win (also over `security:` in the
+YAML of the defaults). A response for a status the route
 has too is combined with the route's (media types add up, descriptions of
 the defaults first, see [responses](#responses)); when both give one media
 type a different schema, the route's response wins and a note (`OF4001`)
-says so. Likewise, the `@tag`
+says so. A `@return-header` of the route replaces the one of the defaults
+with the same status and name (compared without regard to case), schema
+and all. Likewise, the `@tag`
 and `@security` lines of an inner module replace those of the outer modules
 (in the example, `invoice` is tagged `Billing` only); within one module,
 several lines add up. Webhooks get no path parameters from the defaults.
@@ -473,6 +484,9 @@ pub mod admin {
   lines may stand between the header and the opening fence or right after
   the closing fence (`@openapi document` blocks on types included).
 - A block without `@scope` is shared: it is part of every scope's document.
+  A scope whose document gets no root because the only root is scoped
+  elsewhere loses the root's global `security` and `servers`; that is
+  reported (`OF4002`).
   Reflected types, `@openapi-type` schemas, templates, fragments and YAML
   files are always shared.
 - The documents of the scopes are merged separately, so the same path may

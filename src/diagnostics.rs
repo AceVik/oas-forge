@@ -5,8 +5,43 @@
 //! annotation that caused it. Nothing is skipped silently: an input that cannot
 //! be used produces at least a warning.
 
+use std::borrow::Cow;
 use std::fmt;
 use std::path::{Path, PathBuf};
+
+/// `text` with control characters (line breaks, escape sequences) and
+/// bidirectional formatting characters escaped as `\n`, `\u{1b}`, … The
+/// text of findings and errors comes from the inputs; printed as it is, it
+/// could rewrite a terminal line or start a line that looks like another
+/// finding. [`Diagnostic`], [`Location`] and [`Error`](crate::Error)
+/// display their text this way; [`Diagnostic::message`] keeps it unchanged.
+///
+/// # Examples
+///
+/// ```
+/// use oas_forge::diagnostics::printable;
+///
+/// assert_eq!(printable("plain text"), "plain text");
+/// assert_eq!(printable("a\u{1b}[2Kb\nc\u{202e}d"), "a\\u{1b}[2Kb\\nc\\u{202e}d");
+/// ```
+pub fn printable(text: &str) -> Cow<'_, str> {
+    /// Characters that are escaped.
+    fn hidden(c: char) -> bool {
+        c.is_control() || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+    }
+    if !text.chars().any(hidden) {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    for c in text.chars() {
+        if hidden(c) {
+            out.extend(c.escape_default());
+        } else {
+            out.push(c);
+        }
+    }
+    Cow::Owned(out)
+}
 
 /// A position in an input file (1-based line, optional 1-based column).
 ///
@@ -121,7 +156,8 @@ impl Location {
 
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}", self.file.display(), self.line)?;
+        let file = self.file.display().to_string();
+        write!(f, "{}:{}", printable(&file), self.line)?;
         if let Some(column) = self.column {
             write!(f, ":{column}")?;
         }
@@ -341,6 +377,16 @@ codes! {
     InvalidGenericReference = "OF3015", Error;
     /// Expanding fragments exceeded the work or text size budget.
     ExpansionLimit = "OF3016", Error;
+    /// A symbolic link in an input directory leads outside every input directory and was skipped.
+    LinkOutsideInputs = "OF0008", Warning;
+    /// A chain of type aliases is longer than the limit; the reference is not resolved.
+    AliasDepthLimit = "OF3017", Warning;
+    /// Generic instantiation exceeded the total size budget for concrete schemas.
+    InstantiationLimit = "OF3018", Error;
+    /// The root of the sources is not in the scope of a document, which therefore lacks its `security`, `servers` and other root fields.
+    RootOutOfScope = "OF4002", Warning;
+    /// A source writes a key of the reserved prefix `x-oas-forge-`, the generator's own markers; the key is removed.
+    ReservedKey = "OF0009", Error;
 }
 
 impl fmt::Display for Code {
@@ -565,7 +611,13 @@ impl Diagnostic {
 
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}[{}]: {}", self.severity, self.code, self.message)?;
+        write!(
+            f,
+            "{}[{}]: {}",
+            self.severity,
+            self.code,
+            printable(&self.message)
+        )?;
         if let Some(location) = &self.location {
             write!(f, " ({location})")?;
         }

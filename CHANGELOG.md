@@ -13,6 +13,11 @@ All notable changes to `oas-forge` will be documented in this file.
   policy checks.
 
 ### Fixed
+- A `@return-header` of a route replaces the header of the same status and
+  name from its `@route-defaults`, like a parameter. Before, the two
+  schemas were merged (`Duration` over `Uuid` gave a string with
+  `properties`), and which one won depended on the types the crate
+  documents.
 - Combined `@security` requirements retain all scopes when a scheme is
   repeated. Plus signs inside scopes and commas inside quoted scopes no
   longer split requirements or scope names.
@@ -25,13 +30,160 @@ All notable changes to `oas-forge` will be documented in this file.
   exhausting the stack. Malformed generic references report error `OF3015`.
 - Fragment inserts and extensions have total work and text budgets, preventing
   exponential expansion even without cycles. Oversized substituted fragment
-  bodies are rejected before allocation (error `OF3016`).
+  bodies are rejected before allocation (error `OF3016`). The expansions
+  of a run also share 32 MiB of pasted text (inserted fragment lines,
+  `@extend` bodies and the copies of `@route-defaults` in each route):
+  each block stayed within its 16 MiB, but a hundred blocks inserting one
+  large fragment, or 1500 routes under 1500 lines of defaults, filled
+  gigabytes. Text written in the inputs does not count. The copy of a
+  `.proto` file in each `proto(...)` message counts too; 40 messages of
+  one 8 MiB file took 1.8 GB. So do the copies of a block and of its
+  module defaults for its `@route` lines after the first (a block is
+  compiled once per line): 500 lines over 500 `@param` lines took 2 GB,
+  400 lines under 4000 lines of defaults 9.5 GB; the lines that do not
+  fit are left out with one finding. Each pasted or copied line costs 256 bytes besides
+  its text (not the `.proto` copies, which stay one string): a short line
+  such as `@param query q: u8` becomes kilobytes of document, and 32 MiB of
+  them, pasted by a 150 KB input, took 11 GB. A route or channel block that the expansion cut
+  (at 65 536 lines, or because a fragment did not fit) is left out with
+  its finding; before, the lines left were compiled as an operation of
+  part of the block.
+- Channel blocks that define one message name differently are compared
+  through a set; 10 000 of them took a minute. So are the messages of one
+  block (20 000 `@send` lines of one name took minutes), the messages its
+  operations refer to, the lines of its `@openapi message` sections
+  (grouped once; 40 000 messages with a section each took over a minute)
+  and its `@ws-query` and `@ws-header` names (a later declaration still
+  replaces the earlier one in its place; 100 000 took a minute).
 - Variable substitution is size limited and preserves newlines and control
   characters in whole YAML string values. Multiline prose and subsequent
   YAML lines keep their original source locations.
 - A finding with line breaks, for example one quoting a YAML string, is
   printed as one `cargo:warning=` per line. Before, its second line reached
   Cargo as a directive of its own, such as `cargo:rustc-cfg=…`.
+- Findings, locations and errors display control characters and
+  bidirectional formatting characters escaped (`\n`, `\u{1b}`, …; new
+  function `diagnostics::printable`), also in the CLI and in the context of
+  a YAML error. Before, text from the inputs could move the cursor, recolor
+  or overwrite a terminal line, or start a line that looked like another
+  finding. `Diagnostic::message` and the JSON output keep the text as it is.
+  Configuration errors keep their line breaks.
+- A symbolic link in an input directory that leads outside every input
+  directory is skipped with the new warning `OF0008`. Before, a link such
+  as `src/x.yaml -> ~/.config/gh/hosts.yml` merged that file into the
+  document. Links into any input are still followed; add a link's target
+  as an input or include to read it.
+- An output path that leads to a FIFO, a device or another non-regular
+  file is replaced without being read, and of a regular file no more is
+  read than a current output can hold. Before, a committed link
+  `openapi.yaml -> /dev/zero` filled the memory and one to a FIFO blocked
+  the run.
+- Indexing a `.proto` file checks its messages for duplicates in
+  logarithmic time; a file with a few hundred thousand messages took
+  minutes before.
+- A chain of more than 64 type aliases is reported (new warning `OF3017`)
+  and not resolved. Each link was resolved by a recursive call, so a chain
+  of 20 000 aliases overflowed the stack and aborted the run.
+- Generic instantiation has a total size budget of 16 MiB for the concrete
+  schemas of a run (new error `OF3018`). A blueprint whose instances refer
+  to two larger instances of itself grew exponentially within the depth
+  limit and ran until the memory was exhausted; each body is measured
+  before it is built. The targets of replaced type aliases use the same
+  budget (in the generics and the references stage): a chain of aliases
+  whose target names the next alias twice, such as
+  `type T0<X> = (T1<X>, T1<X>);`, doubled with every link, so 20 links ran
+  for minutes and wrote 700 MB. The budget counted text, but memory grows
+  per value: each value of a concrete schema or alias target now costs 32
+  bytes besides its text and each instance 256, and the inline schemas of
+  std containers (`$Vec<…>`) and the references wrapped into `{ $ref: … }`
+  while an instance is built count too. A template of 1000 properties
+  `{ $ref: '$T' }` used with 400 arguments `Vec<Vec<…<u8>>>` of growing
+  depth (68 KB) took 4.9 GB before the budget stopped it, now 320 MB; one
+  of 4000 properties used with 400 own types (172 KB) 2.3 GB, now 470 MB.
+  A template whose body names two more instances of itself
+  (`$Two<Vec<T>>`, `$Two<Option<T>>`; 483 bytes) created 30 000 small
+  instances within the depth limit, took 1.6 GB and reported `OF3006` for
+  each of the 30 000 leaves; now 290 MB, and `OF3006` is reported once per
+  template, at the first instance that reaches the limit. About 220 000
+  properties `{ $ref: … }` across all instances fit; a template of 2000 of
+  them used with 200 types (88 KB, 22 MB of output) now exceeds the budget
+  after 109 instances.
+- Rust sources are parsed on a thread with a 256 MiB stack (32 MiB on
+  32-bit targets) in `Generator::build`, `generate_from_sources` and
+  `extract::extract`. `syn` recurses once per nesting level, so about 150
+  nested types overflowed the 8 MiB main thread of a build script (about
+  20 on Windows, whose main thread has 1 MiB) and aborted the process.
+  `TypeExpr::parse` returns `None` for types nested more than 32 levels.
+- An annotation that adds entries to a `security` or `servers` list that
+  another annotation set (at the root, on a path or an operation), or adds
+  such a list to an operation or path that another annotation defined, is
+  reported (`OF4001`). The lists are joined, or the operation's own list
+  replaces the document's, so a second `security: [{}]` made
+  authentication optional without a finding. So is an annotation that adds
+  to an operation or path whose `security` or `servers` another annotation
+  set, so the order of the files does not matter, and one that adds a key
+  to a security scheme another annotation defined, such as an OAuth2 flow
+  with another authorization URL.
+- A `security` list written in a route or next to `@extend` wins over the
+  one of a fragment or of the YAML of `@route-defaults`, as documented for
+  defaults. The lists were joined, so `security: [{}]` in a shared fragment
+  or module defaults made every route that used it public.
+- Merging annotations takes time in proportion to each annotation: the
+  items of a list were serialized again for every annotation that added to
+  it, and operation parameters were matched by scanning the list, so a few
+  thousand annotations adding to one list took minutes. Top-level tags are
+  merged by name through an index; 40 000 tags took a minute. Struct
+  expansion (`@query-params $Struct`, inferred `Query<T>`) checks
+  duplicates and required fields through sets; a struct with 10 000 fields
+  took a minute and a half. The parameters struct expansion adds to a
+  document share 16 MiB (each costs 256 besides its JSON text), since every
+  operation copies the struct's fields: 40 000 fields for 20 routes took
+  4.8 GB; an expansion that cannot fit is reported without copying a
+  field, and the fields of each struct are counted once (once the budget
+  was used up, 200 routes expanding 20 000 fields still copied and
+  serialized them all, for a minute, and 2000 routes walked them all); the
+  walks of a document visit at most 4 194 304 schemas, properties and
+  required names, since a struct that many structs flatten was walked for
+  each of them; and each
+  referenced schema is followed once, since a schema whose `allOf` refers
+  to itself 60 times took two minutes. Findings about type aliases (ambiguous names,
+  cycles, chains) are reported once through a set; each was compared with
+  all findings so far, so 40 000 uses of an ambiguous alias took minutes.
+  The lists a route block builds are indexed as well: `@param` lines (a
+  later declaration of a name replaces the earlier one in its place; 20 000
+  took two minutes), the parameters of `@route-defaults` YAML a route
+  declares again, `@security` requirements and their scopes (a repeated
+  requirement is one whichever order its schemes have), `@tag` and `@scope`
+  names (100 000 names took a minute), the placeholders of a path, and the
+  findings a block with several `@route` lines or the routes of a module
+  report once (2000 invalid default lines under 2000 routes took forty
+  seconds). Scope pruning finds the parents of used tags with one lookup
+  per name; going through all tags again for each level took 15 s for a
+  chain of 10 000 tags.
+- A YAML document holds at most four nodes per byte of its text (and 64
+  more): the 250 000 nodes the YAML library allows were a limit for each
+  document, block and file, so a hundred blocks of 690 bytes that expand
+  five levels of aliases to 111 111 nodes each took 12 s and 5.5 GB.
+  Plain YAML has about one node for two bytes; anchors reused in moderation
+  stay well below. Its scalars are limited the same way, to 16 bytes per
+  byte of text (and 1024): a 16 KB scalar aliased 4000 times (64 MiB per
+  document were allowed) in a 41 KB block that 16 `@route` lines copied
+  took 6 GB. A document over either limit is reported with the limits;
+  a large part repeated more than about fifteen times is better a `$ref`
+  than a YAML anchor.
+- The schema of a `Range` holds its element twice, so nested ranges doubled
+  with each level: `Range<Range<…>>` 18 levels deep (586 bytes) took
+  16 s and 3 GB. Nested ranges are mapped four levels deep; around more,
+  the element is `{}`.
+- The Swagger 2.0 export reports what it changed silently: `writeOnly`
+  kept as `x-writeOnly` (`OF6001`), and security schemes without `type`,
+  OAuth2 schemes without `flows` or a known flow, which it leaves out.
+  Security requirements it removes because they name such schemes are a
+  warning (`OF6002`) instead of a note.
+- A scope whose document has no root because the root of the sources is
+  scoped elsewhere is reported (new warning `OF4002`): the document lost
+  the root's global `security` and `servers`, and only a dropped note said
+  so, although the line that caused it does not touch `security`.
 - A `Cargo.toml` next to a scanned `src` directory that cannot be read or
   has no `[package] name` is reported (new warning `OF0007`) instead of
   silently naming the crate after its directory.
@@ -64,6 +216,86 @@ All notable changes to `oas-forge` will be documented in this file.
 - `@openapi document` (and `path`/`operation`) blocks on types keep the
   indentation of their YAML: a block with two top-level keys was a YAML
   error, because only its first line lost the doc comment's margin.
+- The `formData` parameters that the form bodies of a Swagger 2.0 export
+  add to its document share 16 MiB (each costs 256 bytes besides its JSON
+  text, like a parameter of struct expansion): every operation with a
+  form body copied the properties of its schema, so 1000 routes sending
+  one struct of 2000 fields as `application/x-www-form-urlencoded` (160 KB
+  of input) took 4.5 GB and wrote 295 MB. From the first form body that
+  does not fit on, form bodies are left out with error `OF3016`, which
+  fails the run like a struct expansion that does not fit; a form is
+  counted before it is built.
+- The OpenAPI 3.0 and Swagger 2.0 exports lower the alternative that
+  `anyOf: [S, {type: "null"}]` merges into its schema: `S` with
+  `type: [integer, string]` was written as `type: [integer, string]` with
+  `nullable: true`, which OpenAPI 3.0 rejects, and is now `anyOf` of both
+  types; `anyOf: [{type: "null"}]` was written as `anyOf: []` and is now
+  `enum: [null]` with `nullable: true`, like `type: "null"`.
+- A type naming several built-in types bare (`(Duration, Uuid, Url, …)`)
+  carried a copy of its whole schema for every subset of up to six such
+  names, until the references stage knew which of them are documented: 63
+  copies of a large field type per field took 2 GB and 4.6 s of CPU time
+  for 1000 such fields (216 KB of input, about 9 000 bytes of memory per
+  input byte), 4 GB and 9.3 s for 2000. Each name now carries one
+  reference-sized alternative where it is mapped, whatever the type around
+  it: the same inputs take 170 MB and 0.3 s, and 325 MB and 0.5 s, like a
+  type without such names. The limit of six names is gone: a type with more
+  bare built-in names follows the documented types too (its built-ins were
+  kept silently), and so does a name written in the target of a type alias
+  of an `Option` (`type MaybeDuration = Option<Duration>;`). A second
+  `@return` of a code with such a type replaces the alternative of the
+  first along with its schema.
+
+### Security
+- Keys of the reserved prefix `x-oas-forge-`, the generator's own markers,
+  written in a source (an `@openapi` block or override, an `@example`, a
+  fragment, the YAML of a route or channel block, an input file outside
+  the template wire format in `components`) are removed and reported as
+  error `OF0009`; a directive whose inline schema or flag value writes one
+  is ignored (`OF2004`). Before, a written `x-oas-forge-builtin` marker was
+  honoured like the generator's own and replaced the object around it (a
+  schema, an operation, a security requirement) without a finding, and any
+  written `x-oas-forge-*` key reached every output and hid a dangling
+  reference below it from the lints. The lints no longer skip such keys,
+  and a marker left in a finished document (by an imported template) is
+  removed with a finding.
+- A name that the route or channel DSL or reflection makes a key of the
+  document is rejected with the same error `OF0009` when it has the
+  reserved prefix, and what it names is left out: the scheme of
+  `@security` (the line is ignored, also in `@route-defaults`), the name
+  of `@return-header`, a status code of `@return`, `@return-header` or
+  `@problem`, the name of `@webhook`, a media type of `@body` or
+  `@return`, the
+  serialized name of a field or variant (`#[serde(rename)]`, `@openapi
+  rename`, or a `rename_all` rule applied to a Rust name such as
+  `x_oas_forge_builtin`), the name of a documented type, its
+  `#[serde(tag)]` and `#[serde(content)]`, the name of `@openapi-type`,
+  the id of `@channel` (written or derived from the address) and the
+  placeholders of its address, the names of `@send`, `@receive`,
+  `@ws-query` and `@ws-header`. Before, these names bypassed the check:
+  `@security x-oas-forge-builtin` gave `security: [{}]`, anonymous access,
+  without a finding; a field renamed `x-oas-forge-builtin` vanished from
+  `properties` but stayed in `required`, and with an override of two
+  fields it was a well-formed marker that replaced the `properties` of
+  its struct (a type of that name: `components.schemas`); a channel or
+  message of such a name was removed and left dangling references in the
+  AsyncAPI operations, or reached the AsyncAPI output. Each stage now
+  takes its marker only in the shape it writes it (a key of that name with
+  another value stays and is reported), the AsyncAPI document is swept
+  like the OpenAPI document, an `@extend` marker written by hand with a
+  value that is no fragment name is reported instead of dropped, and the
+  finding about a key left in a finished document names the two ways it
+  got there instead of a bug of the generator.
+- `{{env:NAME}}` placeholders read only the environment variables you allow
+  with `Generator::allow_env`, `allow_env = [...]` in the configuration or
+  `--allow-env NAME` (all new). Before, the sources chose the name, so a
+  source from an untrusted change (a pull request built in CI) could copy
+  any secret of the build environment, such as `GITHUB_TOKEN`, into the
+  document or a warning. Other `{{env:…}}` placeholders are kept, quoted
+  where they are a whole YAML value, and reported (`OF3009`);
+  `cargo:rerun-if-env-changed` is printed for allowed names only. **If you
+  use `{{env:…}}`, allow its names.** `generate_from_sources` and
+  `lexical::substitute` take `{{env:NAME}}` from the variable `env:NAME`.
 
 ## [0.2.0] — 2026-10-21
 

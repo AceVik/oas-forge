@@ -125,3 +125,24 @@ fn a_license_identifier_that_repeats_the_name_is_dropped_silently() {
         assert_eq!(diagnostics.len(), findings, "{license}: {diagnostics:?}");
     }
 }
+
+/// A nullable alternative with a `type` array, and one that allows only
+/// null, were written as `type: [integer, string]` and `anyOf: []`, which
+/// OpenAPI 3.0 rejects.
+#[test]
+fn nullable_alternatives_export_valid_schemas() {
+    let (spec, _project) = spec_of(&[(
+        "root.yaml",
+        "openapi: 3.1.0\ninfo: { title: T, version: '1' }\ncomponents:\n  schemas:\n    A: { anyOf: [ { type: [integer, string] }, { type: 'null' } ] }\n    E: { anyOf: [ { type: 'null' } ] }",
+    )]);
+    let (document, _) = spec.render_with_diagnostics(OutputKind::OpenApi30).unwrap();
+    let errors = spec::validate(&document);
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(
+        document["components"]["schemas"],
+        json!({
+            "A": { "anyOf": [{ "type": "integer" }, { "type": "string" }], "nullable": true },
+            "E": { "enum": [null], "nullable": true }
+        })
+    );
+}

@@ -7,6 +7,7 @@
 //!   - url: https://{{STAGE}}.example.com
 //! x-built-by: {{env:CARGO_PKG_NAME}}
 //! x-missing: '{{env:OAS_FORGE_CORPUS_UNSET}}'
+//! x-not-allowed: {{env:PATH}}
 
 /// @openapi
 /// x-stage: {{STAGE}}

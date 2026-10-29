@@ -80,6 +80,10 @@ pub struct Cli {
     #[arg(long = "var", value_name = "NAME=VALUE", value_parser = parse_variable)]
     pub var: Vec<(String, String)>,
 
+    /// Environment variable `{{env:NAME}}` placeholders may read (repeatable)
+    #[arg(long = "allow-env", value_name = "NAME")]
+    pub allow_env: Vec<String>,
+
     /// Write nothing; fail when an output is not up to date (for CI)
     #[arg(long = "check")]
     pub check: bool,
@@ -121,8 +125,10 @@ impl Cli {
     /// Resolves the effective configuration for working directory `dir`.
     ///
     /// Precedence from low to high: `Cargo.toml` metadata, `openapi.toml`,
-    /// the file given with `--config`, command-line flags. When no output of
-    /// any kind is configured, the full specification goes to `openapi.yaml`.
+    /// the file given with `--config`, command-line flags. The lists and
+    /// tables (`allow_env`, `variables`, `types`, `files`) add up instead.
+    /// When no output of any kind is configured, the full specification
+    /// goes to `openapi.yaml`.
     ///
     /// # Errors
     /// [`Error::Config`] when a configuration file exists but cannot be read
@@ -174,6 +180,9 @@ impl Cli {
         flags.scope = self.scope.clone();
         if !self.var.is_empty() {
             flags.variables = Some(self.var.iter().cloned().collect());
+        }
+        if !self.allow_env.is_empty() {
+            flags.allow_env = Some(self.allow_env.clone());
         }
         flags
     }

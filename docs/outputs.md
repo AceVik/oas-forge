@@ -110,7 +110,8 @@ own root.
 
 | 2020-12 | 3.0 |
 | :--- | :--- |
-| `type: [T, "null"]`, `anyOf: [S, {type: "null"}]` | `type: T`, `nullable: true` (a reference is wrapped in `allOf`) |
+| `type: [T, "null"]`, `anyOf: [S, {type: "null"}]` | `type: T`, `nullable: true` (a reference is wrapped in `allOf`; the keywords of `S` are lowered with the schema) |
+| `type: "null"`, `anyOf: [{type: "null"}]` | `enum: [null]`, `nullable: true` |
 | `type: [A, B]` | `anyOf` of both types |
 | `const: v` | `enum: [v]` |
 | `exclusiveMinimum: n` | `minimum: n`, `exclusiveMinimum: true` |
@@ -140,13 +141,18 @@ and `kind`, response `summary`, `components.pathItems` and `mediaTypes`, and
 - `components` become `definitions`, `parameters`, `responses` and
   `securityDefinitions`; references are rewritten.
 - Request bodies become a `body` parameter or `formData` parameters,
-  media types become `consumes` and `produces`.
+  media types become `consumes` and `produces`. The `formData` parameters
+  of a document share 16 MiB (each costs 256 bytes besides its JSON text,
+  as in struct expansion), since every operation with a form body copies
+  the properties of its schema: from the first form body that does not
+  fit on, form bodies are left out with error `OF3016`.
 - Parameters and headers get their primitive keywords directly; object or
   reference schemas are documented as strings.
 - Schema keywords Swagger lacks are kept as extensions: `nullable` as
   `x-nullable`, `oneOf`/`anyOf`/`not` as `x-oneOf`/…, `writeOnly` and
   `deprecated` as `x-writeOnly`/`x-deprecated`; the discriminator becomes a
-  property name.
+  property name. `x-writeOnly` is reported (`OF6001`): tools that ignore it
+  show a write-only property, such as a password, in responses.
 
 Left out or approximated, each reported once (`OF6001`, `OF6002`): cookie
 parameters (and references to them), `TRACE` operations, callbacks, response
@@ -155,12 +161,15 @@ operation wins), operation and path item `servers`, path item
 `summary`/`description`, HTTP authentication other than basic (documented as
 an `Authorization` header), OpenID Connect, mutual TLS, API keys in cookies,
 more than one OAuth2 flow per scheme (the first in Swagger order is used),
+OAuth2 schemes without `flows` or a known flow, schemes without `type`,
 `info.summary`, `license.identifier` and tag extensions.
 
 A security requirement alternative that names a left-out scheme (OpenID
 Connect, mutual TLS, an API key in a cookie) is removed; when no
 alternative remains, the requirements are kept as `x-security` instead of
-`security`, so the operation is not documented as public. References to
+`security`, so the operation is not documented as public. Either is a
+warning (`OF6002`), since readers of the export see weaker authentication.
+References to
 `components.headers` are resolved into the response headers.
 
 ## JSON Schema

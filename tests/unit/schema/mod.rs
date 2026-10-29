@@ -1,6 +1,7 @@
 //! `src/schema/`: type mapping, nullability and dialects.
 
 mod dialect;
+mod shadow;
 mod types;
 
 use oas_forge::schema::nullable;

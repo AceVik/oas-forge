@@ -1001,4 +1001,152 @@ mod message_names {
             json!([{ "$ref": "#/channels/echo/messages/Ping" }])
         );
     }
+
+    /// A definition that differs from any earlier one of its name is
+    /// reported, also when it equals one before the last.
+    #[test]
+    fn a_definition_unlike_any_earlier_one_is_reported() {
+        let (document, diagnostics) = numbered(&[
+            "@channel echo",
+            "@send Ping: u8",
+            "@send Ping: String",
+            "@send Ping: u8",
+        ]);
+        let found: Vec<String> = findings(&diagnostics)
+            .into_iter()
+            .map(|f| {
+                f.split_once(' ')
+                    .map_or(f.clone(), |(line, _)| line.to_string())
+            })
+            .collect();
+        assert_eq!(found, ["3:", "4:"]);
+        let document = document.unwrap();
+        assert_eq!(
+            document["components"]["messages"]["Ping"]["payload"],
+            json!({ "type": "integer", "format": "int32", "minimum": 0, "maximum": 255 })
+        );
+    }
+}
+
+/// Messages of one name are compared by content, whatever order the keys
+/// of their objects have, also inside lists.
+#[test]
+fn messages_with_equal_content_in_another_key_order_agree() {
+    let types = oas_forge::schema::TypeMapper::new()
+        .with_type(
+            "T1",
+            json!({ "oneOf": [{ "type": "string", "format": "x" }] }),
+        )
+        .with_type(
+            "T2",
+            json!({ "oneOf": [{ "format": "x", "type": "string" }] }),
+        )
+        .with_type(
+            "T3",
+            json!({ "oneOf": [{ "type": "string", "format": "y" }] }),
+        );
+    let lines = lines(&["@channel chat", "@send A: T1", "@send A: T2", "@send A: T3"]);
+    let location = here();
+    let mut diagnostics = Diagnostics::new();
+    compile_channel(
+        ChannelSource::new(&lines, &location).types(&types),
+        &mut diagnostics,
+    )
+    .expect("a valid channel");
+    // Only `T3` differs.
+    assert_eq!(codes(&diagnostics), [Code::MergeConflict]);
+}
+
+/// Large blocks: the messages, YAML lines and handshake parameters of a
+/// block were scanned for each new one, so tens of thousands took minutes.
+mod large_blocks {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// Compiles `block` (operation id `op`) in less than `seconds`.
+    fn compiled(block: Vec<String>, seconds: u64) -> (Value, Diagnostics) {
+        let location = here();
+        let mut diagnostics = Diagnostics::new();
+        let started = Instant::now();
+        let compiled = compile_channel(
+            ChannelSource::new(&block, &location).operation_id(Some("op")),
+            &mut diagnostics,
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(seconds),
+            "{:?}",
+            started.elapsed()
+        );
+        (compiled.expect("a valid channel").document, diagnostics)
+    }
+
+    /// 20 000 `@send` lines of one name (and content) took minutes: each was
+    /// compared with every earlier message of its name.
+    #[test]
+    fn many_messages_of_one_name() {
+        let mut block = vec!["@channel chat".to_string()];
+        block.extend(std::iter::repeat_n("@send A: String".to_string(), 20_000));
+        let (document, diagnostics) = compiled(block, 30);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(
+            document["components"]["messages"],
+            json!({ "A": { "name": "A", "payload": { "type": "string" } } })
+        );
+        assert_eq!(
+            document["operations"]["op"]["messages"],
+            json!([{ "$ref": "#/channels/chat/messages/A" }])
+        );
+    }
+
+    /// 40 000 `@send` lines of distinct names took over a minute: the
+    /// references of the operation were checked against all before.
+    #[test]
+    fn many_distinct_messages() {
+        let mut block = vec!["@channel chat".to_string()];
+        block.extend((0..40_000).map(|i| format!("@send M{i}: String")));
+        let (document, diagnostics) = compiled(block, 30);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let messages = document["components"]["messages"].as_object().unwrap();
+        assert_eq!(messages.len(), 40_000);
+        let refs = document["operations"]["op"]["messages"].as_array().unwrap();
+        assert_eq!(refs.len(), 40_000);
+        assert_eq!(
+            refs[39_999],
+            json!({ "$ref": "#/channels/chat/messages/M39999" })
+        );
+    }
+
+    /// 40 000 messages, each with its `@openapi message Name` YAML, took over
+    /// a minute: the YAML lines were filtered again for each message.
+    #[test]
+    fn many_message_sections() {
+        let mut block = vec!["@channel chat".to_string()];
+        block.extend((0..40_000).map(|i| format!("@send M{i}: String")));
+        for i in 0..40_000 {
+            block.push(format!("@openapi message M{i}"));
+            block.push(format!("title: T{i}"));
+        }
+        let (document, diagnostics) = compiled(block, 30);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let messages = document["components"]["messages"].as_object().unwrap();
+        assert_eq!(messages.len(), 40_000);
+        assert_eq!(messages["M0"]["title"], "T0");
+        assert_eq!(messages["M39999"]["title"], "T39999");
+    }
+
+    /// 120 000 `@ws-query` lines took a minute: each name was looked for in
+    /// the list of those before.
+    #[test]
+    fn many_handshake_parameters() {
+        let mut block = vec!["@channel chat".to_string(), "@send A: String".to_string()];
+        block.extend((0..120_000).map(|i| format!("@ws-query q{i}: String")));
+        block.push("@ws-query q7: u32".to_string());
+        let (document, diagnostics) = compiled(block, 30);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        let query = &document["channels"]["chat"]["bindings"]["ws"]["query"];
+        let names: Vec<&String> = query["properties"].as_object().unwrap().keys().collect();
+        assert_eq!(names.len(), 120_000);
+        assert_eq!(names[7], "q7");
+        assert_eq!(query["properties"]["q7"]["type"], "integer");
+    }
 }

@@ -2,23 +2,24 @@
 
 use super::attrs::validate::{Patterns, resolve_patterns};
 use super::config::Config;
-use super::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
+use super::diagnostics::{self, Code, Diagnostic, Diagnostics, Location, Severity};
 use super::document::for_each_operation;
 use super::dsl::{self, RouteSource};
 use super::error::{Error, Result};
 use super::extract::names::NameTable;
 use super::extract::{self, Item};
 use super::lint::{self, Lints, Origins};
-use super::merge::{Policy, merge};
+use super::merge::{ListChange, Merger, Policy, merge};
 use super::output::{self, Format, OutputKind};
 use super::package::Package;
 use super::proto::ProtoIndex;
+use super::reserved::{self, Keep};
 use super::schema::TypeMapper;
 use super::schema::dialect::{self, Dialect};
 use super::scope;
 use super::source::{DEFAULT_MAX_FILE_SIZE, DiscoverOptions, SourceFile, SourceKind, SourceSet};
 use super::template::generics::Instantiator;
-use super::template::lexical::{self, EXTEND_KEY, Variables};
+use super::template::lexical::{self, Variables};
 use super::template::refs::{self, KnownSchemas, Targets};
 use super::template::{Blueprint, Fragment, Registry, extend};
 use super::yaml;
@@ -55,6 +56,8 @@ pub struct Generator {
     scope: Option<String>,
     /// Values of `{{NAME}}` placeholders, `CARGO_PKG_*` included.
     variables: Variables,
+    /// The environment variables `{{env:NAME}}` placeholders may read.
+    allowed_env: BTreeSet<String>,
     /// Whether warnings are raised to errors after the run.
     deny_warnings: bool,
     /// The size limit per input file in bytes.
@@ -113,6 +116,7 @@ impl Default for Generator {
             outputs: Vec::new(),
             scope: None,
             variables,
+            allowed_env: BTreeSet::new(),
             deny_warnings: false,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             cargo_directives: false,
@@ -193,8 +197,10 @@ impl Generator {
             scope,
             types,
             variables,
+            allow_env,
             ..
         } = config;
+        self.allowed_env.extend(allow_env.unwrap_or_default());
         for (name, schema) in types.unwrap_or_default() {
             self.types = self.types.with_type(name, schema);
         }
@@ -637,6 +643,38 @@ impl Generator {
         self
     }
 
+    /// Lets `{{env:NAME}}` placeholders read the environment variable
+    /// `name` when the generator runs. Other `{{env:…}}` placeholders are
+    /// kept and reported ([`Code::UnknownVariable`]): the sources choose the
+    /// names, and a source from an untrusted change must not copy secrets of
+    /// the build environment into the document.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use oas_forge::Generator;
+    /// use oas_forge::diagnostics::Code;
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// let root = dir.path().join("root.yaml");
+    /// std::fs::write(
+    ///     &root,
+    ///     "openapi: 3.1.0\ninfo:\n  title: Shop\n  version: '{{env:CARGO_PKG_VERSION}}'\n  description: '{{env:PATH}}'\n",
+    /// )?;
+    ///
+    /// // Cargo sets `CARGO_PKG_VERSION` for doctests too.
+    /// let spec = Generator::new().include(&root).allow_env("CARGO_PKG_VERSION").build()?;
+    /// assert_eq!(spec.document()["info"]["version"], env!("CARGO_PKG_VERSION"));
+    /// assert_eq!(spec.document()["info"]["description"], "{{env:PATH}}");
+    /// let codes: Vec<Code> = spec.diagnostics().iter().map(|d| d.code()).collect();
+    /// assert_eq!(codes, [Code::UnknownVariable]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn allow_env(mut self, name: impl Into<String>) -> Self {
+        self.allowed_env.insert(name.into());
+        self
+    }
+
     /// Documents the Rust type `name` (or path `my_crate::Name`) with `schema`
     /// instead of the built-in mapping or a `$ref`.
     ///
@@ -906,14 +944,27 @@ impl Generator {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn build(&self) -> Result<Spec> {
+        extract::on_large_stack(|| self.build_here())
+    }
+
+    /// [`Self::build`] on the current thread.
+    fn build_here(&self) -> Result<Spec> {
         let mut diagnostics = Diagnostics::new();
         let options = DiscoverOptions::default()
             .with_exclude(self.outputs.iter().map(|(_, _, p)| p.clone()).collect())
             .with_max_file_size(self.max_file_size);
         let sources =
             SourceSet::discover(&self.inputs, &self.includes, &options, &mut diagnostics)?;
+        // `{{env:NAME}}` reads the variable `env:NAME`, set here for the
+        // allowed names that the environment has.
+        let mut variables = self.variables.clone();
+        for name in &self.allowed_env {
+            if let Ok(value) = std::env::var(name) {
+                variables.insert(format!("env:{name}"), value);
+            }
+        }
         let settings = Settings {
-            variables: &self.variables,
+            variables: &variables,
             types: &self.types,
             infer: self.infer,
         };
@@ -963,6 +1014,7 @@ impl Generator {
                 .files()
                 .iter()
                 .flat_map(|file| lexical::environment_variables(file.text()))
+                .filter(|name| self.allowed_env.contains(*name))
                 .map(str::to_string)
                 .collect::<BTreeSet<_>>()
                 .into_iter()
@@ -1227,7 +1279,8 @@ impl Spec {
         &self.watched
     }
 
-    /// Environment variables the inputs read with `{{env:NAME}}`, sorted.
+    /// Environment variables the inputs read with `{{env:NAME}}` and
+    /// [`Generator::allow_env`] allows, sorted.
     ///
     /// # Examples
     ///
@@ -1237,10 +1290,14 @@ impl Spec {
     /// let src = tempfile::tempdir()?;
     /// std::fs::write(
     ///     src.path().join("servers.yaml"),
-    ///     "servers:\n  - url: https://{{env:SHOP_API_HOST}}\n",
+    ///     "servers:\n  - url: https://{{env:SHOP_API_HOST}}/{{env:SHOP_SECRET}}\n",
     /// )?;
     ///
-    /// let spec = Generator::new().input(src.path()).without_package().build()?;
+    /// let spec = Generator::new()
+    ///     .input(src.path())
+    ///     .allow_env("SHOP_API_HOST")
+    ///     .without_package()
+    ///     .build()?;
     /// assert_eq!(spec.watched_env(), ["SHOP_API_HOST"]);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1660,6 +1717,15 @@ pub(crate) fn prepare(
     settings: Settings<'_>,
     diagnostics: &mut Diagnostics,
 ) -> Result<Prepared> {
+    lexical::with_run_budget(|| prepare_here(sources, settings, diagnostics))
+}
+
+/// [`prepare`] within the fragment expansion budget of the run.
+fn prepare_here(
+    sources: &SourceSet,
+    settings: Settings<'_>,
+    diagnostics: &mut Diagnostics,
+) -> Result<Prepared> {
     let Settings {
         types, variables, ..
     } = settings;
@@ -1734,6 +1800,7 @@ pub(crate) fn prepare(
     let mut defaults = RouteDefaults {
         modules,
         expanded: BTreeMap::new(),
+        reported: BTreeSet::new(),
     };
     for (position, item) in pending {
         let context = Context {
@@ -1757,19 +1824,29 @@ pub(crate) fn prepare(
     for snippet in &mut snippets {
         instantiator.apply(&mut snippet.value, &snippet.location, diagnostics);
     }
+    // The references stage replaces aliases with what is left.
+    let handed_over = instantiator.hand_over();
     let concrete = instantiator.into_concrete();
     for name in concrete.keys() {
         known.insert(name.clone());
     }
 
-    // Pass 4: smart references and pattern constants.
+    // Pass 4: smart references and pattern constants. Alias targets share
+    // one budget across the run.
+    let mut budget = refs::AliasBudget::after(handed_over);
     for snippet in &mut snippets {
         let targets = Targets {
             known: &known,
             registry: &registry,
             types,
         };
-        refs::resolve(&mut snippet.value, targets, &snippet.location, diagnostics);
+        refs::resolve_within(
+            &mut snippet.value,
+            targets,
+            &snippet.location,
+            diagnostics,
+            &mut budget,
+        );
         resolve_patterns(
             &mut snippet.value,
             &patterns,
@@ -1784,7 +1861,7 @@ pub(crate) fn prepare(
             registry: &registry,
             types,
         };
-        refs::resolve(&mut body, targets, &location, diagnostics);
+        refs::resolve_within(&mut body, targets, &location, diagnostics, &mut budget);
         resolve_patterns(&mut body, &patterns, &location, diagnostics);
         generated.push(Snippet::openapi(
             json!({ "components": { "schemas": { name: body } } }),
@@ -1811,7 +1888,12 @@ pub(crate) fn assemble(
         package,
         strict_lints,
     } = finish;
-    // Pass 5: merge.
+    // Pass 5: merge. A root that `@scope` keeps out leaves this document
+    // without its root fields: global `security` and `servers` included.
+    let root_out_of_scope = prepared
+        .snippets
+        .iter()
+        .find(|s| !s.asyncapi && output::is_root(&s.value) && !scope::includes(&s.scopes, scope));
     let (mut asyncapi, snippets): (Vec<Snippet>, Vec<Snippet>) = prepared
         .snippets
         .iter()
@@ -1836,6 +1918,20 @@ pub(crate) fn assemble(
         diagnostics,
     )?;
     let mut generated_keys = Vec::new();
+    if !output::is_root(&document)
+        && let Some(root) = root_out_of_scope
+    {
+        diagnostics.push(
+            Diagnostic::new(
+                Code::RootOutOfScope,
+                format!(
+                    "the root of the sources is not in scope `{}`; the document of that scope lacks its `security`, `servers` and other root fields",
+                    scope.unwrap_or_default()
+                ),
+            )
+            .at(root.location.clone()),
+        );
+    }
     if !output::is_root(&document)
         && let Some(package) = package
     {
@@ -1863,6 +1959,19 @@ pub(crate) fn assemble(
     output::strip_transport(&mut document);
     normalize(&mut document, diagnostics);
     dsl::expand::expand_parameters(&mut document, diagnostics);
+    // No stage uses the generator's keys from here on: none may stay, in
+    // either document. The AsyncAPI document shares the schemas of this
+    // one below, after the sweep.
+    reserved::sweep(
+        &mut document,
+        |pointer| origins.nearest(pointer).cloned(),
+        diagnostics,
+    );
+    reserved::sweep(
+        &mut asyncapi,
+        |pointer| asyncapi_origins.nearest(pointer).cloned(),
+        diagnostics,
+    );
     // The AsyncAPI document shares the schemas its messages use, before
     // pruning removes those no operation of the scope uses.
     let has_asyncapi = asyncapi.as_object().is_some_and(|map| !map.is_empty());
@@ -2129,6 +2238,10 @@ struct RouteDefaults {
     modules: BTreeMap<PathBuf, Vec<extract::ModuleItem>>,
     /// Expanded blocks by file and header line, each line with its location.
     expanded: BTreeMap<(PathBuf, usize), Vec<(String, Location)>>,
+    /// The findings about the defaults the route compiler reported so far
+    /// (their texts): every route compiles its module's defaults again, and
+    /// each finding about them is reported once.
+    reported: BTreeSet<String>,
 }
 
 /// Lexical expansion and parsing of one pending text.
@@ -2157,8 +2270,14 @@ fn materialize(
             tags,
         } => {
             let scoped = take_scopes(&text, &location, diagnostics);
-            let Some(mut value) =
-                parse_text(&scoped.text, registry, variables, &location, diagnostics)?
+            let Some(mut value) = parse_text(
+                &scoped.text,
+                registry,
+                variables,
+                &location,
+                diagnostics,
+                false,
+            )?
             else {
                 return Ok(None);
             };
@@ -2172,7 +2291,8 @@ fn materialize(
             text,
             location,
         } => {
-            let Some(value) = parse_any(&text, registry, variables, &location, diagnostics)? else {
+            let Some(value) = parse_any(&text, registry, variables, &location, diagnostics, false)?
+            else {
                 return Ok(None);
             };
             Ok(Some(Snippet::openapi(
@@ -2181,11 +2301,10 @@ fn materialize(
             )))
         }
         Pending::File { text, location } => {
-            let Some(mut value) = parse_text(&text, registry, variables, &location, diagnostics)?
+            let Some(value) = parse_text(&text, registry, variables, &location, diagnostics, true)?
             else {
                 return Ok(None);
             };
-            output::strip_transport(&mut value);
             // A file with an `asyncapi` root belongs to the AsyncAPI document.
             let asyncapi = value.get("asyncapi").is_some();
             Ok(Some(Snippet {
@@ -2198,8 +2317,14 @@ fn materialize(
         }
         Pending::AsyncApi { text, location } => {
             let scoped = take_scopes(&text, &location, diagnostics);
-            let Some(value) =
-                parse_text(&scoped.text, registry, variables, &location, diagnostics)?
+            let Some(value) = parse_text(
+                &scoped.text,
+                registry,
+                variables,
+                &location,
+                diagnostics,
+                false,
+            )?
             else {
                 return Ok(None);
             };
@@ -2213,6 +2338,7 @@ fn materialize(
         }
         Pending::Channel(channel) => {
             let text = channel.lines.join("\n");
+            let before = diagnostics.len();
             // A channel block has no embedded YAML: no placeholder is quoted.
             let expanded = lexical::expand_block(
                 &text,
@@ -2222,6 +2348,9 @@ fn materialize(
                 diagnostics,
                 |lines| vec![false; lines.len()],
             );
+            if cut_by_limit(diagnostics, before) {
+                return Ok(None);
+            }
             let line_numbers = source_lines(&expanded, &channel.line_numbers, &channel.location);
             let lines: Vec<String> = expanded.into_iter().map(|(line, _)| line).collect();
             let types = &in_module(types, names, &channel.location);
@@ -2255,6 +2384,7 @@ fn materialize(
         }
         Pending::Route(route) => {
             let text = route.lines.join("\n");
+            let before = diagnostics.len();
             let expanded = lexical::expand_block(
                 &text,
                 registry,
@@ -2263,6 +2393,9 @@ fn materialize(
                 diagnostics,
                 dsl::yaml_lines,
             );
+            if cut_by_limit(diagnostics, before) {
+                return Ok(None);
+            }
             let line_numbers = source_lines(&expanded, &route.line_numbers, &route.location);
             let lines: Vec<String> = expanded.into_iter().map(|(line, _)| line).collect();
             let (defaults, default_locations): (Vec<String>, Vec<Location>) =
@@ -2270,7 +2403,7 @@ fn materialize(
                     .into_iter()
                     .unzip();
             let types = &in_module(types, names, &route.location);
-            let compiled = dsl::compile(
+            let compiled = dsl::compile_with(
                 RouteSource::new(&lines, &route.location)
                     .line_numbers(&line_numbers)
                     .operation_id(route.operation_id.as_deref())
@@ -2280,6 +2413,7 @@ fn materialize(
                     .default_locations(&default_locations)
                     .signature(route.signature.as_ref().filter(|_| infer)),
                 diagnostics,
+                &mut route_defaults.reported,
             );
             let Some(compiled) = compiled else {
                 return Ok(None);
@@ -2297,6 +2431,19 @@ fn materialize(
             ))
         }
     }
+}
+
+/// Whether the expansion of a block reported an expansion limit (its
+/// findings are the ones after the first `before` in `diagnostics`). The
+/// lines left of a block that was cut (at 65 536 lines, or when a fragment
+/// does not fit) are not compiled: they would make a route or channel of
+/// part of the block, at the cost of compiling 65 536 lines for a block
+/// that is an error anyway.
+fn cut_by_limit(diagnostics: &Diagnostics, before: usize) -> bool {
+    diagnostics
+        .iter()
+        .skip(before)
+        .any(|finding| finding.code() == Code::ExpansionLimit)
 }
 
 /// The Rust files of `sources` with their syntax trees (`None` for a file
@@ -2350,6 +2497,7 @@ fn expand_defaults(
     let RouteDefaults {
         modules,
         expanded: cache,
+        ..
     } = defaults;
     // The file, defaults and line numbers of each part, innermost first.
     let mut parts = vec![(
@@ -2423,7 +2571,22 @@ fn expand_defaults(
             match line {
                 Some(line) => {
                     let key = (file.to_path_buf(), line);
-                    expanded.extend(cache.entry(key).or_insert_with(expand).iter().cloned());
+                    let copy = cache.contains_key(&key);
+                    let block = cache.entry(key).or_insert_with(expand);
+                    // Expanding was charged once; every further route
+                    // copies the lines again.
+                    let size = lexical::pasted_cost(block.iter().map(|(text, _)| text.as_str()));
+                    if copy && !lexical::charge_run(size) {
+                        diagnostics.push(
+                            Diagnostic::new(
+                                Code::ExpansionLimit,
+                                "the route defaults of this route exceed what is left of the 32 MiB for the fragment expansions of the run; they are left out",
+                            )
+                            .at(route.location.clone()),
+                        );
+                        continue;
+                    }
+                    expanded.extend(block.iter().cloned());
                 }
                 None => expanded.extend(expand()),
             }
@@ -2442,14 +2605,17 @@ fn source_lines(expanded: &[(String, usize)], numbers: &[usize], at: &Location) 
 }
 
 /// Expands and parses a document text; it must be a mapping (or empty).
+/// `wire`: the text is an input file, whose `components` may carry the
+/// template wire format (read in pass 1; removed here).
 fn parse_text(
     text: &str,
     registry: &Registry,
     variables: &Variables,
     location: &Location,
     diagnostics: &mut Diagnostics,
+    wire: bool,
 ) -> Result<Option<Value>> {
-    let Some(value) = parse_any(text, registry, variables, location, diagnostics)? else {
+    let Some(value) = parse_any(text, registry, variables, location, diagnostics, wire)? else {
         return Ok(None);
     };
     let found = match &value {
@@ -2466,15 +2632,19 @@ fn parse_text(
     })
 }
 
-/// Expands and parses any YAML value; `None` for empty documents.
+/// Expands and parses any YAML value; `None` for empty documents. The
+/// reserved keys of the text are removed and reported, each at the line
+/// of the expanded text that writes it (see [`parse_text`] for `wire`).
 fn parse_any(
     text: &str,
     registry: &Registry,
     variables: &Variables,
     location: &Location,
     diagnostics: &mut Diagnostics,
+    wire: bool,
 ) -> Result<Option<Value>> {
-    let expanded = lexical::expand(text, registry, variables, location, diagnostics);
+    let (expanded, offsets) =
+        lexical::expand_with_offsets(text, registry, variables, location, diagnostics);
     let mut value = yaml::parse(&expanded).map_err(|e| Error::Yaml {
         location: location.offset(e.line - 1),
         message: e.message,
@@ -2482,6 +2652,19 @@ fn parse_any(
     })?;
     if value.is_null() {
         return Ok(None);
+    }
+    if wire {
+        output::strip_transport(&mut value);
+    }
+    let key_lines = reserved::key_lines(&expanded);
+    for removed in reserved::strip(&mut value, Keep::Markers) {
+        // The line of the expanded text, mapped to the source line it comes
+        // from (an `@insert` line for the lines it pastes).
+        let line = key_lines
+            .get(removed.key.as_str())
+            .and_then(|index| offsets.get(*index).copied())
+            .unwrap_or(0);
+        diagnostics.push(removed.finding().at(location.offset(line)));
     }
     extend::apply(&mut value, registry, variables, location, diagnostics);
     Ok(Some(value))
@@ -2497,7 +2680,11 @@ fn context(text: &str, location: &Location, focus: usize) -> String {
         .take(5)
         .map(|(i, line)| {
             let marker = if i + 1 == focus { '>' } else { ' ' };
-            format!("  {marker} {:02} | {line}", location.line() + i)
+            format!(
+                "  {marker} {:02} | {}",
+                location.line() + i,
+                diagnostics::printable(line)
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -2544,9 +2731,29 @@ fn merge_documents(
             s.value
         },
     );
+    let mut merger = Merger::watching_lists();
     for snippet in others.into_iter().chain(generated) {
         origins.record(&snippet.value, &snippet.location);
-        for pointer in merge(&mut document, snippet.value, Policy::Document) {
+        let conflicts = merger.merge(&mut document, snippet.value, Policy::Document);
+        for (pointer, change) in merger.take_changes() {
+            let message = match change {
+                ListChange::Joined => format!(
+                    "`{pointer}` is also set by another annotation; the lists are joined, so the entries of both apply"
+                ),
+                ListChange::Introduced => format!(
+                    "`{pointer}` is added by another annotation to an existing operation or path; it replaces the list that applied there"
+                ),
+                ListChange::Elsewhere => format!(
+                    "`{pointer}` is set by another annotation than this one, which adds to the same operation or path; that list replaces the one that applied there"
+                ),
+                ListChange::Scheme => format!(
+                    "`{pointer}` is added by another annotation to a security scheme it does not define"
+                ),
+            };
+            diagnostics
+                .push(Diagnostic::new(Code::MergeConflict, message).at(snippet.location.clone()));
+        }
+        for pointer in conflicts {
             diagnostics.push(
                 Diagnostic::new(
                     Code::MergeConflict,
@@ -2559,12 +2766,13 @@ fn merge_documents(
     Ok((document, origins))
 }
 
-/// Final clean-ups of the merged document.
+/// Final clean-ups of the merged document. A reserved key that is still in
+/// it (an `@extend` marker no stage resolved, for one) is not removed
+/// here: the sweep after it reports what it removes.
 fn normalize(document: &mut Value, diagnostics: &mut Diagnostics) {
     if let Some(Value::Array(tags)) = document.get_mut("tags") {
         *tags = merge_tags(std::mem::take(tags), diagnostics);
     }
-    remove_extend_markers(document);
     sort_all_responses(document);
 }
 
@@ -2649,22 +2857,25 @@ fn status_rank(key: &str) -> (u8, u8, u8, u16) {
 /// order (later values win, conflicts are reported).
 fn merge_tags(tags: Vec<Value>, diagnostics: &mut Diagnostics) -> Vec<Value> {
     let mut merged: Vec<Value> = Vec::with_capacity(tags.len());
+    // The position of each name (`None`: tags without one) and the texts of
+    // entries that are no objects, instead of a scan per tag.
+    let mut by_name: BTreeMap<Option<String>, usize> = BTreeMap::new();
+    let mut others = BTreeSet::new();
     for tag in tags {
         let tag = match tag {
             Value::String(name) => json!({ "name": name }),
             other => other,
         };
         if !tag.is_object() {
-            if !merged.contains(&tag) {
+            if others.insert(tag.to_string()) {
                 merged.push(tag);
             }
             continue;
         }
         let name = tag.get("name").cloned();
-        let existing = merged
-            .iter_mut()
-            .find(|t| t.is_object() && t.get("name") == name.as_ref());
-        let Some(existing) = existing else {
+        let key = name.as_ref().map(Value::to_string);
+        let Some(existing) = by_name.get(&key).and_then(|index| merged.get_mut(*index)) else {
+            by_name.insert(key, merged.len());
             merged.push(tag);
             continue;
         };
@@ -2681,19 +2892,6 @@ fn merge_tags(tags: Vec<Value>, diagnostics: &mut Diagnostics) -> Vec<Value> {
         }
     }
     merged
-}
-
-/// Removes `@extend` marker keys (prefix [`EXTEND_KEY`]) that no stage
-/// resolved, at any depth, so they never reach an output.
-fn remove_extend_markers(value: &mut Value) {
-    match value {
-        Value::Object(map) => {
-            map.retain(|k, _| !k.starts_with(EXTEND_KEY));
-            map.values_mut().for_each(remove_extend_markers);
-        }
-        Value::Array(items) => items.iter_mut().for_each(remove_extend_markers),
-        _ => {}
-    }
 }
 
 /// Runs the pipeline on in-memory sources (for tests and tools), with the
@@ -2741,6 +2939,11 @@ pub fn generate_from_sources(
     files: Vec<SourceFile>,
     variables: &Variables,
 ) -> Result<(Value, Diagnostics)> {
+    extract::on_large_stack(|| generate_here(files, variables))
+}
+
+/// [`generate_from_sources`] on the current thread.
+fn generate_here(files: Vec<SourceFile>, variables: &Variables) -> Result<(Value, Diagnostics)> {
     let mut diagnostics = Diagnostics::new();
     let settings = Settings {
         variables,

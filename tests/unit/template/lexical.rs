@@ -470,12 +470,28 @@ mod variables {
         assert_eq!(names, ["A", "B.C", "A"]);
     }
 
+    /// `{{env:NAME}}` takes the variable `env:NAME`, which
+    /// `Generator::allow_env` sets; the environment itself is not read.
     #[test]
-    fn environment_variables_are_read() {
-        // Cargo sets `CARGO_PKG_NAME` for test binaries.
-        let (out, diagnostics) = run("name: {{env:CARGO_PKG_NAME}}", &Registry::new());
-        assert_eq!(out, format!("name: '{}'", env!("CARGO_PKG_NAME")));
-        assert!(diagnostics.is_empty());
+    fn environment_placeholders_take_their_variable() {
+        let mut vars = Variables::new();
+        vars.insert("env:API_HOST".into(), "api.example.com".into());
+        let (out, diagnostics) = run_with(
+            "host: {{env:API_HOST}}\npath: {{env:PATH}}",
+            &Registry::new(),
+            &vars,
+        );
+        assert_eq!(out, "host: 'api.example.com'\npath: '{{env:PATH}}'");
+        assert_eq!(codes(&diagnostics), [Code::UnknownVariable]);
+        assert!(
+            diagnostics
+                .iter()
+                .next()
+                .unwrap()
+                .message()
+                .contains("allow_env"),
+            "{diagnostics:?}"
+        );
     }
 
     #[test]
@@ -484,9 +500,10 @@ mod variables {
             "a: {{env:OAS_FORGE_UNSET_B}}\nb: {{env:OAS_FORGE_UNSET_A}} {{env:OAS_FORGE_UNSET_B}}",
             &Registry::new(),
         );
+        // A whole value stays a string; inside text, the placeholder stays.
         assert_eq!(
             out,
-            "a: {{env:OAS_FORGE_UNSET_B}}\nb: {{env:OAS_FORGE_UNSET_A}} {{env:OAS_FORGE_UNSET_B}}"
+            "a: '{{env:OAS_FORGE_UNSET_B}}'\nb: {{env:OAS_FORGE_UNSET_A}} {{env:OAS_FORGE_UNSET_B}}"
         );
         assert_eq!(
             codes(&diagnostics),

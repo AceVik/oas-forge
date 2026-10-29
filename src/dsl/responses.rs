@@ -2,6 +2,7 @@
 //! `@problem`.
 
 use super::tokens::{is_media_type, tokenize, trailing_description};
+use crate::reserved;
 use crate::schema::{MappedType, TypeExpr, TypeMapper, shadow};
 use crate::yaml;
 use serde_json::{Map, Value, json};
@@ -232,12 +233,20 @@ fn mapped_schema(text: &str, types: &TypeMapper) -> Result<(Value, bool), String
         "Option<", "Vec<", "Box<", "Arc<", "Rc<", "Cow<", "Json<", "Form<",
     ];
     if text.starts_with('{') {
-        return yaml::parse(text).map(|schema| (schema, true)).map_err(|e| {
+        let schema = yaml::parse(text).map_err(|e| {
             format!(
                 "the inline schema `{text}` is not valid YAML: {}",
                 e.message
             )
-        });
+        })?;
+        // A reserved key (`{ x-oas-forge-builtin: … }`) rejects the schema.
+        if let Some(key) = reserved::first(&schema) {
+            return Err(format!(
+                "the inline schema `{text}` writes the reserved key `{key}` (the `{}` prefix is the generator's own)",
+                reserved::PREFIX
+            ));
+        }
+        return Ok((schema, true));
     }
     if text.contains('<') && !STD.iter().any(|p| text.starts_with(p)) {
         // `Page<User>` and `$Page<User>`: instantiated from the blueprint.

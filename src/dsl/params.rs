@@ -6,6 +6,7 @@
 use super::tokens::{quoted_text, tokenize, unquote, untick_items, unticked};
 use crate::attrs::validate::{Constraints, LengthUnit, Rule};
 use crate::diagnostics::Location;
+use crate::reserved;
 use crate::schema::{TypeExpr, TypeMapper, shadow};
 use crate::yaml;
 use serde_json::{Map, Number, Value, json};
@@ -56,6 +57,8 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
     let mut keywords: Vec<(&str, Value)> = Vec::new();
     let mut constraints = Vec::new();
     let mut ignored = Vec::new();
+    // Flags whose value writes a reserved key, with their problem.
+    let mut rejected: Vec<String> = Vec::new();
     let mut has_default = false;
     let mut explicitly_required = false;
     let mut explicitly_optional = false;
@@ -70,7 +73,13 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
             Some((flag, value)) => (flag, Some(unticked(value))),
             None => (token.as_str(), None),
         };
-        let parsed = || value.map(scalar);
+        let parsed = value.map(scalar);
+        // A value that writes a reserved key (`default={x-oas-forge-…: …}`)
+        // is not taken.
+        if let Some(key) = parsed.as_ref().and_then(reserved::first) {
+            rejected.push(reserved_flag(token, key));
+            continue;
+        }
         match (flag, value) {
             ("required", None) => explicitly_required = true,
             ("optional", None) => explicitly_optional = true,
@@ -81,7 +90,7 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
                 parameter.insert("explode".into(), json!(true));
             }
             ("explode", Some(_)) => {
-                parameter.insert("explode".into(), parsed().unwrap_or_default());
+                parameter.insert("explode".into(), parsed.unwrap_or_default());
             }
             ("allow-reserved", None) => {
                 parameter.insert("allowReserved".into(), json!(true));
@@ -93,21 +102,26 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
                 parameter.insert("style".into(), json!(text(style)));
             }
             ("example", Some(_)) => {
-                parameter.insert("example".into(), parsed().unwrap_or_default());
+                parameter.insert("example".into(), parsed.unwrap_or_default());
             }
             ("default", Some(_)) => {
-                keywords.push(("default", parsed().unwrap_or_default()));
+                keywords.push(("default", parsed.unwrap_or_default()));
                 has_default = true;
             }
-            ("enum", Some(list)) => match Some(scalar(&untick_items(list))) {
-                Some(Value::Array(values)) => keywords.push(("enum", Value::Array(values))),
+            // The items may be in backticks, which hide a reserved key from
+            // the check above.
+            ("enum", Some(list)) => match scalar(&untick_items(list)) {
+                Value::Array(values) => match values.iter().find_map(reserved::first) {
+                    Some(key) => rejected.push(reserved_flag(token, key)),
+                    None => keywords.push(("enum", Value::Array(values))),
+                },
                 _ => ignored.push(token.clone()),
             },
             ("format", Some(format)) => keywords.push(("format", json!(text(format)))),
             ("pattern", Some(pattern)) => {
                 constraints.push(Ok(Rule::Pattern(text(pattern).to_string())));
             }
-            ("min" | "max", Some(_)) => match parsed() {
+            ("min" | "max", Some(_)) => match parsed {
                 Some(Value::Number(number)) => constraints.push(Err((flag == "min", number))),
                 _ => ignored.push(token.clone()),
             },
@@ -133,6 +147,7 @@ pub(super) fn parse(location: &str, rest: &str, types: &TypeMapper) -> Option<Pa
         .iter()
         .map(|token| format!("`{token}` is not a parameter flag and was ignored"))
         .collect();
+    problems.extend(rejected);
     if explicitly_optional && location == "path" {
         problems.push("path parameters are always required; `optional` is ignored".into());
     } else if explicitly_optional && explicitly_required {
@@ -243,6 +258,15 @@ fn is_flag(token: &str) -> bool {
                     | "explode"
             )
         })
+}
+
+/// The problem with the flag `token`, whose value writes the reserved
+/// `key`.
+fn reserved_flag(token: &str, key: &str) -> String {
+    format!(
+        "`{token}` writes the reserved key `{key}` (the `{}` prefix is the generator's own) and was ignored",
+        reserved::PREFIX
+    )
 }
 
 /// A flag value as YAML (`10` is a number, `[a, b]` a list), falling back to

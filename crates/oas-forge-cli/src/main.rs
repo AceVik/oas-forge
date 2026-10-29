@@ -18,7 +18,7 @@
 use clap::Parser;
 use colored::Colorize;
 use oas_forge::Error;
-use oas_forge::diagnostics::{Diagnostic, Severity};
+use oas_forge::diagnostics::{Diagnostic, Severity, printable};
 use oas_forge_cli::{Cli, MessageFormat, run};
 use std::process::ExitCode;
 
@@ -111,6 +111,6 @@ fn human(diagnostic: &Diagnostic) -> String {
     format!(
         "{}: {}{location}",
         label.yellow().bold(),
-        diagnostic.message()
+        printable(diagnostic.message())
     )
 }

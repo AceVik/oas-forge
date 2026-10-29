@@ -254,6 +254,8 @@ fn security_schemes_become_security_definitions() {
     code: { type: oauth2, flows: { authorizationCode: { authorizationUrl: 'https://a', tokenUrl: 'https://t', scopes: {} }, implicit: { authorizationUrl: 'https://a', scopes: {} } } }
     oidc: { type: openIdConnect, openIdConnectUrl: 'https://o' }
     broken: { type: oauth2, flows: {} }
+    noflows: { type: oauth2 }
+    untyped: { description: no type }
 security:
   - basic: []"#,
         ),
@@ -278,14 +280,25 @@ security:
         definitions["code"]["flow"], "implicit",
         "the first flow in Swagger order"
     );
-    for missing in ["cookie", "oidc", "broken"] {
+    for missing in ["cookie", "oidc", "broken", "noflows", "untyped"] {
         assert!(definitions.get(missing).is_none(), "{missing}");
     }
     assert_eq!(document["security"], json!([{ "basic": [] }]));
+    // Schemes that are left out are reported, also malformed ones.
+    for expected in [
+        "OAuth2 schemes without a known flow",
+        "OAuth2 schemes without `flows`",
+        "security schemes without a `type`",
+    ] {
+        assert!(
+            messages.iter().any(|m| m.contains(expected)),
+            "{expected}: {messages:?}"
+        );
+    }
     assert_eq!(
         messages.len(),
-        5,
-        "cookie, bearer, OIDC, several flows, info.summary: {messages:?}"
+        8,
+        "cookie, bearer, OIDC, several flows, no known flow, no flows, no type, info.summary: {messages:?}"
     );
 }
 
@@ -576,7 +589,7 @@ components:
         assert!(
             messages
                 .iter()
-                .any(|m| m.contains("security requirements that name")),
+                .any(|m| m.contains("cannot express some security schemes")),
             "{messages:?}"
         );
     }
@@ -651,5 +664,151 @@ mod conversion_details {
                 "{json}"
             );
         }
+    }
+}
+
+mod form_budget {
+    use super::*;
+    use crate::common::{Project, codes};
+    use oas_forge::diagnostics::Code;
+    use oas_forge::{Error, Generator};
+
+    /// The budget of the `formData` parameters of one document.
+    const BUDGET: usize = 16 * 1024 * 1024;
+
+    /// What each parameter of the forms below costs: 256 bytes and its
+    /// JSON text. 64 operations of 64 parameters fill the budget exactly.
+    const COST: usize = 4096;
+
+    /// The length of the description that makes a parameter `f00`…`f99`
+    /// of type string cost [`COST`].
+    fn description_length() -> usize {
+        let fixed = json!({ "name": "f00", "in": "formData", "required": false, "description": "", "type": "string" });
+        COST - 256 - fixed.to_string().len()
+    }
+
+    /// A root whose form request body `Form` (a schema of `properties`
+    /// string properties described with `description` bytes each) is used
+    /// by `operations` operations `POST /p<n>`.
+    fn form_root(properties: usize, description: usize, operations: usize) -> String {
+        let filler = "x".repeat(description);
+        let mut text =
+            root("components:\n  schemas:\n    Big:\n      type: object\n      properties:\n");
+        for p in 0..properties {
+            text.push_str(&format!(
+                "        f{p:02}: {{ type: string, description: '{filler}' }}\n"
+            ));
+        }
+        text.push_str(
+            "  requestBodies:\n    Form:\n      content:\n        application/x-www-form-urlencoded:\n          schema: { $ref: '#/components/schemas/Big' }\npaths:\n",
+        );
+        for n in 0..operations {
+            text.push_str(&format!(
+                "  /p{n:03}:\n    post:\n      requestBody: {{ $ref: '#/components/requestBodies/Form' }}\n      responses: {{ '200': {{ description: ok }} }}\n"
+            ));
+        }
+        text
+    }
+
+    /// The form bodies the budget cuts are left out from the first one
+    /// on, with one error naming it; the operations keep `consumes`. A
+    /// form whose parameters cost exactly what is left still fits.
+    #[test]
+    fn form_bodies_beyond_the_budget_are_left_out_and_reported() {
+        let (spec, _project) = spec_of(&[("root.yaml", &form_root(64, description_length(), 66))]);
+        let (document, diagnostics) = spec.render_with_diagnostics(OutputKind::Swagger20).unwrap();
+        let errors = spec::validate(&document);
+        assert!(errors.is_empty(), "{errors:?}");
+        let operation = |n: usize| document["paths"][format!("/p{n:03}")]["post"].clone();
+        let first = operation(0)["parameters"].clone();
+        assert_eq!(first.as_array().map(Vec::len), Some(64));
+        assert_eq!(first[0]["name"], "f00");
+        assert_eq!(first[0]["in"], "formData");
+        // Every parameter costs the same: 256 bytes besides its JSON text.
+        assert_eq!(256 + first[0].to_string().len(), COST);
+        assert_eq!(BUDGET, 64 * 64 * COST);
+        for n in 0..66 {
+            let operation = operation(n);
+            assert_eq!(
+                operation["consumes"],
+                json!(["application/x-www-form-urlencoded"]),
+                "operation {n}"
+            );
+            assert_eq!(
+                operation["parameters"].as_array().map(Vec::len),
+                (n < 64).then_some(64),
+                "operation {n}"
+            );
+        }
+        // The note is `info.summary`.
+        assert_eq!(
+            codes(&diagnostics),
+            [Code::ExpansionLimit, Code::LossyLowering]
+        );
+        assert!(diagnostics.has_errors());
+        assert_eq!(
+            errors_of(&diagnostics),
+            [
+                "the `formData` parameters of the form bodies of 2 operations, from POST /p064 on, exceed what is left of the 16777216 bytes of form parameters in a Swagger 2.0 document (each costs 256 bytes besides its text); those bodies are left out"
+            ]
+        );
+        // Each export has the whole budget.
+        let (again, diagnostics) = spec.render_with_diagnostics(OutputKind::Swagger20).unwrap();
+        assert_eq!(again, document);
+        assert_eq!(errors_of(&diagnostics).len(), 1);
+    }
+
+    /// The messages of the errors among `diagnostics`.
+    fn errors_of(diagnostics: &oas_forge::Diagnostics) -> Vec<&str> {
+        diagnostics
+            .iter()
+            .filter(|d| d.code() == Code::ExpansionLimit)
+            .map(|d| d.message())
+            .collect()
+    }
+
+    /// A single form body that does not fit is named without a count.
+    #[test]
+    fn a_single_cut_form_body_is_named() {
+        let (spec, _project) = spec_of(&[("root.yaml", &form_root(64, description_length(), 65))]);
+        let (document, diagnostics) = spec.render_with_diagnostics(OutputKind::Swagger20).unwrap();
+        assert_eq!(
+            document["paths"]["/p063"]["post"]["parameters"]
+                .as_array()
+                .map(Vec::len),
+            Some(64)
+        );
+        assert!(
+            document["paths"]["/p064"]["post"]
+                .get("parameters")
+                .is_none()
+        );
+        assert_eq!(
+            errors_of(&diagnostics),
+            [
+                "the `formData` parameters of the form body of POST /p064 exceed what is left of the 16777216 bytes of form parameters in a Swagger 2.0 document (each costs 256 bytes besides its text); that body is left out"
+            ]
+        );
+    }
+
+    /// The run fails on the error, like on a struct expansion that does
+    /// not fit, so no incomplete Swagger 2.0 document is written.
+    #[test]
+    fn a_cut_form_body_fails_the_run() {
+        let project = Project::new();
+        project.file("src/root.yaml", &form_root(64, description_length(), 65));
+        let error = Generator::new()
+            .input(project.path("src"))
+            .output_swagger2(project.path("swagger.json"))
+            .generate()
+            .unwrap_err();
+        let Error::Diagnostics(findings) = error else {
+            panic!("{error}");
+        };
+        assert_eq!(
+            findings.iter().map(|d| d.code()).collect::<Vec<_>>(),
+            [Code::ExpansionLimit, Code::LossyLowering]
+        );
+        assert!(!project.path("swagger.json").exists());
     }
 }

@@ -1,5 +1,6 @@
 //! Rust type expressions and their JSON Schema.
 
+use super::shadow;
 use crate::diagnostics::{Code, Diagnostic};
 use crate::extract::names::{NameTable, Resolved};
 use crate::template::generics::substitute;
@@ -60,10 +61,44 @@ pub enum TypeExpr {
 /// `smart`.
 const SMART_MARKER: &str = "__oas_forge_smart__";
 
+/// The deepest nesting [`TypeExpr::parse`] accepts.
+const MAX_TYPE_NESTING: usize = 32;
+
+/// How many types the element of a `Range` may spell out (see
+/// [`TypeExpr::spelled`]) before its schema is left as `{}`: the schema of
+/// a range holds its element twice, so `Range<Range<…>>` doubled with each
+/// level (18 levels, 586 bytes, took 3 GB). Nested ranges are mapped four
+/// levels deep, so that a range costs about what its text would as plain
+/// types (six levels still took 12 KB of memory per byte of input).
+const MAX_RANGE_ELEMENT: usize = 16;
+
+/// How deeply `text` nests brackets (`<`, `(`, `[`; the `>` of `->` closes
+/// nothing), and the number of `&` and `*`, whichever is larger.
+fn nesting(text: &str) -> usize {
+    let (mut depth, mut deepest, mut indirections) = (0_usize, 0, 0);
+    let mut previous = ' ';
+    for c in text.chars() {
+        match c {
+            '<' | '(' | '[' => {
+                depth += 1;
+                deepest = deepest.max(depth);
+            }
+            '>' if previous == '-' => {}
+            '>' | ')' | ']' => depth = depth.saturating_sub(1),
+            '&' | '*' => indirections += 1,
+            _ => {}
+        }
+        previous = c;
+    }
+    deepest.max(indirections)
+}
+
 impl TypeExpr {
     /// Parses a type written in Rust syntax, optionally with `$` smart markers.
     ///
-    /// Returns `None` when the text is not a type.
+    /// Returns `None` when the text is not a type, or nests `<`, `(` and `[`
+    /// or references and pointers more than 32 levels deep: `syn` recurses
+    /// once per level, on the caller's stack.
     ///
     /// # Examples
     ///
@@ -76,6 +111,9 @@ impl TypeExpr {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn parse(text: &str) -> Option<Self> {
+        if nesting(text) > MAX_TYPE_NESTING {
+            return None;
+        }
         let marked = text.trim().replace('$', SMART_MARKER);
         let ty: syn::Type = syn::parse_str(&marked).ok()?;
         Some(Self::from_syn(&ty))
@@ -208,6 +246,32 @@ impl TypeExpr {
     /// ```
     pub fn is_smart(&self) -> bool {
         matches!(self, Self::Named { smart: true, .. })
+    }
+
+    /// How many types the schema of the type spells out: one for each type
+    /// written, and the element of a `Range` twice (its schema holds it as
+    /// `start` and `end`). Saturating.
+    fn spelled(&self) -> usize {
+        match self {
+            Self::Named { args, .. } => {
+                let inner = args
+                    .iter()
+                    .map(Self::spelled)
+                    .fold(0, usize::saturating_add);
+                let twice = matches!(self.name(), Some("Range" | "RangeInclusive"));
+                inner
+                    .saturating_mul(if twice { 2 } else { 1 })
+                    .saturating_add(1)
+            }
+            Self::Tuple(items) => items
+                .iter()
+                .map(Self::spelled)
+                .fold(1, usize::saturating_add),
+            Self::Array { elem, .. } | Self::Slice(elem) | Self::Reference(elem) => {
+                elem.spelled().saturating_add(1)
+            }
+            Self::Other(_) => 1,
+        }
     }
 
     /// The parts of the type that cannot be documented: function pointers,
@@ -434,8 +498,9 @@ impl MappedType {
 pub struct TypeMapper {
     /// The schemas of [`TypeMapper::with_type`], by type name or `::` path.
     custom: BTreeMap<String, Value>,
-    /// Built-in names written bare that stand for documented schemas.
-    shadowed: BTreeSet<String>,
+    /// Whether the built-in schema of a name written bare carries its
+    /// alternative for a documented schema of that name (see [`shadow`]).
+    marking: bool,
     /// The module paths of the scanned sources and the module the types are
     /// written in (`crate`, `module`, …): names written in Rust resolve to
     /// the component names of the documented types they mean.
@@ -448,7 +513,7 @@ pub struct TypeMapper {
 /// Names of the built-in table that a crate may also give its own types
 /// (`Duration`, `Value`, `Uuid`, …). Written bare (one segment, no generic
 /// arguments), they may refer to a documented schema of that name, which
-/// then wins; see [`TypeMapper::shadowable_names`].
+/// then wins; see [`TypeMapper::marking`].
 const SHADOWABLE: &[&str] = &[
     "Value",
     "Duration",
@@ -558,41 +623,14 @@ impl TypeMapper {
         self.custom.iter()
     }
 
-    /// The built-in names in `ty` that a documented schema of the same name
-    /// would replace: written bare (`Duration`, not `std::time::Duration`),
-    /// without generic arguments and without a custom mapping.
-    pub(crate) fn shadowable_names(&self, ty: &TypeExpr) -> BTreeSet<String> {
-        let mut names = BTreeSet::new();
-        self.collect_shadowable(ty, &mut names);
-        names
-    }
-
-    /// Adds the shadowable names of `ty`, its generic arguments, element
-    /// types and tuple members to `names`.
-    fn collect_shadowable(&self, ty: &TypeExpr, names: &mut BTreeSet<String>) {
-        match ty {
-            TypeExpr::Named { path, args, .. } => {
-                if let [name] = path.as_slice()
-                    && args.is_empty()
-                    && SHADOWABLE.contains(&name.as_str())
-                    && self.custom_schema(path).is_none()
-                {
-                    names.insert(name.clone());
-                }
-                for arg in args {
-                    self.collect_shadowable(arg, names);
-                }
-            }
-            TypeExpr::Array { elem, .. } | TypeExpr::Slice(elem) | TypeExpr::Reference(elem) => {
-                self.collect_shadowable(elem, names);
-            }
-            TypeExpr::Tuple(elems) => {
-                for elem in elems {
-                    self.collect_shadowable(elem, names);
-                }
-            }
-            TypeExpr::Other(_) => {}
-        }
+    /// This mapper with the built-in schema of a name written bare
+    /// (`Duration`, not `std::time::Duration`; without generic arguments and
+    /// without a custom mapping) carrying its alternative for a documented
+    /// schema of that name, `{"$ref": "$Duration"}` (see [`shadow`]).
+    pub(crate) fn marking(&self) -> Self {
+        let mut mapper = self.clone();
+        mapper.marking = true;
+        mapper
     }
 
     /// This mapper for types written in the module `scope` of the sources
@@ -709,14 +747,6 @@ impl TypeMapper {
         }
     }
 
-    /// This mapper with the bare built-in `names` standing for documented
-    /// schemas (`{"$ref": "$Duration"}`).
-    pub(crate) fn shadowing(&self, names: &BTreeSet<String>) -> Self {
-        let mut mapper = self.clone();
-        mapper.shadowed.extend(names.iter().cloned());
-        mapper
-    }
-
     /// The schema of `ty`.
     ///
     /// # Examples
@@ -746,11 +776,18 @@ impl TypeMapper {
                 if let Some(schema) = self.custom_schema(path) {
                     return MappedType::required(schema);
                 }
-                if let [name] = path.as_slice()
+                if self.marking
+                    && let [name] = path.as_slice()
                     && args.is_empty()
-                    && self.shadowed.contains(name)
+                    && SHADOWABLE.contains(&name.as_str())
                 {
-                    return MappedType::required(json!({ "$ref": format!("${name}") }));
+                    // A documented schema of the name may replace the
+                    // built-in schema; the references stage decides.
+                    let mapped = self.map_named(path, args, !*smart);
+                    return MappedType {
+                        schema: shadow::mark(mapped.schema, name),
+                        ..mapped
+                    };
                 }
                 let name = ty.name().unwrap_or_default();
                 if *smart && !args.is_empty() && !is_container(name) {
@@ -906,11 +943,18 @@ impl TypeMapper {
                 json!({ "type": "object" })
             }
             "Value" => json!({}),
-            "Range" | "RangeInclusive" => json!({
-                "type": "object",
-                "properties": { "start": element(), "end": element() },
-                "required": ["start", "end"],
-            }),
+            "Range" | "RangeInclusive" => {
+                // The element twice: a nested range doubles with each level.
+                let element = match first {
+                    Some(inner) if inner.spelled() > MAX_RANGE_ELEMENT => json!({}),
+                    _ => element(),
+                };
+                json!({
+                    "type": "object",
+                    "properties": { "start": element.clone(), "end": element },
+                    "required": ["start", "end"],
+                })
+            }
             "PhantomData" => json!({ "type": "null" }),
             "Uuid" => json!({ "type": "string", "format": "uuid" }),
             "Ulid" => json!({ "type": "string", "format": "ulid" }),

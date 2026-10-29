@@ -2,6 +2,7 @@
 
 use super::tokens::{tokenize, trailing_description};
 use serde_json::{Map, Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// One `@security` line: a requirement (schemes joined with `+` must all be
 /// met), or `none` for a public operation (`security: []`).
@@ -19,6 +20,9 @@ pub(super) fn security(rest: &str) -> Option<Security> {
         return Some(Security::None);
     }
     let mut requirement = Map::new();
+    // The scopes of each scheme so far: a list of 100 000 scopes that was
+    // scanned for each scope took a minute.
+    let mut seen: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for part in security_parts(rest, '+') {
         let part = part.trim();
         let (scheme, scopes) = match part.split_once('(') {
@@ -41,10 +45,10 @@ pub(super) fn security(rest: &str) -> Option<Security> {
         else {
             continue;
         };
+        let seen = seen.entry(scheme.to_string()).or_default();
         for scope in scopes {
-            let scope = json!(scope);
-            if !existing.contains(&scope) {
-                existing.push(scope);
+            if seen.insert(scope.clone()) {
+                existing.push(json!(scope));
             }
         }
     }

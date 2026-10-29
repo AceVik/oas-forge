@@ -3,6 +3,7 @@
 use crate::common::{Project, ROOT_DOC, yaml};
 use oas_forge::Generator;
 use oas_forge::config::Config;
+use oas_forge::diagnostics::Code;
 use oas_forge::error::Error;
 use serde_json::json;
 use std::path::PathBuf;
@@ -241,24 +242,32 @@ mod strategies {
         }
     }
 
+    /// The wire format keys belong to included files: written in a block,
+    /// they are reserved keys, removed and reported as an error.
     #[test]
-    fn leaked_vendor_keys_are_stripped_and_empty_components_dropped() {
+    fn vendor_keys_in_a_block_are_rejected_and_empty_components_dropped() {
         let project = project_with(&format!(
             "{ROOT_DOC}\n/// @openapi\n/// components:\n///   x-oas-forge-templates: {{}}\n///   x-oas-forge-fragments: {{}}\nfn leak() {{}}\n"
         ));
 
-        Generator::new()
+        let generator = Generator::new()
             .input(project.path("src"))
-            .output(project.path("openapi.yaml"))
-            .generate()
-            .unwrap();
-
+            .output(project.path("openapi.yaml"));
+        let spec = generator.build().unwrap();
+        let reserved: Vec<&str> = spec
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code() == Code::ReservedKey && d.is_error())
+            .map(|d| d.message())
+            .collect();
+        assert_eq!(reserved.len(), 2, "{:#?}", spec.diagnostics());
         assert!(
-            project
-                .read_yaml("openapi.yaml")
-                .get("components")
-                .is_none()
+            reserved[0].contains("`x-oas-forge-templates`"),
+            "{reserved:?}"
         );
+        assert!(spec.document().get("components").is_none());
+        assert!(matches!(generator.generate(), Err(Error::Diagnostics(_))));
+        assert!(!project.path("openapi.yaml").exists());
     }
 
     #[test]

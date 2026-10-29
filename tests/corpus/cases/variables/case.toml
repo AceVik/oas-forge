@@ -1,4 +1,5 @@
-description = "Variables: {{NAME}} from Generator::var and {{env:NAME}} in roots, routes, type overrides and examples"
+description = "Variables: {{NAME}} from Generator::var and allowed {{env:NAME}} in roots, routes, type overrides and examples"
+allow_env = ["CARGO_PKG_NAME", "OAS_FORGE_CORPUS_UNSET"]
 
 [variables]
 STAGE = "prod"

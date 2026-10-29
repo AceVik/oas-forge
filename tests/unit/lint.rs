@@ -555,6 +555,12 @@ mod locations {
         let (project, findings) = findings();
         let at = |file: &str, line: usize| Some(Location::new(project.path(file), line));
         let expected = [
+            // `d.rs` adds to the operation whose security the route set.
+            (
+                Code::MergeConflict,
+                "`/paths/~1users~1{id}/get/security` is set by another annotation than this one, which adds to the same operation or path; that list replaces the one that applied there",
+                at("src/d.rs", 2),
+            ),
             // Also referenced in `b.rs`, later.
             (
                 Code::DanglingReference,

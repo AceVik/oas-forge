@@ -1,0 +1,1224 @@
+//! `src/reserved.rs`: keys of the prefix `x-oas-forge-`, the generator's
+//! own markers, written in a source are removed and reported (`OF0009`)
+//! wherever YAML enters the pipeline, and none reaches an output.
+
+use crate::common::{codes, here, lines, pipeline, spec_of, try_route};
+use oas_forge::diagnostics::{Code, Diagnostic, Diagnostics, Severity};
+use oas_forge::dsl::{ChannelSource, compile_channel};
+use oas_forge::output::OutputKind;
+use serde_json::{Value, json};
+
+/// `line: message` of every finding.
+fn findings(diagnostics: &Diagnostics) -> Vec<String> {
+    diagnostics
+        .iter()
+        .map(|d| {
+            format!(
+                "{}: {} {} {}",
+                d.location().map_or(0, |l| l.line()),
+                d.severity(),
+                d.code(),
+                d.message()
+            )
+        })
+        .collect()
+}
+
+/// The reserved-key findings, each an error.
+fn reserved(diagnostics: &Diagnostics) -> Vec<&Diagnostic> {
+    diagnostics
+        .iter()
+        .filter(|d| d.code() == Code::ReservedKey)
+        .inspect(|d| assert_eq!(d.severity(), Severity::Error, "{d:?}"))
+        .collect()
+}
+
+/// No key of the prefix in `document`.
+fn assert_clean(document: &Value) {
+    assert!(
+        !document.to_string().contains("x-oas-forge"),
+        "{document:#}"
+    );
+}
+
+/// A forged `x-oas-forge-builtin` marker in an `@openapi` block does not
+/// replace the schema, the security requirement or the operation around
+/// it: the key is removed, the rest stays, and one finding names the key
+/// with every place it was written.
+#[test]
+fn a_forged_marker_in_a_block_is_removed_and_reported_once_per_key() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+//! @openapi
+//! openapi: 3.1.0
+//! info: { title: T, version: 1.0.0 }
+//! components:
+//!   securitySchemes:
+//!     bearer: { type: http, scheme: bearer }
+//!   schemas:
+//!     Forged:
+//!       type: object
+//!       'x-oas-forge-builtin':
+//!         name: User
+//!         schema: { type: string, description: swapped in }
+//! paths:
+//!   /open:
+//!     get:
+//!       security:
+//!         - bearer: []
+//!           x-oas-forge-builtin: { name: User, schema: {} }
+//!       responses:
+//!         '200': { description: ok }
+//!   /swap:
+//!     get:
+//!       x-oas-forge-builtin:
+//!         name: User
+//!         schema:
+//!           responses:
+//!             '200': { description: swapped }
+//!       responses:
+//!         '200': { description: original }
+
+/// @openapi
+pub struct User { pub id: u64 }
+",
+    )]);
+    assert_eq!(
+        document["components"]["schemas"]["Forged"],
+        json!({ "type": "object" })
+    );
+    assert_eq!(
+        document["paths"]["/open"]["get"]["security"],
+        json!([{ "bearer": [] }])
+    );
+    assert_eq!(
+        document["paths"]["/swap"]["get"]["responses"]["200"]["description"],
+        "original"
+    );
+    assert_clean(&document);
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            "10: error OF0009 `x-oas-forge-builtin` at `/components/schemas/Forged/x-oas-forge-builtin` and at 2 more places is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed"
+        ]
+    );
+}
+
+/// The embedded YAML of a route: the requirement the reviewer sees stays.
+#[test]
+fn a_forged_marker_in_route_yaml_keeps_the_security_requirement() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+/// @route GET /forged
+/// @return 200: String
+/// security:
+///   - bearer: []
+///     x-oas-forge-builtin: { name: B, schema: {} }
+pub fn forged() {}
+
+/// @openapi
+pub struct B { pub a: u8 }
+
+/// @openapi
+/// components:
+///   securitySchemes:
+///     bearer: { type: http, scheme: bearer }
+pub struct Root;
+",
+    )]);
+    assert_eq!(
+        document["paths"]["/forged"]["get"]["security"],
+        json!([{ "bearer": [] }])
+    );
+    assert_clean(&document);
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            "5: error OF0009 `x-oas-forge-builtin` at `/security/0/x-oas-forge-builtin` is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed"
+        ]
+    );
+}
+
+/// The YAML of module defaults is compiled for every route; the key is
+/// reported once, at its line.
+#[test]
+fn a_reserved_key_in_the_defaults_is_reported_once() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+/// @route-defaults
+/// x-kept: 1
+/// x-oas-forge-note: 1
+pub mod api {
+    /// @route GET /a
+    /// @return 204:
+    pub fn a() {}
+
+    /// @route GET /b
+    /// @return 204:
+    pub fn b() {}
+}
+",
+    )]);
+    assert_eq!(document["paths"]["/a"]["get"]["x-kept"], 1);
+    assert_eq!(document["paths"]["/b"]["get"]["x-kept"], 1);
+    assert_clean(&document);
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            "3: error OF0009 `x-oas-forge-note` at `/x-oas-forge-note` is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed"
+        ]
+    );
+}
+
+/// An `@openapi` override of a field: a forged marker on a plain field
+/// does not swap its type, and a dangling reference under an arbitrary
+/// reserved key is gone with the key (so the lints have nothing to hide).
+#[test]
+fn a_reserved_key_in_an_override_is_removed() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+/// @openapi
+pub struct User {
+    /// @openapi
+    /// x-oas-forge-builtin:
+    ///   name: User
+    ///   schema: { type: string }
+    pub swapped: u64,
+    /// @openapi
+    /// x-oas-forge-anything: { $ref: '#/components/schemas/Nope' }
+    /// x-kept: 1
+    pub leaky: u64,
+}
+",
+    )]);
+    let properties = &document["components"]["schemas"]["User"]["properties"];
+    let u64 = json!({ "type": "integer", "format": "int64", "minimum": 0 });
+    assert_eq!(properties["swapped"], u64);
+    assert_eq!(properties["leaky"]["x-kept"], 1);
+    assert_eq!(properties["leaky"]["type"], "integer");
+    assert_clean(&document);
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            "4: error OF0009 `x-oas-forge-builtin` at `/x-oas-forge-builtin` is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed",
+            "9: error OF0009 `x-oas-forge-anything` at `/x-oas-forge-anything` is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed",
+        ]
+    );
+}
+
+/// An `@example` value is data the references stage still walks.
+#[test]
+fn a_reserved_key_in_an_example_is_removed() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+/// @openapi
+pub struct E {
+    /// @example { x-oas-forge-builtin: { name: E, schema: { type: string } }, kept: 1 }
+    /// @example 2
+    pub v: u64,
+}
+",
+    )]);
+    assert_eq!(
+        document["components"]["schemas"]["E"]["properties"]["v"]["examples"],
+        json!([{ "kept": 1 }, 2])
+    );
+    assert_clean(&document);
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            "3: error OF0009 `x-oas-forge-builtin` at `/x-oas-forge-builtin` is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed"
+        ]
+    );
+}
+
+/// An included file carries the template wire format in `components`
+/// (read, then removed); any other key of the prefix is reserved.
+#[test]
+fn an_input_file_keeps_the_wire_format_and_loses_other_reserved_keys() {
+    let (document, diagnostics) = pipeline(&[
+        (
+            "shared.yaml",
+            "\
+components:
+  x-oas-forge-format: 1
+  x-oas-forge-templates:
+    Page:
+      params: [T]
+      body: \"items: { $ref: $T }\"
+  schemas:
+    S:
+      type: object
+      x-oas-forge-builtin: { name: S, schema: { type: string } }
+paths:
+  /p:
+    x-oas-forge-expand: 1
+    get:
+      x-oas-forge-expand: 2
+      responses: { '200': { description: ok } }
+",
+        ),
+        (
+            "api.rs",
+            "/// @route GET /x\n/// @return 200: $Page<S>\nfn x() {}\n",
+        ),
+    ]);
+    assert_eq!(
+        document["components"]["schemas"]["S"],
+        json!({ "type": "object" })
+    );
+    assert_eq!(
+        document["components"]["schemas"]["Page_S"],
+        json!({ "items": { "$ref": "#/components/schemas/S" } }),
+        "the template was imported"
+    );
+    assert_eq!(
+        document["paths"]["/p"]["get"]["responses"]["200"]["description"],
+        "ok"
+    );
+    assert_clean(&document);
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            "10: error OF0009 `x-oas-forge-builtin` at `/components/schemas/S/x-oas-forge-builtin` is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed",
+            "13: error OF0009 `x-oas-forge-expand` at `/paths/~1p/x-oas-forge-expand` and at one more place is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed",
+        ]
+    );
+}
+
+/// The wire format belongs to included files, not to blocks (an
+/// `@asyncapi` block included).
+#[test]
+fn the_wire_format_in_a_block_is_reserved() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+//! @openapi
+//! openapi: 3.1.0
+//! info: { title: T, version: 1.0.0 }
+//! components:
+//!   x-oas-forge-format: 1
+//!
+//! @asyncapi
+//! asyncapi: 3.0.0
+//! info: { title: A, version: 1.0.0 }
+//! components:
+//!   x-oas-forge-fragments: {}
+",
+    )]);
+    assert_clean(&document);
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            "5: error OF0009 `x-oas-forge-format` at `/components/x-oas-forge-format` is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed",
+            "11: error OF0009 `x-oas-forge-fragments` at `/components/x-oas-forge-fragments` is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed",
+        ]
+    );
+}
+
+/// A fragment body is text until it is used: `@insert` pastes it into
+/// the block (reported at the `@insert` line), `@extend` parses it on
+/// its own (reported at the block, naming the fragment).
+#[test]
+fn a_reserved_key_in_a_fragment_is_reported_where_the_fragment_is_used() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+//! @openapi-fragment Forged
+//! x-oas-forge-builtin: { name: S, schema: { type: string } }
+//! x-frag: 1
+//!
+//! @openapi
+//! components:
+//!   schemas:
+//!     Inserted:
+//!       type: object
+//!       @insert Forged
+//!     Extended:
+//!       type: object
+//!       @extend Forged
+//!     S: { type: object }
+",
+    )]);
+    let schemas = &document["components"]["schemas"];
+    assert_eq!(
+        schemas["Inserted"],
+        json!({ "type": "object", "x-frag": 1 }),
+        "{document:#}\n{diagnostics:#?}"
+    );
+    assert_eq!(
+        schemas["Extended"],
+        json!({ "type": "object", "x-frag": 1 })
+    );
+    assert_clean(&document);
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            "10: error OF0009 `x-oas-forge-builtin` at `/components/schemas/Inserted/x-oas-forge-builtin` is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed",
+            "6: error OF0009 fragment `Forged`: `x-oas-forge-builtin` at `/x-oas-forge-builtin` is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed",
+        ]
+    );
+}
+
+/// Lines an `@insert` pastes shift the lines after them in the expanded
+/// text: a key in the pasted lines is reported at the `@insert` line, one
+/// after them at its own line.
+#[test]
+fn a_reserved_key_after_an_insert_is_reported_at_its_source_line() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+//! @openapi-fragment Paging
+//! x-page: 1
+//! x-size: 2
+//! x-oas-forge-builtin: { name: S, schema: { type: string } }
+//!
+//! @openapi
+//! components:
+//!   schemas:
+//!     A:
+//!       type: object
+//!       @insert Paging
+//!     B:
+//!       type: object
+//!       x-oas-forge-unresolved: forged
+//!     S: { type: object }
+",
+    )]);
+    let schemas = &document["components"]["schemas"];
+    assert_eq!(
+        schemas["A"],
+        json!({ "type": "object", "x-page": 1, "x-size": 2 }),
+        "{document:#}\n{diagnostics:#?}"
+    );
+    assert_eq!(schemas["B"], json!({ "type": "object" }));
+    assert_clean(&document);
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            "11: error OF0009 `x-oas-forge-builtin` at `/components/schemas/A/x-oas-forge-builtin` is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed",
+            "14: error OF0009 `x-oas-forge-unresolved` at `/components/schemas/B/x-oas-forge-unresolved` is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed",
+        ]
+    );
+}
+
+/// A reserved key is reported at its line also with a space before the
+/// colon, quoted or in a flow mapping.
+#[test]
+fn a_reserved_key_is_reported_at_its_line_however_it_is_written() {
+    let (_, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+//! @openapi
+//! components:
+//!   schemas:
+//!     A:
+//!       x-oas-forge-unresolved : forged
+//!     B: { type: object, x-oas-forge-pattern: p }
+//!     C:
+//!       'x-oas-forge-type-default': 1
+",
+    )]);
+    let lines: Vec<usize> = reserved(&diagnostics)
+        .iter()
+        .filter_map(|d| d.location().map(|l| l.line()))
+        .collect();
+    assert_eq!(lines, [5, 6, 8], "{diagnostics:#?}");
+}
+
+/// The inline schema of a directive and the value of a parameter flag
+/// are rejected with the directive's own code: the directive is ignored.
+#[test]
+fn an_inline_schema_or_flag_value_with_a_reserved_key_is_ignored() {
+    let (document, diagnostics) = try_route(&[
+        "@route GET /x",
+        "@return 200: { x-oas-forge-builtin: { name: S, schema: { type: string } } }",
+        "@query-param q: String default={x-oas-forge-builtin: {name: S, schema: {}}} deprecated",
+        "@query-param e: String enum=[`{x-oas-forge-builtin: 1}`]",
+        "@query-param ok: String default={x-plain: 1}",
+        "@return 201: { type: object, properties: { a: { x-oas-forge-builtin: 1 } } }",
+        "@return 202: { oneOf: [{ type: string }, { x-oas-forge-builtin: 1 }] }",
+    ]);
+    let operation = &document.expect("compiled")["paths"]["/x"]["get"];
+    assert!(operation["responses"].get("200").is_none(), "{operation:#}");
+    assert!(operation["responses"].get("201").is_none(), "{operation:#}");
+    assert!(operation["responses"].get("202").is_none(), "{operation:#}");
+    let parameters = operation["parameters"].as_array().expect("parameters");
+    assert_eq!(parameters.len(), 3);
+    assert!(parameters[0]["schema"].get("default").is_none());
+    assert_eq!(parameters[0]["deprecated"], true);
+    assert!(parameters[1]["schema"].get("enum").is_none());
+    assert_eq!(parameters[2]["schema"]["default"], json!({ "x-plain": 1 }));
+    assert!(!operation.to_string().contains("x-oas-forge"));
+    assert_eq!(
+        codes(&diagnostics),
+        [
+            Code::InvalidDirective,
+            Code::InvalidDirective,
+            Code::InvalidDirective,
+            Code::InvalidDirective,
+            Code::InvalidDirective
+        ],
+        "{diagnostics:#?}"
+    );
+    let messages: Vec<&str> = diagnostics.iter().map(|d| d.message()).collect();
+    assert!(
+        messages[0].contains("the inline schema `{ x-oas-forge-builtin: { name: S, schema: { type: string } } }` writes the reserved key `x-oas-forge-builtin`"),
+        "{messages:?}"
+    );
+    assert!(
+        messages[1].contains("`default={x-oas-forge-builtin: {name: S, schema: {}}}` writes the reserved key `x-oas-forge-builtin`"),
+        "{messages:?}"
+    );
+    assert!(
+        messages[2].contains(
+            "`enum=[`{x-oas-forge-builtin: 1}`]` writes the reserved key `x-oas-forge-builtin`"
+        ),
+        "{messages:?}"
+    );
+    assert!(
+        messages[3].contains("the inline schema `{ type: object, properties: { a: { x-oas-forge-builtin: 1 } } }` writes the reserved key `x-oas-forge-builtin`"),
+        "{messages:?}"
+    );
+}
+
+/// The embedded YAML of a channel block.
+#[test]
+fn a_reserved_key_in_channel_yaml_is_removed() {
+    let lines = lines(&[
+        "@channel live",
+        "@send Tick: u8",
+        "@openapi",
+        "x-kept: 1",
+        "x-oas-forge-builtin: { name: S, schema: {} }",
+    ]);
+    let mut diagnostics = Diagnostics::new();
+    let numbers: Vec<usize> = (1..=lines.len()).collect();
+    let compiled = compile_channel(
+        ChannelSource::new(&lines, &here()).line_numbers(&numbers),
+        &mut diagnostics,
+    )
+    .expect("compiled");
+    let channel = &compiled.document["channels"]["live"];
+    assert_eq!(channel["x-kept"], 1);
+    assert!(channel.get("x-oas-forge-builtin").is_none(), "{channel:#}");
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            "5: error OF0009 `x-oas-forge-builtin` at `/x-oas-forge-builtin` is a reserved key: the `x-oas-forge-` prefix is the generator's own; it is removed"
+        ]
+    );
+}
+
+/// An `@extend` marker written by hand is the one exception: the lexical
+/// stage writes the same key into the text, so it cannot be told apart,
+/// and it does nothing an `@extend` line would not.
+#[test]
+fn a_hand_written_extend_marker_is_an_extend() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+//! @openapi-fragment Base
+//! x-base: 1
+
+/// @openapi
+/// components:
+///   schemas:
+///     S:
+///       type: object
+///       x-oas-forge-extend-9: Base
+pub struct Y;
+",
+    )]);
+    assert_eq!(
+        document["components"]["schemas"]["S"],
+        json!({ "type": "object", "x-base": 1 })
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+}
+
+/// The body of an imported template is the generator's and keeps its
+/// markers; one that no stage resolves (here a marker nested in a
+/// marker's alternative) is removed from the finished document, with a
+/// finding at the origin of the schema.
+#[test]
+fn a_marker_an_imported_template_leaves_behind_is_swept_with_a_finding() {
+    let (document, diagnostics) = pipeline(&[
+        (
+            "shared.yaml",
+            "\
+components:
+  x-oas-forge-format: 1
+  x-oas-forge-templates:
+    Wrap:
+      params: [T]
+      body: |
+        type: object
+        properties:
+          t: { $ref: $T }
+        x-oas-forge-builtin:
+          name: S
+          schema:
+            type: string
+            x-oas-forge-builtin: { name: S, schema: { type: integer } }
+",
+        ),
+        (
+            "api.rs",
+            "/// @openapi\npub struct S { pub a: u8 }\n\n/// @route GET /x\n/// @return 200: $Wrap<S>\nfn x() {}\n",
+        ),
+    ]);
+    assert_eq!(
+        document["components"]["schemas"]["Wrap_S"],
+        json!({ "type": "string" }),
+        "the alternative of the documented `S` was chosen"
+    );
+    assert_clean(&document);
+    let found = reserved(&diagnostics);
+    assert_eq!(found.len(), 1, "{diagnostics:#?}");
+    assert_eq!(
+        found[0].message(),
+        "`x-oas-forge-builtin` at `/components/schemas/Wrap_S/x-oas-forge-builtin` is a reserved key left in the finished document (written where no check reads it, or a marker of an imported template that no stage resolved): the `x-oas-forge-` prefix is the generator's own; it is removed"
+    );
+    assert!(found[0].location().is_some(), "{found:?}");
+}
+
+/// An `@extend` marker written by hand with a value that is no fragment
+/// name is not an `@extend`: no stage consumes it, and it is swept from
+/// the finished document with a finding, from the AsyncAPI document too.
+/// Before, the extensions stage dropped it without a trace, and a key of
+/// the prefix that reached the AsyncAPI document stayed in it.
+#[test]
+fn a_hand_written_extend_marker_with_another_value_is_swept() {
+    let (spec, _project) = spec_of(&[(
+        "lib.rs",
+        "\
+//! @openapi
+//! openapi: 3.1.0
+//! info: { title: T, version: 1.0.0 }
+//! x-oas-forge-extend-9: { a: 1 }
+//!
+//! @asyncapi
+//! asyncapi: 3.0.0
+//! info: { title: A, version: 1.0.0 }
+//! x-oas-forge-extend-8: [Base]
+
+/// @channel live
+/// @send Tick: u8
+/// @openapi
+/// x-kept: 1
+/// x-oas-forge-extend-7: 7
+pub fn live() {}
+",
+    )]);
+    assert_clean(spec.document());
+    let asyncapi = spec.render(OutputKind::AsyncApi).expect("rendered");
+    assert_clean(&asyncapi);
+    assert_eq!(asyncapi["channels"]["live"]["x-kept"], 1);
+    let left = |key: &str, pointer: &str| {
+        format!(
+            "`{key}` at `{pointer}` is a reserved key left in the finished document (written where no check reads it, or a marker of an imported template that no stage resolved): the `x-oas-forge-` prefix is the generator's own; it is removed"
+        )
+    };
+    assert_eq!(
+        findings(spec.diagnostics()),
+        [
+            format!(
+                "2: error OF0009 {}",
+                left("x-oas-forge-extend-9", "/x-oas-forge-extend-9")
+            ),
+            format!(
+                "7: error OF0009 {}",
+                left("x-oas-forge-extend-8", "/x-oas-forge-extend-8")
+            ),
+            format!(
+                "11: error OF0009 {}",
+                left(
+                    "x-oas-forge-extend-7",
+                    "/channels/live/x-oas-forge-extend-7"
+                )
+            ),
+        ]
+    );
+}
+
+/// The finding about a reserved `name` that a directive would make a key
+/// of the document; `what` names the item, `effect` what is ignored.
+fn reserved_name(what: &str, name: &str, effect: &str) -> String {
+    format!(
+        "{what} `{name}` is a reserved name: the `x-oas-forge-` prefix is the generator's own; {effect}"
+    )
+}
+
+/// The scheme of `@security`, the name of `@return-header` and the media
+/// types of `@body` and `@return` become keys of the operation: one with
+/// the reserved prefix is rejected at its line, and the line is ignored
+/// as a whole (a requirement without the scheme would require less).
+/// Before, `@security x-oas-forge-builtin` gave `security: [{}]`, anonymous
+/// access, without a finding, and a header of such a name vanished.
+#[test]
+fn a_reserved_name_in_a_directive_is_rejected() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+/// @route POST /x
+/// @security x-oas-forge-builtin
+/// @security bearer + x-oas-forge-unresolved(read)
+/// @security x-oas-forge-extend-1
+/// @security bearer
+/// @body $User x-oas-forge-builtin/json
+/// @body $User application/json
+/// @return 200: $User x-oas-forge-nothing/json
+/// @return 201: $User application/json, x-oas-forge-pattern/json
+/// @return 202: $User
+/// @return-header 202 x-oas-forge-type-default: String \"a\"
+/// @return-header 202 X-Normal: String \"b\"
+pub fn x() {}
+
+/// @openapi
+pub struct User { pub id: u64 }
+
+/// @openapi
+/// components:
+///   securitySchemes:
+///     bearer: { type: http, scheme: bearer }
+pub struct Root;
+",
+    )]);
+    let operation = &document["paths"]["/x"]["post"];
+    assert_eq!(operation["security"], json!([{ "bearer": [] }]));
+    let media = |value: &Value| -> Vec<String> {
+        value["content"]
+            .as_object()
+            .map(|content| content.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    assert_eq!(media(&operation["requestBody"]), ["application/json"]);
+    let responses = operation["responses"].as_object().expect("responses");
+    assert_eq!(responses.keys().collect::<Vec<_>>(), ["202"]);
+    assert_eq!(media(&responses["202"]), ["application/json"]);
+    assert_eq!(
+        responses["202"]["headers"],
+        json!({ "X-Normal": { "schema": { "type": "string" }, "description": "b" } })
+    );
+    assert_clean(&document);
+    let ignored = |what: &str, name: &str, directive: &str| {
+        reserved_name(what, name, &format!("the `@{directive}` line is ignored"))
+    };
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            format!(
+                "2: error OF0009 {}",
+                ignored("security scheme", "x-oas-forge-builtin", "security")
+            ),
+            format!(
+                "3: error OF0009 {}",
+                ignored("security scheme", "x-oas-forge-unresolved", "security")
+            ),
+            format!(
+                "4: error OF0009 {}",
+                ignored("security scheme", "x-oas-forge-extend-1", "security")
+            ),
+            format!(
+                "6: error OF0009 {}",
+                ignored("media type", "x-oas-forge-builtin/json", "body")
+            ),
+            format!(
+                "8: error OF0009 {}",
+                ignored("media type", "x-oas-forge-nothing/json", "return")
+            ),
+            format!(
+                "9: error OF0009 {}",
+                ignored("media type", "x-oas-forge-pattern/json", "return")
+            ),
+            format!(
+                "11: error OF0009 {}",
+                ignored(
+                    "response header",
+                    "x-oas-forge-type-default",
+                    "return-header"
+                )
+            ),
+        ]
+    );
+}
+
+/// A `@security` line of module defaults applies to every route of the
+/// module: a reserved scheme is reported once, at its line, and the
+/// routes keep the security of the root instead of anonymous access.
+#[test]
+fn a_reserved_security_scheme_in_the_defaults_is_rejected_once() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+//! @openapi
+//! openapi: 3.1.0
+//! info: { title: T, version: 1.0.0 }
+//! security:
+//!   - bearer: []
+//! components:
+//!   securitySchemes:
+//!     bearer: { type: http, scheme: bearer }
+
+/// @route-defaults
+/// @security x-oas-forge-builtin(admin)
+pub mod admin {
+    /// @route DELETE /everything
+    /// @return 204:
+    pub fn delete_everything() {}
+
+    /// @route GET /things
+    /// @return 204:
+    pub fn things() {}
+}
+",
+    )]);
+    for path in ["/everything", "/things"] {
+        let item = &document["paths"][path];
+        let operation = item.as_object().and_then(|item| item.values().next());
+        assert!(
+            operation.is_some_and(|operation| operation.get("security").is_none()),
+            "{item:#}"
+        );
+    }
+    assert_clean(&document);
+    assert_eq!(
+        findings(&diagnostics),
+        [format!(
+            "11: error OF0009 {}",
+            reserved_name(
+                "security scheme",
+                "x-oas-forge-builtin",
+                "the `@security` line is ignored"
+            )
+        )]
+    );
+}
+
+/// The serialized name of a field or variant (`#[serde(rename)]`,
+/// `@openapi rename`, or a `rename_all` rule applied to the Rust name),
+/// the name of a type and its `#[serde(tag)]` and `#[serde(content)]`
+/// become keys of the schemas: one with the reserved prefix is rejected at
+/// its line, and the field, variant or type is left out. Before, a
+/// renamed field vanished from `properties` but stayed in `required`, a
+/// well-formed marker in its override replaced the `properties` of the
+/// struct, and one in the override of a renamed type replaced
+/// `components.schemas`.
+#[test]
+fn a_reserved_serialized_name_leaves_the_item_out() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+/// @openapi
+#[derive(serde::Serialize)]
+#[serde(rename_all = \"kebab-case\")]
+pub struct Renamed {
+    #[serde(rename = \"x-oas-forge-builtin\")]
+    pub a: u64,
+    /// @openapi rename \"x-oas-forge-unresolved\"
+    pub b: u64,
+    pub x_oas_forge_pattern: u64,
+    /// Looks harmless.
+    /// @openapi
+    /// name: User
+    /// schema: { type: string, description: swapped }
+    #[serde(rename = \"x-oas-forge-builtin\")]
+    pub victim: u64,
+    pub normal_one: u64,
+}
+
+/// @openapi
+#[derive(serde::Serialize)]
+#[serde(rename_all = \"kebab-case\")]
+pub enum Ev {
+    #[serde(rename = \"x-oas-forge-builtin\")]
+    A { x: u64 },
+    XOasForgeUnresolved(u64),
+    C,
+}
+
+/// @openapi
+/// name: User
+/// schema:
+///   User: { type: string, description: swapped }
+#[derive(serde::Serialize)]
+#[serde(rename = \"x-oas-forge-builtin\")]
+pub struct Evil { pub a: u64 }
+
+/// @openapi
+#[derive(serde::Serialize)]
+#[serde(tag = \"x-oas-forge-type-default\")]
+pub enum Tagged { A { x: u64 } }
+
+/// @openapi
+#[derive(serde::Serialize)]
+#[serde(tag = \"t\", content = \"x-oas-forge-extend-1\")]
+pub enum Adjacent { A(u64) }
+
+/// @openapi rename \"x-oas-forge-nothing\"
+pub type Aliased = u64;
+
+/// @openapi
+pub struct User { pub id: u64 }
+",
+    )]);
+    let schemas = &document["components"]["schemas"];
+    let u64 = json!({ "type": "integer", "format": "int64", "minimum": 0 });
+    assert_eq!(
+        schemas["Renamed"]["properties"],
+        json!({ "normal-one": u64 }),
+        "{schemas:#}"
+    );
+    assert_eq!(schemas["Renamed"]["required"], json!(["normal-one"]));
+    assert_eq!(schemas["Ev"]["enum"], json!(["c"]), "{schemas:#}");
+    assert_eq!(
+        schemas["User"],
+        json!({ "type": "object", "properties": { "id": u64 }, "required": ["id"] })
+    );
+    for gone in ["Evil", "Tagged", "Adjacent", "Aliased"] {
+        assert!(schemas.get(gone).is_none(), "{gone}: {schemas:#}");
+    }
+    assert_clean(&document);
+    let left_out = |what: &str, name: &str, effect: &str| {
+        format!(
+            "the serialized name `{name}` of {what} is a reserved name: the `x-oas-forge-` prefix is the generator's own; the {effect} is left out"
+        )
+    };
+    let undocumented = |role: &str, name: &str, what: &str| {
+        format!(
+            "the {role} `{name}` of {what} is a reserved name: the `x-oas-forge-` prefix is the generator's own; the type is not documented"
+        )
+    };
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            format!(
+                "5: error OF0009 {}",
+                left_out("field `a`", "x-oas-forge-builtin", "field")
+            ),
+            format!(
+                "7: error OF0009 {}",
+                left_out("field `b`", "x-oas-forge-unresolved", "field")
+            ),
+            format!(
+                "9: error OF0009 {}",
+                left_out(
+                    "field `x_oas_forge_pattern`",
+                    "x-oas-forge-pattern",
+                    "field"
+                )
+            ),
+            format!(
+                "10: error OF0009 {}",
+                left_out("field `victim`", "x-oas-forge-builtin", "field")
+            ),
+            format!(
+                "23: error OF0009 {}",
+                left_out("variant `A`", "x-oas-forge-builtin", "variant")
+            ),
+            format!(
+                "25: error OF0009 {}",
+                left_out(
+                    "variant `XOasForgeUnresolved`",
+                    "x-oas-forge-unresolved",
+                    "variant"
+                )
+            ),
+            format!(
+                "29: error OF0009 {}",
+                undocumented("name", "x-oas-forge-builtin", "struct `Evil`")
+            ),
+            format!(
+                "37: error OF0009 {}",
+                undocumented("tag", "x-oas-forge-type-default", "enum `Tagged`")
+            ),
+            format!(
+                "42: error OF0009 {}",
+                undocumented("content key", "x-oas-forge-extend-1", "enum `Adjacent`")
+            ),
+            format!(
+                "47: error OF0009 {}",
+                undocumented("name", "x-oas-forge-nothing", "type alias `Aliased`")
+            ),
+        ]
+    );
+}
+
+/// `@openapi-type Name` names a schema of `components.schemas`, in file
+/// docs and on items alike: a reserved name is rejected at the header
+/// line, and the block is ignored.
+#[test]
+fn a_reserved_openapi_type_name_is_rejected() {
+    let (document, diagnostics) = pipeline(&[(
+        "lib.rs",
+        "\
+//! @openapi-type x-oas-forge-builtin
+//! name: User
+//! schema: { type: string }
+//!
+//! @openapi-type Money
+//! type: string
+
+/// @openapi-type x-oas-forge-unresolved
+/// type: string
+fn _schemas() {}
+
+/// @openapi
+pub struct User { pub id: u64 }
+",
+    )]);
+    let schemas = document["components"]["schemas"]
+        .as_object()
+        .expect("schemas");
+    assert_eq!(schemas.keys().collect::<Vec<_>>(), ["Money", "User"]);
+    assert_eq!(schemas["User"]["type"], "object");
+    assert_clean(&document);
+    let ignored = |name: &str| {
+        format!(
+            "the `@openapi-type` name `{name}` is a reserved name: the `x-oas-forge-` prefix is the generator's own; the block is ignored"
+        )
+    };
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            format!("1: error OF0009 {}", ignored("x-oas-forge-builtin")),
+            format!("8: error OF0009 {}", ignored("x-oas-forge-unresolved")),
+        ]
+    );
+}
+
+/// Compiles a channel block whose lines are numbered from 1.
+fn channel(src: &[&str]) -> (Option<Value>, Diagnostics) {
+    let lines = lines(src);
+    let numbers: Vec<usize> = (1..=lines.len()).collect();
+    let mut diagnostics = Diagnostics::new();
+    let compiled = compile_channel(
+        ChannelSource::new(&lines, &here()).line_numbers(&numbers),
+        &mut diagnostics,
+    );
+    (compiled.map(|c| c.document), diagnostics)
+}
+
+/// The id of `@channel` (written, or derived from the address), the
+/// placeholders of its address, the names of `@send` and `@receive`
+/// messages and of `@ws-query` and `@ws-header` parameters become keys
+/// of the AsyncAPI document: a reserved one is rejected at its line. The
+/// block is ignored for its id or a placeholder, a message or handshake
+/// line on its own. Before, a channel or message of such a name was
+/// removed by a stage, which left its operations with dangling
+/// references, or reached the output.
+#[test]
+fn a_reserved_name_in_a_channel_block_is_rejected() {
+    let block = |what: &str, name: &str| {
+        format!(
+            "1: error OF0009 {}",
+            reserved_name(what, name, "the block is ignored")
+        )
+    };
+    let (document, diagnostics) =
+        channel(&["@channel x-oas-forge-builtin events/a", "@send M: u8"]);
+    assert!(document.is_none(), "{document:#?}");
+    assert_eq!(
+        findings(&diagnostics),
+        [block("channel id", "x-oas-forge-builtin")]
+    );
+    let (document, diagnostics) = channel(&["@channel x-oas-forge-nothing", "@send M: u8"]);
+    assert!(document.is_none(), "{document:#?}");
+    assert_eq!(
+        findings(&diagnostics),
+        [block("channel id", "x-oas-forge-nothing")]
+    );
+    let (document, diagnostics) = channel(&[
+        "@channel cp events/{ok}/{x-oas-forge-builtin}",
+        "@send M: u8",
+    ]);
+    assert!(document.is_none(), "{document:#?}");
+    assert_eq!(
+        findings(&diagnostics),
+        [block("channel parameter", "x-oas-forge-builtin")]
+    );
+
+    let (document, diagnostics) = channel(&[
+        "@channel ok events/b",
+        "@send x-oas-forge-unresolved: u8 \"m1\"",
+        "@receive x-oas-forge-nothing: u8 \"m2\"",
+        "@send Kept: u8",
+        "@ws-query x-oas-forge-pattern: String",
+        "@ws-header x-oas-forge-extend-1: String",
+        "@ws-query token: String",
+    ]);
+    let document = document.expect("compiled");
+    let keys = |value: &Value| -> Vec<String> {
+        value
+            .as_object()
+            .map(|map| map.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    assert_eq!(keys(&document["channels"]["ok"]["messages"]), ["Kept"]);
+    assert_eq!(keys(&document["components"]["messages"]), ["Kept"]);
+    assert_eq!(keys(&document["operations"]), ["send_ok"]);
+    let ws = &document["channels"]["ok"]["bindings"]["ws"];
+    assert_eq!(keys(&ws["query"]["properties"]), ["token"]);
+    assert!(ws.get("headers").is_none(), "{ws:#}");
+    assert_clean(&document);
+    let line = |what: &str, name: &str, directive: &str| {
+        reserved_name(what, name, &format!("the `@{directive}` line is ignored"))
+    };
+    assert_eq!(
+        findings(&diagnostics),
+        [
+            format!(
+                "2: error OF0009 {}",
+                line("message", "x-oas-forge-unresolved", "send")
+            ),
+            format!(
+                "3: error OF0009 {}",
+                line("message", "x-oas-forge-nothing", "receive")
+            ),
+            format!(
+                "5: error OF0009 {}",
+                line("`@ws-query` parameter", "x-oas-forge-pattern", "ws-query")
+            ),
+            format!(
+                "6: error OF0009 {}",
+                line(
+                    "`@ws-header` parameter",
+                    "x-oas-forge-extend-1",
+                    "ws-header"
+                )
+            ),
+        ]
+    );
+}
+
+/// Through the pipeline: the AsyncAPI document of blocks with reserved
+/// channel and message names has no key of the prefix and no reference
+/// to a channel or message that is gone.
+#[test]
+fn reserved_channel_names_leave_no_dangling_reference_in_the_asyncapi_document() {
+    let (spec, _project) = spec_of(&[(
+        "lib.rs",
+        "\
+//! @asyncapi
+//! asyncapi: 3.0.0
+//! info: { title: A, version: 1.0.0 }
+
+/// @openapi
+pub struct User { pub id: u64 }
+
+/// Channel named like a marker
+/// @channel x-oas-forge-builtin events/a
+/// @send x-oas-forge-builtin: $User \"msg\"
+pub fn c1() {}
+
+/// Message named like other markers
+/// @channel ok events/b
+/// @send x-oas-forge-unresolved: $User \"m1\"
+/// @receive x-oas-forge-nothing: $User \"m2\"
+pub fn c2() {}
+",
+    )]);
+    let asyncapi = spec.render(OutputKind::AsyncApi).expect("rendered");
+    assert_clean(&asyncapi);
+    assert_eq!(
+        asyncapi["channels"],
+        json!({ "ok": { "address": "events/b" } })
+    );
+    assert!(asyncapi.get("operations").is_none(), "{asyncapi:#}");
+    assert!(asyncapi.get("components").is_none(), "{asyncapi:#}");
+    assert_eq!(
+        findings(spec.diagnostics()),
+        [
+            format!(
+                "9: error OF0009 {}",
+                reserved_name("channel id", "x-oas-forge-builtin", "the block is ignored")
+            ),
+            // The lines of the ignored block are read all the same.
+            format!(
+                "10: error OF0009 {}",
+                reserved_name(
+                    "message",
+                    "x-oas-forge-builtin",
+                    "the `@send` line is ignored"
+                )
+            ),
+            format!(
+                "15: error OF0009 {}",
+                reserved_name(
+                    "message",
+                    "x-oas-forge-unresolved",
+                    "the `@send` line is ignored"
+                )
+            ),
+            format!(
+                "16: error OF0009 {}",
+                reserved_name(
+                    "message",
+                    "x-oas-forge-nothing",
+                    "the `@receive` line is ignored"
+                )
+            ),
+        ]
+    );
+}
+
+/// Each removed key was looked up among the keys removed before, so many
+/// distinct reserved keys took time in the square of their number.
+#[test]
+fn many_distinct_reserved_keys_are_reported_quickly() {
+    let keys: String = (0..40_000)
+        .map(|i| format!("x-oas-forge-k{i}: 1\n"))
+        .collect();
+    let started = std::time::Instant::now();
+    let (_, diagnostics) = pipeline(&[("a.yaml", &keys)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(reserved(&diagnostics).len(), 40_000);
+}
+
+/// Status codes and webhook names are keys of `responses` and `webhooks`:
+/// one with the reserved prefix is reported at its line and its line is
+/// ignored, instead of reaching the sweep at the end.
+#[test]
+fn reserved_status_codes_and_webhook_names_are_rejected_at_their_line() {
+    let (document, diagnostics) = try_route(&[
+        "@route GET /x",
+        "@return 200: String",
+        "@return x-oas-forge-builtin: String",
+        "@problem x-oas-forge-unresolved",
+        "@return-header x-oas-forge-pattern X-Rate: u32",
+    ]);
+    let operation = &document.expect("compiled")["paths"]["/x"]["get"];
+    assert_eq!(
+        operation["responses"]
+            .as_object()
+            .map(|r| r.keys().collect::<Vec<_>>()),
+        Some(vec![&"200".to_string()])
+    );
+    let messages: Vec<String> = reserved(&diagnostics)
+        .iter()
+        .map(|d| d.message().to_string())
+        .collect();
+    assert_eq!(messages.len(), 3, "{diagnostics:#?}");
+    assert!(messages[0].contains("status code `x-oas-forge-builtin`"));
+    assert!(messages[0].contains("the `@return` line is ignored"));
+    assert!(messages[1].contains("the `@problem` line is ignored"));
+    assert!(messages[2].contains("the `@return-header` line is ignored"));
+    let (document, diagnostics) = try_route(&["@webhook x-oas-forge-builtin"]);
+    assert!(document.is_none());
+    let messages: Vec<&str> = reserved(&diagnostics).iter().map(|d| d.message()).collect();
+    assert_eq!(messages.len(), 1, "{diagnostics:#?}");
+    assert!(
+        messages[0].contains("webhook `x-oas-forge-builtin`"),
+        "{messages:?}"
+    );
+}

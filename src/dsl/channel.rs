@@ -16,16 +16,18 @@
 use super::prose::{self, ImplicitYaml, Prose, Text};
 use super::responses::{split_media, type_schema};
 use super::tokens::{split_directive, trailing_description};
-use super::{SCOPE_SYNTAX, conflict_line, params};
+use super::{SCOPE_SYNTAX, canonical, conflict_line, params};
 use crate::diagnostics::{Code, Diagnostic, Diagnostics, Location, Severity};
 use crate::docs::{closes_fence, yaml_fence};
 use crate::merge::{Policy, merge};
 use crate::proto::{self, PROTOBUF_MEDIA_TYPE, ProtoIndex};
+use crate::reserved::{self, Keep};
 use crate::schema::TypeMapper;
-use crate::scope;
+use crate::scope::{self, Names};
+use crate::template::lexical;
 use crate::yaml;
 use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Fields of the Channel Object that start an embedded YAML section in a
 /// channel block; `address:` overrides the `@channel` line (with a note).
@@ -46,7 +48,7 @@ const CHANNEL_KEYS: &[&str] = &[
 const WS_BINDING_VERSION: &str = "0.1.0";
 
 /// Where the lines of an embedded YAML section of a channel block go.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Target {
     /// The channel: `@openapi`, `@openapi channel` or a line that starts
     /// with a channel field (`bindings:`, `x-…:`).
@@ -65,10 +67,39 @@ enum Target {
 /// of the binding's `query` and `headers` schemas.
 #[derive(Default)]
 struct WebSocket {
-    /// `@ws-query`: name, schema and whether it is required.
-    query: Vec<(String, Value, bool)>,
-    /// `@ws-header`: name, schema and whether it is required.
-    headers: Vec<(String, Value, bool)>,
+    /// The `@ws-query` parameters.
+    query: Properties,
+    /// The `@ws-header` parameters.
+    headers: Properties,
+}
+
+/// The properties of a handshake schema in declaration order: name, schema
+/// and whether each is required. A later declaration of a name replaces
+/// the earlier one in its place, found through an index (looking for it in
+/// the list took a minute for 100 000 lines).
+#[derive(Default)]
+struct Properties {
+    /// The properties in order.
+    list: Vec<(String, Value, bool)>,
+    /// The entry in `list` of each name.
+    index: BTreeMap<String, usize>,
+}
+
+impl Properties {
+    /// Adds a property, replacing an earlier one of the same name.
+    fn set(&mut self, property: (String, Value, bool)) {
+        match self.index.get(&property.0) {
+            Some(at) => {
+                if let Some(existing) = self.list.get_mut(*at) {
+                    *existing = property;
+                }
+            }
+            None => {
+                self.index.insert(property.0.clone(), self.list.len());
+                self.list.push(property);
+            }
+        }
+    }
 }
 
 /// One `@channel` block.
@@ -235,8 +266,8 @@ pub fn compile_channel(
     // What plain lines continue.
     let mut text = Text::Free;
     let mut tags: Vec<String> = Vec::new();
-    let mut scopes: Option<Vec<String>> = None;
-    let mut messages: Vec<(&'static str, String, Value)> = Vec::new();
+    let mut scopes: Option<Names> = None;
+    let mut messages = Messages::default();
     let mut websocket = WebSocket::default();
     // Embedded YAML: the open section and every line with its target.
     let mut section: Option<Target> = None;
@@ -312,6 +343,31 @@ pub fn compile_channel(
                         None
                     }
                 };
+                // The id is a key of `channels`, each placeholder of the
+                // address a key of the channel's `parameters`: a reserved
+                // name rejects the block.
+                let reserved = channel.as_ref().and_then(|(id, address)| {
+                    std::iter::once(("channel id", id.clone()))
+                        .chain(
+                            placeholders(address)
+                                .into_iter()
+                                .map(|name| ("channel parameter", name)),
+                        )
+                        .find(|(_, name)| reserved::is_name(name))
+                });
+                if let Some((what, name)) = reserved {
+                    diagnostics.push(
+                        Diagnostic::new(
+                            Code::ReservedKey,
+                            reserved::name_message(
+                                format_args!("{what} `{name}`"),
+                                "the block is ignored",
+                            ),
+                        )
+                        .at(at(index)),
+                    );
+                    channel = None;
+                }
             }
             "send" | "receive" => {
                 let action = if name == "send" { "send" } else { "receive" };
@@ -336,6 +392,21 @@ pub fn compile_channel(
                     );
                     continue;
                 }
+                // The name is a key of the channel's `messages` and of
+                // `components.messages`.
+                if reserved::is_name(message) {
+                    diagnostics.push(
+                        Diagnostic::new(
+                            Code::ReservedKey,
+                            reserved::name_message(
+                                format_args!("message `{message}`"),
+                                &format!("the `@{name}` line is ignored"),
+                            ),
+                        )
+                        .at(at(index)),
+                    );
+                    continue;
+                }
                 let (type_text, text) = trailing_description(spec);
                 let (type_text, media) = split_media(type_text);
                 let mut object = Map::new();
@@ -354,6 +425,17 @@ pub fn compile_channel(
                         );
                         continue;
                     };
+                    // Each message holds a copy of the file: it counts for the run.
+                    if !lexical::charge_run(file.text().len()) {
+                        diagnostics.push(
+                            Diagnostic::new(
+                                Code::ExpansionLimit,
+                                format!("the `.proto` file of `proto({name})` exceeds what is left of the 32 MiB for the pasted text of the run; the message is left out"),
+                            )
+                            .at(at(index)),
+                        );
+                        continue;
+                    }
                     if media.is_empty() {
                         object.insert("contentType".into(), json!(PROTOBUF_MEDIA_TYPE));
                     }
@@ -365,8 +447,7 @@ pub fn compile_channel(
                         object.insert("description".into(), json!(text));
                     }
                     object.insert("x-protobuf-message".into(), json!(name));
-                    add_message(
-                        &mut messages,
+                    messages.add(
                         (action, message, Value::Object(object)),
                         at(index),
                         diagnostics,
@@ -389,8 +470,7 @@ pub fn compile_channel(
                 if let Some(text) = text {
                     object.insert("description".into(), json!(text));
                 }
-                add_message(
-                    &mut messages,
+                messages.add(
                     (action, message, Value::Object(object)),
                     at(index),
                     diagnostics,
@@ -402,22 +482,33 @@ pub fn compile_channel(
                     .filter(|t| !t.is_empty()),
             ),
             "scope" => match scope::names(rest) {
-                Some(names) => scope::add(scopes.get_or_insert_with(Vec::new), names),
+                Some(names) => scopes.get_or_insert_with(Names::default).extend(names),
                 None => diagnostics
                     .push(Diagnostic::new(Code::InvalidDirective, SCOPE_SYNTAX).at(at(index))),
             },
             "ws-query" | "ws-header" => {
                 if let Some(property) = ws_property(name, rest, &source, index, diagnostics) {
-                    let list = if name == "ws-query" {
+                    // The name is a key of the binding's properties.
+                    if reserved::is_name(&property.0) {
+                        diagnostics.push(
+                            Diagnostic::new(
+                                Code::ReservedKey,
+                                reserved::name_message(
+                                    format_args!("`@{name}` parameter `{}`", property.0),
+                                    &format!("the `@{name}` line is ignored"),
+                                ),
+                            )
+                            .at(at(index)),
+                        );
+                        continue;
+                    }
+                    let properties = if name == "ws-query" {
                         &mut websocket.query
                     } else {
                         &mut websocket.headers
                     };
                     // A later declaration of a name replaces the earlier one.
-                    match list.iter_mut().find(|(n, _, _)| *n == property.0) {
-                        Some(existing) => *existing = property,
-                        None => list.push(property),
-                    }
+                    properties.set(property);
                 }
             }
             "openapi" => {
@@ -466,7 +557,7 @@ pub fn compile_channel(
     }
     let mut channel_messages = Map::new();
     let mut component_messages = Map::new();
-    for (_, name, object) in &messages {
+    for (_, name, object) in &messages.list {
         channel_messages.insert(
             name.clone(),
             json!({ "$ref": format!("#/components/messages/{name}") }),
@@ -484,7 +575,7 @@ pub fn compile_channel(
     let mut operations = Map::new();
     let actions: Vec<&str> = ["send", "receive"]
         .into_iter()
-        .filter(|action| messages.iter().any(|(a, _, _)| a == action))
+        .filter(|action| messages.list.iter().any(|(a, _, _)| a == action))
         .collect();
     for action in &actions {
         let operation_id = match (source.operation_id, actions.len()) {
@@ -492,11 +583,12 @@ pub fn compile_channel(
             (Some(id), _) => format!("{id}_{action}"),
             (None, _) => format!("{action}_{id}"),
         };
+        // Each message once, where it is first sent or received.
         let mut refs: Vec<Value> = Vec::new();
-        for (_, name, _) in messages.iter().filter(|(a, _, _)| a == action) {
-            let reference = json!({ "$ref": format!("#/channels/{id}/messages/{name}") });
-            if !refs.contains(&reference) {
-                refs.push(reference);
+        let mut referenced: BTreeSet<&str> = BTreeSet::new();
+        for (_, name, _) in messages.list.iter().filter(|(a, _, _)| a == action) {
+            if referenced.insert(name) {
+                refs.push(json!({ "$ref": format!("#/channels/{id}/messages/{name}") }));
             }
         }
         let mut operation = Map::new();
@@ -528,15 +620,12 @@ pub fn compile_channel(
             block_prose.insert(key.into(), json!(value));
         }
     }
-    let embedded = Embedded {
-        source: &source,
-        lines: &yaml,
-        prose: block_prose,
-    };
+    let embedded = Embedded::new(&source, &yaml, block_prose);
     embedded.merge_into(&Target::Channel, &mut channel_object, diagnostics);
-    // YAML for a message the block does not send or receive is ignored.
+    // YAML for a message the block does not send or receive is ignored
+    // (`component_messages` has every message the block declares).
     for (name, index) in &message_sections {
-        if !messages.iter().any(|(_, declared, _)| declared == name) {
+        if !component_messages.contains_key(name) {
             diagnostics.push(
                 Diagnostic::new(
                     Code::InvalidDirective,
@@ -547,13 +636,9 @@ pub fn compile_channel(
         }
     }
     for name in embedded.messages() {
-        if !messages.iter().any(|(_, declared, _)| *declared == name) {
+        let Some(mut message) = component_messages.get(&name).cloned() else {
             continue;
-        }
-        let mut message = component_messages
-            .get(&name)
-            .cloned()
-            .unwrap_or_else(|| json!({}));
+        };
         embedded.merge_into(&Target::Message(name.clone()), &mut message, diagnostics);
         // YAML that was ignored adds no empty message.
         if message.as_object().is_some_and(|m| !m.is_empty()) {
@@ -583,7 +668,7 @@ pub fn compile_channel(
     let mut document = Value::Object(document);
     embedded.merge_into(&Target::Document, &mut document, diagnostics);
     let scopes = match scopes {
-        Some(scopes) => scopes,
+        Some(scopes) => scopes.into_vec(),
         None => default_scopes(source, diagnostics),
     };
     Some(CompiledChannel {
@@ -600,18 +685,20 @@ pub fn compile_channel(
 /// operations refer to them already. A name that every block defines
 /// alike stays a shared component.
 pub(crate) fn channel_messages(channels: &mut [&mut Value]) {
-    let mut definitions: BTreeMap<String, Vec<&Value>> = BTreeMap::new();
+    // The JSON texts of the definitions of each name: a set, as comparing
+    // each with all before took minutes for thousands of blocks.
+    let mut definitions: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for document in channels.iter() {
         if let Some(Value::Object(messages)) = document.pointer("/components/messages") {
             for (name, message) in messages {
-                let seen = definitions.entry(name.clone()).or_default();
-                if !seen.contains(&message) {
-                    seen.push(message);
-                }
+                definitions
+                    .entry(name.clone())
+                    .or_default()
+                    .insert(message.to_string());
             }
         }
     }
-    let differing: Vec<String> = definitions
+    let differing: BTreeSet<String> = definitions
         .into_iter()
         .filter(|(_, seen)| seen.len() > 1)
         .map(|(name, _)| name)
@@ -626,10 +713,16 @@ pub(crate) fn channel_messages(channels: &mut [&mut Value]) {
         let Some(Value::Object(messages)) = components.get_mut("messages") else {
             continue;
         };
-        let moved: Vec<(String, Value)> = differing
-            .iter()
-            .filter_map(|name| Some((name.clone(), messages.shift_remove(name)?)))
-            .collect();
+        // One pass that keeps the order of the others: removing each name
+        // on its own shifted the messages after it.
+        let mut moved: Vec<(String, Value)> = Vec::new();
+        messages.retain(|name, message| {
+            let keep = !differing.contains(name);
+            if !keep {
+                moved.push((name.clone(), std::mem::take(message)));
+            }
+            keep
+        });
         if messages.is_empty() {
             components.shift_remove("messages");
         }
@@ -657,28 +750,43 @@ pub(crate) fn channel_messages(channels: &mut [&mut Value]) {
     }
 }
 
-/// Adds a message of `@send` or `@receive` (action, name, Message Object)
-/// at `location`. The same name with other content is reported: the
-/// channel has one message per name, and the later definition is used.
-fn add_message(
-    messages: &mut Vec<(&'static str, String, Value)>,
-    (action, name, object): (&'static str, &str, Value),
-    location: Location,
-    diagnostics: &mut Diagnostics,
-) {
-    let differs = messages
-        .iter()
-        .any(|(_, other, existing)| other == name && *existing != object);
-    if differs {
-        diagnostics.push(
-            Diagnostic::new(
-                Code::MergeConflict,
-                format!("message `{name}` is defined again in this channel with other content; the later definition is used (give the messages distinct names)"),
-            )
-            .at(location),
-        );
+/// The messages of `@send` and `@receive` lines of a block in order.
+#[derive(Default)]
+struct Messages {
+    /// Each message: action, name and Message Object.
+    list: Vec<(&'static str, String, Value)>,
+    /// The distinct contents (JSON texts with sorted keys) defined so far
+    /// for each name: comparing a message with every earlier one of its
+    /// name took minutes for 20 000 `@send` lines.
+    contents: BTreeMap<String, BTreeSet<String>>,
+}
+
+impl Messages {
+    /// Adds a message (action, name, Message Object) at `location`. The
+    /// same name with other content is reported: the channel has one
+    /// message per name, and the later definition is used.
+    fn add(
+        &mut self,
+        (action, name, object): (&'static str, &str, Value),
+        location: Location,
+        diagnostics: &mut Diagnostics,
+    ) {
+        let seen = self.contents.entry(name.to_string()).or_default();
+        let text = canonical(&object);
+        // An earlier definition with other content: another one, or several.
+        let differs = !seen.is_empty() && (seen.len() > 1 || !seen.contains(&text));
+        seen.insert(text);
+        if differs {
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::MergeConflict,
+                    format!("message `{name}` is defined again in this channel with other content; the later definition is used (give the messages distinct names)"),
+                )
+                .at(location),
+            );
+        }
+        self.list.push((action, name.to_string(), object));
     }
-    messages.push((action, name.to_string(), object));
 }
 
 /// The message name of a `proto(package.Message)` type, `None` for other
@@ -790,13 +898,13 @@ impl WebSocket {
     /// The `ws` channel binding, `None` without `@ws-query` and
     /// `@ws-header`.
     fn binding(&self) -> Option<Value> {
-        if self.query.is_empty() && self.headers.is_empty() {
+        if self.query.list.is_empty() && self.headers.list.is_empty() {
             return None;
         }
         let mut binding = Map::new();
         for (key, properties) in [("query", &self.query), ("headers", &self.headers)] {
-            if !properties.is_empty() {
-                binding.insert(key.into(), object_schema(properties));
+            if !properties.list.is_empty() {
+                binding.insert(key.into(), object_schema(&properties.list));
             }
         }
         binding.insert("bindingVersion".into(), json!(WS_BINDING_VERSION));
@@ -832,15 +940,38 @@ fn object_schema(properties: &[(String, Value, bool)]) -> Value {
 struct Embedded<'s, 'a> {
     /// The block, for locations.
     source: &'s ChannelSource<'a>,
-    /// Every YAML line: its target, its entry in the block and its text.
-    lines: &'s [(Target, usize, String)],
+    /// The YAML lines of each target, in block order: each line's entry in
+    /// the block and its text. Grouped once: filtering all lines for each
+    /// of 40 000 messages took over a minute.
+    lines: BTreeMap<&'s Target, Vec<(usize, &'s str)>>,
     /// The summary and description the directives and plain lines set for
     /// the block (they go to its operations): channel YAML that sets
     /// another value is noted like a changed DSL value.
     prose: Map<String, Value>,
 }
 
-impl Embedded<'_, '_> {
+impl<'s, 'a> Embedded<'s, 'a> {
+    /// The embedded YAML `lines` of the block `source` (each line's target,
+    /// entry in the block and text), with the `prose` of the block.
+    fn new(
+        source: &'s ChannelSource<'a>,
+        lines: &'s [(Target, usize, String)],
+        prose: Map<String, Value>,
+    ) -> Self {
+        let mut grouped: BTreeMap<&'s Target, Vec<(usize, &'s str)>> = BTreeMap::new();
+        for (target, index, line) in lines {
+            grouped
+                .entry(target)
+                .or_default()
+                .push((*index, line.as_str()));
+        }
+        Self {
+            source,
+            lines: grouped,
+            prose,
+        }
+    }
+
     /// The source location of entry `index` of the block.
     fn at(&self, index: usize) -> Location {
         match self.source.line_numbers.get(index) {
@@ -851,23 +982,23 @@ impl Embedded<'_, '_> {
 
     /// The names of the `@openapi message Name` sections, sorted.
     fn messages(&self) -> Vec<String> {
-        let names: std::collections::BTreeSet<String> = self
-            .lines
-            .iter()
-            .filter_map(|(target, _, _)| match target {
+        self.lines
+            .keys()
+            .filter_map(|target| match target {
                 Target::Message(name) => Some(name.clone()),
                 _ => None,
             })
-            .collect();
-        names.into_iter().collect()
+            .collect()
     }
 
     /// Reports `@openapi operation` YAML in a block without operation.
     fn without_operation(&self, diagnostics: &mut Diagnostics) {
-        if let Some((_, index, _)) = self
+        if let Some((index, _)) = self
             .lines
-            .iter()
-            .find(|(target, _, line)| *target == Target::Operation && !line.trim().is_empty())
+            .get(&Target::Operation)
+            .into_iter()
+            .flatten()
+            .find(|(_, line)| !line.trim().is_empty())
         {
             diagnostics.push(
                 Diagnostic::new(
@@ -883,12 +1014,9 @@ impl Embedded<'_, '_> {
     /// it changes is reported as a note at its line. YAML that is invalid
     /// or not a mapping is reported and ignored.
     fn merge_into(&self, target: &Target, value: &mut Value, diagnostics: &mut Diagnostics) {
-        let lines: Vec<(usize, &str)> = self
-            .lines
-            .iter()
-            .filter(|(t, _, _)| t == target)
-            .map(|(_, index, line)| (*index, line.as_str()))
-            .collect();
+        let Some(lines) = self.lines.get(target) else {
+            return;
+        };
         let text: Vec<&str> = lines.iter().map(|(_, line)| *line).collect();
         if text.iter().all(|line| line.trim().is_empty()) {
             return;
@@ -903,7 +1031,17 @@ impl Embedded<'_, '_> {
                 )
                 .at(self.at(first)),
             ),
-            Ok(parsed) => {
+            Ok(mut parsed) => {
+                // A reserved key is reported at the line that writes it.
+                let joined = text.join("\n");
+                let key_lines = reserved::key_lines(&joined);
+                for removed in reserved::strip(&mut parsed, Keep::Markers) {
+                    let index = key_lines
+                        .get(removed.key.as_str())
+                        .and_then(|i| lines.get(*i))
+                        .map_or(first, |(index, _)| *index);
+                    diagnostics.push(removed.finding().at(self.at(index)));
+                }
                 // The channel's summary and description are not the
                 // block's, but YAML that sets other ones changes what the
                 // block says.
@@ -959,7 +1097,7 @@ impl Embedded<'_, '_> {
 /// The `@scope` of the innermost module defaults that have one; an invalid
 /// `@scope` line is reported at the block.
 fn default_scopes(source: ChannelSource<'_>, diagnostics: &mut Diagnostics) -> Vec<String> {
-    let mut scopes: Option<Vec<String>> = None;
+    let mut scopes: Option<Names> = None;
     let mut outer = false;
     for line in source.defaults {
         if line.trim() == "@route-defaults" {
@@ -974,14 +1112,14 @@ fn default_scopes(source: ChannelSource<'_>, diagnostics: &mut Diagnostics) -> V
                 if std::mem::take(&mut outer) {
                     scopes = None;
                 }
-                scope::add(scopes.get_or_insert_with(Vec::new), names);
+                scopes.get_or_insert_with(Names::default).extend(names);
             }
             None => diagnostics.push(
                 Diagnostic::new(Code::InvalidDirective, SCOPE_SYNTAX).at(source.location.clone()),
             ),
         }
     }
-    scopes.unwrap_or_default()
+    scopes.map(Names::into_vec).unwrap_or_default()
 }
 
 /// A component key (`^[\w\d.\-_]+$`).

@@ -12,6 +12,7 @@ use crate::docs::{
     unindent, yaml_fence,
 };
 use crate::dsl;
+use crate::reserved;
 use crate::yaml;
 use std::path::Path;
 use syn::spanned::Spanned;
@@ -147,9 +148,12 @@ fn section(
             location: Location::new(path, header.line),
         }));
     } else if let Some(name) = head.strip_prefix("@openapi-type") {
-        if !text.is_empty() {
+        let name = name.trim();
+        if let Some(finding) = reserved_type_name(name) {
+            diagnostics.push(finding.at(Location::new(path, header.line)));
+        } else if !text.is_empty() {
             items.push(Item::NamedSchema(NamedSchemaItem {
-                name: name.trim().to_string(),
+                name: name.to_string(),
                 text,
                 location,
             }));
@@ -350,6 +354,20 @@ pub(super) fn file_blocks(
     items
 }
 
+/// The finding about the `name` of `@openapi-type Name`, a key of
+/// `components.schemas`, when it is reserved; the block is ignored then.
+fn reserved_type_name(name: &str) -> Option<Diagnostic> {
+    reserved::is_name(name).then(|| {
+        Diagnostic::new(
+            Code::ReservedKey,
+            reserved::name_message(
+                format_args!("the `@openapi-type` name `{name}`"),
+                "the block is ignored",
+            ),
+        )
+    })
+}
+
 /// Whether a trimmed file doc line starts a block: `@openapi…`,
 /// `@asyncapi`, `@route`, `@webhook` or `@channel`.
 fn is_header(trimmed: &str) -> bool {
@@ -401,7 +419,9 @@ fn close(path: &Path, block: &mut Vec<DocLine>, items: &mut Vec<Item>, diags: &m
     } else if let Some(name) = trimmed.strip_prefix("@openapi-type") {
         let body = fenced(rest).map_or_else(|| unindent(rest), |(yaml, _)| yaml);
         let text = join(&body).trim().to_string();
-        if !text.is_empty() {
+        if let Some(finding) = reserved_type_name(name.trim()) {
+            diags.push(finding.at(Location::new(path, header.line)));
+        } else if !text.is_empty() {
             let line = body
                 .iter()
                 .find(|l| !l.text.trim().is_empty())

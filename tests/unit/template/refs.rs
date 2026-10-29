@@ -175,6 +175,51 @@ fn references_to_built_in_types_become_their_schema() {
     assert_eq!(codes(&diagnostics), [Code::UnresolvedReference]);
 }
 
+/// The built-in schema of a name written bare carries its alternative
+/// (`x-oas-forge-builtin`): the alternative when the name is documented,
+/// also through an alias, else the built-in schema without the marker.
+#[test]
+fn the_alternative_of_a_built_in_schema_is_chosen_when_documented() {
+    let uuid = json!({
+        "type": "string",
+        "format": "uuid",
+        "x-oas-forge-builtin": { "name": "Uuid", "schema": { "$ref": "$Uuid", "title": "Id" } },
+    });
+    let url = json!({
+        "type": "string",
+        "format": "uri",
+        "x-oas-forge-builtin": { "name": "Url", "schema": { "$ref": "$Url" } },
+    });
+    let mut registry = Registry::new();
+    registry.add_alias("Url", "Link");
+    let (value, diagnostics) = run(
+        json!({ "a": uuid, "b": { "items": url } }),
+        &known(&["Uuid", "Link"]),
+        &registry,
+    );
+    assert_eq!(
+        value,
+        json!({
+            "a": { "$ref": "#/components/schemas/Uuid", "title": "Id" },
+            "b": { "items": { "$ref": "#/components/schemas/Link" } },
+        })
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let (value, diagnostics) = run(
+        json!({ "a": uuid, "b": url }),
+        &known(&[]),
+        &Registry::new(),
+    );
+    assert_eq!(
+        value,
+        json!({
+            "a": { "type": "string", "format": "uuid" },
+            "b": { "type": "string", "format": "uri" },
+        })
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
 #[test]
 fn documented_schemas_shadow_built_in_types() {
     let mut registry = Registry::new();
@@ -188,6 +233,55 @@ fn documented_schemas_shadow_built_in_types() {
         value,
         json!([{ "$ref": "#/components/schemas/String" }, { "$ref": "#/components/schemas/Link" }])
     );
+}
+
+/// The stage consumes its markers only in the shape it writes them: an
+/// alternative under `x-oas-forge-builtin` with `name` and `schema` and
+/// nothing else, a finding text under `x-oas-forge-unresolved`, `true`
+/// under `x-oas-forge-type-default`. A key of such a name with another
+/// value is not the generator's: it stays, so that the sweep of the
+/// finished document reports it instead of a stage removing it silently.
+#[test]
+fn a_marker_of_another_shape_is_not_consumed() {
+    let forged = json!({
+        "security": [{ "x-oas-forge-builtin": [] }],
+        "a": {
+            "$ref": "$User",
+            "x-oas-forge-builtin": { "name": "User", "schema": { "$ref": "$Other" }, "more": 1 },
+        },
+        "b": { "$ref": "$User", "x-oas-forge-unresolved": { "finding": "text" } },
+        "c": { "$ref": "$User", "x-oas-forge-type-default": 1 },
+        "d": { "$ref": "$User", "x-oas-forge-type-default": "true" },
+    });
+    let (value, diagnostics) = run(forged.clone(), &known(&["User", "Other"]), &Registry::new());
+    let mut expected = forged;
+    for key in ["a", "b", "c", "d"] {
+        expected[key]["$ref"] = json!("#/components/schemas/User");
+    }
+    // The value of the key that stays is data like any other.
+    expected["a"]["x-oas-forge-builtin"]["schema"]["$ref"] = json!("#/components/schemas/Other");
+    assert_eq!(value, expected);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+    // The shapes the stages write are consumed as before.
+    let (value, diagnostics) = run(
+        json!({
+            "a": { "$ref": "$Uuid", "x-oas-forge-builtin": { "name": "Uuid", "schema": { "$ref": "$Uuid" } } },
+            "b": { "$ref": "$User", "x-oas-forge-unresolved": "`User` is ambiguous" },
+            "c": { "$ref": "$User", "x-oas-forge-type-default": true },
+        }),
+        &known(&["Uuid", "User"]),
+        &Registry::new(),
+    );
+    assert_eq!(
+        value,
+        json!({
+            "a": { "$ref": "#/components/schemas/Uuid" },
+            "b": {},
+            "c": { "$ref": "#/components/schemas/User" },
+        })
+    );
+    assert_eq!(codes(&diagnostics), [Code::AmbiguousTypeName]);
 }
 
 /// Whole `$Name` strings in schema positions end up as references, through

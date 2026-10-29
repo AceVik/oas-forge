@@ -321,6 +321,30 @@ proptest! {
         let _ = generate_from_sources(vec![SourceFile::new("p.rs", SourceKind::Rust, text)], &Variables::new());
     }
 
+    /// `syn` recurses once per nesting level: deeply nested types and
+    /// expressions must not overflow the stack (which would abort the test
+    /// process, not fail it).
+    #[test]
+    fn deep_nesting_never_aborts(
+        opens in prop::collection::vec(prop::sample::select(vec!["Vec<", "(", "[", "&", "Option<"]), 0..300),
+        documented in any::<bool>(),
+    ) {
+        let ty: String = opens.iter().copied().collect::<String>() + "u8"
+            + &opens.iter().rev().map(|open| match *open {
+                "(" => ",)",
+                "[" => "]",
+                "&" => "",
+                _ => ">",
+            }).collect::<String>();
+        let doc = if documented { "/// @openapi\n" } else { "" };
+        let text = format!(
+            "{doc}pub struct Deep {{ pub field: {ty} }}\n/// @route GET /x\n/// @return 200: {ty}\nfn f() {{ let _ = {}1{}; }}\n",
+            "(".repeat(opens.len()),
+            ")".repeat(opens.len()),
+        );
+        let _ = generate_from_sources(vec![SourceFile::new("deep.rs", SourceKind::Rust, text)], &Variables::new());
+    }
+
     #[test]
     fn merging_into_an_empty_document_reproduces_the_source(
         doc in prop::collection::btree_map("[a-z]{1,6}", json_value(), 0..4)
